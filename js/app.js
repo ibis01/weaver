@@ -67,8 +67,10 @@ window.W = window.W || {};
     if (page === "coin" && param) W.explorer.renderCoin(view, param);
     else (routes[page] || routes.dashboard)(view);
     document.getElementById("last-updated").textContent =
-      "updated " + new Date().toLocaleTimeString();
-    W.alerts.check();
+      "updated " +
+      new Date().toLocaleTimeString() +
+      " · via " +
+      (W.api.source || "coingecko");
   }
 
   function streak() {
