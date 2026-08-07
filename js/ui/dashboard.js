@@ -195,15 +195,19 @@ W.dashboard = (() => {
   }
 
   async function render(view) {
-    if (!W.portfolio.all().length){
+    if (!W.portfolio.all().length) {
       view.innerHTML = `
-        ${W.ui.empty('💼','Your portfolio is empty','Add your first holding and Weaver will track prices, P/L and risk for you')}
+        ${W.ui.empty("💼", "Your portfolio is empty", "Add your first holding and Weaver will track prices, P/L and risk for you")}
         <div class="center">
           <button class="btn primary" id="btn-add-first">+ Add Your First Holding</button>
           <button class="btn ml" id="btn-sample">🎲 Load Sample Portfolio</button>
         </div>`;
-      view.querySelector('#btn-add-first').onclick = () => holdingModal();
-      view.querySelector('#btn-sample').onclick = () => { W.portfolio.seed(); W.ui.toast('Sample portfolio loaded 🎉','ok'); W.refresh(); };
+      view.querySelector("#btn-add-first").onclick = () => holdingModal();
+      view.querySelector("#btn-sample").onclick = () => {
+        W.portfolio.seed();
+        W.ui.toast("Sample portfolio loaded 🎉", "ok");
+        W.refresh();
+      };
       return;
     }
     view.innerHTML = W.ui.spinner();
@@ -243,8 +247,11 @@ W.dashboard = (() => {
             {
               data: rows.map((r) => +r.value.toFixed(2)),
               backgroundColor: W.PALETTE,
-              borderColor: "#12141c",
-              borderWidth: 2,
+              borderColor: "#0b0d14",
+              borderWidth: 3,
+              hoverOffset: 14,
+              borderRadius: 8,
+              spacing: 2,
             },
           ],
         },

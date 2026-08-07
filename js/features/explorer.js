@@ -166,13 +166,24 @@ W.explorer = (() => {
           {
             data: prices.map((p) => p[1]),
             borderColor: up ? "#2ee6a8" : "#ff5c7a",
-            borderWidth: 2,
+            borderWidth: 2.5,
             pointRadius: 0,
             fill: true,
-            backgroundColor: up
-              ? "rgba(46,230,168,.08)"
-              : "rgba(255,92,122,.08)",
-            tension: 0.25,
+            backgroundColor: (ctx) => {
+              const area = ctx.chart.chartArea;
+              if (!area) return "transparent";
+              const g = ctx.chart.ctx.createLinearGradient(
+                0,
+                area.top,
+                0,
+                area.bottom,
+              );
+              const c = up ? "46,230,168" : "255,92,122";
+              g.addColorStop(0, `rgba(${c},.32)`);
+              g.addColorStop(1, `rgba(${c},0)`);
+              return g;
+            },
+            tension: 0.3,
           },
         ],
       },

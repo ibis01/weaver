@@ -151,3 +151,12 @@ if ("serviceWorker" in navigator) {
       .catch((err) => console.log("SW failed:", err));
   });
 }
+
+/* ✨ card spotlight follows cursor */
+document.addEventListener("pointermove", (e) => {
+  const card = e.target.closest(".card");
+  if (!card) return;
+  const r = card.getBoundingClientRect();
+  card.style.setProperty("--mx", e.clientX - r.left + "px");
+  card.style.setProperty("--my", e.clientY - r.top + "px");
+});

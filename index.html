@@ -23,10 +23,11 @@
       content="https://ibis01.github.io/weaver/assets/og.png"
     />
     <meta name="twitter:card" content="summary_large_image" />
+
     <link rel="icon" href="assets/logo.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="style.css" />
@@ -35,6 +36,13 @@
     <link rel="apple-touch-icon" href="assets/logo.png" />
   </head>
   <body>
+    <div class="bg" aria-hidden="true">
+      <div class="orb o1"></div>
+      <div class="orb o2"></div>
+      <div class="orb o3"></div>
+      <div class="grid-lines"></div>
+      <div class="noise"></div>
+    </div>
     <div class="app">
       <aside class="sidebar">
         <div class="brand">
@@ -63,6 +71,7 @@
     <div id="toasts" class="toasts"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="js/ui/theme.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="js/utils/format.js"></script>
