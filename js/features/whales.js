@@ -198,5 +198,13 @@ W.whales = (() => {
     await load(view);
   }
 
-  return { render };
+  function track(addr, label, chain = "eth") {
+    const l = wallets();
+    if (l.some((x) => x.addr.toLowerCase() === addr.toLowerCase()))
+      return false;
+    save([...l, { chain, label, addr }]);
+    return true;
+  }
+
+  return { render, track };
 })();
