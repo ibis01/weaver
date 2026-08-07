@@ -21,6 +21,7 @@ window.W = window.W || {};
     { id: "learn", icon: "📚", label: "Learn" },
     { id: "profile", icon: "👤", label: "Profile" },
     { id: "pro", icon: "🔮", label: "Weaver Pro" },
+    { id: "sync", icon: "☁️", label: "Sync" },
     { id: "settings", icon: "⚙️", label: "Settings" },
   ];
 
@@ -44,6 +45,7 @@ window.W = window.W || {};
     learn: (v) => W.learn.render(v),
     profile: (v) => W.misc.renderProfile(v),
     pro: (v) => W.misc.renderPro(v),
+    sync: (v) => W.sync.render(v),
     settings: (v) => W.misc.renderSettings(v),
   };
 
@@ -103,6 +105,7 @@ window.W = window.W || {};
     W.applySettings = () => {
       document.getElementById("currency").value = W.currency();
       startLoop();
+      if (W.sync) W.sync.boot();
     };
 
     /* 2️⃣ Nav */
