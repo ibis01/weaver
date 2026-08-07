@@ -129,3 +129,12 @@ window.W = window.W || {};
 
   window.addEventListener("DOMContentLoaded", init);
 })();
+
+// Register PWA Service Worker
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("./sw.js")
+      .catch((err) => console.log("SW failed:", err));
+  });
+}

@@ -1,0 +1,17 @@
+{
+  "name": "Weaver - Crypto Portfolio Tracker",
+  "short_name": "Weaver",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0b0d13",
+  "theme_color": "#7c5cff",
+  "description": "Privacy-first crypto portfolio tracker with AI insights.",
+  "icons": [
+    {
+      "src": "assets/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

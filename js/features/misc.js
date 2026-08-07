@@ -202,11 +202,43 @@ W.misc = (() => {
         <label>API Key<input id="set-aikey" type="password" value="${s.aiKey || ""}"></label>
         <label>Model<input id="set-aimodel" placeholder="gpt-4o-mini" value="${s.aiModel || ""}"></label>
         <button class="btn primary mt" id="set-save">Save Settings</button>
+        <button class="btn" id="set-tax">🧾 Export Tax Report (CSV)</button>
+        <button class="btn" id="set-export">⬇ Export Backup (JSON)</button>
       </div>
       <div class="card"><h3>Your Data</h3>
         <button class="btn" id="set-export">⬇ Export Backup (JSON)</button>
         <button class="btn danger mt" id="set-wipe">🗑 Reset All Data</button>
       </div>`;
+
+    view.querySelector("#set-tax").onclick = () => {
+      const txs = W.portfolio.txs();
+      if (!txs.length)
+        return W.ui.toast(
+          "No transactions to export. Record a buy/sell first!",
+          "warn",
+        );
+
+      // Create CSV Headers
+      let csv = "Date,Type,Coin,Symbol,Quantity,Price,Total\n";
+
+      // Format Transactions
+      txs.forEach((t) => {
+        const date = new Date(t.date).toISOString().split("T")[0]; // YYYY-MM-DD
+        const total = (t.qty * t.price).toFixed(2);
+        csv += `${date},${t.type},${t.name},${t.symbol.toUpperCase()},${t.qty},${t.price},${total}\n`;
+      });
+
+      // Download File
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `weaver-tax-report-${new Date().getFullYear()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      W.ui.toast("Tax report downloaded 🧾", "ok");
+    };
     view.querySelector("#set-save").onclick = () => {
       W.store.set("settings", {
         currency: view.querySelector("#set-cur").value,
