@@ -10,8 +10,8 @@ W.whales = (() => {
     },
     {
       chain: "btc",
-      label: "Mega-Whale (reported)",
-      addr: "bc1qa5wkgaew2dkv56kfvj49j0av5nml45x2ek9jm9",
+      label: "Binance Cold Wallet #2 (reported)",
+      addr: "bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8tlqmgrpmv24sq90ecnvqqjwvw97",
     },
     {
       chain: "eth",

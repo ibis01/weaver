@@ -38,10 +38,10 @@ window.W = window.W || {};
     web3: (v) => W.web3.render(v),
     defi: (v) => W.misc.renderDefi(v),
     airdrops: (v) => W.misc.renderAirdrops(v),
+    market: (v) => W.market.render(v),
     whales: (v) => W.whales.render(v),
     smart: (v) => W.smart.render(v),
     unlocks: (v) => W.unlocks.render(v),
-    market: (v) => W.market.render(v),
     learn: (v) => W.learn.render(v),
     profile: (v) => W.misc.renderProfile(v),
     pro: (v) => W.misc.renderPro(v),
@@ -64,13 +64,22 @@ window.W = window.W || {};
       : "Weaver";
     const view = document.getElementById("view");
     view.innerHTML = "";
-    if (page === "coin" && param) W.explorer.renderCoin(view, param);
-    else (routes[page] || routes.dashboard)(view);
+    try {
+      if (page === "coin" && param) W.explorer.renderCoin(view, param);
+      else (routes[page] || routes.dashboard)(view);
+    } catch (e) {
+      console.error(e);
+      view.innerHTML =
+        '<div class="card"><h3>⚠️ Module failed to load</h3><p class="muted">' +
+        e.message +
+        '</p><p class="muted small">A JS file may be missing or broken — check the console (F12).</p></div>';
+    }
     document.getElementById("last-updated").textContent =
       "updated " +
       new Date().toLocaleTimeString() +
       " · via " +
-      (W.api.source || "coingecko");
+      (W.api && W.api.source ? W.api.source : "…");
+    if (W.alerts) W.alerts.check();
   }
 
   function streak() {
@@ -88,7 +97,7 @@ window.W = window.W || {};
   let loop = null;
   function startLoop() {
     clearInterval(loop);
-    const sec = W.store.get("settings", {}).refresh ?? 60;
+    const sec = (W.store.get("settings", {}) || {}).refresh ?? 60;
     if (sec > 0) {
       loop = setInterval(() => {
         if (
@@ -101,22 +110,21 @@ window.W = window.W || {};
   }
 
   function init() {
-    /* 1️⃣ Core helpers FIRST — everything else depends on these */
+    /* core helpers FIRST */
     W.currency = () => W.store.get("settings", {}).currency || "usd";
     W.refresh = () => route();
     W.applySettings = () => {
       document.getElementById("currency").value = W.currency();
       startLoop();
-      if (W.sync) W.sync.boot();
     };
 
-    /* 2️⃣ Nav */
+    /* nav */
     document.getElementById("nav").innerHTML = NAV.map(
       (n) =>
         `<a href="#/${n.id}" data-id="${n.id}"><span class="nav-ico">${n.icon}</span><span>${n.label}</span>${n.id === "alerts" ? '<span class="nav-badge" id="alert-badge"></span>' : ""}</a>`,
     ).join("");
 
-    /* 3️⃣ Currency selector */
+    /* currency */
     const cur = document.getElementById("currency");
     cur.innerHTML = ["usd", "eur", "gbp", "inr", "jpy"]
       .map((c) => `<option value="${c}">${c.toUpperCase()}</option>`)
@@ -133,32 +141,38 @@ window.W = window.W || {};
     document.getElementById("btn-pro").onclick = () =>
       (location.hash = "#/pro");
 
-    /* 4️⃣ Go */
+    /* surgical async-error handler: replaces ONLY the spinner, never the whole page */
+    window.addEventListener("unhandledrejection", (e) => {
+      console.warn("Weaver async error:", e.reason);
+      const msg = (e.reason && e.reason.message) || "request failed";
+      const v = document.getElementById("view");
+      const spin = v && v.querySelector(".spinner");
+      if (spin)
+        spin.outerHTML =
+          '<p class="muted small mt">⚠️ ' +
+          msg +
+          " — some live data is unavailable on this network (showing cache where possible). Try ⟳ or another network.</p>";
+    });
+
+    /* card spotlight follows cursor */
+    document.addEventListener("pointermove", (e) => {
+      const card = e.target.closest(".card");
+      if (!card) return;
+      const r = card.getBoundingClientRect();
+      card.style.setProperty("--mx", e.clientX - r.left + "px");
+      card.style.setProperty("--my", e.clientY - r.top + "px");
+    });
+
     streak();
     if (W.achievements) W.achievements.check();
     window.addEventListener("hashchange", route);
     route();
     startLoop();
-    setInterval(() => W.alerts.check(), 60000);
+    setInterval(() => {
+      if (W.alerts) W.alerts.check();
+    }, 60000);
+    if (W.sync) W.sync.boot();
   }
 
   window.addEventListener("DOMContentLoaded", init);
 })();
-
-// Register PWA Service Worker
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker
-      .register("./sw.js")
-      .catch((err) => console.log("SW failed:", err));
-  });
-}
-
-/* ✨ card spotlight follows cursor */
-document.addEventListener("pointermove", (e) => {
-  const card = e.target.closest(".card");
-  if (!card) return;
-  const r = card.getBoundingClientRect();
-  card.style.setProperty("--mx", e.clientX - r.left + "px");
-  card.style.setProperty("--my", e.clientY - r.top + "px");
-});
