@@ -260,6 +260,22 @@ W.news = (() => {
       return true;
     });
 
+    if (ITEMS.length) W.store.set("news-cache", ITEMS.slice(0, 60));
+    else {
+      ITEMS = W.store.get("news-cache", []);
+      if (ITEMS.length)
+        view.querySelector("#n-brief").innerHTML =
+          `<div class="ai-brief">📡 Live news sources unreachable right now — showing your last cached feed.</div>`;
+    }
+    if (!ITEMS.length) {
+      view.querySelector("#n-list").innerHTML = W.ui.empty(
+        "📰",
+        "Couldn't load news",
+        "Check your connection — or run the app via a local server instead of file://",
+      );
+      return;
+    }
+
     const counts = { bullish: 0, bearish: 0, neutral: 0 };
     ITEMS.forEach((i) => counts[sentiment(i.title)]++);
     const mood =
