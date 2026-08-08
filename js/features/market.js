@@ -59,8 +59,8 @@ W.market = (() => {
       const t = await W.api.trending();
       view.querySelector("#m-trend").innerHTML = t.coins
         .map(
-          ({ item: i }) =>
-            `<a class="trend-chip" href="#/coin/${i.id}"><img src="${i.small || i.thumb}">${i.name} <span class="muted small">${i.symbol}</span></a>`,
+          (x) =>
+            `<a class="trend-chip" href="#/coin/${x.item.id}"><img src="${x.item.small || x.item.thumb}">${x.item.name} <span class="muted small">${x.item.symbol}</span></a>`,
         )
         .join("");
     } catch (e) {}
@@ -84,7 +84,7 @@ W.market = (() => {
           (c.price_change_percentage_7d_in_currency ?? -999) >
           (btc?.price_change_percentage_7d_in_currency ?? 0),
       ).length;
-      const idx = Math.round((beating / top50.length) * 100);
+      const idx = top50.length ? Math.round((beating / top50.length) * 100) : 0;
       const label =
         idx >= 75
           ? "Altcoin Season 🌈"

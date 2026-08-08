@@ -20,7 +20,6 @@ W.sync = (() => {
   const conf = () => W.store.get("sync", {});
   const saveConf = (c) => W.store.set("sync", c);
 
-  /* ── E2E crypto (AES-256-GCM, PBKDF2 key) ── */
   const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
   const ub64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
   async function key(code) {
@@ -47,7 +46,7 @@ W.sync = (() => {
   async function encrypt(code, obj) {
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const ct = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
+      { name: "AES-GCM", iv: iv },
       await key(code),
       new TextEncoder().encode(JSON.stringify(obj)),
     );
@@ -72,7 +71,7 @@ W.sync = (() => {
   }
 
   function db() {
-    const f = W.store.get("settings", {}).firebase;
+    const f = (W.store.get("settings", {}) || {}).firebase;
     if (!f || !window.firebase) return null;
     if (!firebase.apps.length) firebase.initializeApp(f);
     return firebase.firestore();
@@ -95,8 +94,8 @@ W.sync = (() => {
       await d
         .collection("vaults")
         .doc(await docId(c.code))
-        .set({ updatedAt: Date.now(), ...payload });
-      saveConf({ ...c, last: Date.now() });
+        .set({ updatedAt: Date.now(), iv: payload.iv, ct: payload.ct });
+      saveConf({ code: c.code, auto: c.auto, last: Date.now() });
       if (force) W.ui.toast("☁️ Vault updated", "ok");
     } catch (e) {
       if (force) W.ui.toast("Push failed: " + e.message, "warn");
@@ -120,15 +119,14 @@ W.sync = (() => {
       Object.entries(data).forEach(([k, v]) => {
         if (v !== undefined) W.store.set(k, v);
       });
-      saveConf({ ...c, last: Date.now() });
+      saveConf({ code: c.code, auto: c.auto, last: Date.now() });
       W.ui.toast("☁️ Restored — reloading…", "ok");
       setTimeout(() => location.reload(), 900);
     } catch (e) {
-      W.ui.toast("Wrong code or corrupted vault (decryption failed)", "warn");
+      W.ui.toast("Wrong code or corrupted vault", "warn");
     }
   }
 
-  /* auto-sync: hook store.set + pull-on-boot if remote is newer */
   function boot() {
     const orig = W.store.set.bind(W.store);
     W.store.set = (k, v) => {
@@ -155,7 +153,7 @@ W.sync = (() => {
     if (!s.firebase) {
       view.innerHTML = `
         <div class="card"><h3>☁️ Multi-device Sync — Setup</h3>
-          <p class="muted small">Your data is <b>end-to-end encrypted</b> (AES-256-GCM) with your sync code before it leaves the browser. Firebase only stores unreadable blobs under hashed IDs — zero-knowledge by design.</p>
+          <p class="muted small">Your data is <b>end-to-end encrypted</b> (AES-256-GCM) with your sync code before it leaves the browser. Firebase only stores unreadable blobs under hashed IDs.</p>
           <ol class="muted small" style="margin:10px 0 10px 18px;line-height:1.9">
             <li>Create a free project at <b>console.firebase.google.com</b></li>
             <li><b>Build → Firestore Database → Create database</b></li>
@@ -177,7 +175,7 @@ W.sync = (() => {
         };
         if (!firebase.apiKey || !firebase.projectId || !firebase.appId)
           return W.ui.toast("apiKey, projectId and appId are required", "warn");
-        W.store.set("settings", { ...s, firebase });
+        W.store.set("settings", Object.assign({}, s, { firebase: firebase }));
         W.ui.toast("Firebase connected ☁️", "ok");
         render(view);
       };
@@ -198,7 +196,7 @@ W.sync = (() => {
         </div>
       </div>
       <div class="card"><h3>Add a second device</h3>
-        <p class="muted small">Open Weaver there → Sync tab → paste the same Firebase config → enter this sync code → <b>Pull</b>. Both devices now share one encrypted vault.</p>
+        <p class="muted small">Open Weaver there → Sync tab → paste the same Firebase config → enter this sync code → <b>Pull</b>.</p>
       </div>`;
     view.querySelector("#s-gen").onclick = () => {
       view.querySelector("#s-code").value =
@@ -226,5 +224,5 @@ W.sync = (() => {
     };
   }
 
-  return { render, boot };
+  return { render: render, boot: boot };
 })();

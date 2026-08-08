@@ -1356,3 +1356,60 @@ code {
   filter: drop-shadow(0 0 8px rgba(124, 92, 255, 0.9));
   transform: scale(1.15);
 }
+
+/* ── Markets terminal ─────────────────────────────── */
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.2px;
+}
+th.num {
+  text-align: right;
+}
+.term-table td {
+  padding: 7px 10px;
+  font-size: 12.5px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+.term-table th {
+  font-size: 10px;
+}
+.term-table tr:hover td {
+  background: linear-gradient(90deg, rgba(124, 92, 255, 0.08), transparent);
+}
+.spark {
+  width: 110px;
+  height: 30px;
+}
+.tape-wrap {
+  overflow: hidden;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(13, 15, 22, 0.6);
+  backdrop-filter: blur(8px);
+  padding: 9px 0;
+}
+.tape {
+  display: flex;
+  gap: 30px;
+  width: max-content;
+  animation: tape 50s linear infinite;
+  padding: 0 16px;
+}
+.tape-wrap:hover .tape {
+  animation-play-state: paused;
+}
+.tape-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+@keyframes tape {
+  to {
+    transform: translateX(-50%);
+  }
+}

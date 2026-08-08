@@ -23,7 +23,8 @@ W.PALETTE = [
 ];
 
 W.fmt = {
-  money(n, { compact = false } = {}) {
+  money(n, o) {
+    const compact = o && o.compact;
     if (n == null || isNaN(n)) return "—";
     const sym = W.SYMBOLS[W.currency()] || "$";
     const neg = n < 0 ? "-" : "",
@@ -55,7 +56,14 @@ W.fmt = {
   },
   pct(n) {
     if (n == null || isNaN(n)) return '<span class="muted">—</span>';
-    return `<span class="${n >= 0 ? "up" : "down"}">${n >= 0 ? "▲" : "▼"} ${Math.abs(n).toFixed(2)}%</span>`;
+    return (
+      '<span class="' +
+      (n >= 0 ? "up" : "down") +
+      '">' +
+      (n >= 0 ? "▲ " : "▼ ") +
+      Math.abs(n).toFixed(2) +
+      "%</span>"
+    );
   },
   num(n) {
     return n == null || isNaN(n) ? "—" : n.toLocaleString();
