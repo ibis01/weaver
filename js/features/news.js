@@ -74,6 +74,7 @@ W.news = (() => {
     if (!l.includes(id)) {
       l.unshift(id);
       W.store.set("news-read", l.slice(0, 400));
+      if (W.achievements) W.achievements.check();
     }
   };
   const savedList = () => W.store.get("news-saved", []);

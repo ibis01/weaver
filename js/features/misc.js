@@ -3,48 +3,28 @@ window.W = window.W || {};
 W.achievements = (() => {
   const DEFS = [
     {
-      id: "first-coin",
-      icon: "🌱",
-      name: "First Thread",
-      desc: "Add your first holding",
-      test: () => W.portfolio.all().length >= 1,
-    },
-    {
-      id: "five-coins",
-      icon: "🧺",
-      name: "Diversifier",
-      desc: "Hold 5+ different assets",
-      test: () => W.portfolio.all().length >= 5,
-    },
-    {
-      id: "first-tx",
-      icon: "↔️",
-      name: "Trader",
-      desc: "Record a buy/sell transaction",
-      test: () => W.portfolio.txs().length >= 1,
-    },
-    {
-      id: "first-alert",
-      icon: "🚨",
-      name: "Watchdog",
-      desc: "Create a price alert",
-      test: () => W.store.get("alerts", []).length >= 1,
-    },
-    {
-      id: "student",
-      icon: "🎓",
-      name: "Student",
-      desc: "Complete a lesson",
-      test: () => (W.store.get("learn", {}).done || []).length >= 1,
-    },
-    {
       id: "web3",
       icon: "🔗",
       name: "Web3 Native",
       desc: "Connect a wallet",
       test: () => !!W.store.get("wallet-connected", false),
     },
+    {
+      id: "journalist",
+      icon: "📰",
+      name: "Journalist",
+      desc: "Read 10 news articles",
+      test: () => W.store.get("news-read", []).length >= 10,
+    },
+    {
+      id: "curator",
+      icon: "🔖",
+      name: "Curator",
+      desc: "Save 5 articles to your Reading List",
+      test: () => W.store.get("news-saved", []).length >= 5,
+    },
   ];
+
   const earned = () => W.store.get("achievements", {});
   function check() {
     const e = earned();
@@ -66,11 +46,9 @@ W.misc = (() => {
     const e = W.achievements.earned();
     const streak = W.store.get("streak", { count: 1 });
     view.innerHTML = `
-      <div class="cards">
-        <div class="card stat"><div class="stat-label">Learning Streak</div><div class="stat-big">🔥 ${streak.count || 1} day${(streak.count || 1) > 1 ? "s" : ""}</div></div>
-        <div class="card stat"><div class="stat-label">Assets Held</div><div class="stat-big">${W.portfolio.all().length}</div></div>
-        <div class="card stat"><div class="stat-label">Transactions</div><div class="stat-big">${W.portfolio.txs().length}</div></div>
         <div class="card stat"><div class="stat-label">Badges</div><div class="stat-big">${Object.keys(e).length}/${W.achievements.DEFS.length}</div></div>
+        <div class="card stat"><div class="stat-label">Articles Read</div><div class="stat-big">📖 ${W.store.get("news-read", []).length}</div></div>
+        <div class="card stat"><div class="stat-label">Reading List</div><div class="stat-big">🔖 ${W.store.get("news-saved", []).length}</div></div>
       </div>
       <div class="card"><h3>🏅 Achievements</h3><div class="badge-grid">
         ${W.achievements.DEFS.map((d) => `<div class="badge ${e[d.id] ? "earned" : ""}"><div class="badge-icon">${d.icon}</div><b>${d.name}</b><span class="muted small">${d.desc}</span>${e[d.id] ? `<span class="muted small">Earned ${W.fmt.date(e[d.id])}</span>` : ""}</div>`).join("")}

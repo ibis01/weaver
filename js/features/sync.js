@@ -14,6 +14,8 @@ W.sync = (() => {
     "airdrops",
     "token-unlocks",
     "whale-wallets",
+    "news-read",
+    "news-saved",
   ];
   const conf = () => W.store.get("sync", {});
   const saveConf = (c) => W.store.set("sync", c);
