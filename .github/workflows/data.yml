@@ -1,8 +1,9 @@
- name: data
+name: data
 on:
   schedule:
     - cron: '*/30 * * * *'
   workflow_dispatch:
+  push:
 
 jobs:
   fetch:
