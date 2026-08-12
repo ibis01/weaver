@@ -19,7 +19,7 @@ W.api = (() => {
 
   async function getJSON(url, ttl, timeout) {
     ttl = ttl || 60000;
-    timeout = timeout || 9000;
+    timeout = timeout || 6000;
     const hit = cache.get(url);
     if (hit && Date.now() - hit.t < ttl) return hit.d;
     let lastErr;

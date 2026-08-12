@@ -119,7 +119,16 @@ window.W = window.W || {};
 
   function init() {
     /* core helpers FIRST */
-    W.currency = () => W.store.get("settings", {}).currency || "usd";
+    W.currency = () => W.store.get("settings", {});
+    /* global fetch timeout — nothing may hang forever */
+    const _fetch = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      init = init || {};
+      if (!init.signal && window.AbortSignal)
+        init.signal = AbortSignal.timeout(12000);
+      return _fetch(input, init);
+    };
+    currency || "usd";
     W.refresh = () => route();
     W.applySettings = () => {
       document.getElementById("currency").value = W.currency();

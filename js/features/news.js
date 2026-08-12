@@ -310,11 +310,29 @@ W.news = (() => {
       W.ui.spinner() +
       "</div>";
 
+    let snapshot = [];
+    try {
+      const d = await fetch(
+        "https://ibis01.github.io/weaver/data/news.json?t=" + Date.now(),
+        { cache: "no-store" },
+      ).then((r) => (r.ok ? r.json() : null));
+      if (d && d.Data)
+        snapshot = d.Data.map((n) => ({
+          id: "cc" + n.id,
+          title: n.title,
+          url: n.url,
+          image: n.imageurl,
+          source: n.source || "CryptoCompare",
+          published_on: n.published_on,
+          body: n.body || "",
+        }));
+    } catch (e) {}
     const results = await Promise.allSettled([apiNews(), rssNews()]);
     ITEMS = [];
     results.forEach((r) => {
       if (r.status === "fulfilled") ITEMS = ITEMS.concat(r.value);
     });
+    if (!ITEMS.length) ITEMS = snapshot;
     ITEMS = ITEMS.filter((i) => i.title).sort(
       (a, b) => (b.published_on || 0) - (a.published_on || 0),
     );
