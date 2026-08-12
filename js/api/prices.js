@@ -303,6 +303,7 @@ W.api = (() => {
         }
         throw e;
       });
+
   const SNAP = "https://raw.githubusercontent.com/ibis01/weaver/main/data/";
   const snap = (f) =>
     fetch(SNAP + f + "?t=" + Date.now(), { cache: "no-store" }).then((r) => {
@@ -310,17 +311,28 @@ W.api = (() => {
       return r.json();
     });
 
+  const snapTop = () =>
+    fetch("data/top.json?t=" + Date.now(), { cache: "no-store" })
+      .then((r) => {
+        if (!r.ok) throw 0;
+        return r.json();
+      })
+      .then((d) => {
+        if (!Array.isArray(d) || !d.length) throw 0;
+        W.api.source = "snapshot";
+        return d;
+      });
+
   return {
     source: "coingecko",
     markets: (ids) =>
       cached(
         "mkt:" + ids,
-        snap("top.json")
+        snapTop()
           .then((top) => {
             const want = ids.split(",").map((s) => s.trim());
-            const rows = (top || []).filter((c) => want.includes(c.id));
+            const rows = top.filter((c) => want.includes(c.id));
             if (!rows.length) throw 0;
-            W.api.source = "github";
             return rows;
           })
           .catch(() =>
@@ -337,12 +349,8 @@ W.api = (() => {
     top: (n) =>
       cached(
         "top:" + n,
-        snap("top.json")
-          .then((d) => {
-            if (!Array.isArray(d) || !d.length) throw 0;
-            W.api.source = "github";
-            return d.slice(0, n);
-          })
+        snapTop()
+          .then((d) => d.slice(0, n))
           .catch(() => withFailover("top", n)),
       ),
     global: () =>
