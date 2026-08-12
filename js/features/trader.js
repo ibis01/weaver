@@ -218,6 +218,7 @@ W.trader = (() => {
     /* holdings auto-scan */
     try {
       const fg = await W.api.fearGreed();
+      if (!view.isConnected) return;
       const holds = W.portfolio.all().slice(0, 5);
       if (!holds.length) {
         view.querySelector("#t-hold").innerHTML =

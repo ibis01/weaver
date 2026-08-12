@@ -128,11 +128,12 @@ W.gems = (() => {
       (profiles.status === "fulfilled" ? profiles.value : []).forEach((p) => {
         if (!map.has(p.tokenAddress)) map.set(p.tokenAddress, 0);
       });
+
       const addrs = [...map.keys()].slice(0, 30);
       if (!addrs.length) throw new Error("no candidates");
       const pairs = await via(DS + "/latest/dex/tokens/" + addrs.join(","));
       const byTok = {};
-      (pairs || []).forEach((p) => {
+      (Array.isArray(pairs) ? pairs : []).forEach((p) => {
         const a = p.baseToken && p.baseToken.address;
         if (!a) return;
         if (

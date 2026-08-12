@@ -120,19 +120,30 @@ W.news = (() => {
     throw lastErr || new Error("unreachable");
   }
 
+  const SNAP = "https://ibis01.github.io/weaver/data/";
+  const mapNews = (d) =>
+    (d.Data || []).map((n) => ({
+      id: "cc" + n.id,
+      title: n.title,
+      url: n.url,
+      image: n.imageurl,
+      source: n.source || "CryptoCompare",
+      published_on: n.published_on,
+      body: n.body || "",
+    }));
   const apiNews = () =>
-    via("https://min-api.cryptocompare.com/data/v2/news/?lang=EN", true).then(
-      (d) =>
-        (d.Data || []).map((n) => ({
-          id: "cc" + n.id,
-          title: n.title,
-          url: n.url,
-          image: n.imageurl,
-          source: n.source || "CryptoCompare",
-          published_on: n.published_on,
-          body: n.body || "",
-        })),
-    );
+    fetch(SNAP + "news.json?t=" + Date.now(), { cache: "no-store" })
+      .then((r) => {
+        if (!r.ok) throw 0;
+        return r.json();
+      })
+      .then(mapNews)
+      .catch(() =>
+        via(
+          "https://min-api.cryptocompare.com/data/v2/news/?lang=EN",
+          true,
+        ).then(mapNews),
+      );
 
   async function rssNews() {
     const all = [];
@@ -315,12 +326,14 @@ W.news = (() => {
       return true;
     });
 
+    if (!view.isConnected) return;
     if (ITEMS.length) W.store.set("news-cache", ITEMS.slice(0, 60));
     else {
       ITEMS = W.store.get("news-cache", []);
-      if (ITEMS.length)
-        view.querySelector("#n-brief").innerHTML =
-          '<div class="ai-brief">📡 Live news sources unreachable right now — showing your last cached feed.</div>';
+      const bEl = view.querySelector("#n-brief");
+      if (ITEMS.length && bEl)
+        bEl.innerHTML =
+          '<div class="ai-brief">📡 Live news unreachable — showing your last cached feed.</div>';
     }
     if (!ITEMS.length) {
       view.querySelector("#n-list").innerHTML = W.ui.empty(
@@ -339,7 +352,8 @@ W.news = (() => {
         : counts.bearish > counts.bullish
           ? "leaning bearish 📉"
           : "mixed / neutral ⚖️";
-    if (!view.querySelector("#n-brief").innerHTML)
+    const bEl2 = view.querySelector("#n-brief");
+    if (bEl2 && !bEl2.innerHTML)
       view.querySelector("#n-brief").innerHTML =
         '<div class="ai-brief">🤖 <b>Weaver News Brief:</b> scanned ' +
         ITEMS.length +

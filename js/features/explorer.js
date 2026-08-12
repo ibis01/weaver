@@ -152,7 +152,13 @@ W.explorer = (() => {
     const ctx = view.querySelector("#x-chart");
     if (!ctx || !window.Chart) return;
     const prices = Array.isArray(d) ? d : (d && d.prices) || [];
-    if (prices.length < 2) return;
+    if (prices.length < 2) {
+      const box = view.querySelector("#x-chart");
+      if (box)
+        box.outerHTML =
+          '<p class="muted small center" style="padding:40px 0">📉 No chart data on this network right now — the stats below are live.</p>';
+      return;
+    }
     const up = prices[prices.length - 1][1] >= prices[0][1];
     chart = new Chart(ctx, {
       type: "line",

@@ -115,6 +115,7 @@ W.optimizer = (() => {
 
   async function render(view) {
     const data = await W.dashboard.enrich();
+    if (!view.isConnected) return;
     rows = data.rows;
     totals = data.totals;
     if (!rows.length || !totals?.value) {

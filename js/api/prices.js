@@ -13,7 +13,6 @@ W.api = (() => {
   const PROXIES = [
     (u) => u,
     (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-    (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u),
     (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
   ];
   let good = 0;
@@ -268,11 +267,10 @@ W.api = (() => {
   };
 
   const ORDER = {
-    markets: ["coingecko", "coincap", "cryptocompare", "binance"],
-    chart: ["coingecko", "coincap", "cryptocompare", "binance"],
-    top: ["coingecko", "coincap"],
+    markets: ["coingecko", "cryptocompare", "binance"],
+    chart: ["coingecko", "cryptocompare", "binance"],
+    top: ["coingecko"],
   };
-
   async function withFailover(method) {
     const args = Array.prototype.slice.call(arguments, 1);
     let lastErr;
@@ -306,21 +304,69 @@ W.api = (() => {
         throw e;
       });
 
+  const SNAP = "https://ibis01.github.io/weaver/data/";
+  const snap = (f) =>
+    fetch(SNAP + f + "?t=" + Date.now(), { cache: "no-store" }).then((r) => {
+      if (!r.ok) throw 0;
+      return r.json();
+    });
+
   return {
     source: "coingecko",
     markets: (ids) =>
       cached(
         "mkt:" + ids,
-        withFailover(
-          "markets",
-          ids
-            .split(",")
-            .map((id) => ({ id: id.trim(), symbol: symOf(id.trim()) })),
-        ),
+        snap("top.json")
+          .then((top) => {
+            const want = ids.split(",").map((s) => s.trim());
+            const rows = (top || []).filter((c) => want.includes(c.id));
+            if (!rows.length) throw 0;
+            W.api.source = "github";
+            return rows;
+          })
+          .catch(() =>
+            withFailover(
+              "markets",
+              ids
+                .split(",")
+                .map((id) => ({ id: id.trim(), symbol: symOf(id.trim()) })),
+            ),
+          ),
       ),
     chart: (id, days) =>
       cached("chart:" + id + ":" + days, withFailover("chart", id, days)),
-    top: (n) => cached("top:" + n, withFailover("top", n)),
+    top: (n) =>
+      cached(
+        "top:" + n,
+        snap("top.json")
+          .then((d) => {
+            if (!Array.isArray(d) || !d.length) throw 0;
+            W.api.source = "github";
+            return d.slice(0, n);
+          })
+          .catch(() => withFailover("top", n)),
+      ),
+    global: () =>
+      cached(
+        "global",
+        snap("global.json")
+          .then((d) => {
+            W.api.source = "github";
+            return d;
+          })
+          .catch(() => getJSON(CG + "/global", 300000)),
+      ),
+    fearGreed: () =>
+      snap("fng.json")
+        .then((d) => {
+          W.api.source = "github";
+          return d.data[0];
+        })
+        .catch(() =>
+          getJSON("https://api.alternative.me/fng/?limit=1", 300000).then(
+            (d) => d.data[0],
+          ),
+        ),
     search: (q) =>
       getJSON(CG + "/search?query=" + encodeURIComponent(q), 300000),
     coin: (id) =>
@@ -334,13 +380,8 @@ W.api = (() => {
           120000,
         ),
       ),
-    global: () => cached("global", getJSON(CG + "/global", 300000)),
     trending: () =>
       cached("trending", getJSON(CG + "/search/trending", 300000)),
-    fearGreed: () =>
-      getJSON("https://api.alternative.me/fng/?limit=1", 300000).then(
-        (d) => d.data[0],
-      ),
     news: () =>
       getJSON(
         "https://min-api.cryptocompare.com/data/v2/news/?lang=EN",
