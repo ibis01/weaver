@@ -67,7 +67,13 @@ W.dashboard = (() => {
 
   /* ── portfolio math ── */
   async function enrich() {
-    const holdings = W.portfolio.all();
+    const holdings = W.portfolio
+      .all()
+      .concat(
+        (W.walletSync ? W.walletSync.holdings() : []).map((h) =>
+          Object.assign({}, h, { wallet: true }),
+        ),
+      );
     if (!holdings.length) return { rows: [], totals: null };
     const ids = [...new Set(holdings.map((h) => h.coinId))].join(",");
     let markets = [];
@@ -81,7 +87,7 @@ W.dashboard = (() => {
         const m = markets.find((c) => c.id === h.coinId) || {};
         const price = m.current_price ?? h.buyPrice;
         const value = price * h.qty,
-          cost = h.buyPrice * h.qty;
+          cost = h.wallet ? value : h.buyPrice * h.qty;
         return {
           ...h,
           price,
@@ -127,7 +133,7 @@ W.dashboard = (() => {
         <td>${W.fmt.price(r.buyPrice)}</td>
         <td><b>${W.fmt.money(r.value)}</b></td>
         <td>${signedMoney(r.pnl)}<div class="small">${W.fmt.pct(r.pnlPct)}</div></td>
-        <td class="row-actions"><button class="icon-btn" data-edit="${r.id}" title="Edit">✏️</button><button class="icon-btn" data-del="${r.id}" title="Delete">🗑️</button></td>
+                <td class="row-actions">${r.wallet ? '<span class="tag rank" title="From connected wallet">👛 wallet</span>' : '<button class="icon-btn" data-edit="' + r.id + '" title="Edit">✏️</button><button class="icon-btn" data-del="' + r.id + '" title="Delete">🗑️</button>'}</td>
       </tr>`,
         )
         .join("")}</tbody>
@@ -257,12 +263,7 @@ W.dashboard = (() => {
       <div class="cards" id="d-stats"></div>
       <div class="card">
         <div class="watch-head"><h3>🌐 Markets Terminal</h3>
-          <div class="qa">
-            <button class="chip active" data-tab="trending">🔥 Trending</button>
-            <button class="chip" data-tab="top">🏆 Top</button>
-            <button class="chip" data-tab="gain">📈 Gainers</button>
-            <button class="chip" data-tab="lose">📉 Losers</button>
-          </div>
+                   <div class="qa"><button class="btn primary tiny" id="qa-add">+ Add</button><button class="btn tiny" id="qa-tx">↔ Buy/Sell</button><button class="btn tiny" id="qa-sample" title="Load sample portfolio">🎲</button><button class="btn tiny" id="qa-sync" title="Sync connected wallets">👛 Sync</button></div></div>
         </div>
         <div class="table-wrap"><table class="term-table"><thead><tr>
           <th>#</th><th>Token</th><th class="num">Price</th><th class="num">24H</th><th class="num">7D</th><th class="num">30D</th><th class="num">Market Cap</th><th class="num">Volume</th><th>7d Chart</th>
@@ -276,12 +277,25 @@ W.dashboard = (() => {
       </div>`;
 
     view.querySelector("#qa-add").onclick = () => holdingModal();
-    view.querySelector("#qa-tx").onclick = () => txModal();
     view.querySelector("#qa-sample").onclick = () => {
       W.portfolio.seed();
       W.ui.toast("Sample portfolio loaded 🎉", "ok");
       W.refresh();
     };
+    view.querySelector("#qa-tx").onclick = () => txModal();
+    view.querySelector("#qa-sync").onclick = async () => {
+      W.ui.toast("👛 Syncing wallets…", "info");
+      await (W.walletSync && W.walletSync.refresh());
+      W.refresh();
+    };
+    if (
+      W.walletSync &&
+      Date.now() - (W.store.get("wallet-last", 0) || 0) > 60000
+    ) {
+      W.walletSync.refresh().then((rows) => {
+        if (rows.length) W.refresh();
+      });
+    }
 
     const [topR, globR, fgR, trendR, pf] = await Promise.allSettled([
       W.api.top(100),
