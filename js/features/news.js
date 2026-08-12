@@ -120,7 +120,7 @@ W.news = (() => {
     throw lastErr || new Error("unreachable");
   }
 
-  const SNAP = "https://ibis01.github.io/weaver/data/";
+  const SNAP = "https://raw.githubusercontent.com/ibis01/weaver/main/data/";
   const mapNews = (d) =>
     (d.Data || []).map((n) => ({
       id: "cc" + n.id,

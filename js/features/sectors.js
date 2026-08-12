@@ -55,7 +55,6 @@ W.sectors = (() => {
       return;
     }
     ctx.clearRect(0, 0, cw, ch);
-
     ctx.strokeStyle = "rgba(255,255,255,0.08)";
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -73,7 +72,6 @@ W.sectors = (() => {
 
     const time = Date.now() / 1000;
     let hovered = null;
-
     bubbles.forEach((b) => {
       const x =
         cw * 0.1 +
@@ -87,7 +85,6 @@ W.sectors = (() => {
       );
       const isH = dist < b.r;
       if (isH) hovered = b;
-
       const g = ctx.createRadialGradient(x, fy, 0, x, fy, b.r);
       if (b.change >= 0) {
         g.addColorStop(0, "rgba(46,230,168,.85)");
@@ -103,7 +100,6 @@ W.sectors = (() => {
       ctx.arc(x, fy, isH ? b.r * 1.08 : b.r, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
-
       if (b.r > 22) {
         ctx.fillStyle = "#fff";
         ctx.textAlign = "center";
@@ -148,7 +144,6 @@ W.sectors = (() => {
         ty + 62,
       );
     }
-
     animId = requestAnimationFrame(() => drawFrame(view));
   }
 
@@ -159,7 +154,6 @@ W.sectors = (() => {
         <p class="muted small">Where is smart money flowing today? Right = Pumping · Left = Dumping · Higher = More Volume · Bigger = Larger Market Cap.</p>
       </div>
       <div class="card" style="padding:0;overflow:hidden"><canvas id="sector-canvas" style="width:100%;display:block;cursor:crosshair"></canvas></div>`;
-
     canvas = view.querySelector("#sector-canvas");
     ctx = canvas.getContext("2d");
     resize();
@@ -173,7 +167,6 @@ W.sectors = (() => {
       mouse.x = -1000;
       mouse.y = -1000;
     });
-
     try {
       const cats = await fetchCategories();
       const IGNORE = [

@@ -120,8 +120,41 @@ window.W = window.W || {};
   function init() {
     /* core helpers FIRST */
     W.currency = () => W.store.get("settings", {});
-    /* global fetch timeout — nothing may hang forever */
+    /* global fetch: 12s timeout + circuit breaker on dead networks */
     const _fetch = window.fetch.bind(window);
+    let fails = 0,
+      breakerUntil = 0;
+    window.fetch = (input, init) => {
+      init = init || {};
+      const url =
+        typeof input === "string" ? input : (input && input.url) || "";
+      const cross = url.startsWith("http") && !url.startsWith(location.origin);
+      if (cross && Date.now() < breakerUntil)
+        return Promise.reject(
+          new TypeError("network breaker open (using cache)"),
+        );
+      if (!init.signal && window.AbortSignal)
+        init.signal = AbortSignal.timeout(12000);
+      return _fetch(input, init).then(
+        (r) => {
+          if (cross) fails = 0;
+          return r;
+        },
+        (err) => {
+          if (cross) {
+            fails++;
+            if (fails >= 8) {
+              breakerUntil = Date.now() + 90000;
+              fails = 0;
+              console.info(
+                "[Weaver] network looks dead — pausing live fetches 90s, serving cache",
+              );
+            }
+          }
+          throw err;
+        },
+      );
+    };
     window.fetch = (input, init) => {
       init = init || {};
       if (!init.signal && window.AbortSignal)
