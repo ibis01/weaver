@@ -132,7 +132,7 @@ window.W = window.W || {};
 
     /* currency */
     const cur = document.getElementById("currency");
-    cur.innerHTML = ["usd", "eur", "gbp", "inr", "jpy"]
+    cur.innerHTML = ["usd", "ngn", "eur", "gbp", "inr", "jpy"]
       .map((c) => `<option value="${c}">${c.toUpperCase()}</option>`)
       .join("");
     cur.value = W.currency();
@@ -147,7 +147,6 @@ window.W = window.W || {};
     document.getElementById("btn-pro").onclick = () =>
       (location.hash = "#/pro");
 
-    /* surgical async-error handler: replaces ONLY the spinner, never the whole page */
     window.addEventListener("unhandledrejection", (e) => {
       console.warn("Weaver async error:", e.reason);
       const msg = (e.reason && e.reason.message) || "request failed";
@@ -158,6 +157,45 @@ window.W = window.W || {};
           '<p class="muted small mt">⚠️ ' +
           msg +
           " — some live data is unavailable on this network (showing cache where possible). Try ⟳ or another network.</p>";
+    });
+
+    /* bulletproof Telegram wiring */
+    document.addEventListener("click", (e) => {
+      const id = e.target && e.target.id;
+      if (id === "set-tgtest") {
+        const t = (document.querySelector("#set-tgtoken") || {}).value || "";
+        const c = (document.querySelector("#set-tgchat") || {}).value || "";
+        if (!t.trim() || !c.trim())
+          return W.ui.toast("Enter token and Chat ID first", "warn");
+        if (!W.tg) return W.ui.toast("telegram.js not loaded", "warn");
+        W.tg
+          .send("✅ Weaver connected! Alerts will arrive here.", {
+            on: true,
+            token: t.trim(),
+            chat: c.trim(),
+          })
+          .then((ok) =>
+            W.ui.toast(
+              ok ? "Test sent 📨" : "Failed — check token/Chat ID",
+              ok ? "ok" : "warn",
+            ),
+          );
+      }
+      if (id === "set-save") {
+        setTimeout(() => {
+          const t = document.querySelector("#set-tgtoken"),
+            c = document.querySelector("#set-tgchat"),
+            on = document.querySelector("#set-tgon");
+          if (!t || !c) return;
+          const s = W.store.get("settings", {});
+          s.telegram = {
+            on: on.checked,
+            token: t.value.trim(),
+            chat: c.value.trim(),
+          };
+          W.store.set("settings", s);
+        }, 0);
+      }
     });
 
     /* card spotlight follows cursor */

@@ -135,6 +135,11 @@ W.alerts = (() => {
           new Notification("Weaver Alert", {
             body: `${a.name}: ${condText(a)}`,
           });
+        if (W.tg)
+                  W.tg.notify(
+                    "alert:" + a.id,
+                    `🚨 <b>${a.name}</b> — ${condText(a)} (now ${W.fmt.price(m.current_price)})`,
+                  );
       }
     });
     save(alerts);

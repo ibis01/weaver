@@ -152,7 +152,7 @@ W.gems = (() => {
 
       gems.forEach((g) => {
         const a = g.p.baseToken.address;
-        if (g.r.s >= 70 && !seen[a])
+        if (g.r.s >= 70 && !seen[a]) {
           W.ui.toast(
             "🤖 Agent found a gem: <b>" +
               g.p.baseToken.symbol +
@@ -163,9 +163,14 @@ W.gems = (() => {
             "ok",
             6000,
           );
+          if (W.tg)
+            W.tg.notify(
+              "gem:" + a,
+              `🌱 <b>Gem detected:</b> ${g.p.baseToken.symbol} on ${g.p.chainId} — score ${g.r.s}/100\n💧 Liquidity $${(g.r.liq / 1e3).toFixed(0)}K · 24h ${g.r.h24 >= 0 ? "+" : ""}${g.r.h24.toFixed(0)}%\n📊 ${g.p.url || ""}`,
+            );
+        }
         seen[a] = 1;
       });
-
       view.querySelector("#g-stats").innerHTML = `
         <div class="card stat"><div class="stat-label">Candidates scanned</div><div class="stat-big">${addrs.length}</div></div>
         <div class="card stat"><div class="stat-label">Chains covered</div><div class="stat-big">${new Set(gems.map((g) => g.p.chainId)).size}</div></div>
