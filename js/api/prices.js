@@ -304,7 +304,7 @@ W.api = (() => {
         throw e;
       });
 
-  const SNAP = "https://raw.githubusercontent.com/ibis01/weaver/main/data/";
+  const SNAP = "data/";
   const snap = (f) =>
     fetch(SNAP + f + "?t=" + Date.now(), { cache: "no-store" }).then((r) => {
       if (!r.ok) throw 0;
