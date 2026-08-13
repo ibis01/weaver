@@ -2,134 +2,75 @@ window.W = window.W || {};
 
 W.api = (() => {
   const CG = "https://api.coingecko.com/api/v3";
-  const CC = "https://api.coincap.io/v2";
+  const CC = "https://min-api.cryptocompare.com/data";
   const BN = "https://api.binance.com/api/v3";
-  const CP = "https://min-api.cryptocompare.com/data";
-
-  const cache = new Map();
-  const DOWN = {};
-  const vs = () => W.currency();
+  const SNAP = "data/";
+  const CUR = () => (W.currency ? W.currency() : "usd");
 
   const PROXIES = [
     (u) => u,
     (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
     (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
   ];
-  let good = 0;
 
-  async function getJSON(url, ttl, timeout) {
-    ttl = ttl || 60000;
-    timeout = timeout || 6000;
-    const hit = cache.get(url);
-    if (hit && Date.now() - hit.t < ttl) return hit.d;
+  async function getJSON(url, ttl = 60000, timeout = 6000) {
+    try {
+      const hit = sessionStorage.getItem("g:" + url);
+      if (hit) {
+        const h = JSON.parse(hit);
+        if (Date.now() - h.t < ttl) return h.d;
+      }
+    } catch (e) {}
     let lastErr;
-    for (let i = 0; i < PROXIES.length; i++) {
-      const idx = (good + i) % PROXIES.length;
+    for (const wrap of PROXIES) {
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), timeout);
+      const t = setTimeout(() => ctrl.abort(), timeout);
       try {
-        const res = await fetch(PROXIES[idx](url), { signal: ctrl.signal });
-        if (res.status === 429) throw new Error("429");
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const d = JSON.parse(await res.text());
-        good = idx;
-        cache.set(url, { d: d, t: Date.now() });
+        const r = await fetch(wrap(url), { signal: ctrl.signal });
+        clearTimeout(t);
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const d = await r.json();
+        try {
+          sessionStorage.setItem(
+            "g:" + url,
+            JSON.stringify({ t: Date.now(), d }),
+          );
+        } catch (e) {}
         return d;
       } catch (e) {
         lastErr = e;
-      } finally {
-        clearTimeout(timer);
+        clearTimeout(t);
       }
     }
     throw lastErr || new Error("unreachable");
   }
 
-  const TOP40 = {
-    bitcoin: "btc",
-    ethereum: "eth",
-    tether: "usdt",
-    "usd-coin": "usdc",
-    binancecoin: "bnb",
-    solana: "sol",
-    ripple: "xrp",
-    cardano: "ada",
-    dogecoin: "doge",
-    tron: "trx",
-    polkadot: "dot",
-    chainlink: "link",
-    litecoin: "ltc",
-    "shiba-inu": "shib",
-    "avalanche-2": "avax",
-    stellar: "xlm",
-    uniswap: "uni",
-    monero: "xmr",
-    "bitcoin-cash": "bch",
-    aptos: "apt",
-    sui: "sui",
-    near: "near",
-    cosmos: "atom",
-    filecoin: "fil",
-    hedera: "hbar",
-    "internet-computer": "icp",
-    vechain: "vet",
-    arbitrum: "arb",
-    "optimistic-ethereum": "op",
-    thegraph: "grt",
-    aave: "aave",
-    maker: "mkr",
-    algorand: "algo",
-    "ethereum-classic": "etc",
-    "polygon-ecosystem-token": "pol",
-    "jupiter-exchange-solana": "jup",
-    pepe: "pepe",
-    celestia: "tia",
-    starknet: "strk",
+  const symMap = () => W.store.get("sym-map", {});
+  function learn(p) {
+    const m = symMap();
+    (p || []).forEach((x) => (m[x[0]] = x[1]));
+    try {
+      W.store.set("sym-map", m);
+    } catch (e) {}
+  }
+  const symOf = (id) => (symMap()[id] || id).toUpperCase();
+  const down = {};
+  const okP = (p) => !down[p] || Date.now() > down[p];
+  const trip = (p) => {
+    down[p] = Date.now() + 60000;
   };
 
-  const symOf = (id) =>
-    ((W.store.get("symmap", {}) || {})[id] || TOP40[id] || "").toLowerCase();
-  const learn = (pairs) => {
-    const m = W.store.get("symmap", {}) || {};
-    let ch = false;
-    pairs.forEach((p) => {
-      if (p[0] && p[1] && m[p[0]] !== p[1].toLowerCase()) {
-        m[p[0]] = p[1].toLowerCase();
-        ch = true;
-      }
-    });
-    if (ch) W.store.set("symmap", m);
-  };
-  const img = (s) =>
-    "https://cdn.jsdelivr.net/npm/cryptocurrency-icons@0.18.1/32/color/" +
-    String(s).toLowerCase() +
-    ".png";
-
-  const ccNorm = (a) => ({
-    id: a.id,
-    symbol: a.symbol.toLowerCase(),
-    name: a.name,
-    image:
-      "https://assets.coincap.io/assets/icons/" +
-      a.symbol.toLowerCase() +
-      "@2x.png",
-    current_price: +a.priceUsd,
-    market_cap: +a.marketCapUsd,
-    total_volume: +a.volumeUsd24Hr,
-    market_cap_rank: +a.rank,
-    price_change_percentage_24h_in_currency: +a.changePercent24Hr,
-    price_change_percentage_7d_in_currency: null,
-  });
-
-  const PROV = {
+  const PROVIDERS = {
     coingecko: {
-      markets: (coins) =>
+      markets: (ids) =>
         getJSON(
           CG +
             "/coins/markets?vs_currency=" +
-            vs() +
+            CUR() +
             "&ids=" +
-            coins.map((c) => c.id).join(",") +
-            "&order=market_cap_desc&price_change_percentage=24h,7d,30d&sparkline=true",
+            ids.join(",") +
+            "&price_change_percentage=24h,7d,30d",
+          60000,
         ).then((d) => {
           learn(d.map((c) => [c.id, c.symbol]));
           return d;
@@ -140,7 +81,7 @@ W.api = (() => {
             "/coins/" +
             id +
             "/market_chart?vs_currency=" +
-            vs() +
+            CUR() +
             "&days=" +
             days,
           300000,
@@ -149,7 +90,7 @@ W.api = (() => {
         getJSON(
           CG +
             "/coins/markets?vs_currency=" +
-            vs() +
+            CUR() +
             "&order=market_cap_desc&per_page=" +
             n +
             "&page=1&price_change_percentage=24h,7d,30d&sparkline=true",
@@ -159,214 +100,159 @@ W.api = (() => {
           return d;
         }),
     },
-    coincap: {
-      markets: (coins) =>
-        getJSON(CC + "/assets?ids=" + coins.map((c) => c.id).join(",")).then(
-          (d) => {
-            learn(d.data.map((a) => [a.id, a.symbol]));
-            return d.data.map(ccNorm);
-          },
-        ),
-      chart: (id, days) =>
+    cryptocompare: {
+      markets: (ids) =>
         getJSON(
           CC +
-            "/assets/" +
-            id +
-            "/history?interval=d1&start=" +
-            (Date.now() - days * 864e5) +
-            "&end=" +
-            Date.now(),
-          300000,
-        ).then((d) => d.data.map((h) => [h.time, +h.priceUsd])),
-      top: (n) =>
-        getJSON(CC + "/assets?limit=" + n, 120000).then((d) => {
-          learn(d.data.map((a) => [a.id, a.symbol]));
-          return d.data.map(ccNorm);
-        }),
-    },
-    cryptocompare: {
-      markets: async (coins) => {
-        const syms = coins
-          .map((c) => (c.symbol || symOf(c.id)).toUpperCase())
-          .filter(Boolean);
-        if (!syms.length) throw new Error("no symbols");
-        const d = await getJSON(
-          CP + "/pricemultifull?fsyms=" + syms.join(",") + "&tsyms=USD",
-        );
-        return coins
-          .map((c, i) => {
-            const q = d.RAW && d.RAW[syms[i]] && d.RAW[syms[i]].USD;
-            if (!q) return null;
+            "/pricemultifull?fsyms=" +
+            ids.map(symOf).join(",") +
+            "&tsyms=" +
+            CUR().toUpperCase(),
+          60000,
+        ).then((d) => {
+          const R = (d.RAW || {})[CUR().toUpperCase()] || {};
+          return ids.map((id) => {
+            const q = R[symOf(id)] || {};
             return {
-              id: c.id,
-              symbol: syms[i].toLowerCase(),
-              name: syms[i],
-              image: q.IMAGEURL
-                ? "https://www.cryptocompare.com" + q.IMAGEURL
-                : img(syms[i]),
+              id,
+              symbol: symOf(id).toLowerCase(),
+              name: symOf(id),
+              image: "",
               current_price: q.PRICE,
               market_cap: q.MKTCAP,
               total_volume: q.TOTALVOLUME,
-              market_cap_rank: null,
               price_change_percentage_24h_in_currency: q.CHANGEPCT24HOUR,
               price_change_percentage_7d_in_currency: null,
+              price_change_percentage_30d_in_currency: null,
+              sparkline_in_7d: null,
             };
-          })
-          .filter(Boolean);
-      },
-      chart: (id, days) => {
-        const s = symOf(id).toUpperCase();
-        if (!s) throw new Error("no symbol");
-        return getJSON(
-          CP +
+          });
+        }),
+      chart: (id, days) =>
+        getJSON(
+          CC +
             "/v2/histoday?fsym=" +
-            s +
-            "&tsym=USD&limit=" +
-            Math.min(days, 1000),
+            symOf(id) +
+            "&tsym=" +
+            CUR().toUpperCase() +
+            "&limit=" +
+            days,
           300000,
-        ).then((d) => d.Data.Data.map((k) => [k.time * 1000, k.close]));
-      },
+        ).then((d) =>
+          ((d.Data && d.Data.Data) || d.Data || []).map((x) => [
+            x.time * 1000,
+            x.close,
+          ]),
+        ),
     },
     binance: {
-      markets: async (coins) => {
-        const syms = coins
-          .map((c) => (c.symbol || symOf(c.id)).toUpperCase())
-          .filter(Boolean);
-        if (!syms.length) throw new Error("no symbols");
-        const d = await getJSON(
+      markets: (ids) =>
+        getJSON(
           BN +
             "/ticker/24hr?symbols=" +
-            encodeURIComponent(JSON.stringify(syms.map((s) => s + "USDT"))),
-        );
-        return d.map((t, i) => ({
-          id: coins[i].id,
-          symbol: syms[i].toLowerCase(),
-          name: syms[i].toUpperCase(),
-          image: img(syms[i]),
-          current_price: +t.lastPrice,
-          market_cap: null,
-          total_volume: +t.quoteVolume,
-          market_cap_rank: null,
-          price_change_percentage_24h_in_currency: +t.priceChangePercent,
-          price_change_percentage_7d_in_currency: null,
-        }));
-      },
-      chart: (id, days) => {
-        const s = symOf(id).toUpperCase();
-        if (!s) throw new Error("no symbol");
-        return getJSON(
-          BN +
-            "/klines?symbol=" +
-            s +
-            "USDT&interval=1d&limit=" +
-            Math.min(days, 1000),
+            encodeURIComponent(
+              "[" +
+                ids
+                  .map(symOf)
+                  .map((s) => '"' + s + 'USDT"')
+                  .join(",") +
+                "]",
+            ),
+          60000,
+        ).then((d) =>
+          (Array.isArray(d) ? d : []).map((q) => ({
+            id: (q.symbol || "").replace("USDT", "").toLowerCase(),
+            symbol: (q.symbol || "").replace("USDT", "").toLowerCase(),
+            name: (q.symbol || "").replace("USDT", ""),
+            image: "",
+            current_price: parseFloat(q.lastPrice),
+            market_cap: null,
+            total_volume: parseFloat(q.quoteVolume),
+            price_change_percentage_24h_in_currency: parseFloat(
+              q.priceChangePercent,
+            ),
+            price_change_percentage_7d_in_currency: null,
+            price_change_percentage_30d_in_currency: null,
+            sparkline_in_7d: null,
+          })),
+        ),
+      chart: (id, days) =>
+        getJSON(
+          BN + "/klines?symbol=" + symOf(id) + "USDT&interval=1d&limit=" + days,
           300000,
-        ).then((d) => d.map((k) => [k[0], +k[4]]));
-      },
+        ).then((d) =>
+          (Array.isArray(d) ? d : []).map((k) => [k[0], parseFloat(k[4])]),
+        ),
     },
   };
 
-  const ORDER = {
-    markets: ["coingecko", "cryptocompare", "binance"],
-    chart: ["coingecko", "cryptocompare", "binance"],
-    top: ["coingecko"],
-  };
-  async function withFailover(method) {
-    const args = Array.prototype.slice.call(arguments, 1);
+  async function withFailover(kind, a, b) {
+    const order =
+      kind === "top"
+        ? ["coingecko"]
+        : ["coingecko", "cryptocompare", "binance"];
     let lastErr;
-    for (const name of ORDER[method]) {
-      if (DOWN[name] && Date.now() < DOWN[name]) continue;
+    for (const p of order) {
+      if (!PROVIDERS[p][kind] || !okP(p)) continue;
       try {
-        const out = await PROV[name][method].apply(null, args);
-        W.api.source = name;
-        DOWN[name] = 0;
-        return out;
+        api.source = p;
+        return await PROVIDERS[p][kind](a, b);
       } catch (e) {
         lastErr = e;
-        DOWN[name] = Date.now() + 60000;
+        trip(p);
       }
     }
-    throw lastErr || new Error("All sources failed");
+    throw lastErr || new Error("all providers down");
   }
 
-  const cached = (key, promise) =>
-    promise
-      .then((d) => {
-        W.store.set(key, d);
-        return d;
-      })
-      .catch((e) => {
-        const c = W.store.get(key);
-        if (c && (Array.isArray(c) ? c.length : true)) {
-          W.api.source = "cache";
-          return c;
-        }
-        throw e;
-      });
-
-  const SNAP = "data/";
   const snap = (f) =>
     fetch(SNAP + f + "?t=" + Date.now(), { cache: "no-store" }).then((r) => {
       if (!r.ok) throw 0;
       return r.json();
     });
+  const topCache = () => W.store.get("top-cache", []) || [];
 
-  const snapTop = () =>
-    fetch("data/top.json?t=" + Date.now(), { cache: "no-store" })
-      .then((r) => {
-        if (!r.ok) throw 0;
-        return r.json();
-      })
-      .then((d) => {
-        if (!Array.isArray(d) || !d.length) throw 0;
-        W.api.source = "snapshot";
-        return d;
-      });
-
-  return {
+  const api = {
     source: "coingecko",
     markets: (ids) =>
-      cached(
-        "mkt:" + ids,
-        snapTop()
-          .then((top) => {
-            const want = ids.split(",").map((s) => s.trim());
-            const rows = top.filter((c) => want.includes(c.id));
-            if (!rows.length) throw 0;
-            return rows;
-          })
-          .catch(() =>
-            withFailover(
-              "markets",
-              ids
-                .split(",")
-                .map((id) => ({ id: id.trim(), symbol: symOf(id.trim()) })),
-            ),
-          ),
-      ),
-    chart: (id, days) =>
-      cached("chart:" + id + ":" + days, withFailover("chart", id, days)),
+      withFailover("markets", ids).catch(() => {
+        const rows = topCache().filter((c) => ids.includes(c.id));
+        if (!rows.length) throw new Error("no data");
+        api.source = "cache";
+        return rows;
+      }),
     top: (n) =>
-      cached(
-        "top:" + n,
-        snapTop()
-          .then((d) => d.slice(0, n))
-          .catch(() => withFailover("top", n)),
-      ),
+      snap("top.json")
+        .then((d) => {
+          if (!Array.isArray(d) || !d.length) throw 0;
+          learn(d.map((c) => [c.id, c.symbol]));
+          try {
+            W.store.set("top-cache", d);
+          } catch (e) {}
+          api.source = "github";
+          return d.slice(0, n);
+        })
+        .catch(() => withFailover("top", n)),
+    chart: (id, days) =>
+      withFailover("chart", id, days).catch(() => {
+        const c = topCache().find((x) => x.id === id);
+        if (!c || !c.sparkline_in_7d) throw new Error("no chart data");
+        const p = c.sparkline_in_7d.price,
+          now = Date.now();
+        api.source = "cache";
+        return p.map((v, i) => [now - (p.length - 1 - i) * 36e5, v]);
+      }),
     global: () =>
-      cached(
-        "global",
-        snap("global.json")
-          .then((d) => {
-            W.api.source = "github";
-            return d;
-          })
-          .catch(() => getJSON(CG + "/global", 300000)),
-      ),
+      snap("global.json")
+        .then((d) => {
+          api.source = "github";
+          return d;
+        })
+        .catch(() => getJSON(CG + "/global", 300000)),
     fearGreed: () =>
       snap("fng.json")
         .then((d) => {
-          W.api.source = "github";
+          api.source = "github";
           return d.data[0];
         })
         .catch(() =>
@@ -377,22 +263,16 @@ W.api = (() => {
     search: (q) =>
       getJSON(CG + "/search?query=" + encodeURIComponent(q), 300000),
     coin: (id) =>
-      cached(
-        "coin:" + id,
-        getJSON(
-          CG +
-            "/coins/" +
-            id +
-            "?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false",
-          120000,
-        ),
-      ),
-    trending: () =>
-      cached("trending", getJSON(CG + "/search/trending", 300000)),
-    news: () =>
       getJSON(
-        "https://min-api.cryptocompare.com/data/v2/news/?lang=EN",
-        300000,
-      ).then((d) => d.Data || []),
+        CG +
+          "/coins/" +
+          id +
+          "?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false",
+        120000,
+      ),
+    trending: () => getJSON(CG + "/search/trending", 300000),
+    news: () =>
+      getJSON(CC + "/v2/news/?lang=EN", 300000).then((d) => d.Data || []),
   };
+  return api;
 })();
