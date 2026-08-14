@@ -129,12 +129,14 @@ window.W = window.W || {};
       const url =
         typeof input === "string" ? input : (input && input.url) || "";
       const cross = url.startsWith("http") && !url.startsWith(location.origin);
-      if (cross && Date.now() < breakerUntil)
+      if (cross && Date.now() < breakerUntil) {
         return Promise.reject(
           new TypeError("network breaker open (using cache)"),
         );
-      if (!init.signal && window.AbortSignal)
+      }
+      if (!init.signal && window.AbortSignal) {
         init.signal = AbortSignal.timeout(12000);
+      }
       return _fetch(input, init).then(
         (r) => {
           if (cross) fails = 0;
@@ -154,12 +156,6 @@ window.W = window.W || {};
           throw err;
         },
       );
-    };
-    window.fetch = (input, init) => {
-      init = init || {};
-      if (!init.signal && window.AbortSignal)
-        init.signal = AbortSignal.timeout(12000);
-      return _fetch(input, init);
     };
     currency || "usd";
     W.refresh = () => route();

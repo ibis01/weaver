@@ -1,6 +1,42 @@
 /* Weaver service worker — offline shell, silent resilience, NEVER re-throws */
 const CACHE = "weaver-v2";
-const SHELL = ["index.html", "style.css", "manifest.webmanifest"];
+const SHELL = [
+  "index.html",
+  "style.css",
+  "manifest.json", // Note: changed from .webmanifest to match your index.html link
+  "assets/logo.png",
+  "js/ui/theme.js",
+  "js/utils/format.js",
+  "js/utils/debounce.js",
+  "js/storage/storage.js",
+  "js/api/prices.js",
+  "js/ui/ui.js",
+  "js/features/portfolio.js",
+  "js/features/watchlist.js",
+  "js/ui/dashboard.js",
+  "js/features/explorer.js",
+  "js/features/alerts.js",
+  "js/features/news.js",
+  "js/features/market.js",
+  "js/features/ai.js",
+  "js/features/learn.js",
+  "js/features/web3.js",
+  "js/features/misc.js",
+  "js/features/whales.js",
+  "js/features/unlocks.js",
+  "js/features/smart.js",
+  "js/features/optimizer.js",
+  "js/features/trader.js",
+  "js/features/sync.js",
+  "js/features/gems.js",
+  "js/features/shield.js",
+  "js/features/sectors.js",
+  "js/features/telegram.js",
+  "js/features/timemachine.js",
+  "js/features/walletsync.js",
+  "js/api/snapshot.js",
+  "js/app.js",
+];
 
 self.addEventListener("install", (e) => {
   self.skipWaiting();

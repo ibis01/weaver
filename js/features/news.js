@@ -120,7 +120,6 @@ W.news = (() => {
     throw lastErr || new Error("unreachable");
   }
 
-  const SNAP = "https://raw.githubusercontent.com/ibis01/weaver/main/data/";
   const mapNews = (d) =>
     (d.Data || []).map((n) => ({
       id: "cc" + n.id,
@@ -131,19 +130,18 @@ W.news = (() => {
       published_on: n.published_on,
       body: n.body || "",
     }));
-  const apiNews = () =>
-    fetch(SNAP + "news.json?t=" + Date.now(), { cache: "no-store" })
-      .then((r) => {
-        if (!r.ok) throw 0;
-        return r.json();
-      })
-      .then(mapNews)
-      .catch(() =>
-        via(
-          "https://min-api.cryptocompare.com/data/v2/news/?lang=EN",
-          true,
-        ).then(mapNews),
+
+  const apiNews = async () => {
+    try {
+      const data = await via(
+        "https://min-api.cryptocompare.com/data/v2/news/?lang=EN",
+        true,
       );
+      return mapNews(data);
+    } catch (e) {
+      return [];
+    }
+  };
 
   async function rssNews() {
     const all = [];
@@ -151,35 +149,38 @@ W.news = (() => {
       FEEDS.map(async (pair) => {
         const name = pair[0],
           url = pair[1];
-        const txt = await via(url, false);
-        const xml = new DOMParser().parseFromString(txt, "text/xml");
-        xml.querySelectorAll("item").forEach((it) => {
-          const desc =
-            (it.querySelector("description") || {}).textContent || "";
-          const tmp = new DOMParser().parseFromString(desc, "text/html");
-          all.push({
-            id: (
-              (it.querySelector("guid") || {}).textContent ||
-              (it.querySelector("link") || {}).textContent ||
-              name + all.length
-            ).slice(0, 200),
-            title: (it.querySelector("title") || {}).textContent || "Untitled",
-            url: (it.querySelector("link") || {}).textContent || "#",
-            image:
-              (it.querySelector("enclosure") || {}).getAttribute("url") ||
-              (it.querySelector("media\\:thumbnail") || {}).getAttribute(
-                "url",
-              ) ||
-              (tmp.querySelector("img") || {}).src ||
-              "",
-            source: name,
-            published_on:
-              Date.parse(
-                (it.querySelector("pubDate") || {}).textContent || "",
-              ) / 1000,
-            body: tmp.textContent.trim(),
+        try {
+          const txt = await via(url, false);
+          const xml = new DOMParser().parseFromString(txt, "text/xml");
+          xml.querySelectorAll("item").forEach((it) => {
+            const desc =
+              (it.querySelector("description") || {}).textContent || "";
+            const tmp = new DOMParser().parseFromString(desc, "text/html");
+            all.push({
+              id: (
+                (it.querySelector("guid") || {}).textContent ||
+                (it.querySelector("link") || {}).textContent ||
+                name + all.length
+              ).slice(0, 200),
+              title:
+                (it.querySelector("title") || {}).textContent || "Untitled",
+              url: (it.querySelector("link") || {}).textContent || "#",
+              image:
+                (it.querySelector("enclosure") || {}).getAttribute("url") ||
+                (it.querySelector("media\\:thumbnail") || {}).getAttribute(
+                  "url",
+                ) ||
+                (tmp.querySelector("img") || {}).src ||
+                "",
+              source: name,
+              published_on:
+                Date.parse(
+                  (it.querySelector("pubDate") || {}).textContent || "",
+                ) / 1000,
+              body: tmp.textContent.trim(),
+            });
           });
-        });
+        } catch (e) {}
       }),
     );
     return all;
@@ -309,40 +310,47 @@ W.news = (() => {
       '<div id="n-list">' +
       W.ui.spinner() +
       "</div>";
-
-    let snapshot = [];
-    try {
-      const d = await fetch(
-        "https://ibis01.github.io/weaver/data/news.json?t=" + Date.now(),
-        { cache: "no-store" },
-      ).then((r) => (r.ok ? r.json() : null));
-      if (d && d.Data)
-        snapshot = d.Data.map((n) => ({
-          id: "cc" + n.id,
-          title: n.title,
-          url: n.url,
-          image: n.imageurl,
-          source: n.source || "CryptoCompare",
-          published_on: n.published_on,
-          body: n.body || "",
-        }));
-    } catch (e) {}
-    const results = await Promise.allSettled([apiNews(), rssNews()]);
+    s;
+    const results = await Promise.allSettled([rssNews()]);
     ITEMS = [];
     results.forEach((r) => {
       if (r.status === "fulfilled") ITEMS = ITEMS.concat(r.value);
     });
-    if (!ITEMS.length) ITEMS = snapshot;
-    ITEMS = ITEMS.filter((i) => i.title).sort(
-      (a, b) => (b.published_on || 0) - (a.published_on || 0),
-    );
-    const seen = new Set();
-    ITEMS = ITEMS.filter((i) => {
-      const k = i.title.toLowerCase().slice(0, 60);
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    });
+
+    /* ⬇️⬇️⬇️ FALLBACK DATA FOR LOCAL DEV ⬇️⬇️⬇️ */
+    if (!ITEMS.length) {
+      ITEMS = [
+        {
+          id: "dev1",
+          title: "Bitcoin rebounds above $64k as sentiment improves",
+          url: "https://example.com",
+          source: "Dev Feed",
+          published_on: Date.now() / 1000 - 1800,
+          body: "Bitcoin shows strength...",
+        },
+        {
+          id: "dev2",
+          title: "Ethereum Layer 2 solutions hit record TVL",
+          url: "https://example.com",
+          source: "Dev Feed",
+          published_on: Date.now() / 1000 - 3600,
+          body: "Arbitrum and Base lead the charge...",
+        },
+        {
+          id: "dev3",
+          title: "AI tokens surge following major tech announcements",
+          url: "https://example.com",
+          source: "Dev Feed",
+          published_on: Date.now() / 1000 - 7200,
+          body: "Render and Fetch.ai see double digit gains...",
+        },
+      ];
+      const bEl = view.querySelector("#n-brief");
+      if (bEl)
+        bEl.innerHTML =
+          '<div class="ai-brief">📡 Using placeholder news feed. CORS/proxy issues are preventing live RSS loads on localhost (and CryptoCompare requires an API key). Use a CORS extension, or set up a local proxy to fix this.</div>';
+    }
+    /* ⬆️⬆️⬆️ END FALLBACK ⬆️⬆️⬆️ */
 
     if (!view.isConnected) return;
     if (ITEMS.length) W.store.set("news-cache", ITEMS.slice(0, 60));
@@ -357,7 +365,7 @@ W.news = (() => {
       view.querySelector("#n-list").innerHTML = W.ui.empty(
         "📰",
         "Couldn't load news",
-        "Check your connection — and run the app via http://localhost:8000 instead of file://",
+        "If you see CORS errors, try adding a CORS extension to your browser. The proxy services are required to fetch public RSS feeds.",
       );
       return;
     }

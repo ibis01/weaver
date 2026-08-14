@@ -1,18 +1,14 @@
-<<<<<<< HEAD
-{"data":[{"value":"27","value_classification":"Fear","timestamp":"1786545490"}]}
-=======
 {
-	"name": "Fear and Greed Index",
-	"data": [
-		{
-			"value": "29",
-			"value_classification": "Fear",
-			"timestamp": "1786579200",
-			"time_until_update": "86063"
-		}
-	],
-	"metadata": {
-		"error": null
-	}
+  "name": "Fear and Greed Index",
+  "data": [
+    {
+      "value": "29",
+      "value_classification": "Fear",
+      "timestamp": "1786579200",
+      "time_until_update": "86063"
+    }
+  ],
+  "metadata": {
+    "error": null
+  }
 }
->>>>>>> 26e54975ae5ec1fe6534fa215575852cacd691bf

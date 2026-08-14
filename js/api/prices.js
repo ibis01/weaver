@@ -100,51 +100,11 @@ W.api = (() => {
           return d;
         }),
     },
-    cryptocompare: {
-      markets: (ids) =>
-        getJSON(
-          CC +
-            "/pricemultifull?fsyms=" +
-            ids.map(symOf).join(",") +
-            "&tsyms=" +
-            CUR().toUpperCase(),
-          60000,
-        ).then((d) => {
-          const R = (d.RAW || {})[CUR().toUpperCase()] || {};
-          return ids.map((id) => {
-            const q = R[symOf(id)] || {};
-            return {
-              id,
-              symbol: symOf(id).toLowerCase(),
-              name: symOf(id),
-              image: "",
-              current_price: q.PRICE,
-              market_cap: q.MKTCAP,
-              total_volume: q.TOTALVOLUME,
-              price_change_percentage_24h_in_currency: q.CHANGEPCT24HOUR,
-              price_change_percentage_7d_in_currency: null,
-              price_change_percentage_30d_in_currency: null,
-              sparkline_in_7d: null,
-            };
-          });
-        }),
-      chart: (id, days) =>
-        getJSON(
-          CC +
-            "/v2/histoday?fsym=" +
-            symOf(id) +
-            "&tsym=" +
-            CUR().toUpperCase() +
-            "&limit=" +
-            days,
-          300000,
-        ).then((d) =>
-          ((d.Data && d.Data.Data) || d.Data || []).map((x) => [
-            x.time * 1000,
-            x.close,
-          ]),
-        ),
-    },
+    // NOTE: the "cryptocompare" provider was removed — CryptoCompare's
+    // min-api now requires a paid API key on every endpoint (including
+    // pricemultifull/histoday), so it only ever returned 401 and wasted a
+    // failover step. Kept CC constant above unused/harmless in case a
+    // future keyed integration is added.
     binance: {
       markets: (ids) =>
         getJSON(
@@ -187,10 +147,7 @@ W.api = (() => {
   };
 
   async function withFailover(kind, a, b) {
-    const order =
-      kind === "top"
-        ? ["coingecko"]
-        : ["coingecko", "cryptocompare", "binance"];
+    const order = kind === "top" ? ["coingecko"] : ["coingecko", "binance"];
     let lastErr;
     for (const p of order) {
       if (!PROVIDERS[p][kind] || !okP(p)) continue;
@@ -271,8 +228,6 @@ W.api = (() => {
         120000,
       ),
     trending: () => getJSON(CG + "/search/trending", 300000),
-    news: () =>
-      getJSON(CC + "/v2/news/?lang=EN", 300000).then((d) => d.Data || []),
   };
   return api;
 })();

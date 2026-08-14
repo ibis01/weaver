@@ -77,10 +77,12 @@ W.dashboard = (() => {
     if (!holdings.length) return { rows: [], totals: null };
     const ids = [...new Set(holdings.map((h) => h.coinId))].join(",");
     let markets = [];
-    try {
-      markets = await W.api.markets(ids);
-    } catch (e) {
-      W.ui.toast(e.message, "warn");
+    if (ids.trim()) {
+      try {
+        markets = await W.api.markets(ids);
+      } catch (e) {
+        W.ui.toast(e.message, "warn");
+      }
     }
     const rows = holdings
       .map((h) => {
