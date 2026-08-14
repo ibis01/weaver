@@ -120,29 +120,6 @@ W.news = (() => {
     throw lastErr || new Error("unreachable");
   }
 
-  const mapNews = (d) =>
-    (d.Data || []).map((n) => ({
-      id: "cc" + n.id,
-      title: n.title,
-      url: n.url,
-      image: n.imageurl,
-      source: n.source || "CryptoCompare",
-      published_on: n.published_on,
-      body: n.body || "",
-    }));
-
-  const apiNews = async () => {
-    try {
-      const data = await via(
-        "https://min-api.cryptocompare.com/data/v2/news/?lang=EN",
-        true,
-      );
-      return mapNews(data);
-    } catch (e) {
-      return [];
-    }
-  };
-
   async function rssNews() {
     const all = [];
     await Promise.allSettled(
@@ -185,6 +162,7 @@ W.news = (() => {
     );
     return all;
   }
+
   function topThemes(items) {
     const freq = {};
     items.slice(0, 20).forEach((i) =>
@@ -310,92 +288,40 @@ W.news = (() => {
       '<div id="n-list">' +
       W.ui.spinner() +
       "</div>";
-    s;
-    const results = await Promise.allSettled([rssNews()]);
-    ITEMS = [];
-    results.forEach((r) => {
-      if (r.status === "fulfilled") ITEMS = ITEMS.concat(r.value);
-    });
 
-    /* ⬇️⬇️⬇️ FALLBACK DATA FOR LOCAL DEV ⬇️⬇️⬇️ */
-    if (!ITEMS.length) {
-      ITEMS = [
-        {
-          id: "dev1",
-          title: "Bitcoin rebounds above $64k as sentiment improves",
-          url: "https://example.com",
-          source: "Dev Feed",
-          published_on: Date.now() / 1000 - 1800,
-          body: "Bitcoin shows strength...",
-        },
-        {
-          id: "dev2",
-          title: "Ethereum Layer 2 solutions hit record TVL",
-          url: "https://example.com",
-          source: "Dev Feed",
-          published_on: Date.now() / 1000 - 3600,
-          body: "Arbitrum and Base lead the charge...",
-        },
-        {
-          id: "dev3",
-          title: "AI tokens surge following major tech announcements",
-          url: "https://example.com",
-          source: "Dev Feed",
-          published_on: Date.now() / 1000 - 7200,
-          body: "Render and Fetch.ai see double digit gains...",
-        },
-      ];
-      const bEl = view.querySelector("#n-brief");
-      if (bEl)
-        bEl.innerHTML =
-          '<div class="ai-brief">📡 Using placeholder news feed. CORS/proxy issues are preventing live RSS loads on localhost (and CryptoCompare requires an API key). Use a CORS extension, or set up a local proxy to fix this.</div>';
-    }
-    /* ⬆️⬆️⬆️ END FALLBACK ⬆️⬆️⬆️ */
-
-    if (!view.isConnected) return;
-    if (ITEMS.length) W.store.set("news-cache", ITEMS.slice(0, 60));
-    else {
-      ITEMS = W.store.get("news-cache", []);
-      const bEl = view.querySelector("#n-brief");
-      if (ITEMS.length && bEl)
-        bEl.innerHTML =
-          '<div class="ai-brief">📡 Live news unreachable — showing your last cached feed.</div>';
-    }
-    if (!ITEMS.length) {
-      view.querySelector("#n-list").innerHTML = W.ui.empty(
-        "📰",
-        "Couldn't load news",
-        "If you see CORS errors, try adding a CORS extension to your browser. The proxy services are required to fetch public RSS feeds.",
-      );
-      return;
-    }
-
-    const counts = { bullish: 0, bearish: 0, neutral: 0 };
-    ITEMS.forEach((i) => counts[sentiment(i.title)]++);
-    const mood =
-      counts.bullish > counts.bearish
-        ? "leaning bullish 📈"
-        : counts.bearish > counts.bullish
-          ? "leaning bearish 📉"
-          : "mixed / neutral ⚖️";
-    const bEl2 = view.querySelector("#n-brief");
-    if (bEl2 && !bEl2.innerHTML)
-      view.querySelector("#n-brief").innerHTML =
-        '<div class="ai-brief">🤖 <b>Weaver News Brief:</b> scanned ' +
-        ITEMS.length +
-        " articles from " +
-        new Set(ITEMS.map((i) => i.source)).size +
-        " sources — tone is <b>" +
-        mood +
-        "</b> (" +
-        counts.bullish +
-        " bullish · " +
-        counts.bearish +
-        " bearish · " +
-        counts.neutral +
-        " neutral). Top themes: " +
-        topThemes(ITEMS) +
-        ".</div>";
+    /* ⬇️⬇️⬇️ INSTANT FALLBACK DATA (Shows immediately) ⬇️⬇️⬇️ */
+    const fallbackItems = [
+      {
+        id: "dev1",
+        title: "Bitcoin rebounds above $64k as sentiment improves",
+        url: "https://example.com",
+        source: "Dev Feed",
+        published_on: Date.now() / 1000 - 1800,
+        body: "Bitcoin shows strength...",
+      },
+      {
+        id: "dev2",
+        title: "Ethereum Layer 2 solutions hit record TVL",
+        url: "https://example.com",
+        source: "Dev Feed",
+        published_on: Date.now() / 1000 - 3600,
+        body: "Arbitrum and Base lead the charge...",
+      },
+      {
+        id: "dev3",
+        title: "AI tokens surge following major tech announcements",
+        url: "https://example.com",
+        source: "Dev Feed",
+        published_on: Date.now() / 1000 - 7200,
+        body: "Render and Fetch.ai see double digit gains...",
+      },
+    ];
+    ITEMS = fallbackItems;
+    W.store.set("news-cache", fallbackItems);
+    const bEl = view.querySelector("#n-brief");
+    if (bEl)
+      bEl.innerHTML =
+        '<div class="ai-brief">📡 Using placeholder news feed. CORS/proxy issues are preventing live RSS loads on localhost (and CryptoCompare requires an API key). Use a CORS extension, or set up a local proxy to fix this.</div>';
 
     let filter = "All";
     const drawFilters = () => {
@@ -446,9 +372,15 @@ W.news = (() => {
 
       view.querySelector("#n-list").innerHTML = list
         .map((n, k) => {
-          const s = sentiment(n.title),
-            read = readList().includes(n.id),
-            saved = isSaved(n.id);
+          const safeTitle = n.title || "Untitled";
+          let s = "neutral";
+          try {
+            s = sentiment(safeTitle);
+          } catch (e) {
+            s = "neutral";
+          }
+          const read = readList().includes(n.id);
+          const saved = isSaved(n.id);
           return (
             '<div class="card news-card ' +
             (read ? "read" : "") +
@@ -459,10 +391,10 @@ W.news = (() => {
               ? '<img src="' + n.image + '" onerror="this.remove()">'
               : "") +
             '<div style="flex:1"><div class="news-title">' +
-            n.title +
+            safeTitle +
             "</div>" +
             '<div class="muted small">' +
-            n.source +
+            (n.source || "Unknown") +
             " · " +
             ago(n.published_on) +
             "</div>" +
@@ -522,6 +454,24 @@ W.news = (() => {
     };
     drawFilters();
     drawList();
+
+    /* ⬇️⬇️⬇️ BACKGROUND FETCH (Replaces fallback if successful) ⬇️⬇️⬇️ */
+    (async () => {
+      const results = await Promise.allSettled([rssNews()]);
+      let realItems = [];
+      results.forEach((r) => {
+        if (r.status === "fulfilled") realItems = realItems.concat(r.value);
+      });
+      if (realItems.length > 0) {
+        ITEMS = realItems; // Update only if we got real news
+        W.store.set("news-cache", realItems);
+        const bEl2 = view.querySelector("#n-brief");
+        if (bEl2) bEl2.innerHTML = ""; // Clear the "placeholder" banner
+        drawFilters();
+        drawList();
+      }
+    })();
+    /* ⬆️⬆️⬆️ END BACKGROUND FETCH ⬆️⬆️⬆️ */
   }
 
   return { render };
