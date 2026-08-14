@@ -124,24 +124,28 @@ W.walletSync = (() => {
 
   async function sol(addr) {
     const rows = [];
+    let d;
     try {
-      const d = await post("https://api.mainnet-beta.solana.com", {
+      d = await post("https://api.mainnet-beta.solana.com", {
         jsonrpc: "2.0",
         id: 1,
         method: "getBalance",
         params: [addr],
       });
-      const q = ((d.result && d.result.value) || 0) / 1e9;
-      if (q > 1e-9)
-        rows.push({
-          id: "w-sol",
-          coinId: "solana",
-          symbol: "sol",
-          name: "Solana",
-          qty: q,
-          wallet: true,
-        });
-    } catch (e) {}
+    } catch (e) {
+      // Silently ignore Solana RPC errors (common on localhost)
+      return rows;
+    }
+    const q = ((d.result && d.result.value) || 0) / 1e9;
+    if (q > 1e-9)
+      rows.push({
+        id: "w-sol",
+        coinId: "solana",
+        symbol: "sol",
+        name: "Solana",
+        qty: q,
+        wallet: true,
+      });
     for (const [cid, sym, name, mint, dec] of SPL) {
       try {
         const d = await post("https://api.mainnet-beta.solana.com", {
