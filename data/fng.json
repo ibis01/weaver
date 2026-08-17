@@ -1,14 +1,7 @@
-{
-	"name": "Fear and Greed Index",
-	"data": [
-		{
-			"value": "31",
-			"value_classification": "Fear",
-			"timestamp": "1786924800",
-			"time_until_update": "52185"
-		}
-	],
-	"metadata": {
-		"error": null
-	}
-}
+<html>
+<head><title>502 Bad Gateway</title></head>
+<body bgcolor="white">
+<center><h1>502 Bad Gateway</h1></center>
+<hr><center>nginx/1.14.2</center>
+</body>
+</html>
