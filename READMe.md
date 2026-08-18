@@ -1,74 +1,93 @@
 # 🚀 Weaver
 
-**Crypto portfolio tracker with AI insights — private by design. No build step, no backend required.**
+**Privacy-first crypto intelligence terminal with AI insights — no backend required.**
 
-![version](https://img.shields.io/badge/version-1.0.0-7c5cff) ![license](https://img.shields.io/badge/license-MIT-2ee6a8) ![build](https://img.shields.io/badge/build-none%20required-ff5c7a) ![demo](https://img.shields.io/badge/demo-GitHub%20Pages-5cd6ff)
+![version](https://img.shields.io/badge/version-1.0.0-7c5cff)
+![license](https://img.shields.io/badge/license-MIT-2ee6a8)
+![build](https://img.shields.io/badge/build-none%20required-ff5c7a)
+![demo](https://img.shields.io/badge/demo-GitHub%20Pages-5cd6ff)
 
 > **Live demo:** https://ibis01.github.io/weaver/
 
-<p align="center"><img src="assets/logo.png" width="96" alt="Weaver logo"></p>
+<p align="center">
+  <img src="assets/logo.png" width="96" alt="Weaver logo">
+</p>
+
+---
+
+## 📸 Screenshots
+
+<p align="center">
+  <img src="assets/screenshots/dashboard.png" width="45%" alt="Dashboard">
+  <img src="assets/screenshots/portfolio.png" width="45%" alt="Portfolio">
+</p>
+<p align="center">
+  <img src="assets/screenshots/news.png" width="45%" alt="News">
+  <img src="assets/screenshots/ai.png" width="45%" alt="AI Intelligence">
+</p>
+
+---
 
 ## ✨ Features
 
-**Core**
-- 📊 Dashboard — total balance, 24h/7d/all-time P/L, allocation chart
-- 💼 Portfolio — holdings CRUD, buy/sell transactions, history
-- ⭐ Watchlist · 🔍 Coin Explorer (charts, stats, contract addresses)
-- 🚨 Alerts — price, % move, volume spikes (+ browser notifications)
-- 📰 News with AI brief & sentiment · 📈 Fear & Greed, BTC dominance, heatmap, alt-season
-- 🤖 AI — portfolio review, risk analysis, market summary, Ask Weaver (optional LLM key)
-- 🌐 Web3 — MetaMask + Phantom connect · 💰 DeFi tracker · 🎯 Airdrop Hunter
-- 📚 Learn (quizzes, streaks) · 👤 Profile & achievements
+### Core
 
-**Pro suite (included free in this build)**
-- 🐋 Whale wallet tracker (live BTC/ETH on-chain feeds)
-- 🧠 Smart Money tracker (top holders ranked by reconstructed P/L)
-- 🔓 Token unlock calendar with sell-pressure scoring
-- 🧮 Portfolio optimizer (target allocations → exact trade plan)
-- ⚡ AI Trading Assistant (RSI/SMA/momentum signal engine)
-- 🧾 Tax report CSV export
-- ☁️ Multi-device sync — **zero-knowledge E2E encryption** (AES-256-GCM over Firebase)
-- 📱 Installable PWA with offline cache
+- **📊 Dashboard** — Total balance, 24h/7d/all-time P/L, allocation chart, market tape
+- **💼 Portfolio** — Holdings CRUD, buy/sell transactions, transaction history
+- **⭐ Watchlist** — Track your favorite coins with real-time prices
+- **🔍 Coin Explorer** — Search coins, detailed charts, stats, contract addresses
+- **🚨 Alerts** — Price alerts, % move alerts, volume spikes + browser notifications
+- **📰 News** — RSS feeds with AI sentiment, fallback snapshot
+- **📈 Market** — Fear & Greed, BTC dominance, heatmap, altcoin season index, top gainers/losers
 
-## 🏁 Quick start
+### Intelligence
+
+- **🧠 AI Portfolio Intelligence** — Risk decomposition, pattern detection, proactive insights
+- **🧠 Smart Money Tracker** — Analyze top holders, P/L reconstruction, accumulation detection
+- **🐋 Whale Tracker** — Multi-chain whale wallet tracking (BTC, ETH, BSC, Polygon, Solana, Arbitrum, Avalanche)
+- **🛡️ Token Shield** — Contract security auditor (honeypot, mintable, proxy, tax detection)
+
+### Opportunities
+
+- **💎 Gem Agent** — Autonomous new-token hunter with scoring algorithm
+- **🪂 Airdrop Hunter** — Track and complete airdrop tasks
+- **🏦 DeFi Tracker** — Manual DeFi position tracking
+- **🔓 Token Unlocks** — Vesting cliffs & emissions calendar with sell-pressure scoring
+
+### Tools
+
+- **🧮 Portfolio Optimizer** — Target allocations → exact trade plan with risk analysis
+- **⚡ Trading Assistant** — RSI/SMA/momentum/Fear&Greed signal engine
+- **⏳ Time Machine** — Replay your portfolio's historical performance
+
+### Research
+
+- **📚 Learn** — Comprehensive crypto & Web3 education (16+ lessons with quizzes)
+- **📰 News** — Curated crypto news with AI brief
+
+### Account
+
+- **👤 Profile** — Achievements, learning streak, stats
+- **⚙️ Settings** — Currency, auto-refresh, AI API, Telegram alerts
+- **☁️ Sync** — Zero-knowledge E2E encryption (PBKDF2 + AES-256-GCM)
+
+---
+
+## 🏁 Quick Start
 
 ```bash
-# run locally — no build, no dependencies
-open index.html          # or: npx serve / python3 -m http.server
+# Clone the repository
+git clone https://github.com/ibis01/weaver.git
+cd weaver
 
-# deploy
-git push   # GitHub Pages: Settings → Pages → main / (root)
+# Install proxy dependencies (for news and API fallbacks)
+npm install
+
+# Start the local proxy server (for news RSS feeds)
+node proxy-server.js
+
+# Serve the app (choose one)
+python3 -m http.server 8000
+# OR
+npx serve
 ```
-
-## 📁 Architecture
-
-```
-index.html            shell + nav + view router (hash-based)
-style.css             full design system (dark, glass, gradient)
-js/app.js             router, boot, auto-refresh loop, sync hook
-js/api/prices.js      CoinGecko / news / fear-greed (cached)
-js/storage/           localStorage abstraction (weaver:* keys)
-js/ui/                modals, toasts, coin picker, dashboard
-js/features/          portfolio · watchlist · explorer · alerts · news
-                      market · ai · learn · web3 · misc · whales
-                      smart · unlocks · optimizer · trader · sync
-js/utils/             formatters + debounce
-```
-
-## 🔐 Privacy model
-
-- All data lives in `localStorage` by default — nothing leaves the browser.
-- Optional sync is **zero-knowledge**: PBKDF2(120k) → AES-256-GCM client-side; Firebase stores only ciphertext under SHA-256-hashed IDs.
-- On-chain analytics use public CORS-open APIs — no keys, no accounts.
-
-## 🌐 Data sources (free, no keys)
-
-CoinGecko · CryptoCompare News · alternative.me · mempool.space · Blockscout
-
-## ⚠️ Disclaimer
-
-Educational tool. **Not financial advice.**
-
-## 📄 License
-
-MIT © 2026 ibis01

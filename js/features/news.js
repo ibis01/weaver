@@ -96,9 +96,11 @@ async function render() {
   // 1. Try to find the container
   let container = document.getElementById("news-container");
 
-  // 2. If not found, try to find a parent news section
+  // 2. If not found, find the main content area
   if (!container) {
+    // Try to find the main content wrapper – this is where news should live
     const parent =
+      document.querySelector(".main") || // your main content area
       document.getElementById("news") ||
       document.getElementById("news-section") ||
       document.getElementById("page-news") ||
@@ -108,13 +110,16 @@ async function render() {
     container = document.createElement("div");
     container.id = "news-container";
     container.className = "news-container";
-    parent.prepend(container);
+
+    // Append to the parent (or prepend if you prefer)
+    parent.appendChild(container);
     console.log(
       "[News] Created container #news-container inside",
-      parent.tagName + (parent.id ? "#" + parent.id : ""),
+      parent.tagName +
+        (parent.id ? "#" + parent.id : "") +
+        (parent.className ? "." + parent.className : ""),
     );
   }
-
   // 3. Show loading
   container.innerHTML = '<div class="loading">Loading news...</div>';
 

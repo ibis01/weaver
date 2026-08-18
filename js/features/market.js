@@ -1,25 +1,52 @@
+// ================================================================
+// js/features/market.js – Market Overview
+// ================================================================
+
 window.W = window.W || {};
 
 W.market = (() => {
-  const card = (l, b, s) =>
-    `<div class="card stat"><div class="stat-label">${l}</div><div class="stat-big">${b}</div><div class="stat-sub">${s}</div></div>`;
+  // ── Helpers ──────────────────────────────────────────────
+  function escapeHTML(str) {
+    if (!str) return "";
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  const card = (label, big, sub) =>
+    `<div class="card stat"><div class="stat-label">${label}</div><div class="stat-big">${big}</div><div class="stat-sub">${sub}</div></div>`;
+
   const miniTable = (coins) =>
-    `<table class="mini"><tbody>${coins
-      .map(
-        (c) => `<tr>
-    <td class="coin-cell"><img src="${c.image}"><a class="link" href="#/coin/${c.id}">${c.symbol.toUpperCase()}</a></td>
-    <td>${W.fmt.price(c.current_price)}</td>
-    <td>${W.fmt.pct(c.price_change_percentage_24h_in_currency)}</td></tr>`,
-      )
-      .join("")}</tbody></table>`;
+    `<table class="mini">
+      <tbody>
+        ${coins
+          .map(
+            (c) => `
+          <tr>
+            <td class="coin-cell"><img src="${c.image}" alt="${c.name}"><a class="link" href="#/coin/${c.id}">${c.symbol.toUpperCase()}</a></td>
+            <td>${W.fmt.price(c.current_price)}</td>
+            <td>${W.fmt.pct(c.price_change_percentage_24h_in_currency)}</td>
+          </tr>
+        `,
+          )
+          .join("")}
+      </tbody>
+    </table>`;
+
   const heatColor = (p) => {
-    const cl = Math.max(-10, Math.min(10, p)) / 10;
-    return cl >= 0
-      ? `rgba(46,230,168,${0.15 + cl * 0.55})`
-      : `rgba(255,92,122,${0.15 - cl * 0.55})`;
+    const clamped = Math.max(-10, Math.min(10, p)) / 10;
+    return clamped >= 0
+      ? `rgba(46,230,168,${0.15 + clamped * 0.55})`
+      : `rgba(255,92,122,${0.15 - clamped * 0.55})`;
   };
 
+  // ── Render ──────────────────────────────────────────────
   async function render(view) {
+    if (!view) {
+      console.warn("[Market] No view element provided");
+      return;
+    }
+
     view.innerHTML = `
       <div class="cards" id="m-cards">${W.ui.spinner()}</div>
       <div class="grid-2">
@@ -30,7 +57,8 @@ W.market = (() => {
         <div class="card"><h3>📈 Top Gainers (24h)</h3><div id="m-gain"></div></div>
         <div class="card"><h3>📉 Top Losers (24h)</h3><div id="m-lose"></div></div>
       </div>
-      <div class="card"><h3>🗺️ Market Heatmap (Top 40 · 7d)</h3><div id="m-heat" class="heatmap"></div></div>`;
+      <div class="card"><h3>🗺️ Market Heatmap (Top 40 · 7d)</h3><div id="m-heat" class="heatmap"></div></div>
+    `;
 
     try {
       const [g, fg] = await Promise.all([W.api.global(), W.api.fearGreed()]);
@@ -49,10 +77,11 @@ W.market = (() => {
         ${card("Fear & Greed Index", `<span style="color:${fgColor}">${fg.value}</span>`, fg.value_classification)}
         ${card("BTC Dominance", d.market_cap_percentage.btc.toFixed(1) + "%", "of total market cap")}
         ${card("Total Market Cap", W.fmt.money(d.total_market_cap[W.currency()], { compact: true }), W.fmt.pct(d.market_cap_change_percentage_24h_usd))}
-        ${card("Total Volume (24h)", W.fmt.money(d.total_volume[W.currency()], { compact: true }), "all markets")}`;
+        ${card("Total Volume (24h)", W.fmt.money(d.total_volume[W.currency()], { compact: true }), "all markets")}
+      `;
     } catch (e) {
       view.querySelector("#m-cards").innerHTML =
-        `<p class="muted">${e.message}</p>`;
+        `<p class="muted">${escapeHTML(e.message)}</p>`;
     }
 
     try {
@@ -60,10 +89,17 @@ W.market = (() => {
       view.querySelector("#m-trend").innerHTML = t.coins
         .map(
           (x) =>
-            `<a class="trend-chip" href="#/coin/${x.item.id}"><img src="${x.item.small || x.item.thumb}">${x.item.name} <span class="muted small">${x.item.symbol}</span></a>`,
+            `<a class="trend-chip" href="#/coin/${x.item.id}">
+          <img src="${x.item.small || x.item.thumb}" alt="${x.item.name}">
+          ${escapeHTML(x.item.name)}
+          <span class="muted small">${x.item.symbol}</span>
+        </a>`,
         )
         .join("");
-    } catch (e) {}
+    } catch (e) {
+      view.querySelector("#m-trend").innerHTML =
+        `<p class="muted">${escapeHTML(e.message)}</p>`;
+    }
 
     try {
       const top = await W.api.top(100);
@@ -95,20 +131,25 @@ W.market = (() => {
         <div class="alt-num">${idx}</div>
         <div class="alt-bar"><div style="width:${idx}%"></div></div>
         <p class="muted small">${beating}/${top50.length} of the top-50 coins outperformed BTC over 7 days (≥75 = Altcoin Season).</p>
-        <b>${label}</b>`;
+        <b>${label}</b>
+      `;
 
       view.querySelector("#m-heat").innerHTML = top
         .slice(0, 40)
         .map((c) => {
           const p = c.price_change_percentage_7d_in_currency ?? 0;
-          return `<a class="heat-cell" style="background:${heatColor(p)}" href="#/coin/${c.id}" title="${c.name} 7d: ${p.toFixed(2)}%">
-          <b>${c.symbol.toUpperCase()}</b><span>${p >= 0 ? "+" : ""}${p.toFixed(1)}%</span></a>`;
+          return `<a class="heat-cell" style="background:${heatColor(p)}" href="#/coin/${c.id}" title="${escapeHTML(c.name)} 7d: ${p.toFixed(2)}%">
+          <b>${c.symbol.toUpperCase()}</b>
+          <span>${p >= 0 ? "+" : ""}${p.toFixed(1)}%</span>
+        </a>`;
         })
         .join("");
     } catch (e) {
-      console.warn(e);
+      console.warn("[Market] Error fetching top data:", e);
     }
   }
 
   return { render };
 })();
+
+console.log("[Market] Module loaded.");

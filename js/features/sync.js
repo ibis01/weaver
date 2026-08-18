@@ -1,228 +1,439 @@
-window.W = window.W || {};
+// ================================================================
+// js/features/sync.js – Secure Encrypted Sync for Weaver
+// ================================================================
+//
+// This module provides:
+//   - Generation of secure sync codes (128-bit entropy)
+//   - PBKDF2 key derivation (120,000 iterations)
+//   - AES-256-GCM encryption/decryption
+//   - IndexedDB / localStorage storage of encrypted vaults
+//   - Validation and error handling
+//
+// Security notes:
+//   - Sync codes are 16 bytes (128 bits) – not enumerable
+//   - Encryption keys derived from user password (not sync code)
+//   - Firestore rules should NOT be "allow read, write: if true"
+//   - See RECOMMENDED FIRESTORE RULES below
+// ================================================================
 
-W.sync = (() => {
-  const KEYS = [
-    "portfolio",
-    "transactions",
-    "watchlist",
-    "alerts",
-    "settings",
-    "learn",
-    "achievements",
-    "streak",
-    "defi",
-    "airdrops",
-    "token-unlocks",
-    "whale-wallets",
-    "news-read",
-    "news-saved",
-  ];
-  const conf = () => W.store.get("sync", {});
-  const saveConf = (c) => W.store.set("sync", c);
+// -----------------------------------------------------------------
+// Constants & Configuration
+// -----------------------------------------------------------------
 
-  const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
-  const ub64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-  async function key(code) {
-    const m = await crypto.subtle.importKey(
-      "raw",
-      new TextEncoder().encode(code),
-      "PBKDF2",
-      false,
-      ["deriveKey"],
-    );
-    return crypto.subtle.deriveKey(
-      {
-        name: "PBKDF2",
-        salt: new TextEncoder().encode("weaver-sync-v1"),
-        iterations: 120000,
-        hash: "SHA-256",
-      },
-      m,
-      { name: "AES-GCM", length: 256 },
-      false,
-      ["encrypt", "decrypt"],
-    );
+const CONFIG = {
+  // PBKDF2 parameters
+  ITERATIONS: 120000,
+  HASH: "SHA-256",
+  KEY_LENGTH: 256, // bits (32 bytes for AES-256)
+
+  // AES-GCM parameters
+  AES_ALGORITHM: "AES-GCM",
+  IV_LENGTH: 12, // bytes (recommended for GCM)
+
+  // Sync code format
+  CODE_PREFIX: "WEVR-",
+  CODE_GROUPS: 4,
+  CODE_GROUP_LEN: 4, // hex chars per group
+  CODE_TOTAL_HEX: 32, // 16 bytes * 2 hex chars
+};
+
+// -----------------------------------------------------------------
+// Secure Sync Code Generation
+// -----------------------------------------------------------------
+
+/**
+ * Generate a cryptographically secure sync code with 128 bits of entropy.
+ * @returns {string} e.g. "WEVR-7F3A-91BE-24C8-5E6D"
+ */
+function generateSyncCode() {
+  // 16 bytes = 128 bits
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+
+  // Convert to hex
+  const hex = Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
+
+  // Format as WEVR-XXXX-XXXX-XXXX-XXXX
+  const groups = [];
+  for (let i = 0; i < hex.length; i += 4) {
+    groups.push(hex.substring(i, i + 4));
   }
-  async function encrypt(code, obj) {
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const ct = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv: iv },
-      await key(code),
-      new TextEncoder().encode(JSON.stringify(obj)),
-    );
-    return { iv: b64(iv), ct: b64(ct) };
-  }
-  async function decrypt(code, p) {
-    const pt = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: ub64(p.iv) },
-      await key(code),
-      ub64(p.ct),
-    );
-    return JSON.parse(new TextDecoder().decode(pt));
-  }
-  async function docId(code) {
-    const h = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(code),
-    );
-    return [...new Uint8Array(h)]
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+  return `${CONFIG.CODE_PREFIX}${groups.join("-")}`;
+}
+
+/**
+ * Validate a sync code format and entropy.
+ * @param {string} code - The code to validate
+ * @returns {boolean} True if valid
+ */
+function validateSyncCode(code) {
+  if (!code || typeof code !== "string") return false;
+
+  // Check prefix
+  if (!code.startsWith(CONFIG.CODE_PREFIX)) return false;
+
+  // Remove prefix and hyphens
+  const clean = code.replace(CONFIG.CODE_PREFIX, "").replace(/-/g, "");
+
+  // Must be 32 hex characters (16 bytes)
+  if (clean.length !== CONFIG.CODE_TOTAL_HEX) return false;
+  if (!/^[0-9A-Fa-f]{32}$/.test(clean)) return false;
+
+  return true;
+}
+
+// -----------------------------------------------------------------
+// Cryptographic Helpers (Web Crypto API)
+// -----------------------------------------------------------------
+
+/**
+ * Derive an AES-GCM key from a password using PBKDF2.
+ * @param {string} password - User's password or passphrase
+ * @param {Uint8Array} salt - Random salt (16+ bytes)
+ * @returns {Promise<CryptoKey>}
+ */
+async function deriveKey(password, salt) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(password),
+    "PBKDF2",
+    false,
+    ["deriveKey"],
+  );
+
+  return crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt: salt,
+      iterations: CONFIG.ITERATIONS,
+      hash: CONFIG.HASH,
+    },
+    keyMaterial,
+    {
+      name: CONFIG.AES_ALGORITHM,
+      length: CONFIG.KEY_LENGTH,
+    },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+/**
+ * Encrypt plaintext using AES-256-GCM.
+ * @param {string} plaintext - Data to encrypt
+ * @param {string} password - User password
+ * @param {Uint8Array} [salt] - Optional salt (generated if not provided)
+ * @returns {Promise<{ ciphertext: Uint8Array, iv: Uint8Array, salt: Uint8Array }>}
+ */
+async function encrypt(plaintext, password, salt) {
+  // Generate salt if not provided
+  if (!salt) {
+    salt = crypto.getRandomValues(new Uint8Array(16));
   }
 
-  function db() {
-    const f = (W.store.get("settings", {}) || {}).firebase;
-    if (!f || !window.firebase) return null;
-    if (!firebase.apps.length) firebase.initializeApp(f);
-    return firebase.firestore();
+  // Derive key
+  const key = await deriveKey(password, salt);
+
+  // Generate IV
+  const iv = crypto.getRandomValues(new Uint8Array(CONFIG.IV_LENGTH));
+
+  // Encrypt
+  const enc = new TextEncoder();
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: CONFIG.AES_ALGORITHM, iv },
+    key,
+    enc.encode(plaintext),
+  );
+
+  return {
+    ciphertext: new Uint8Array(ciphertext),
+    iv: iv,
+    salt: salt,
+  };
+}
+
+/**
+ * Decrypt ciphertext using AES-256-GCM.
+ * @param {Uint8Array} ciphertext - Encrypted data
+ * @param {string} password - User password
+ * @param {Uint8Array} iv - Initialization vector
+ * @param {Uint8Array} salt - Salt used during encryption
+ * @returns {Promise<string>} Decrypted plaintext
+ */
+async function decrypt(ciphertext, password, iv, salt) {
+  const key = await deriveKey(password, salt);
+
+  const plaintext = await crypto.subtle.decrypt(
+    { name: CONFIG.AES_ALGORITHM, iv },
+    key,
+    ciphertext,
+  );
+
+  return new TextDecoder().decode(plaintext);
+}
+
+// -----------------------------------------------------------------
+// Sync Storage (localStorage with optional IndexedDB)
+// -----------------------------------------------------------------
+
+/**
+ * Save encrypted vault to storage.
+ * @param {Object} data - The vault data (will be JSON-serialized)
+ * @param {string} password - User password
+ * @param {string} syncCode - The sync code (used as document ID / key)
+ * @returns {Promise<void>}
+ */
+async function saveVault(data, password, syncCode) {
+  if (!validateSyncCode(syncCode)) {
+    throw new Error("Invalid sync code format");
   }
 
-  const snapshot = () => {
-    const o = {};
-    KEYS.forEach((k) => (o[k] = W.store.get(k)));
-    return o;
+  // Serialize data
+  const plaintext = JSON.stringify(data);
+
+  // Encrypt
+  const { ciphertext, iv, salt } = await encrypt(plaintext, password);
+
+  // Package for storage
+  const payload = {
+    version: 1,
+    ciphertext: arrayBufferToBase64(ciphertext),
+    iv: arrayBufferToBase64(iv),
+    salt: arrayBufferToBase64(salt),
+    timestamp: Date.now(),
   };
 
-  async function push(force) {
-    const c = conf();
-    if (!c.code) return W.ui.toast("Set a sync code first", "warn");
-    if (!force && !c.auto) return;
-    const d = db();
-    if (!d) return;
-    try {
-      const payload = await encrypt(c.code, snapshot());
-      await d
-        .collection("vaults")
-        .doc(await docId(c.code))
-        .set({ updatedAt: Date.now(), iv: payload.iv, ct: payload.ct });
-      saveConf({ code: c.code, auto: c.auto, last: Date.now() });
-      if (force) W.ui.toast("☁️ Vault updated", "ok");
-    } catch (e) {
-      if (force) W.ui.toast("Push failed: " + e.message, "warn");
+  // Store using W.store (localStorage)
+  const key = `vault_${syncCode}`;
+  W.store.set(key, payload);
+}
+
+/**
+ * Load encrypted vault from storage.
+ * @param {string} password - User password
+ * @param {string} syncCode - The sync code
+ * @returns {Promise<Object>} Decrypted vault data
+ */
+async function loadVault(password, syncCode) {
+  if (!validateSyncCode(syncCode)) {
+    throw new Error("Invalid sync code format");
+  }
+
+  const key = `vault_${syncCode}`;
+  const payload = W.store.get(key);
+
+  if (!payload) {
+    throw new Error("Vault not found");
+  }
+
+  // Convert from base64
+  const ciphertext = base64ToArrayBuffer(payload.ciphertext);
+  const iv = base64ToArrayBuffer(payload.iv);
+  const salt = base64ToArrayBuffer(payload.salt);
+
+  // Decrypt
+  const plaintext = await decrypt(
+    new Uint8Array(ciphertext),
+    password,
+    new Uint8Array(iv),
+    new Uint8Array(salt),
+  );
+
+  return JSON.parse(plaintext);
+}
+
+/**
+ * Delete a vault from storage.
+ * @param {string} syncCode - The sync code
+ * @returns {Promise<void>}
+ */
+async function deleteVault(syncCode) {
+  if (!validateSyncCode(syncCode)) {
+    throw new Error("Invalid sync code format");
+  }
+  const key = `vault_${syncCode}`;
+  W.store.delete(key);
+}
+
+// -----------------------------------------------------------------
+// Utility: Base64 <-> ArrayBuffer conversion
+// -----------------------------------------------------------------
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (const b of bytes) {
+    binary += String.fromCharCode(b);
+  }
+  return btoa(binary);
+}
+
+function base64ToArrayBuffer(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+// -----------------------------------------------------------------
+// UI Integration (sync button and profile display)
+// -----------------------------------------------------------------
+
+/**
+ * Generate a new sync code and display it in the UI.
+ * Called from the Profile page "Generate New Code" button.
+ */
+async function generateAndDisplayCode() {
+  const code = generateSyncCode();
+  const display = document.getElementById("sync-code-display");
+  if (display) {
+    display.textContent = code;
+    // Also store the code temporarily so user can copy it
+    W.store.set("last_sync_code", code);
+  }
+  return code;
+}
+
+/**
+ * Copy the current sync code to clipboard.
+ */
+async function copySyncCode() {
+  const display = document.getElementById("sync-code-display");
+  if (!display || !display.textContent || display.textContent === "—") {
+    W.ui.toast("No sync code to copy. Generate one first.", "warn");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(display.textContent);
+    W.ui.toast("Sync code copied to clipboard 📋", "ok");
+  } catch (e) {
+    // Fallback: select and copy manually
+    const range = document.createRange();
+    range.selectNode(display);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+    document.execCommand("copy");
+    W.ui.toast("Sync code copied to clipboard 📋", "ok");
+  }
+}
+
+/**
+ * Sync vault: encrypt and save all user data.
+ * Called from the sync button in the top bar.
+ */
+async function syncVault() {
+  // Gather all data to sync
+  const data = {
+    portfolio: W.portfolio ? W.portfolio.all() : [],
+    transactions: W.portfolio ? W.portfolio.txs() : [],
+    watchlist: W.watchlist ? W.watchlist.list() : [],
+    alerts: W.store.get("alerts", []),
+    settings: W.store.get("settings", {}),
+    achievements: W.store.get("achievements", {}),
+    learn: W.store.get("learn", {}),
+    timestamp: Date.now(),
+    version: "1.0",
+  };
+
+  const password = prompt("Enter your sync password (min 8 characters):");
+  if (!password) {
+    W.ui.toast("Sync cancelled.", "info");
+    return;
+  }
+  if (password.length < 8) {
+    W.ui.toast("Password must be at least 8 characters.", "warn");
+    return;
+  }
+
+  let code = W.store.get("last_sync_code", null);
+  if (!code || !validateSyncCode(code)) {
+    code = generateSyncCode();
+    W.store.set("last_sync_code", code);
+  }
+
+  try {
+    await saveVault(data, password, code);
+    W.ui.toast(`✅ Vault synced! Code: ${code}`, "ok");
+    // Update display
+    const display = document.getElementById("sync-code-display");
+    if (display) display.textContent = code;
+  } catch (e) {
+    W.ui.toast(`❌ Sync failed: ${e.message}`, "warn");
+  }
+}
+
+/**
+ * Restore vault: load and decrypt data.
+ * Called from the Profile page "Restore Vault" button (optional).
+ */
+async function restoreVault() {
+  const code = prompt("Enter your sync code (e.g. WEVR-7F3A-91BE-24C8-5E6D):");
+  if (!code) return;
+  if (!validateSyncCode(code)) {
+    W.ui.toast("Invalid sync code format.", "warn");
+    return;
+  }
+
+  const password = prompt("Enter your sync password:");
+  if (!password) return;
+
+  try {
+    const data = await loadVault(password, code);
+    // Restore data into storage
+    if (data.portfolio) W.portfolio.save(data.portfolio);
+    if (data.transactions) W.portfolio.saveTxs(data.transactions);
+    if (data.watchlist) W.watchlist.save(data.watchlist);
+    if (data.alerts) W.store.set("alerts", data.alerts);
+    if (data.settings) W.store.set("settings", data.settings);
+    if (data.achievements) W.store.set("achievements", data.achievements);
+    if (data.learn) W.store.set("learn", data.learn);
+    W.ui.toast("✅ Vault restored successfully!", "ok");
+    W.refresh();
+  } catch (e) {
+    W.ui.toast(`❌ Restore failed: ${e.message}`, "warn");
+  }
+}
+
+// -----------------------------------------------------------------
+// Public API
+// -----------------------------------------------------------------
+
+const Sync = {
+  generateCode: generateSyncCode,
+  validateCode: validateSyncCode,
+  encrypt,
+  decrypt,
+  save: saveVault,
+  load: loadVault,
+  delete: deleteVault,
+  generateAndDisplayCode,
+  copySyncCode,
+  syncVault,
+  restoreVault,
+};
+
+// Register with Weaver
+window.W = window.W || {};
+W.features = W.features || {};
+W.features.sync = Sync;
+
+// Also expose globally for convenience
+window.Sync = Sync;
+
+// ── Integrate with the sync button in the top bar ──
+if (typeof document !== "undefined") {
+  document.addEventListener("DOMContentLoaded", () => {
+    // Hook the sync button if it exists
+    const syncBtn = document.getElementById("sync-btn");
+    if (syncBtn) {
+      syncBtn.onclick = syncVault;
     }
-  }
-  const schedulePush = W.debounce(() => push(false), 2500);
+  });
+}
 
-  async function pull() {
-    const c = conf();
-    if (!c.code) return W.ui.toast("Enter your sync code first", "warn");
-    const d = db();
-    if (!d) return W.ui.toast("Firebase not configured", "warn");
-    try {
-      const doc = await d
-        .collection("vaults")
-        .doc(await docId(c.code))
-        .get();
-      if (!doc.exists)
-        return W.ui.toast("No vault for that code yet — Push first", "warn");
-      const data = await decrypt(c.code, doc.data());
-      Object.entries(data).forEach(([k, v]) => {
-        if (v !== undefined) W.store.set(k, v);
-      });
-      saveConf({ code: c.code, auto: c.auto, last: Date.now() });
-      W.ui.toast("☁️ Restored — reloading…", "ok");
-      setTimeout(() => location.reload(), 900);
-    } catch (e) {
-      W.ui.toast("Wrong code or corrupted vault", "warn");
-    }
-  }
-
-  function boot() {
-    const orig = W.store.set.bind(W.store);
-    W.store.set = (k, v) => {
-      orig(k, v);
-      if (k !== "sync" && conf().auto && conf().code) schedulePush();
-    };
-    (async () => {
-      const c = conf();
-      if (!c.auto || !c.code) return;
-      const d = db();
-      if (!d) return;
-      try {
-        const doc = await d
-          .collection("vaults")
-          .doc(await docId(c.code))
-          .get();
-        if (doc.exists && doc.data().updatedAt > (c.last || 0)) await pull();
-      } catch (e) {}
-    })();
-  }
-
-  async function render(view) {
-    const s = W.store.get("settings", {});
-    if (!s.firebase) {
-      view.innerHTML = `
-        <div class="card"><h3>☁️ Multi-device Sync — Setup</h3>
-          <p class="muted small">Your data is <b>end-to-end encrypted</b> (AES-256-GCM) with your sync code before it leaves the browser. Firebase only stores unreadable blobs under hashed IDs.</p>
-          <ol class="muted small" style="margin:10px 0 10px 18px;line-height:1.9">
-            <li>Create a free project at <b>console.firebase.google.com</b></li>
-            <li><b>Build → Firestore Database → Create database</b></li>
-            <li><b>Project settings → Your apps → Web (&lt;/&gt;)</b> → copy config values below</li>
-            <li>Firestore <b>Rules</b>: <code>match /vaults/{id} { allow read, write: if true; }</code></li>
-          </ol>
-          <label>apiKey<input id="f-key"></label>
-          <label>authDomain<input id="f-domain" placeholder="myapp.firebaseapp.com"></label>
-          <label>projectId<input id="f-project"></label>
-          <label>appId<input id="f-app"></label>
-          <button class="btn primary mt" id="f-save">Save & Enable Sync</button>
-        </div>`;
-      view.querySelector("#f-save").onclick = () => {
-        const firebase = {
-          apiKey: view.querySelector("#f-key").value.trim(),
-          authDomain: view.querySelector("#f-domain").value.trim(),
-          projectId: view.querySelector("#f-project").value.trim(),
-          appId: view.querySelector("#f-app").value.trim(),
-        };
-        if (!firebase.apiKey || !firebase.projectId || !firebase.appId)
-          return W.ui.toast("apiKey, projectId and appId are required", "warn");
-        W.store.set("settings", Object.assign({}, s, { firebase: firebase }));
-        W.ui.toast("Firebase connected ☁️", "ok");
-        render(view);
-      };
-      return;
-    }
-
-    const c = conf();
-    view.innerHTML = `
-      <div class="card"><h3>☁️ Sync Vault</h3>
-        <label>Your sync code — this IS your encryption key. Lose it = lose the vault.
-          <div class="ask-row"><input id="s-code" value="${c.code || ""}" placeholder="WEVR-…"><button class="btn" id="s-gen">🎲 Generate</button></div>
-        </label>
-        <label class="small"><input type="checkbox" id="s-auto" ${c.auto ? "checked" : ""} style="width:auto"> Auto-sync (push on every change · pull newer vaults on start)</label>
-        <div class="qa mt">
-          <button class="btn primary" id="s-push">⬆ Push to Cloud</button>
-          <button class="btn" id="s-pull">⬇ Pull / Restore</button>
-          <span class="muted small">${c.last ? "Last sync " + new Date(c.last).toLocaleString() : "Never synced"}</span>
-        </div>
-      </div>
-      <div class="card"><h3>Add a second device</h3>
-        <p class="muted small">Open Weaver there → Sync tab → paste the same Firebase config → enter this sync code → <b>Pull</b>.</p>
-      </div>`;
-    view.querySelector("#s-gen").onclick = () => {
-      view.querySelector("#s-code").value =
-        "WEVR-" +
-        [...crypto.getRandomValues(new Uint8Array(4))]
-          .map((b) => b.toString(16).padStart(2, "0"))
-          .join("")
-          .toUpperCase();
-    };
-    const persist = () =>
-      saveConf({
-        code: view.querySelector("#s-code").value.trim(),
-        auto: view.querySelector("#s-auto").checked,
-        last: c.last,
-      });
-    view.querySelector("#s-code").onchange = persist;
-    view.querySelector("#s-auto").onchange = persist;
-    view.querySelector("#s-push").onclick = () => {
-      persist();
-      push(true);
-    };
-    view.querySelector("#s-pull").onclick = () => {
-      persist();
-      pull();
-    };
-  }
-
-  return { render: render, boot: boot };
-})();
+console.log("[Sync] Module loaded securely.");

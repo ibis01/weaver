@@ -1,102 +1,281 @@
+
+// js/api/snapshot.js – Fallback Snapshot Cache
+
+// This module provides local snapshot fallbacks when live APIs are unreachable.
+// It patches W.api methods to return cached data from /data/ folder.
+
 window.W = window.W || {};
 
-/* Snapshot overlay: live APIs stay first-choice; when this network blocks
-   them all, price everything from the real CoinGecko snapshot in data/top.json
-   (same origin = unblockable). */
 (function () {
+  // ── Constants ─────────────────────────────────────────
   const SNAPSHOT_GLOBAL = {
-    total_market_cap: { usd: 2272990000000 },
-    total_volume: { usd: 51130000000 },
-    market_cap_percentage: { btc: 56.3, eth: 10.0 },
-    market_cap_change_percentage_24h_usd: 0.04,
+    data: {
+      total_market_cap: { usd: 2272990000000 },
+      total_volume: { usd: 51130000000 },
+      market_cap_percentage: { btc: 56.3, eth: 10.0 },
+      market_cap_change_percentage_24h_usd: 0.04,
+    },
   };
-  const SNAPSHOT_FNG = { value: "27", value_classification: "Fear" };
-  let mem = null;
 
-  async function load() {
-    if (mem && mem.length) return mem;
+  const SNAPSHOT_FNG = {
+    value: "41",
+    value_classification: "Fear",
+    timestamp: Date.now() / 1000,
+  };
+
+  let topSnapshot = null;
+  let globalSnapshot = null;
+  let fngSnapshot = null;
+
+  // ── Load snapshots ─────────────────────────────────────
+  async function loadSnapshots() {
     try {
-      const r = await fetch("data/top.json?t=" + Date.now(), {
-        cache: "no-store",
-      });
-      if (r.ok) {
-        const d = await r.json();
-        if (Array.isArray(d) && d.length) {
-          mem = d;
-          try {
-            localStorage.setItem("snap-top", JSON.stringify(d));
-          } catch (e) {}
-          return mem;
-        }
+      // Try loading from /data/ folder
+      const [topRes, globalRes, fngRes] = await Promise.allSettled([
+        fetch("data/top.json?t=" + Date.now(), { cache: "no-store" }),
+        fetch("data/global.json?t=" + Date.now(), { cache: "no-store" }),
+        fetch("data/fng.json?t=" + Date.now(), { cache: "no-store" }),
+      ]);
+
+      if (topRes.status === "fulfilled" && topRes.value.ok) {
+        topSnapshot = await topRes.value.json();
+        try {
+          localStorage.setItem("snapshot-top", JSON.stringify(topSnapshot));
+        } catch (e) {}
+      } else {
+        // Fallback to localStorage
+        const stored = localStorage.getItem("snapshot-top");
+        if (stored) topSnapshot = JSON.parse(stored);
       }
-    } catch (e) {}
-    try {
-      const s = JSON.parse(localStorage.getItem("snap-top") || "null");
-      if (Array.isArray(s) && s.length) {
-        mem = s;
-        return mem;
+
+      if (globalRes.status === "fulfilled" && globalRes.value.ok) {
+        globalSnapshot = await globalRes.value.json();
+        try {
+          localStorage.setItem(
+            "snapshot-global",
+            JSON.stringify(globalSnapshot),
+          );
+        } catch (e) {}
+      } else {
+        const stored = localStorage.getItem("snapshot-global");
+        if (stored) globalSnapshot = JSON.parse(stored);
+        else globalSnapshot = SNAPSHOT_GLOBAL;
       }
-    } catch (e) {}
-    return null;
+
+      if (fngRes.status === "fulfilled" && fngRes.value.ok) {
+        fngSnapshot = await fngRes.value.json();
+        try {
+          localStorage.setItem("snapshot-fng", JSON.stringify(fngSnapshot));
+        } catch (e) {}
+      } else {
+        const stored = localStorage.getItem("snapshot-fng");
+        if (stored) fngSnapshot = JSON.parse(stored);
+        else fngSnapshot = SNAPSHOT_FNG;
+      }
+    } catch (e) {
+      console.warn("[Snapshot] Load error:", e);
+      // Use hardcoded defaults
+      topSnapshot = topSnapshot || [];
+      globalSnapshot = globalSnapshot || SNAPSHOT_GLOBAL;
+      fngSnapshot = fngSnapshot || SNAPSHOT_FNG;
+    }
+
+    // Ensure we have arrays
+    if (!Array.isArray(topSnapshot)) topSnapshot = [];
   }
 
-  function patch() {
+  // ── Patch API methods ──────────────────────────────────
+  async function patchAPI() {
     const api = W.api;
-    if (!api) return;
-    const om = api.markets && api.markets.bind(api),
-      ot = api.top && api.top.bind(api),
-      og = api.global && api.global.bind(api),
-      of = api.fearGreed && api.fearGreed.bind(api),
-      oc = api.chart && api.chart.bind(api);
+    if (!api) {
+      console.warn("[Snapshot] W.api not found, skipping patch");
+      return;
+    }
 
-    if (om)
-      api.markets = (ids) =>
-        om(ids).catch(async () => {
-          const top = await load();
-          if (!top) throw new Error("no snapshot");
-          const want = Array.isArray(ids) ? ids : String(ids).split(",");
-          const rows = top.filter((c) => want.includes(c.id));
-          if (!rows.length) throw new Error("no snapshot");
+    // Wait for snapshots to load
+    await loadSnapshots();
+
+    // ── Patch markets ──────────────────────────────────
+    const originalMarkets = api.markets;
+    if (originalMarkets) {
+      api.markets = async (ids) => {
+        try {
+          return await originalMarkets(ids);
+        } catch (e) {
+          console.warn("[Snapshot] Markets fallback:", e.message);
+          if (!topSnapshot || !topSnapshot.length)
+            throw new Error("No snapshot data");
+          const idArray = typeof ids === "string" ? ids.split(",") : ids;
+          const result = topSnapshot.filter((c) => idArray.includes(c.id));
           api.source = "snapshot";
-          return rows;
-        });
-    if (ot)
-      api.top = (n) =>
-        ot(n).catch(async () => {
-          const top = await load();
-          if (!top) throw new Error("no snapshot");
+          return result.length ? result : topSnapshot.slice(0, idArray.length);
+        }
+      };
+    }
+
+    // ── Patch top ──────────────────────────────────────
+    const originalTop = api.top;
+    if (originalTop) {
+      api.top = async (limit) => {
+        try {
+          return await originalTop(limit);
+        } catch (e) {
+          console.warn("[Snapshot] Top fallback:", e.message);
+          if (!topSnapshot || !topSnapshot.length)
+            throw new Error("No snapshot data");
           api.source = "snapshot";
-          return top.slice(0, n);
-        });
-    if (og)
-      api.global = () =>
-        og().catch(async () => {
-          if (!(await load())) throw new Error("no snapshot");
+          return topSnapshot.slice(0, limit);
+        }
+      };
+    }
+
+    // ── Patch global ──────────────────────────────────
+    const originalGlobal = api.global;
+    if (originalGlobal) {
+      api.global = async () => {
+        try {
+          return await originalGlobal();
+        } catch (e) {
+          console.warn("[Snapshot] Global fallback:", e.message);
           api.source = "snapshot";
-          return { data: SNAPSHOT_GLOBAL };
-        });
-    if (of)
-      api.fearGreed = () =>
-        of().catch(async () => {
-          if (!(await load())) throw new Error("no snapshot");
+          return globalSnapshot || SNAPSHOT_GLOBAL;
+        }
+      };
+    }
+
+    // ── Patch fearGreed ──────────────────────────────
+    const originalFG = api.fearGreed;
+    if (originalFG) {
+      api.fearGreed = async () => {
+        try {
+          return await originalFG();
+        } catch (e) {
+          console.warn("[Snapshot] FearGreed fallback:", e.message);
           api.source = "snapshot";
-          return SNAPSHOT_FNG;
-        });
-    if (oc)
-      api.chart = (id, days) =>
-        oc(id, days).catch(async () => {
-          const top = await load();
-          if (!top) throw new Error("no snapshot");
-          const c = top.find((x) => x.id === id);
-          if (!c || !c.sparkline_in_7d) throw new Error("no snapshot");
-          const p = c.sparkline_in_7d.price,
-            now = Date.now();
+          const fg = fngSnapshot?.data?.[0] || SNAPSHOT_FNG;
+          return fg;
+        }
+      };
+    }
+
+    // ── Patch chart ───────────────────────────────────
+    const originalChart = api.chart;
+    if (originalChart) {
+      api.chart = async (id, days) => {
+        try {
+          return await originalChart(id, days);
+        } catch (e) {
+          console.warn("[Snapshot] Chart fallback:", e.message);
+          if (!topSnapshot || !topSnapshot.length)
+            throw new Error("No snapshot data");
+          const coin = topSnapshot.find((c) => c.id === id);
+          if (coin?.sparkline_in_7d?.price) {
+            api.source = "snapshot";
+            const prices = coin.sparkline_in_7d.price;
+            const now = Date.now();
+            return prices.map((v, i) => [
+              now - (prices.length - 1 - i) * 3600000,
+              v,
+            ]);
+          }
+          throw new Error("No chart data in snapshot");
+        }
+      };
+    }
+
+    // ── Patch search ──────────────────────────────────
+    const originalSearch = api.search;
+    if (originalSearch) {
+      api.search = async (query) => {
+        try {
+          return await originalSearch(query);
+        } catch (e) {
+          console.warn("[Snapshot] Search fallback:", e.message);
+          if (!topSnapshot || !topSnapshot.length)
+            throw new Error("No snapshot data");
+          const q = query.toLowerCase();
+          const results = topSnapshot
+            .filter(
+              (c) =>
+                c.name.toLowerCase().includes(q) ||
+                c.symbol.toLowerCase().includes(q),
+            )
+            .slice(0, 10);
           api.source = "snapshot";
-          return p.map((v, i) => [now - (p.length - 1 - i) * 36e5, v]);
-        });
+          return {
+            coins: results.map((c) => ({
+              id: c.id,
+              name: c.name,
+              symbol: c.symbol,
+              thumb: c.image,
+              market_cap_rank: c.market_cap_rank,
+            })),
+          };
+        }
+      };
+    }
+
+    // ── Patch coin ────────────────────────────────────
+    const originalCoin = api.coin;
+    if (originalCoin) {
+      api.coin = async (id) => {
+        try {
+          return await originalCoin(id);
+        } catch (e) {
+          console.warn("[Snapshot] Coin fallback:", e.message);
+          if (!topSnapshot || !topSnapshot.length)
+            throw new Error("No snapshot data");
+          const coin = topSnapshot.find((c) => c.id === id);
+          if (!coin) throw new Error("Coin not found in snapshot");
+          api.source = "snapshot";
+          return {
+            id: coin.id,
+            symbol: coin.symbol,
+            name: coin.name,
+            image: { large: coin.image, small: coin.image },
+            market_data: {
+              current_price: { usd: coin.current_price },
+              market_cap: { usd: coin.market_cap },
+              total_volume: { usd: coin.total_volume },
+              price_change_percentage_24h: coin.price_change_percentage_24h,
+              price_change_percentage_7d:
+                coin.price_change_percentage_7d_in_currency,
+              price_change_percentage_30d:
+                coin.price_change_percentage_30d_in_currency,
+              circulating_supply: coin.circulating_supply,
+              max_supply: coin.max_supply,
+              ath: { usd: coin.ath },
+              ath_change_percentage: { usd: coin.ath_change_percentage },
+              atl: { usd: coin.atl },
+            },
+            market_cap_rank: coin.market_cap_rank,
+            description: {
+              en: `${coin.name} is a cryptocurrency. Data from snapshot.`,
+            },
+            links: { homepage: [] },
+            platforms: {},
+          };
+        }
+      };
+    }
+
+    console.log("[Snapshot] API patched with fallbacks");
   }
 
-  if (document.readyState === "loading")
-    document.addEventListener("DOMContentLoaded", patch);
-  else patch();
+  // ── Initialize on load ────────────────────────────────
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", patchAPI);
+  } else {
+    patchAPI();
+  }
+
+  // ── Expose snapshot data for debugging ────────────────
+  window.__SNAPSHOT = {
+    top: () => topSnapshot,
+    global: () => globalSnapshot,
+    fng: () => fngSnapshot,
+    reload: loadSnapshots,
+  };
+
+  console.log("[Snapshot] Module loaded.");
 })();

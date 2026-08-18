@@ -1,37 +1,64 @@
+// ================================================================
+// js/features/trader.js – AI Trading Assistant
+// ================================================================
+
 window.W = window.W || {};
 
 W.trader = (() => {
-  /* ── indicators ── */
-  const sma = (a, n) =>
-    a.map((_, i) =>
-      i < n - 1
-        ? null
-        : a.slice(i - n + 1, i + 1).reduce((s, x) => s + x, 0) / n,
-    );
-  function rsi(a, n = 14) {
-    const out = new Array(a.length).fill(null);
-    let g = 0,
-      l = 0;
-    for (let i = 1; i < a.length; i++) {
-      const d = a[i] - a[i - 1],
-        up = Math.max(d, 0),
-        dn = Math.max(-d, 0);
-      if (i <= n) {
-        g += up;
-        l += dn;
-        if (i === n) {
-          g /= n;
-          l /= n;
-          out[i] = l === 0 ? 100 : 100 - 100 / (1 + g / l);
-        }
+  // ── Helpers: Technical Indicators ─────────────────────
+
+  // Simple Moving Average
+  function sma(data, period) {
+    const result = [];
+    for (let i = 0; i < data.length; i++) {
+      if (i < period - 1) {
+        result.push(null);
       } else {
-        g = (g * (n - 1) + up) / n;
-        l = (l * (n - 1) + dn) / n;
-        out[i] = l === 0 ? 100 : 100 - 100 / (1 + g / l);
+        const slice = data.slice(i - period + 1, i + 1);
+        const avg = slice.reduce((a, b) => a + b, 0) / slice.length;
+        result.push(avg);
       }
     }
-    return out;
+    return result;
   }
+
+  // Relative Strength Index (RSI)
+  function rsi(data, period = 14) {
+    const result = new Array(data.length).fill(null);
+    let gain = 0,
+      loss = 0;
+
+    // First calculate initial average gain/loss
+    for (let i = 1; i <= period; i++) {
+      const diff = data[i] - data[i - 1];
+      if (diff >= 0) gain += diff;
+      else loss += Math.abs(diff);
+    }
+    gain /= period;
+    loss /= period;
+    if (gain + loss === 0) return result;
+    result[period] = 100 - 100 / (1 + gain / loss);
+
+    // Smooth with Wilder's method
+    for (let i = period + 1; i < data.length; i++) {
+      const diff = data[i] - data[i - 1];
+      if (diff >= 0) {
+        gain = (gain * (period - 1) + diff) / period;
+        loss = (loss * (period - 1)) / period;
+      } else {
+        gain = (gain * (period - 1)) / period;
+        loss = (loss * (period - 1) + Math.abs(diff)) / period;
+      }
+      if (gain + loss === 0) {
+        result[i] = 50;
+      } else {
+        result[i] = 100 - 100 / (1 + gain / loss);
+      }
+    }
+    return result;
+  }
+
+  // ── Signal Engine ─────────────────────────────────────
 
   function signalOf(score) {
     if (score >= 4) return ["STRONG BUY", "buy"];
@@ -40,79 +67,141 @@ W.trader = (() => {
     if (score <= -2) return ["SELL", "sell"];
     return ["HOLD", "neutral"];
   }
-  const advice = (s) =>
-    ({
+
+  function advice(label) {
+    const map = {
       "STRONG BUY": "Deep value zone — DCA-friendly for long-term holders.",
       BUY: "Constructive setup — accumulating is reasonable.",
       HOLD: "No statistical edge right now — hold and wait.",
       SELL: "Consider taking partial profits / tightening stops.",
       "STRONG SELL": "Risk-off — review position size seriously.",
-    })[s];
+    };
+    return map[label] || "No clear signal.";
+  }
+
+  // ── Main Analysis Function ────────────────────────────
 
   async function analyze(id, fg) {
+    if (!id) throw new Error("No coin ID provided");
+    if (!fg) throw new Error("No Fear & Greed data provided");
+
+    // Fetch coin data and chart
     const [coin, chart] = await Promise.all([
       W.api.coin(id),
       W.api.chart(id, 90),
     ]);
-    const prices = chart.prices.map((p) => p[1]);
-    const s20 = sma(prices, 20),
-      s50 = sma(prices, 50),
-      R = rsi(prices);
-    const last = prices.at(-1),
-      sma20 = s20.at(-1),
-      sma50 = s50.at(-1),
-      r = R.at(-1) ?? 50;
-    const md = coin.market_data;
-    const p7 = md.price_change_percentage_7d ?? 0,
-      p30 = md.price_change_percentage_30d ?? 0;
 
+    if (!coin || !chart) throw new Error("No data available for this coin");
+
+    // Extract prices
+    const prices = (chart.prices || []).map((p) => p[1]);
+    if (prices.length < 50) {
+      throw new Error("Insufficient historical data for analysis");
+    }
+
+    const last = prices[prices.length - 1];
+
+    // ── Indicators ──────────────────────────────────────
+    const sma20 = sma(prices, 20);
+    const sma50 = sma(prices, 50);
+    const rsiValues = rsi(prices, 14);
+
+    const currentSMA20 = sma20[sma20.length - 1];
+    const currentSMA50 = sma50[sma50.length - 1];
+    const currentRSI = rsiValues[rsiValues.length - 1] ?? 50;
+
+    const md = coin.market_data || {};
+    const p7 = md.price_change_percentage_7d ?? 0;
+    const p30 = md.price_change_percentage_30d ?? 0;
+
+    // ── Scoring ──────────────────────────────────────────
     let score = 0;
     const reasons = [];
-    if (last > sma20 && sma20 > sma50) {
+
+    // 1. Trend: price vs SMA20 vs SMA50
+    if (last > currentSMA20 && currentSMA20 > currentSMA50) {
       score += 2;
       reasons.push([
         "up",
         "Uptrend — price > SMA20 > SMA50 (bullish alignment)",
       ]);
-    } else if (last > sma50) {
+    } else if (last > currentSMA50) {
       score += 1;
       reasons.push(["up", "Price holding above the 50-day average"]);
-    } else if (last < sma20 && sma20 < sma50) {
+    } else if (last < currentSMA20 && currentSMA20 < currentSMA50) {
       score -= 2;
       reasons.push([
         "down",
         "Downtrend — price < SMA20 < SMA50 (bearish alignment)",
       ]);
-    } else {
+    } else if (last < currentSMA50) {
       score -= 1;
       reasons.push(["down", "Price below the 50-day average"]);
+    } else {
+      reasons.push(["neutral", "Price trading near key moving averages"]);
     }
 
-    if (r < 30) {
+    // 2. RSI
+    if (currentRSI < 30) {
       score += 2;
       reasons.push([
         "up",
-        `RSI ${r.toFixed(0)} — oversold, historically a buy zone`,
+        `RSI ${currentRSI.toFixed(0)} — oversold, historically a buy zone`,
       ]);
-    } else if (r > 70) {
+    } else if (currentRSI > 70) {
       score -= 2;
       reasons.push([
         "down",
-        `RSI ${r.toFixed(0)} — overbought, elevated pullback risk`,
+        `RSI ${currentRSI.toFixed(0)} — overbought, elevated pullback risk`,
       ]);
-    } else reasons.push(["neutral", `RSI ${r.toFixed(0)} — neutral momentum`]);
+    } else if (currentRSI < 45) {
+      score += 0.5;
+      reasons.push([
+        "neutral",
+        `RSI ${currentRSI.toFixed(0)} — mildly oversold`,
+      ]);
+    } else if (currentRSI > 60) {
+      score -= 0.5;
+      reasons.push([
+        "neutral",
+        `RSI ${currentRSI.toFixed(0)} — mildly overbought`,
+      ]);
+    } else {
+      reasons.push([
+        "neutral",
+        `RSI ${currentRSI.toFixed(0)} — neutral momentum`,
+      ]);
+    }
 
-    score += p7 > 0 ? 1 : -1;
-    reasons.push([
-      p7 > 0 ? "up" : "down",
-      `7-day momentum ${p7 > 0 ? "+" : ""}${p7.toFixed(1)}%`,
-    ]);
-    score += p30 > 0 ? 1 : -1;
-    reasons.push([
-      p30 > 0 ? "up" : "down",
-      `30-day momentum ${p30 > 0 ? "+" : ""}${p30.toFixed(1)}%`,
-    ]);
+    // 3. 7‑day momentum
+    if (p7 > 5) {
+      score += 1;
+      reasons.push(["up", `7-day momentum +${p7.toFixed(1)}% (strong)`]);
+    } else if (p7 > 0) {
+      score += 0.5;
+      reasons.push(["up", `7-day momentum +${p7.toFixed(1)}%`]);
+    } else if (p7 < -5) {
+      score -= 1;
+      reasons.push(["down", `7-day momentum ${p7.toFixed(1)}% (weak)`]);
+    } else {
+      reasons.push(["neutral", `7-day momentum ${p7.toFixed(1)}%`]);
+    }
 
+    // 4. 30‑day momentum
+    if (p30 > 10) {
+      score += 1;
+      reasons.push(["up", `30-day momentum +${p30.toFixed(1)}% (strong)`]);
+    } else if (p30 > 0) {
+      score += 0.5;
+      reasons.push(["up", `30-day momentum +${p30.toFixed(1)}%`]);
+    } else if (p30 < -10) {
+      score -= 1;
+      reasons.push(["down", `30-day momentum ${p30.toFixed(1)}% (weak)`]);
+    } else {
+      reasons.push(["neutral", `30-day momentum ${p30.toFixed(1)}%`]);
+    }
+
+    // 5. Fear & Greed (contrarian)
     const fgv = +fg.value;
     if (fgv <= 25) {
       score += 1;
@@ -126,127 +215,243 @@ W.trader = (() => {
         "down",
         `Fear & Greed ${fgv} (extreme greed) — contrarian caution`,
       ]);
-    } else
+    } else if (fgv <= 40) {
+      score += 0.5;
+      reasons.push(["neutral", `Fear & Greed ${fgv} — fear (cautious buying)`]);
+    } else if (fgv >= 60) {
+      score -= 0.5;
       reasons.push([
         "neutral",
-        `Fear & Greed ${fgv} — ${fg.value_classification}`,
+        `Fear & Greed ${fgv} — greed (cautious selling)`,
       ]);
+    } else {
+      reasons.push([
+        "neutral",
+        `Fear & Greed ${fgv} — neutral ${fg.value_classification || ""}`,
+      ]);
+    }
+
+    // ── Result ──────────────────────────────────────────
+    const [signal, cssClass] = signalOf(score);
+    const confidence = Math.min(100, (Math.abs(score) / 8) * 100);
 
     return {
       coin,
       last,
-      r,
-      sma20,
-      sma50,
+      currentRSI,
+      currentSMA20,
+      currentSMA50,
       p7,
       p30,
       score,
       reasons,
-      sig: signalOf(score),
+      signal,
+      cssClass,
+      confidence,
+      advice: advice(signal),
     };
   }
 
+  // ── UI: Result Card ───────────────────────────────────
+
   function resultCard(a) {
-    const [label, cls] = a.sig;
-    const conf = Math.min(100, (Math.abs(a.score) / 8) * 100);
-    return `<div class="card">
-      <div class="coin-head">
-        <img class="coin-lg" src="${a.coin.image.large}">
-        <div><h2>${a.coin.name} <span class="muted">${a.coin.symbol.toUpperCase()}</span></h2>
-        <div class="coin-price"><span class="tag ${cls}" style="font-size:14px;padding:6px 14px">${label}</span>
-        <span class="muted small ml">Weaver score ${a.score > 0 ? "+" : ""}${a.score}/8 · confidence ${conf.toFixed(0)}%</span></div></div>
+    const [label, cls] = [a.signal, a.cssClass];
+    const conf = a.confidence;
+
+    const reasonsHTML = a.reasons
+      .map(([t, txt]) => {
+        const emoji = t === "up" ? "＋" : t === "down" ? "−" : "•";
+        const tagClass = t === "up" ? "buy" : t === "down" ? "sell" : "neutral";
+        return `<li><span class="tag ${tagClass}">${emoji}</span> ${txt}</li>`;
+      })
+      .join("");
+
+    return `
+      <div class="card">
+        <div class="coin-head">
+          <img class="coin-lg" src="${a.coin.image?.large || ""}" alt="${a.coin.name}">
+          <div>
+            <h2>${a.coin.name} <span class="muted">${a.coin.symbol.toUpperCase()}</span></h2>
+            <div class="coin-price">
+              <span class="tag ${cls}" style="font-size:14px;padding:6px 14px;">${label}</span>
+              <span class="muted small ml">Weaver score ${a.score > 0 ? "+" : ""}${a.score.toFixed(1)}/8 · confidence ${conf.toFixed(0)}%</span>
+            </div>
+          </div>
+        </div>
+        <div class="meter-bar mt"><div style="width:${conf}%; background: ${conf >= 70 ? "var(--up)" : conf >= 40 ? "var(--warn)" : "var(--down)"}; box-shadow: 0 0 20px ${conf >= 70 ? "var(--up)" : conf >= 40 ? "var(--warn)" : "var(--down)"};"></div></div>
+        <div class="cards mt">
+          <div class="card stat">
+            <div class="stat-label">RSI (14)</div>
+            <div class="stat-big">${a.currentRSI.toFixed(0)}</div>
+          </div>
+          <div class="card stat">
+            <div class="stat-label">SMA 20 / 50</div>
+            <div class="stat-big small">${W.fmt.price(a.currentSMA20)} / ${W.fmt.price(a.currentSMA50)}</div>
+          </div>
+          <div class="card stat">
+            <div class="stat-label">Price</div>
+            <div class="stat-big">${W.fmt.price(a.last)}</div>
+          </div>
+        </div>
+        <ul class="tx-list">${reasonsHTML}</ul>
+        <div class="ai-brief mt">
+          🤖 <b>Weaver:</b> ${a.advice}
+          <span class="muted small">Rule-based technical analysis — not financial advice.</span>
+        </div>
       </div>
-      <div class="meter-bar mt"><div style="width:${conf}%"></div></div>
-      <div class="cards mt">
-        <div class="card stat"><div class="stat-label">RSI (14)</div><div class="stat-big">${a.r.toFixed(0)}</div></div>
-        <div class="card stat"><div class="stat-label">SMA 20 / 50</div><div class="stat-big small">${W.fmt.price(a.sma20)} / ${W.fmt.price(a.sma50)}</div></div>
-        <div class="card stat"><div class="stat-label">Price</div><div class="stat-big">${W.fmt.price(a.last)}</div></div>
-      </div>
-      <ul class="tx-list">${a.reasons.map(([t, txt]) => `<li><span class="tag ${t === "up" ? "buy" : t === "down" ? "sell" : "neutral"}">${t === "up" ? "＋" : t === "down" ? "−" : "•"}</span> ${txt}</li>`).join("")}</ul>
-      <div class="ai-brief mt">🤖 <b>Weaver:</b> ${advice(label)} <span class="muted small">Rule-based technical analysis — not financial advice.</span></div>
-    </div>`;
+    `;
   }
 
+  // ── Render ─────────────────────────────────────────────
+
   async function render(view) {
+    if (!view) {
+      console.warn("[Trader] No view element provided");
+      return;
+    }
+
     view.innerHTML = `
       <div class="card">
         <h3>⚡ AI Trading Assistant</h3>
         <p class="muted small">RSI-14 + SMA 20/50 trend + momentum + Fear&Greed contrarian filter → Weaver Score → signal.</p>
-        <div class="qa mt"><div id="t-picker" style="min-width:260px"></div><button class="btn primary" id="t-go">Analyze</button></div>
+        <div class="qa mt">
+          <div id="t-picker" style="min-width:260px;"></div>
+          <button class="btn primary" id="t-go">Analyze</button>
+        </div>
         <div class="qa mt" id="t-quick"></div>
       </div>
       <div id="t-result"></div>
-      <div class="card"><h3>📡 Holdings Signals (auto-scan)</h3><div id="t-hold">${W.ui.spinner()}</div></div>`;
+      <div class="card">
+        <h3>📡 Holdings Signals (auto-scan)</h3>
+        <div id="t-hold">${W.ui.spinner()}</div>
+      </div>
+    `;
 
+    // ── Coin picker ──────────────────────────────────────
     let picked = null;
-    W.ui.coinPicker(view.querySelector("#t-picker"), (p) => (picked = p));
-    const run = (id) => {
-      view.querySelector("#t-result").innerHTML = W.ui.spinner();
-      W.api
-        .fearGreed()
-        .then((fg) => analyze(id, fg))
-        .then(
-          (a) => (view.querySelector("#t-result").innerHTML = resultCard(a)),
-        )
-        .catch(
-          (e) =>
-            (view.querySelector("#t-result").innerHTML =
-              `<p class="muted">${e.message}</p>`),
-        );
+    if (W.ui.coinPicker) {
+      W.ui.coinPicker(view.querySelector("#t-picker"), (p) => (picked = p));
+    } else {
+      console.warn("[Trader] coinPicker not available");
+    }
+
+    // ── Run analysis for a coin ─────────────────────────
+    const run = async (id) => {
+      const resultContainer = view.querySelector("#t-result");
+      if (!resultContainer) return;
+      resultContainer.innerHTML = W.ui.spinner();
+
+      try {
+        const fg = await W.api.fearGreed();
+        const result = await analyze(id, fg);
+        resultContainer.innerHTML = resultCard(result);
+      } catch (e) {
+        resultContainer.innerHTML = `<p class="muted">${e.message}</p>`;
+      }
     };
+
+    // ── Go button ────────────────────────────────────────
     view.querySelector("#t-go").onclick = () => {
-      if (!picked) return W.ui.toast("Pick a coin", "warn");
+      if (!picked) return W.ui.toast("Pick a coin first", "warn");
       run(picked.id);
     };
 
-    const quick = [
+    // ── Quick picks ──────────────────────────────────────
+    const holdings = W.portfolio ? W.portfolio.all() : [];
+    const quickIds = [
       "bitcoin",
       "ethereum",
       "solana",
-      ...W.portfolio
-        .all()
-        .slice(0, 3)
-        .map((h) => h.coinId),
-    ];
-    view.querySelector("#t-quick").innerHTML = [...new Set(quick)]
-      .map((id) => `<button class="chip" data-q="${id}">${id}</button>`)
-      .join("");
-    view
-      .querySelectorAll("[data-q]")
-      .forEach((b) => (b.onclick = () => run(b.dataset.q)));
+      ...holdings.slice(0, 3).map((h) => h.coinId),
+    ].filter((id, idx, arr) => arr.indexOf(id) === idx);
 
-    /* holdings auto-scan */
+    const quickContainer = view.querySelector("#t-quick");
+    if (quickContainer && quickIds.length) {
+      quickContainer.innerHTML = quickIds
+        .map((id) => `<button class="chip" data-q="${id}">${id}</button>`)
+        .join("");
+      quickContainer.querySelectorAll("[data-q]").forEach((btn) => {
+        btn.onclick = () => run(btn.dataset.q);
+      });
+    }
+
+    // ── Holdings auto-scan ──────────────────────────────
     try {
       const fg = await W.api.fearGreed();
-      if (!view.isConnected) return;
-      const holds = W.portfolio.all().slice(0, 5);
+      const holds = holdings.slice(0, 5);
+      const holdContainer = view.querySelector("#t-hold");
+      if (!holdContainer) return;
+
       if (!holds.length) {
-        view.querySelector("#t-hold").innerHTML =
-          '<p class="muted small">No holdings yet.</p>';
+        holdContainer.innerHTML = '<p class="muted small">No holdings yet.</p>';
         return;
       }
-      const res = (
-        await Promise.allSettled(holds.map((h) => analyze(h.coinId, fg)))
-      )
-        .filter((r) => r.status === "fulfilled")
-        .map((r) => r.value);
-      view.querySelector("#t-hold").innerHTML = `<div class="table-wrap"><table>
-        <thead><tr><th>Asset</th><th>Signal</th><th>RSI</th><th>Trend</th><th>Weaver says</th></tr></thead>
-        <tbody>${res
-          .map(
-            (a) => `<tr>
-          <td class="coin-cell"><img src="${a.coin.image.small}"><b>${a.coin.name}</b></td>
-          <td><span class="tag ${a.sig[1]}">${a.sig[0]}</span></td>
-          <td>${a.r.toFixed(0)}</td>
-          <td>${a.last > a.sma50 ? '<span class="up">Above SMA50</span>' : '<span class="down">Below SMA50</span>'}</td>
-          <td class="muted small">${advice(a.sig[0])}</td></tr>`,
-          )
-          .join("")}</tbody></table></div>`;
+
+      const results = [];
+      for (const h of holds) {
+        try {
+          const r = await analyze(h.coinId, fg);
+          results.push(r);
+        } catch (e) {
+          console.warn("[Trader] Auto-scan error for", h.coinId, e);
+        }
+      }
+
+      if (!results.length) {
+        holdContainer.innerHTML =
+          '<p class="muted small">Could not analyze holdings.</p>';
+        return;
+      }
+
+      holdContainer.innerHTML = `
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Asset</th>
+                <th>Signal</th>
+                <th>RSI</th>
+                <th>Trend</th>
+                <th>Weaver says</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${results
+                .map(
+                  (a) => `
+                <tr>
+                  <td class="coin-cell">
+                    <img src="${a.coin.image?.small || ""}" alt="${a.coin.name}" style="width:20px;height:20px;border-radius:50%;">
+                    <b>${a.coin.name}</b>
+                  </td>
+                  <td><span class="tag ${a.cssClass}">${a.signal}</span></td>
+                  <td>${a.currentRSI.toFixed(0)}</td>
+                  <td>${a.last > a.currentSMA50 ? '<span class="up">Above SMA50</span>' : '<span class="down">Below SMA50</span>'}</td>
+                  <td class="muted small">${a.advice}</td>
+                </tr>
+              `,
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
     } catch (e) {
-      view.querySelector("#t-hold").innerHTML =
-        `<p class="muted small">${e.message}</p>`;
+      const holdContainer = view.querySelector("#t-hold");
+      if (holdContainer)
+        holdContainer.innerHTML = `<p class="muted small">${e.message}</p>`;
     }
   }
 
-  return { render };
+  // ── Exports ────────────────────────────────────────────
+  return {
+    render,
+    analyze,
+    sma,
+    rsi,
+    signalOf,
+    advice,
+  };
 })();
+
+console.log("[Trader] Module loaded.");
