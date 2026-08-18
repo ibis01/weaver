@@ -157,12 +157,14 @@ window.W = window.W || {};
         },
       );
     };
-    currency || "usd";
+    W.currency();
     W.refresh = () => route();
-    W.applySettings = () => {
-      document.getElementById("currency").value = W.currency();
-      startLoop();
-    };
+   W.applySettings = () => {
+     const cur = W.currency();
+     const el = document.getElementById("currency");
+     if (el) el.value = cur;
+     startLoop();
+   };
 
     /* nav */
     document.getElementById("nav").innerHTML = NAV.map(

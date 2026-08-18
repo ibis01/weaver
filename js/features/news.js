@@ -1,478 +1,162 @@
-window.W = window.W || {};
+// ============================================================
+// js/features/news.js – Final version with container creation
+// ============================================================
 
-W.news = (() => {
-  const BULL = [
-    "surge",
-    "rally",
-    "soar",
-    "gain",
-    "bull",
-    "record",
-    "adopt",
-    "approve",
-    "approval",
-    "etf",
-    "partnership",
-    "breakout",
-    "upgrade",
-    "boost",
-    "win",
-    "rise",
-    "jump",
-    "growth",
-    "institutional",
-  ];
-  const BEAR = [
-    "crash",
-    "dump",
-    "fall",
-    "plunge",
-    "bear",
-    "hack",
-    "exploit",
-    "scam",
-    "ban",
-    "lawsuit",
-    "sues",
-    "sell-off",
-    "tumble",
-    "drop",
-    "fear",
-    "liquidation",
-    "fraud",
-    "bankrupt",
-  ];
-  const sentiment = (text) => {
-    const t = text.toLowerCase();
-    let s = 0;
-    BULL.forEach((w) => {
-      if (t.includes(w)) s++;
-    });
-    BEAR.forEach((w) => {
-      if (t.includes(w)) s--;
-    });
-    return s > 0 ? "bullish" : s < 0 ? "bearish" : "neutral";
-  };
+const log = (msg, data) => {
+  console.log(`[News] ${msg}`, data || "");
+};
 
-  const FEEDS = [
-    ["CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"],
-    ["Cointelegraph", "https://cointelegraph.com/rss"],
-    ["Decrypt", "https://decrypt.co/feed"],
-  ];
+const FEEDS = [
+  ["CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"],
+  ["Cointelegraph", "https://cointelegraph.com/rss"],
+  ["Decrypt", "https://decrypt.co/feed"],
+];
 
-  const ago = (t) => {
-    if (!t) return "";
-    const s = (Date.now() - t * 1000) / 1000;
-    if (s < 3600) return Math.max(1, Math.floor(s / 60)) + "m ago";
-    if (s < 86400) return Math.floor(s / 3600) + "h ago";
-    return Math.floor(s / 86400) + "d ago";
-  };
+const PROX = [
+  (u) => "http://localhost:3001/proxy?url=" + encodeURIComponent(u),
+  (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
+  (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u),
+  (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
+  (u) => "https://ibis01.github.io/weaver/data/news.json",
+];
 
-  const readList = () => W.store.get("news-read", []);
-  const markRead = (id) => {
-    const l = readList();
-    if (!l.includes(id)) {
-      l.unshift(id);
-      W.store.set("news-read", l.slice(0, 400));
-      if (W.achievements) W.achievements.check();
-    }
-  };
-  const savedList = () => W.store.get("news-saved", []);
-  const isSaved = (id) => savedList().some((x) => x.id === id);
-  const toggleSave = (item) => {
-    const l = savedList();
-    if (l.some((x) => x.id === item.id)) {
-      W.store.set(
-        "news-saved",
-        l.filter((x) => x.id !== item.id),
-      );
-      W.ui.toast("Removed from Reading List", "info");
-      return false;
-    }
-    l.unshift(item);
-    W.store.set("news-saved", l.slice(0, 100));
-    W.ui.toast("🔖 Saved for later", "ok");
-    return true;
-  };
-
-  const PROX = [
-    (u) => u,
-    (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-    (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u),
-    (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
-  ];
-  async function via(url, asJSON) {
-    let lastErr;
-    for (const w of PROX) {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 9000);
-      try {
-        const r = await fetch(w(url), { signal: ctrl.signal });
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        const txt = await r.text();
-        clearTimeout(t);
-        return asJSON ? JSON.parse(txt) : txt;
-      } catch (e) {
-        lastErr = e;
-        clearTimeout(t);
+async function via(url, asJSON = false) {
+  let lastErr = null;
+  for (const buildProxy of PROX) {
+    const proxyUrl = buildProxy(url);
+    log(`Trying proxy: ${proxyUrl.substring(0, 80)}...`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 9000);
+    try {
+      const resp = await fetch(proxyUrl, {
+        signal: controller.signal,
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; WeaverBot/1.0)" },
+      });
+      clearTimeout(timeout);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const text = await resp.text();
+      if (
+        text.trim().startsWith("<") &&
+        !text.includes("<rss") &&
+        !text.includes("<feed")
+      ) {
+        throw new Error("HTML response (not RSS)");
       }
+      log(`✅ Proxy succeeded: ${proxyUrl}`);
+      return asJSON ? JSON.parse(text) : text;
+    } catch (err) {
+      clearTimeout(timeout);
+      log(`❌ Proxy failed: ${err.message}`);
+      lastErr = err;
     }
-    throw lastErr || new Error("unreachable");
   }
+  console.error("[News] All proxies failed.", lastErr);
+  throw lastErr || new Error("All proxies failed");
+}
 
-  async function rssNews() {
-    const all = [];
-    await Promise.allSettled(
-      FEEDS.map(async (pair) => {
-        const name = pair[0],
-          url = pair[1];
-        try {
-          const txt = await via(url, false);
-          const xml = new DOMParser().parseFromString(txt, "text/xml");
-          xml.querySelectorAll("item").forEach((it) => {
-            const desc =
-              (it.querySelector("description") || {}).textContent || "";
-            const tmp = new DOMParser().parseFromString(desc, "text/html");
-            all.push({
-              id: (
-                (it.querySelector("guid") || {}).textContent ||
-                (it.querySelector("link") || {}).textContent ||
-                name + all.length
-              ).slice(0, 200),
-              title:
-                (it.querySelector("title") || {}).textContent || "Untitled",
-              url: (it.querySelector("link") || {}).textContent || "#",
-              image:
-                (it.querySelector("enclosure") || {}).getAttribute("url") ||
-                (it.querySelector("media\\:thumbnail") || {}).getAttribute(
-                  "url",
-                ) ||
-                (tmp.querySelector("img") || {}).src ||
-                "",
-              source: name,
-              published_on:
-                Date.parse(
-                  (it.querySelector("pubDate") || {}).textContent || "",
-                ) / 1000,
-              body: tmp.textContent.trim(),
-            });
-          });
-        } catch (e) {}
-      }),
-    );
-    return all;
+function parseRSS(xml) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xml, "text/xml");
+  const items = doc.querySelectorAll("item");
+  const articles = [];
+  items.forEach((item) => {
+    const title = item.querySelector("title")?.textContent || "Untitled";
+    const link = item.querySelector("link")?.textContent || "#";
+    const description = item.querySelector("description")?.textContent || "";
+    const pubDate = item.querySelector("pubDate")?.textContent || "";
+    articles.push({ title, link, description, pubDate });
+  });
+  return articles;
+}
+
+function renderArticles(articles) {
+  const container = document.getElementById("news-container");
+  if (!container) return;
+  if (!articles || articles.length === 0) {
+    container.innerHTML = '<div class="info">No articles available.</div>';
+    return;
   }
+  const items = articles
+    .slice(0, 20)
+    .map(
+      (a) => `
+    <div class="news-item">
+      <h3><a href="${a.link}" target="_blank" rel="noopener">${a.title}</a></h3>
+      <p>${a.description ? a.description.substring(0, 200) + "..." : ""}</p>
+      <small>${a.pubDate || ""}</small>
+    </div>
+  `,
+    )
+    .join("");
+  container.innerHTML = `<div class="news-list">${items}</div>`;
+}
 
-  function topThemes(items) {
-    const freq = {};
-    items.slice(0, 20).forEach((i) =>
-      i.title
-        .toLowerCase()
-        .replace(/[^a-z ]/g, "")
-        .split(" ")
-        .forEach((w) => {
-          if (w.length > 5) freq[w] = (freq[w] || 0) + 1;
-        }),
-    );
-    return (
-      Object.entries(freq)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 4)
-        .map((w) => "“" + w[0] + "”")
-        .join(", ") || "—"
-    );
-  }
+// ========== UPDATED render() – creates container if missing ==========
+async function render() {
+  // 1. Try to find the container
+  let container = document.getElementById("news-container");
 
-  function summarize(n) {
-    const text = (n.body || "")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!text)
-      return (
-        "No inline body — headline reads <b>" +
-        sentiment(n.title) +
-        "</b>. Use the source link for the full story."
-      );
-    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
-    const freq = {};
-    (n.title.toLowerCase().match(/[a-z]{4,}/g) || []).forEach(
-      (w) => (freq[w] = (freq[w] || 0) + 1),
-    );
-    const top = sentences
-      .map((snt, i) => ({
-        snt: snt,
-        i: i,
-        sc:
-          snt
-            .toLowerCase()
-            .split(/[^a-z]+/)
-            .reduce((a, w) => a + (freq[w] || 0), 0) / Math.pow(i + 1, 0.3),
-      }))
-      .sort((a, b) => b.sc - a.sc)
-      .slice(0, 2)
-      .sort((a, b) => a.i - b.i)
-      .map((x) => x.snt.trim());
-    return (
-      top.join(" ") +
-      ' <span class="muted small">(key sentences auto-extracted)</span>'
+  // 2. If not found, try to find a parent news section
+  if (!container) {
+    const parent =
+      document.getElementById("news") ||
+      document.getElementById("news-section") ||
+      document.getElementById("page-news") ||
+      document.querySelector(".news-page") ||
+      document.body;
+
+    container = document.createElement("div");
+    container.id = "news-container";
+    container.className = "news-container";
+    parent.prepend(container);
+    console.log(
+      "[News] Created container #news-container inside",
+      parent.tagName + (parent.id ? "#" + parent.id : ""),
     );
   }
 
-  let ITEMS = [],
-    refreshList = null;
+  // 3. Show loading
+  container.innerHTML = '<div class="loading">Loading news...</div>';
 
-  function openReader(n) {
-    markRead(n.id);
-    const s = sentiment(n.title + " " + (n.body || ""));
-    const paras = (n.body || "")
-      .split(/\n+|<\/p>/)
-      .map((p) => p.replace(/<[^>]+>/g, "").trim())
-      .filter((p) => p.length > 40);
-    const m = W.ui.modal({
-      title:
-        '<span class="tag rank">' +
-        n.source +
-        '</span> <span class="muted small">' +
-        ago(n.published_on) +
-        "</span>",
-      body:
-        '<div class="reader">' +
-        (n.image
-          ? '<img class="reader-hero" src="' +
-            n.image +
-            '" onerror="this.remove()">'
-          : "") +
-        '<h2 class="reader-title">' +
-        n.title +
-        "</h2>" +
-        '<div class="reader-meta"><span class="tag ' +
-        s +
-        '">' +
-        s +
-        '</span><span class="muted small">' +
-        n.source +
-        "</span></div>" +
-        '<div class="ai-brief">🤖 <b>Weaver brief:</b> ' +
-        summarize(n) +
-        "</div>" +
-        '<div class="mt">' +
-        (paras
-          .slice(0, 8)
-          .map((p) => "<p>" + p + "</p>")
-          .join("") ||
-          '<p class="muted">No inline content for this one — jump to the source below.</p>') +
-        "</div>" +
-        '<div class="qa mt"><a class="btn primary" target="_blank" href="' +
-        n.url +
-        '">Read full article ↗</a>' +
-        '<button class="btn" id="r-save">' +
-        (isSaved(n.id) ? "🔖 Saved — remove" : "🔖 Save for later") +
-        "</button></div>" +
-        "</div>",
+  try {
+    const feedPromises = FEEDS.map(async ([name, url]) => {
+      try {
+        const xml = await via(url);
+        const articles = parseRSS(xml);
+        return { name, articles, error: null };
+      } catch (err) {
+        log(`Failed to fetch ${name}:`, err.message);
+        return { name, articles: [], error: err.message };
+      }
     });
-    m.el.classList.add("wide");
-    m.el.querySelector("#r-save").onclick = (e) => {
-      const on = toggleSave(n);
-      e.target.textContent = on ? "🔖 Saved — remove" : "🔖 Save for later";
-      if (refreshList) refreshList();
-    };
-    if (refreshList) refreshList();
-  }
+    const results = await Promise.all(feedPromises);
+    const allArticles = results.flatMap((r) => r.articles);
 
-  async function render(view) {
-    view.innerHTML =
-      '<div class="card"><h3>📰 Newsroom</h3>' +
-      '<div class="watch-head"><div class="qa" id="n-filters"></div><span class="muted small" id="n-readcount"></span></div>' +
-      '<div id="n-brief" class="mt"></div></div>' +
-      '<div id="n-list">' +
-      W.ui.spinner() +
-      "</div>";
-
-    /* ⬇️⬇️⬇️ INSTANT FALLBACK DATA (Shows immediately) ⬇️⬇️⬇️ */
-    const fallbackItems = [
-      {
-        id: "dev1",
-        title: "Bitcoin rebounds above $64k as sentiment improves",
-        url: "https://example.com",
-        source: "Dev Feed",
-        published_on: Date.now() / 1000 - 1800,
-        body: "Bitcoin shows strength...",
-      },
-      {
-        id: "dev2",
-        title: "Ethereum Layer 2 solutions hit record TVL",
-        url: "https://example.com",
-        source: "Dev Feed",
-        published_on: Date.now() / 1000 - 3600,
-        body: "Arbitrum and Base lead the charge...",
-      },
-      {
-        id: "dev3",
-        title: "AI tokens surge following major tech announcements",
-        url: "https://example.com",
-        source: "Dev Feed",
-        published_on: Date.now() / 1000 - 7200,
-        body: "Render and Fetch.ai see double digit gains...",
-      },
-    ];
-    ITEMS = fallbackItems;
-    W.store.set("news-cache", fallbackItems);
-    const bEl = view.querySelector("#n-brief");
-    if (bEl)
-      bEl.innerHTML =
-        '<div class="ai-brief">📡 Using placeholder news feed. CORS/proxy issues are preventing live RSS loads on localhost (and CryptoCompare requires an API key). Use a CORS extension, or set up a local proxy to fix this.</div>';
-
-    let filter = "All";
-    const drawFilters = () => {
-      const sources = ["All", "Saved"].concat(
-        Array.from(new Set(ITEMS.map((i) => i.source))),
-      );
-      view.querySelector("#n-filters").innerHTML = sources
-        .map(
-          (s) =>
-            '<button class="chip ' +
-            (s === filter ? "active" : "") +
-            '" data-s="' +
-            s +
-            '">' +
-            (s === "Saved" ? "🔖 Saved (" + savedList().length + ")" : s) +
-            "</button>",
-        )
-        .join("");
-      view.querySelectorAll("[data-s]").forEach(
-        (c) =>
-          (c.onclick = () => {
-            filter = c.dataset.s;
-            drawFilters();
-            drawList();
-          }),
-      );
-    };
-
-    const drawList = () => {
-      view.querySelector("#n-readcount").textContent =
-        "📖 " + readList().length + " read";
-      let list;
-      if (filter === "Saved")
-        list = savedList()
-          .slice()
-          .sort((a, b) => (b.published_on || 0) - (a.published_on || 0));
-      else if (filter === "All") list = ITEMS.slice(0, 30);
-      else list = ITEMS.filter((i) => i.source === filter).slice(0, 30);
-
-      if (!list.length) {
-        view.querySelector("#n-list").innerHTML = W.ui.empty(
-          "🔖",
-          "Nothing here yet",
-          "Tap 🔖 on any article to save it for later",
-        );
+    if (allArticles.length === 0) {
+      log("No live articles, trying snapshot...");
+      const snapshot = await via("", true);
+      if (snapshot && snapshot.length) {
+        renderArticles(snapshot);
         return;
       }
-
-      view.querySelector("#n-list").innerHTML = list
-        .map((n, k) => {
-          const safeTitle = n.title || "Untitled";
-          let s = "neutral";
-          try {
-            s = sentiment(safeTitle);
-          } catch (e) {
-            s = "neutral";
-          }
-          const read = readList().includes(n.id);
-          const saved = isSaved(n.id);
-          return (
-            '<div class="card news-card ' +
-            (read ? "read" : "") +
-            '" data-k="' +
-            k +
-            '">' +
-            (n.image
-              ? '<img src="' + n.image + '" onerror="this.remove()">'
-              : "") +
-            '<div style="flex:1"><div class="news-title">' +
-            safeTitle +
-            "</div>" +
-            '<div class="muted small">' +
-            (n.source || "Unknown") +
-            " · " +
-            ago(n.published_on) +
-            "</div>" +
-            '<span class="tag ' +
-            s +
-            '">' +
-            s +
-            "</span>" +
-            (read ? '<span class="tag buy">✓ read</span>' : "") +
-            (saved ? '<span class="tag rank">🔖 saved</span>' : "") +
-            "</div>" +
-            '<div style="display:flex;flex-direction:column;gap:6px">' +
-            '<button class="icon-btn ' +
-            (saved ? "save-on" : "") +
-            '" data-save="' +
-            k +
-            '" title="Save for later">🔖</button>' +
-            '<button class="icon-btn" data-ext="' +
-            k +
-            '" title="Open original">↗</button></div></div>'
-          );
-        })
-        .join("");
-
-      view.querySelectorAll(".news-card").forEach(
-        (c) =>
-          (c.onclick = (e) => {
-            if (
-              e.target.closest("[data-ext]") ||
-              e.target.closest("[data-save]")
-            )
-              return;
-            openReader(list[+c.dataset.k]);
-          }),
-      );
-      view.querySelectorAll("[data-ext]").forEach(
-        (b) =>
-          (b.onclick = (e) => {
-            e.stopPropagation();
-            window.open(list[+b.dataset.ext].url, "_blank");
-          }),
-      );
-      view.querySelectorAll("[data-save]").forEach(
-        (b) =>
-          (b.onclick = (e) => {
-            e.stopPropagation();
-            toggleSave(list[+b.dataset.save]);
-            drawFilters();
-            drawList();
-          }),
-      );
-    };
-
-    refreshList = () => {
-      drawFilters();
-      drawList();
-    };
-    drawFilters();
-    drawList();
-
-    /* ⬇️⬇️⬇️ BACKGROUND FETCH (Replaces fallback if successful) ⬇️⬇️⬇️ */
-    (async () => {
-      const results = await Promise.allSettled([rssNews()]);
-      let realItems = [];
-      results.forEach((r) => {
-        if (r.status === "fulfilled") realItems = realItems.concat(r.value);
-      });
-      if (realItems.length > 0) {
-        ITEMS = realItems; // Update only if we got real news
-        W.store.set("news-cache", realItems);
-        const bEl2 = view.querySelector("#n-brief");
-        if (bEl2) bEl2.innerHTML = ""; // Clear the "placeholder" banner
-        drawFilters();
-        drawList();
-      }
-    })();
-    /* ⬆️⬆️⬆️ END BACKGROUND FETCH ⬆️⬆️⬆️ */
+      container.innerHTML =
+        '<div class="error">Could not load news. Try again later.</div>';
+      return;
+    }
+    renderArticles(allArticles);
+  } catch (err) {
+    console.error("[News] Render error:", err);
+    container.innerHTML =
+      '<div class="error">Failed to load news. Check console.</div>';
   }
+}
 
-  return { render };
-})();
+// ========== EXPORTS ==========
+window.W = window.W || {};
+W.features = W.features || {};
+W.features.news = { render };
+W.news = { render };
+
+console.log("[News] Module loaded.");
+console.log("[News] W.features.news:", W.features.news);
+console.log("[News] W.news:", W.news);
