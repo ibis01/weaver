@@ -1,6 +1,6 @@
-// ================================================================
-// js/ui/dashboard.js – Weaver Dashboard UI
-// ================================================================
+// ===============================================================
+//                     Weaver Dashboard UI
+// ===============================================================
 
 window.W = window.W || {};
 
@@ -20,25 +20,54 @@ W.dashboard = (() => {
   const signedMoney = (n) =>
     n == null
       ? "—"
-      : `<span class="${n >= 0 ? "up" : "down"}">${n >= 0 ? "+" : "-"}${W.formatCurrency ? W.formatCurrency(Math.abs(n)) : W.fmt.money(Math.abs(n))}</span>`;
+      : `<span class="${n >= 0 ? "up" : "down"}">${n >= 0 ? "+" : "-"}${W.fmt.money(Math.abs(n))}</span>`;
 
   // ── Helper: Terminal Tape ────────────────────────────
-  const tapeHTML = (coins) =>
-    `<div class="tape-wrap">
-      <div class="tape">
-        ${coins
-          .concat(coins)
-          .map(
-            (c) =>
-              `<span class="tape-item">
-                <b>${c.symbol.toUpperCase()}</b>
-                <span class="muted">${W.fmt.price(c.current_price)}</span>
-                ${W.fmt.pct(c.price_change_percentage_24h_in_currency)}
-              </span>`,
-          )
-          .join("")}
-      </div>
+  const tapeHTML = (coins) => {
+    if (!coins || !Array.isArray(coins) || !coins.length) {
+      return '<div class="tape-wrap"><div class="tape"><span class="tape-item muted">📊 Loading market data...</span></div></div>';
+    }
+
+    let tapeItems = "";
+    let validCount = 0;
+
+    for (let i = 0; i < coins.length; i++) {
+      const c = coins[i];
+      if (!c || typeof c !== "object") continue;
+      const symbol = c.symbol || (c.symbol === "" ? c.symbol : null);
+      if (!symbol) continue;
+      const price =
+        c.current_price !== undefined
+          ? c.current_price
+          : c.price !== undefined
+            ? c.price
+            : null;
+      if (price === null || price === undefined) continue;
+      const change =
+        c.price_change_percentage_24h_in_currency !== undefined
+          ? c.price_change_percentage_24h_in_currency
+          : 0;
+
+      tapeItems += `
+        <span class="tape-item">
+          <b>${symbol.toUpperCase()}</b>
+          <span class="muted">${W.fmt.price(price)}</span>
+          ${W.fmt.pct(change)}
+        </span>`;
+      validCount++;
+      if (validCount >= 20) break;
+    }
+
+    if (!tapeItems) {
+      return '<div class="tape-wrap"><div class="tape"><span class="tape-item muted">📊 No market data available</span></div></div>';
+    }
+
+    const doubled = tapeItems + tapeItems;
+
+    return `<div class="tape-wrap">
+      <div class="tape">${doubled}</div>
     </div>`;
+  };
 
   // ── Helper: Sparkline ────────────────────────────────
   function drawSpark(c) {
@@ -63,7 +92,6 @@ W.dashboard = (() => {
       i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
     });
     ctx.stroke();
-    // Fill under the line
     ctx.lineTo(w, h);
     ctx.lineTo(0, h);
     ctx.closePath();
@@ -79,33 +107,72 @@ W.dashboard = (() => {
           .join(",")}"></canvas>`
       : '<span class="muted small">—</span>';
 
-  // ── Helper: Terminal Row ─────────────────────────────
-  const termRow = (c, i) => `
-    <tr class="clickable" data-coin="${c.id}">
-      <td class="muted">${i + 1}</td>
-      <td class="coin-cell">
-        <img src="${c.image}" alt="${c.name}">
-        <div>
-          <b>${c.symbol.toUpperCase()}</b>
-          <span class="muted small">${c.name}</span>
-        </div>
-      </td>
-      <td class="num"><b>${W.fmt.price(c.current_price)}</b></td>
-      <td class="num">${W.fmt.pct(c.price_change_percentage_24h_in_currency)}</td>
-      <td class="num">${W.fmt.pct(c.price_change_percentage_7d_in_currency)}</td>
-      <td class="num">${W.fmt.pct(c.price_change_percentage_30d_in_currency)}</td>
-      <td class="num">${W.fmt.money(c.market_cap, { compact: true })}</td>
-      <td class="num">${W.fmt.money(c.total_volume, { compact: true })}</td>
-      <td>${sparkCell((c.sparkline_in_7d || {}).price, (c.price_change_percentage_24h_in_currency || 0) >= 0)}</td>
-    </tr>
-  `;
+  // ── Helper: Terminal Row (DEFENSIVE) ────────────────────
+  const termRow = (c, i) => {
+    if (!c || typeof c !== "object") return "";
 
-  // ── Enrich Portfolio Data ────────────────────────────
+    const id = c.id || "unknown";
+    const image = c.image || "";
+    const name = c.name || "Unknown";
+    const symbol = c.symbol ? c.symbol.toUpperCase() : "???";
+    const price =
+      c.current_price !== undefined ? c.current_price : c.price || 0;
+    const p24 =
+      c.price_change_percentage_24h_in_currency !== undefined
+        ? c.price_change_percentage_24h_in_currency
+        : 0;
+    const p7 =
+      c.price_change_percentage_7d_in_currency !== undefined
+        ? c.price_change_percentage_7d_in_currency
+        : 0;
+    const p30 =
+      c.price_change_percentage_30d_in_currency !== undefined
+        ? c.price_change_percentage_30d_in_currency
+        : 0;
+    const marketCap = c.market_cap || 0;
+    const volume = c.total_volume || 0;
+    const sparkline = (c.sparkline_in_7d || {}).price || [];
+
+    return `
+      <tr class="clickable" data-coin="${id}">
+        <td class="muted">${i + 1}</td>
+        <td class="coin-cell">
+          <img src="${image}" alt="${name}" style="width:24px;height:24px;border-radius:50%;">
+          <div>
+            <b>${symbol}</b>
+            <span class="muted small">${name}</span>
+          </div>
+        </td>
+        <td class="num"><b>${W.fmt.price(price)}</b></td>
+        <td class="num">${W.fmt.pct(p24)}</td>
+        <td class="num">${W.fmt.pct(p7)}</td>
+        <td class="num">${W.fmt.pct(p30)}</td>
+        <td class="num">${W.fmt.money(marketCap, { compact: true })}</td>
+        <td class="num">${W.fmt.money(volume, { compact: true })}</td>
+        <td>${sparkCell(sparkline, p24 >= 0)}</td>
+      </tr>
+    `;
+  };
+
+  // ── Enrich Portfolio Data (with wallet sync) ──────────
   async function enrich() {
-    const holdings = W.portfolio ? W.portfolio.all() : [];
-    if (!holdings.length) return { rows: [], totals: null };
+    // Get manual holdings
+    const manualHoldings = W.portfolio ? W.portfolio.all() : [];
+    // Get wallet holdings (if any)
+    let walletHoldings = [];
+    if (W.walletSync && typeof W.walletSync.holdings === "function") {
+      walletHoldings = W.walletSync.holdings() || [];
+    }
 
-    const ids = [...new Set(holdings.map((h) => h.coinId))].join(",");
+    // Merge: wallet holdings are marked as wallet: true
+    const allHoldings = [
+      ...manualHoldings.map((h) => ({ ...h, wallet: false })),
+      ...walletHoldings.map((h) => ({ ...h, wallet: true })),
+    ];
+
+    if (!allHoldings.length) return { rows: [], totals: null };
+
+    const ids = [...new Set(allHoldings.map((h) => h.coinId))].join(",");
     let markets = [];
     if (ids.trim()) {
       try {
@@ -115,12 +182,12 @@ W.dashboard = (() => {
       }
     }
 
-    const rows = holdings
+    const rows = allHoldings
       .map((h) => {
         const m = markets.find((c) => c.id === h.coinId) || {};
-        const price = m.current_price ?? h.buyPrice;
-        const value = price * h.qty,
-          cost = h.buyPrice * h.qty;
+        const price = m.current_price ?? h.buyPrice ?? 0;
+        const value = price * h.qty;
+        const cost = h.wallet ? value : (h.buyPrice || 0) * h.qty; // wallet holdings have no cost basis
         return {
           ...h,
           price,
@@ -184,9 +251,9 @@ W.dashboard = (() => {
               <td>${W.fmt.price(r.price)}</td>
               <td>${W.fmt.pct(r.p24)}</td>
               <td>${r.qty}</td>
-              <td>${W.fmt.price(r.buyPrice)}</td>
+              <td>${r.wallet ? "—" : W.fmt.price(r.buyPrice)}</td>
               <td><b>${W.fmt.money(r.value)}</b></td>
-              <td>${signedMoney(r.pnl)}<div class="small">${W.fmt.pct(r.pnlPct)}</div></td>
+              <td>${r.wallet ? '<span class="muted">—</span>' : signedMoney(r.pnl) + '<div class="small">' + W.fmt.pct(r.pnlPct) + "</div>"}</td>
               <td class="row-actions">
                 ${
                   r.wallet
@@ -209,6 +276,7 @@ W.dashboard = (() => {
   // ── Wire row actions ─────────────────────────────────
   function wireRows(container, rows) {
     rows.forEach((r) => {
+      if (r.wallet) return; // skip wallet rows
       const e = container.querySelector(`[data-edit="${r.id}"]`);
       const d = container.querySelector(`[data-del="${r.id}"]`);
       if (e) e.onclick = () => holdingModal(r);
@@ -457,16 +525,6 @@ W.dashboard = (() => {
       };
     }
 
-    // ── Auto-sync wallets ──────────────────────────────
-    if (
-      W.walletSync &&
-      Date.now() - (W.store.get("wallet-last", 0) || 0) > 60000
-    ) {
-      W.walletSync.refresh().then((rows) => {
-        if (rows.length) W.refresh();
-      });
-    }
-
     // ── Fetch data ──────────────────────────────────────
     const [topR, globR, fgR, pf] = await Promise.allSettled([
       W.api.top(100),
@@ -475,16 +533,32 @@ W.dashboard = (() => {
       enrich(),
     ]);
 
-    const TOP = topR.status === "fulfilled" ? topR.value : [];
+    const TOP =
+      topR.status === "fulfilled" && Array.isArray(topR.value)
+        ? topR.value
+        : [];
     const rows = pf.status === "fulfilled" ? pf.value.rows : [];
     const totals = pf.status === "fulfilled" ? pf.value.totals : null;
     const g = globR.status === "fulfilled" ? globR.value.data : null;
     const fg = fgR.status === "fulfilled" ? fgR.value : null;
 
+    // ── Trending data ──────────────────────────────────
+    let trendR;
+    try {
+      const trendData = await W.api.trending();
+      trendR = { status: "fulfilled", value: trendData };
+    } catch (e) {
+      trendR = { status: "rejected", reason: e };
+    }
+
     // ── Tape ────────────────────────────────────────────
-    if (TOP.length) {
-      const tape = view.querySelector("#d-tape");
-      if (tape) tape.innerHTML = tapeHTML(TOP.slice(0, 20));
+    const tapeContainer = view.querySelector("#d-tape");
+    if (tapeContainer) {
+      if (TOP && TOP.length) {
+        tapeContainer.innerHTML = tapeHTML(TOP.slice(0, 20));
+      } else {
+        tapeContainer.innerHTML = tapeHTML([]);
+      }
     }
 
     // ── Stats ───────────────────────────────────────────
@@ -541,9 +615,13 @@ W.dashboard = (() => {
       }
       const rowsEl = view.querySelector("#d-rows");
       if (rowsEl) {
-        rowsEl.innerHTML = list.length
-          ? list.map(termRow).join("")
+        const rowsHtml = list.length
+          ? list
+              .map(termRow)
+              .filter((r) => r !== "")
+              .join("")
           : '<tr><td colspan="9" class="muted center">All live sources unreachable — data appears when a pipe (or your cache) is available.</td></tr>';
+        rowsEl.innerHTML = rowsHtml;
         rowsEl
           .querySelectorAll("tr[data-coin]")
           .forEach(
@@ -556,7 +634,6 @@ W.dashboard = (() => {
     };
 
     // ── Tab switchers ───────────────────────────────────
-    // Add tab buttons if they exist in the view
     const tabContainer = view.querySelector(".watch-head .qa");
     if (tabContainer) {
       const tabs = ["trending", "top", "gain", "lose"];
@@ -578,7 +655,6 @@ W.dashboard = (() => {
       });
     }
 
-    // Also handle existing tab buttons from earlier
     view.querySelectorAll("[data-tab]").forEach((c) => {
       c.onclick = () => {
         view
@@ -696,15 +772,6 @@ W.dashboard = (() => {
           });
         }
       }
-    }
-
-    // ── Trending data (if available) ──────────────────
-    let trendR;
-    try {
-      const trendData = await W.api.trending();
-      trendR = { status: "fulfilled", value: trendData };
-    } catch (e) {
-      trendR = { status: "rejected", reason: e };
     }
   }
 

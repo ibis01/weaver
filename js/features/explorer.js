@@ -1,4 +1,6 @@
-// js/features/explorer.js – Coin Explorer
+// ===============================================================
+//                   Coin Explorer
+// ===============================================================
 
 window.W = window.W || {};
 
@@ -132,20 +134,20 @@ W.explorer = (() => {
         </div>
       `;
 
-      // Watch button
+      // ── Watch button ──────────────────────────────────
       view.querySelector("#x-watch").onclick = (e) => {
         const on = W.watchlist.toggle(id);
         e.target.textContent = on ? "★ Watching" : "☆ Watch";
         e.target.classList.toggle("primary", on);
       };
 
-      // Add to portfolio
+      // ── Add to portfolio ──────────────────────────────
       view.querySelector("#x-add").onclick = () => {
         if (W.dashboard?.holdingModal) W.dashboard.holdingModal(null, c);
         else W.ui.toast("Portfolio module not available", "warn");
       };
 
-      // Copy contract
+      // ── Copy contract ─────────────────────────────────
       view.querySelectorAll("[data-copy]").forEach((btn) => {
         btn.onclick = () => {
           navigator.clipboard.writeText(btn.dataset.copy);
@@ -153,7 +155,7 @@ W.explorer = (() => {
         };
       });
 
-      // Chart range buttons
+      // ── Chart range buttons ───────────────────────────
       view.querySelectorAll("[data-days]").forEach((ch) => {
         ch.onclick = () => {
           view
@@ -163,68 +165,131 @@ W.explorer = (() => {
           drawChart(id, ch.dataset.days, view);
         };
       });
+
+      // ── Draw initial chart ────────────────────────────
       drawChart(id, 7, view);
     } catch (e) {
       view.innerHTML = `<p class="muted">${escapeHTML(e.message)}</p>`;
     }
   }
 
-  // ── Draw Chart ─────────────────────────────────────────
+  // ── Draw Chart (with robust error handling) ───────────
   async function drawChart(id, days, view) {
-    const data = await W.api.chart(id, days);
-    chart?.destroy();
     const canvas = view.querySelector("#x-chart");
-    if (!canvas || !window.Chart) return;
-    const prices = Array.isArray(data) ? data : data?.prices || [];
-    if (prices.length < 2) {
-      canvas.parentElement.innerHTML =
-        '<p class="muted small center" style="padding:40px 0;">📉 No chart data on this network right now — the stats below are live.</p>';
+    if (!canvas) {
+      console.warn("[Explorer] Chart canvas not found");
       return;
     }
-    const up = prices[prices.length - 1][1] >= prices[0][1];
-    const ctx = canvas.getContext("2d");
-    const gradient = ctx.createLinearGradient(0, 0, 0, 260);
-    const color = up ? "46,230,168" : "255,92,122";
-    gradient.addColorStop(0, `rgba(${color},.32)`);
-    gradient.addColorStop(1, `rgba(${color},0)`);
 
-    chart = new Chart(canvas, {
-      type: "line",
-      data: {
-        labels: prices.map((p) =>
-          new Date(p[0]).toLocaleDateString(undefined, {
-            month: "short",
-            day: "numeric",
-          }),
-        ),
-        datasets: [
-          {
-            data: prices.map((p) => p[1]),
-            borderColor: up ? "#2ee6a8" : "#ff5c7a",
-            borderWidth: 2.5,
-            pointRadius: 0,
-            fill: true,
-            backgroundColor: gradient,
-            tension: 0.3,
+    // ── Check if Chart.js is available ──────────────────
+    if (typeof Chart === "undefined") {
+      canvas.parentElement.innerHTML = `
+        <p class="muted small center" style="padding:40px 0;">
+          📊 Chart library not loaded. Please include Chart.js in your HTML.
+        </p>`;
+      return;
+    }
+
+    // ── Destroy previous chart instance ──────────────────
+    if (chart) {
+      try {
+        chart.destroy();
+      } catch (e) {
+        console.warn("[Explorer] Error destroying previous chart:", e);
+      }
+      chart = null;
+    }
+
+    try {
+      const data = await W.api.chart(id, days);
+      const prices = Array.isArray(data) ? data : data?.prices || [];
+
+      if (!prices || prices.length < 2) {
+        canvas.parentElement.innerHTML = `
+          <p class="muted small center" style="padding:40px 0;">
+            📉 No chart data available for this period.
+          </p>`;
+        return;
+      }
+
+      const up = prices[prices.length - 1][1] >= prices[0][1];
+      const ctx = canvas.getContext("2d");
+      const gradient = ctx.createLinearGradient(0, 0, 0, 260);
+      const color = up ? "46,230,168" : "255,92,122";
+      gradient.addColorStop(0, `rgba(${color},.32)`);
+      gradient.addColorStop(1, `rgba(${color},0)`);
+
+      // Ensure the canvas is visible and has dimensions
+      if (canvas.width === 0 || canvas.height === 0) {
+        // Force a layout update
+        canvas.style.width = "100%";
+        canvas.style.height = "260px";
+        canvas.width = canvas.parentElement.clientWidth || 600;
+        canvas.height = 260;
+      }
+
+      chart = new Chart(canvas, {
+        type: "line",
+        data: {
+          labels: prices.map((p) =>
+            new Date(p[0]).toLocaleDateString(undefined, {
+              month: "short",
+              day: "numeric",
+            }),
+          ),
+          datasets: [
+            {
+              data: prices.map((p) => p[1]),
+              borderColor: up ? "#2ee6a8" : "#ff5c7a",
+              borderWidth: 2.5,
+              pointRadius: 0,
+              fill: true,
+              backgroundColor: gradient,
+              tension: 0.3,
+            },
+          ],
+        },
+        options: {
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  return `$${ctx.parsed.y.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+                },
+              },
+            },
           },
-        ],
-      },
-      options: {
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: {
-            ticks: { color: "#9aa3b2", maxTicksLimit: 8 },
-            grid: { display: false },
+          scales: {
+            x: {
+              ticks: { color: "#9aa3b2", maxTicksLimit: 8 },
+              grid: { display: false },
+            },
+            y: {
+              ticks: {
+                color: "#9aa3b2",
+                callback: (value) => "$" + value.toLocaleString(),
+              },
+              grid: { color: "rgba(255,255,255,.05)" },
+            },
           },
-          y: {
-            ticks: { color: "#9aa3b2" },
-            grid: { color: "rgba(255,255,255,.05)" },
+          interaction: {
+            intersect: false,
+            mode: "index",
+          },
+          animation: {
+            duration: 800,
           },
         },
-        interaction: { intersect: false, mode: "index" },
-      },
-    });
+      });
+    } catch (e) {
+      console.error("[Explorer] Chart error:", e);
+      canvas.parentElement.innerHTML = `
+        <p class="muted small center" style="padding:40px 0;">
+          ⚠️ Failed to load chart: ${escapeHTML(e.message)}
+        </p>`;
+    }
   }
 
   return { render, renderCoin };

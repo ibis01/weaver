@@ -3,5 +3,15 @@
     "axios": "^1.19.0",
     "cors": "^2.8.6",
     "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "scripts": {
+    "concat": "node concat.js",
+    "build": "npm run concat && npx esbuild dist/bundle.js --minify --outfile=dist/bundle.min.js",
+    "watch": "node concat.js --watch",
+    "dev": "npm run watch & python3 -m http.server 8000",
+    "start": "npm run build && python3 -m http.server 8000"
   }
 }

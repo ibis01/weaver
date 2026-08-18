@@ -1,6 +1,4 @@
-
 // Complete Formatting Utilities
-
 
 window.W = window.W || {};
 
@@ -144,7 +142,6 @@ W.fmt.price = function (value, currency) {
     })
   );
 };
-
 /**
  * Format a percentage with sign
  * @param {number} value - The percentage value

@@ -4,75 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Weaver — Crypto Portfolio</title>
-
-    <!-- ===================== STYLES ===================== -->
-    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=Sora:wght@400;600;800&display=swap"
       rel="stylesheet"
     />
-
-    <!-- Main Aurora Design System + News UI -->
     <link rel="stylesheet" href="style.css" />
-
-    <!-- ===================== SCRIPTS ===================== -->
-    <!-- Load modules in dependency order -->
-
-    <!-- Storage -->
-    <script src="js/storage/storage.js"></script>
-
-    <!-- API -->
-    <script src="js/api/prices.js"></script>
-
-    <!-- Utilities -->
-    <script src="js/utils/format.js"></script>
-    <script src="js/utils/debounce.js"></script>
-
-    <!-- UI (core) -->
-    <script src="js/ui/theme.js"></script>
-    <script src="js/ui/ui.js"></script>
-    <script src="js/ui/dashboard.js"></script>
-
-    <!-- API Snapshots (fallback) -->
-    <script src="js/api/snapshot.js"></script>
-
-    <!-- Features -->
-    <script src="js/features/portfolio.js"></script>
-    <script src="js/features/watchlist.js"></script>
-    <script src="js/features/explorer.js"></script>
-    <script src="js/features/alerts.js"></script>
-    <script src="js/features/news.js"></script>
-    <script src="js/features/ai.js"></script>
-    <script src="js/features/optimizer.js"></script>
-    <script src="js/features/timemachine.js"></script>
-    <script src="js/features/trader.js"></script>
-    <script src="js/features/gems.js"></script>
-    <script src="js/features/shield.js"></script>
-    <script src="js/features/web3.js"></script>
-    <script src="js/features/misc.js"></script>
-    <script src="js/features/whales.js"></script>
-    <script src="js/features/smart.js"></script>
-    <script src="js/features/unlocks.js"></script>
-    <script src="js/features/sectors.js"></script>
-    <script src="js/features/learn.js"></script>
-    <script src="js/features/sync.js"></script>
-    <script src="js/features/telegram.js"></script>
-    <script src="js/features/walletsync.js"></script>
-
-    <!-- Futuristic UI enhancements -->
-    <script src="js/ui/particles.js"></script>
-    <script src="js/ui/tilt.js"></script>
-
-    <!-- Core app (must load last) -->
-    <script src="js/app.js"></script>
-
-    <!-- Optional test suite -->
-    <!-- <script src="js/test.js"></script> -->
   </head>
   <body>
-    <!-- Ambient background (Aurora) -->
+    <!-- Ambient background -->
     <div class="bg">
       <div class="orb o1"></div>
       <div class="orb o2"></div>
@@ -82,137 +23,18 @@
     </div>
 
     <div class="app">
-      <!-- =================================================== -->
-      <!-- SIDEBAR with Grouped Navigation                      -->
-      <!-- =================================================== -->
+      <!-- Sidebar -->
       <aside class="sidebar">
-        <!-- Brand -->
         <div class="brand">
           <img src="assets/logo.png" alt="Weaver" />
           <span>Weaver</span>
         </div>
-
-        <!-- Navigation -->
         <nav id="nav">
-          <!-- ─── OVERVIEW ─── -->
-          <div class="nav-group-label">Overview</div>
-          <a href="#/dashboard" class="active">
-            <span class="nav-ico">📊</span>
-            <span>Dashboard</span>
-          </a>
-          <a href="#/portfolio">
-            <span class="nav-ico">💼</span>
-            <span>Portfolio</span>
-          </a>
-
-          <!-- ─── MARKETS ─── -->
-          <div class="nav-group-label">Markets</div>
-          <a href="#/explorer">
-            <span class="nav-ico">🔍</span>
-            <span>Explorer</span>
-          </a>
-          <a href="#/watchlist">
-            <span class="nav-ico">⭐</span>
-            <span>Watchlist</span>
-          </a>
-          <a href="#/sectors">
-            <span class="nav-ico">📈</span>
-            <span>Sector Map</span>
-          </a>
-          <a href="#/alerts">
-            <span class="nav-ico">🔔</span>
-            <span>Alerts</span>
-          </a>
-
-          <!-- ─── INTELLIGENCE ─── -->
-          <div class="nav-group-label">Intelligence</div>
-          <a href="#/ai">
-            <span class="nav-ico">🧠</span>
-            <span>Portfolio Intelligence</span>
-          </a>
-          <a href="#/smart">
-            <span class="nav-ico">🎯</span>
-            <span>Smart Money</span>
-          </a>
-          <a href="#/whales">
-            <span class="nav-ico">🐋</span>
-            <span>Whales</span>
-          </a>
-          <a href="#/shield">
-            <span class="nav-ico">🛡️</span>
-            <span>Token Shield</span>
-          </a>
-
-          <!-- ─── OPPORTUNITIES ─── -->
-          <div class="nav-group-label">Opportunities</div>
-          <a href="#/gems">
-            <span class="nav-ico">💎</span>
-            <span>Gem Scanner</span>
-            <span class="nav-badge">NEW</span>
-          </a>
-          <a href="#/airdrop">
-            <span class="nav-ico">🪂</span>
-            <span>Airdrops</span>
-          </a>
-          <a href="#/defi">
-            <span class="nav-ico">🏦</span>
-            <span>DeFi</span>
-          </a>
-          <a href="#/unlocks">
-            <span class="nav-ico">🔓</span>
-            <span>Token Unlocks</span>
-          </a>
-
-          <!-- ─── TOOLS ─── -->
-          <div class="nav-group-label">Tools</div>
-          <a href="#/optimizer">
-            <span class="nav-ico">⚡</span>
-            <span>Optimizer</span>
-          </a>
-          <a href="#/trader">
-            <span class="nav-ico">📊</span>
-            <span>Trading Assistant</span>
-          </a>
-          <a href="#/timemachine">
-            <span class="nav-ico">⏳</span>
-            <span>Time Machine</span>
-          </a>
-
-          <!-- ─── RESEARCH ─── -->
-          <div class="nav-group-label">Research</div>
-          <a href="#/news">
-            <span class="nav-ico">📰</span>
-            <span>News</span>
-          </a>
-          <a href="#/learn">
-            <span class="nav-ico">📚</span>
-            <span>Learn</span>
-          </a>
-
-          <!-- ─── ACCOUNT ─── -->
-          <div class="nav-group-label">Account</div>
-          <a href="#/profile">
-            <span class="nav-ico">👤</span>
-            <span>Profile</span>
-          </a>
-          <a href="#/settings">
-            <span class="nav-ico">⚙️</span>
-            <span>Settings</span>
-          </a>
-
-          <!-- Spacer -->
-          <div style="flex: 1"></div>
-
-          <!-- Upgrade button -->
-          <button class="pro-pill" onclick="location.href = '#/pro'">
-            ✨ Unlock Pro
-          </button>
+          <!-- Navigation items will be generated by app.js -->
         </nav>
       </aside>
 
-      <!-- =================================================== -->
-      <!-- MAIN CONTENT AREA                                  -->
-      <!-- =================================================== -->
+      <!-- Main content -->
       <main class="main">
         <!-- Top Bar -->
         <header class="topbar">
@@ -220,10 +42,14 @@
           <div class="topbar-actions">
             <span id="clock" class="muted small"></span>
             <select id="currency" aria-label="Currency">
-              <option value="ngn">NGN</option>
               <option value="usd">USD</option>
+              <option value="ngn">NGN</option>
               <option value="eur">EUR</option>
               <option value="gbp">GBP</option>
+              <option value="inr">INR</option>
+              <option value="jpy">JPY</option>
+              <option value="aud">AUD</option>
+              <option value="cad">CAD</option>
               <option value="btc">BTC</option>
               <option value="eth">ETH</option>
             </select>
@@ -238,400 +64,28 @@
           </div>
         </header>
 
-        <!-- ========== PAGES (all hidden by default, shown via app.js) ========== -->
-
-        <!-- Dashboard -->
-        <section id="dashboard" class="page">
-          <div class="cards">
-            <div class="card stat">
-              <div class="stat-label">Total Balance</div>
-              <div class="stat-big" id="total-balance">—</div>
-              <div class="stat-sub" id="total-change">—</div>
-            </div>
-            <div class="card stat">
-              <div class="stat-label">Best Performer</div>
-              <div class="stat-big" id="best-performer">—</div>
-              <div class="stat-sub" id="best-change">—</div>
-            </div>
-            <div class="card stat">
-              <div class="stat-label">Worst Performer</div>
-              <div class="stat-big" id="worst-performer">—</div>
-              <div class="stat-sub" id="worst-change">—</div>
-            </div>
-            <div class="card stat">
-              <div class="stat-label">Assets</div>
-              <div class="stat-big" id="asset-count">0</div>
-              <div class="stat-sub">coins tracked</div>
-            </div>
-          </div>
-          <div class="card">
-            <h3>Portfolio Allocation</h3>
-            <div
-              id="allocation-chart"
-              style="
-                height: 180px;
-                background: rgba(255, 255, 255, 0.05);
-                border-radius: 12px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                color: var(--muted);
-              "
-            >
-              <span>Chart will render here</span>
-            </div>
-          </div>
-          <div class="card">
-            <h3>Recent Transactions</h3>
-            <div id="recent-tx" class="empty">No transactions yet.</div>
-          </div>
-        </section>
-
-        <!-- Portfolio -->
-        <section id="portfolio" class="page hidden">
-          <div class="card">
-            <h3>Your Holdings</h3>
-            <div class="table-wrap">
-              <table id="portfolio-table">
-                <thead>
-                  <tr>
-                    <th>Asset</th>
-                    <th class="num">Amount</th>
-                    <th class="num">Price</th>
-                    <th class="num">Value</th>
-                    <th class="num">24h</th>
-                    <th class="num">Allocation</th>
-                  </tr>
-                </thead>
-                <tbody id="portfolio-body">
-                  <tr>
-                    <td colspan="6" class="center muted">
-                      No holdings added yet.
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div style="margin-top: 12px">
-              <button class="btn primary tiny" onclick="W.showAddAsset()">
-                + Add Asset
-              </button>
-              <button class="btn tiny" onclick="W.importPortfolio()">
-                📥 Import
-              </button>
-              <button class="btn tiny" onclick="W.exportPortfolio()">
-                📤 Export
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <!-- Watchlist -->
-        <section id="watchlist" class="page hidden">
-          <div class="card">
-            <h3>Watchlist</h3>
-            <div id="watchlist-container" class="empty">
-              No coins watched yet.
-            </div>
-          </div>
-        </section>
-
-        <!-- Explorer -->
-        <section id="explorer" class="page hidden">
-          <div class="card">
-            <h3>Coin Explorer</h3>
-            <div class="picker">
-              <input
-                type="text"
-                id="explorer-search"
-                placeholder="Search coin..."
-              />
-              <div
-                id="explorer-results"
-                class="picker-results"
-                style="display: none"
-              ></div>
-            </div>
-            <div id="explorer-detail" class="mt"></div>
-          </div>
-        </section>
-
-        <!-- Alerts -->
-        <section id="alerts" class="page hidden">
-          <div class="card">
-            <h3>Price Alerts</h3>
-            <div id="alerts-list" class="empty">No alerts set.</div>
-            <button class="btn primary tiny mt" onclick="W.showAddAlert()">
-              + New Alert
-            </button>
-          </div>
-        </section>
-
-        <!-- News -->
-        <section id="news" class="page hidden">
-          <div class="card">
-            <h3>📰 Crypto News</h3>
-            <!-- The container will be auto-created by news.js if missing -->
-            <div id="news-container"></div>
-          </div>
-        </section>
-
-        <!-- AI / Portfolio Intelligence -->
-        <section id="ai" class="page hidden">
-          <div class="card">
-            <h3>🧠 Portfolio Intelligence</h3>
-            <div id="ai-summary" class="ai-brief">
-              <p class="muted">Your portfolio review will appear here.</p>
-            </div>
-            <div class="ask-row mt">
-              <input
-                type="text"
-                id="ai-question"
-                placeholder="Ask a question about your portfolio..."
-              />
-              <button class="btn primary" onclick="W.askAI()">Ask</button>
-            </div>
-            <div id="ai-answer" class="ai-answer"></div>
-          </div>
-        </section>
-
-        <!-- Optimizer -->
-        <section id="optimizer" class="page hidden">
-          <div class="card">
-            <h3>⚡ Portfolio Optimizer</h3>
-            <div id="optimizer-result" class="empty">
-              Run the optimizer to get recommendations.
-            </div>
-            <button class="btn primary mt" onclick="W.runOptimizer()">
-              Optimize
-            </button>
-          </div>
-        </section>
-
-        <!-- Time Machine -->
-        <section id="timemachine" class="page hidden">
-          <div class="card">
-            <h3>⏳ Time Machine</h3>
-            <div>
-              <label>Go back to:</label>
-              <input type="date" id="tm-date" />
-              <button class="btn primary" onclick="W.runTimeMachine()">
-                View
-              </button>
-            </div>
-            <div id="tm-result" class="mt"></div>
-          </div>
-        </section>
-
-        <!-- AI Trader (Trading Assistant) -->
-        <section id="trader" class="page hidden">
-          <div class="card">
-            <h3>📊 Trading Assistant</h3>
-            <div id="trader-signals" class="empty">
-              Signals will appear here.
-            </div>
-          </div>
-        </section>
-
-        <!-- Gem Agent -->
-        <section id="gems" class="page hidden">
-          <div class="card">
-            <h3>💎 Gem Scanner <span class="tag">NEW</span></h3>
-            <div id="gems-list" class="empty">Scanning for gems...</div>
-            <button class="btn primary mt" onclick="W.scanGems()">Scan</button>
-          </div>
-        </section>
-
-        <!-- Token Shield -->
-        <section id="shield" class="page hidden">
-          <div class="card">
-            <h3>🛡️ Token Shield</h3>
-            <div id="shield-status" class="empty">No threats detected.</div>
-          </div>
-        </section>
-
-        <!-- Web3 Wallets -->
-        <section id="web3" class="page hidden">
-          <div class="card">
-            <h3>🔗 Web3 Wallets</h3>
-            <button class="btn primary" onclick="W.connectWallet()">
-              Connect Wallet
-            </button>
-            <div id="wallet-info" class="mt"></div>
-          </div>
-        </section>
-
-        <!-- DeFi -->
-        <section id="defi" class="page hidden">
-          <div class="card">
-            <h3>🏦 DeFi Tracker</h3>
-            <div id="defi-summary" class="empty">
-              No DeFi positions tracked.
-            </div>
-          </div>
-        </section>
-
-        <!-- Airdrop Hunter -->
-        <section id="airdrop" class="page hidden">
-          <div class="card">
-            <h3>🪂 Airdrop Hunter</h3>
-            <div id="airdrop-list" class="empty">No airdrops found.</div>
-            <button class="btn primary mt" onclick="W.checkAirdrops()">
-              Check
-            </button>
-          </div>
-        </section>
-
-        <!-- Whales -->
-        <section id="whales" class="page hidden">
-          <div class="card">
-            <h3>🐋 Whale Tracker</h3>
-            <div id="whale-transactions" class="empty">
-              No whale activity detected.
-            </div>
-          </div>
-        </section>
-
-        <!-- Smart Money -->
-        <section id="smart" class="page hidden">
-          <div class="card">
-            <h3>🎯 Smart Money</h3>
-            <div id="smart-list" class="empty">No smart money signals.</div>
-          </div>
-        </section>
-
-        <!-- Token Unlocks -->
-        <section id="unlocks" class="page hidden">
-          <div class="card">
-            <h3>🔓 Token Unlocks</h3>
-            <div id="unlocks-list" class="empty">No upcoming unlocks.</div>
-          </div>
-        </section>
-
-        <!-- Sectors -->
-        <section id="sectors" class="page hidden">
-          <div class="card">
-            <h3>📈 Sector Map</h3>
-            <div id="sector-heatmap" class="empty">Loading sector data...</div>
-          </div>
-        </section>
-
-        <!-- Learn -->
-        <section id="learn" class="page hidden">
-          <div class="card">
-            <h3>📚 Learn</h3>
-            <div id="learn-lessons" class="badge-grid">
-              <div class="lesson card">Lesson 1: What is Bitcoin?</div>
-              <div class="lesson card">Lesson 2: DeFi 101</div>
-              <div class="lesson card">Lesson 3: Smart Contracts</div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Profile -->
-        <section id="profile" class="page hidden">
-          <div class="card">
-            <h3>👤 Profile</h3>
-            <div id="profile-info">
-              <p>
-                <strong>Sync Code:</strong>
-                <code id="sync-code-display">—</code>
-              </p>
-              <button class="btn tiny" onclick="W.generateSyncCode()">
-                Generate New Code
-              </button>
-              <button class="btn tiny" onclick="W.copySyncCode()">
-                📋 Copy
-              </button>
-              <button class="btn tiny danger" onclick="W.clearAllData()">
-                🗑️ Clear Data
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <!-- Pro -->
-        <section id="pro" class="page hidden">
-          <div class="card pro-hero">
-            <h2>✨ Unlock Weaver Pro</h2>
-            <p>
-              Advanced analytics, real‑time alerts, and AI‑powered insights.
-            </p>
-            <div class="pro-price">
-              <span>🚀</span>
-              <span style="font-size: 28px; font-weight: 800">$9.99</span>
-              <span class="muted">/ month</span>
-            </div>
-            <button
-              class="btn primary"
-              style="font-size: 16px; padding: 12px 32px"
-              onclick="W.startProTrial()"
-            >
-              Start Free Trial
-            </button>
-          </div>
-        </section>
-
-        <!-- Settings -->
-        <section id="settings" class="page hidden">
-          <div class="card">
-            <h3>⚙️ Settings</h3>
-            <label>
-              Default Currency
-              <select id="settings-currency">
-                <option value="ngn">NGN</option>
-                <option value="usd">USD</option>
-                <option value="eur">EUR</option>
-                <option value="gbp">GBP</option>
-                <option value="btc">BTC</option>
-                <option value="eth">ETH</option>
-              </select>
-            </label>
-            <label>
-              Dark Mode
-              <input type="checkbox" id="settings-darkmode" />
-            </label>
-            <label>
-              AI Provider
-              <select id="settings-ai-provider">
-                <option value="openai">OpenAI</option>
-                <option value="custom">Custom</option>
-              </select>
-            </label>
-            <label>
-              API Key (optional)
-              <input
-                type="password"
-                id="settings-api-key"
-                placeholder="sk-..."
-              />
-            </label>
-            <button class="btn primary mt" onclick="W.saveSettings()">
-              Save Settings
-            </button>
-          </div>
-        </section>
+        <!-- MAIN VIEW CONTAINER -->
+        <div id="view"></div>
       </main>
     </div>
 
-    <!-- ===== Toasts ===== -->
+    <!-- Toasts -->
     <div class="toasts" id="toasts"></div>
 
-    <!-- ===== Modal container (populated on demand) ===== -->
+    <!-- Modal root -->
     <div id="modal-root"></div>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="dist/bundle.min.js"></script>
+
     <script>
-      // Initialize clock
+      // Clock
       function updateClock() {
         const now = new Date();
         document.getElementById("clock").textContent = now.toLocaleTimeString();
       }
       setInterval(updateClock, 1000);
       updateClock();
-
-      // Ensure W is defined
-      window.W = window.W || {};
-      console.log("✅ Index.html loaded. Weaver ready.");
     </script>
   </body>
 </html>

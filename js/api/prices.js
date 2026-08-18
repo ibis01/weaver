@@ -1,4 +1,6 @@
-// js/api/prices.js – Complete Market Data API
+// ===============================================================
+//                  Market Data API
+// ===============================================================
 
 window.W = window.W || {};
 
@@ -9,9 +11,13 @@ W.api = (() => {
   const CACHE_TTL = 60000; // 1 minute
   const LONG_CACHE_TTL = 300000; // 5 minutes
 
-  // ── Proxy chain for CORS bypass ──────────────────────
+  // ── Proxy chain for CORS bypass ─────────────────────────
   const PROXIES = [
+    // Use your local proxy first (must be running on port 3001)
+    (u) => "http://localhost:3001/proxy?url=" + encodeURIComponent(u),
+    // Direct (will fail due to CORS, but kept as fallback)
     (u) => u,
+    // Public proxies
     (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
     (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
   ];
@@ -113,7 +119,12 @@ W.api = (() => {
         const data = await response.json();
         setCached(url, data);
         resetCircuit();
-        source = proxy === PROXIES[0] ? "direct" : "proxy";
+        source =
+          proxy === PROXIES[0]
+            ? "proxy"
+            : proxy === PROXIES[1]
+              ? "direct"
+              : "public-proxy";
         return data;
       } catch (e) {
         lastError = e;

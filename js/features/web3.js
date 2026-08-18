@@ -1,6 +1,6 @@
-// ================================================================
-// Secure Multi‑Chain Wallet Connector
-// ================================================================
+// ===============================================================
+//            Secure Multi‑Chain Wallet Connector
+// ===============================================================
 
 window.W = window.W || {};
 
@@ -39,53 +39,34 @@ W.web3 = (() => {
     W.store.set(STORAGE_KEY, state);
   }
 
-  // Ethereum address checksum validation (EIP-55)
-  function isChecksumAddress(address) {
-    if (!/^0x[a-fA-F0-9]{40}$/.test(address)) return false;
-    const addr = address.slice(2).toLowerCase();
-    const hash = Array.from(
-      crypto.subtle.digest("SHA-256", new TextEncoder().encode(addr)),
-    ).then((h) =>
-      Array.from(new Uint8Array(h))
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join(""),
-    );
-    // We'll do a synchronous version for simplicity:
-    // Actually, we can use a known library; we'll just check length and prefix.
-    // For robust checksum, we'd need ethers or web3-utils; we'll include a minimal check.
-    return address.startsWith("0x") && address.length === 42;
+  function escapeHTML(str) {
+    if (!str) return "";
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
   }
 
-  // Validate and normalize address
+  // ── Validate Address ──────────────────────────────────
   function validateAddress(address, chain) {
     if (chain === "sol") {
-      // Solana address base58 validation (simple length check)
       if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) {
         throw new Error("Invalid Solana address");
       }
       return address;
     }
-    // EVM addresses: must be 0x + 40 hex chars
     if (!/^0x[a-fA-F0-9]{40}$/i.test(address)) {
-      throw new Error(
-        "Invalid EVM address (must start with 0x and have 40 hex chars)",
-      );
+      throw new Error("Invalid EVM address");
     }
-    // Convert to checksum (simplified: we only check length and hex)
-    return address.toLowerCase(); // Return lowercased for storage
+    return address.toLowerCase();
   }
 
   // ── Connect to MetaMask (EVM) ──────────────────────
   async function connectMetaMask() {
     if (!window.ethereum) {
-      W.ui.toast(
-        "MetaMask not detected. Please install the extension.",
-        "warn",
-      );
+      W.ui.toast("MetaMask not detected.", "warn");
       return null;
     }
     try {
-      // Request accounts
       const accounts = await window.ethereum.request({
         method: "eth_requestAccounts",
       });
@@ -94,7 +75,6 @@ W.web3 = (() => {
         return null;
       }
       const address = accounts[0];
-      // Get chain ID
       const chainIdHex = await window.ethereum.request({
         method: "eth_chainId",
       });
@@ -106,7 +86,6 @@ W.web3 = (() => {
         );
         return null;
       }
-      // Save state
       state.evm = { address, chainId };
       saveState();
       provider = window.ethereum;
@@ -127,7 +106,7 @@ W.web3 = (() => {
   async function connectPhantom() {
     const phantom = window.phantom?.solana;
     if (!phantom) {
-      W.ui.toast("Phantom not detected. Please install the extension.", "warn");
+      W.ui.toast("Phantom not detected.", "warn");
       return null;
     }
     try {
@@ -137,7 +116,6 @@ W.web3 = (() => {
         return null;
       }
       const address = response.publicKey.toString();
-      // Validate address (basic check)
       if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) {
         throw new Error("Invalid Solana address");
       }
@@ -155,7 +133,6 @@ W.web3 = (() => {
   // ── Disconnect ──────────────────────────────────────
   function disconnect(chain) {
     if (chain === "evm") {
-      // MetaMask doesn't have a disconnect method; we simply clear state
       state.evm = null;
       provider = null;
       currentChainId = null;
@@ -172,7 +149,7 @@ W.web3 = (() => {
     );
   }
 
-  // ── Get balance (EVM) ──────────────────────────────
+  // ── Get EVM Balance ──────────────────────────────────
   async function getEVMBalance(address) {
     if (!window.ethereum) return null;
     try {
@@ -183,20 +160,44 @@ W.web3 = (() => {
       const balanceWei = parseInt(balanceHex, 16);
       return balanceWei / 1e18;
     } catch (error) {
-      console.error("[Web3] Balance fetch error:", error);
+      console.error("[Web3] EVM balance fetch error:", error);
       return null;
     }
   }
 
-  // ── Get Solana balance ──────────────────────────────
+  // ── Get Solana Balance ──────────────────────────────
   async function getSolBalance(address) {
     const phantom = window.phantom?.solana;
-    if (!phantom) return null;
+    if (!phantom) {
+      console.warn("[Web3] Phantom not available");
+      return null;
+    }
     try {
-      const balance = await phantom.getBalance();
-      return balance / 1e9; // lamports to SOL
+      // Check if getBalance exists and is a function
+      if (typeof phantom.getBalance === "function") {
+        const balance = await phantom.getBalance();
+        return balance / 1e9;
+      } else {
+        // Fallback: use RPC directly
+        console.warn("[Web3] Phantom.getBalance not available, using RPC");
+        const response = await fetch("https://api.mainnet-beta.solana.com", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "getBalance",
+            params: [address],
+          }),
+        });
+        const data = await response.json();
+        if (data.result && data.result.value !== undefined) {
+          return data.result.value / 1e9;
+        }
+        return null;
+      }
     } catch (error) {
-      console.error("[Web3] Solana balance error:", error);
+      console.error("[Web3] Solana balance fetch error:", error);
       return null;
     }
   }
@@ -220,9 +221,7 @@ W.web3 = (() => {
       W.ui.toast(`Switched to ${CHAINS[chainId]?.name || chainId}`, "ok");
       return true;
     } catch (error) {
-      // If chain not added, try to add it
       if (error.code === 4902) {
-        // Add chain
         const chainData = {
           1: {
             chainName: "Ethereum Mainnet",
@@ -368,7 +367,6 @@ W.web3 = (() => {
     const switchBtn = view.querySelector("#w-switch-chain");
     if (switchBtn) {
       switchBtn.onclick = () => {
-        // Show a list of supported chains to choose from
         const options = Object.entries(CHAINS)
           .map(
             ([id, info]) =>
@@ -396,18 +394,30 @@ W.web3 = (() => {
       };
     }
 
-    // ── Fetch balances ──────────────────────────────────
+    // ── Fetch balances with error handling ──────────────
     if (evm) {
-      getEVMBalance(evm.address).then((bal) => {
-        const el = view.querySelector("#evm-balance");
-        if (el) el.textContent = bal !== null ? `${bal.toFixed(4)} ETH` : "—";
-      });
+      getEVMBalance(evm.address)
+        .then((bal) => {
+          const el = view.querySelector("#evm-balance");
+          if (el) el.textContent = bal !== null ? `${bal.toFixed(4)} ETH` : "—";
+        })
+        .catch((err) => {
+          console.warn("[Web3] EVM balance error:", err);
+          const el = view.querySelector("#evm-balance");
+          if (el) el.textContent = "⚠️ error";
+        });
     }
     if (sol) {
-      getSolBalance(sol.address).then((bal) => {
-        const el = view.querySelector("#sol-balance");
-        if (el) el.textContent = bal !== null ? `${bal.toFixed(4)} SOL` : "—";
-      });
+      getSolBalance(sol.address)
+        .then((bal) => {
+          const el = view.querySelector("#sol-balance");
+          if (el) el.textContent = bal !== null ? `${bal.toFixed(4)} SOL` : "—";
+        })
+        .catch((err) => {
+          console.warn("[Web3] Solana balance error:", err);
+          const el = view.querySelector("#sol-balance");
+          if (el) el.textContent = "⚠️ error";
+        });
     }
 
     // ── Listen for chain/account changes ──────────────

@@ -1,17 +1,17 @@
-// ============================================================
-// js/features/news.js – Final version with container creation
-// ============================================================
+// js/features/news.js – Complete News Module
 
 const log = (msg, data) => {
   console.log(`[News] ${msg}`, data || "");
 };
 
+// ── RSS Feeds ──────────────────────────────────────────────────
 const FEEDS = [
   ["CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"],
   ["Cointelegraph", "https://cointelegraph.com/rss"],
   ["Decrypt", "https://decrypt.co/feed"],
 ];
 
+// ── Proxy chain ─────────────────────────────────────────────────
 const PROX = [
   (u) => "http://localhost:3001/proxy?url=" + encodeURIComponent(u),
   (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
@@ -20,6 +20,7 @@ const PROX = [
   (u) => "https://ibis01.github.io/weaver/data/news.json",
 ];
 
+// ── Fetch with proxy fallback ──────────────────────────────────
 async function via(url, asJSON = false) {
   let lastErr = null;
   for (const buildProxy of PROX) {
@@ -54,6 +55,7 @@ async function via(url, asJSON = false) {
   throw lastErr || new Error("All proxies failed");
 }
 
+// ── Parse RSS XML ──────────────────────────────────────────────
 function parseRSS(xml) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(xml, "text/xml");
@@ -69,6 +71,7 @@ function parseRSS(xml) {
   return articles;
 }
 
+// ── Render articles into container ─────────────────────────────
 function renderArticles(articles) {
   const container = document.getElementById("news-container");
   if (!container) return;
@@ -91,35 +94,25 @@ function renderArticles(articles) {
   container.innerHTML = `<div class="news-list">${items}</div>`;
 }
 
-// ========== UPDATED render() – creates container if missing ==========
-async function render() {
-  // 1. Try to find the container
-  let container = document.getElementById("news-container");
+// ════════════════════════════════════════════════════════════════
+// ═══════ FIXED: Renders inside the view, not below it ═══════
+// ════════════════════════════════════════════════════════════════
+async function render(view) {
+  // 1. Clear the view and set up the news page structure
+  view.innerHTML = `
+    <div class="card">
+      <h3>📰 Crypto News</h3>
+      <div id="news-container"></div>
+    </div>
+  `;
 
-  // 2. If not found, find the main content area
+  // 2. Get the container
+  const container = document.getElementById("news-container");
   if (!container) {
-    // Try to find the main content wrapper – this is where news should live
-    const parent =
-      document.querySelector(".main") || // your main content area
-      document.getElementById("news") ||
-      document.getElementById("news-section") ||
-      document.getElementById("page-news") ||
-      document.querySelector(".news-page") ||
-      document.body;
-
-    container = document.createElement("div");
-    container.id = "news-container";
-    container.className = "news-container";
-
-    // Append to the parent (or prepend if you prefer)
-    parent.appendChild(container);
-    console.log(
-      "[News] Created container #news-container inside",
-      parent.tagName +
-        (parent.id ? "#" + parent.id : "") +
-        (parent.className ? "." + parent.className : ""),
-    );
+    console.warn("[News] Container not found after rendering");
+    return;
   }
+
   // 3. Show loading
   container.innerHTML = '<div class="loading">Loading news...</div>';
 
@@ -156,12 +149,10 @@ async function render() {
   }
 }
 
-// ========== EXPORTS ==========
+// ── Exports ─────────────────────────────────────────────────────
 window.W = window.W || {};
 W.features = W.features || {};
 W.features.news = { render };
 W.news = { render };
 
 console.log("[News] Module loaded.");
-console.log("[News] W.features.news:", W.features.news);
-console.log("[News] W.news:", W.news);
