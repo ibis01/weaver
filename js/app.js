@@ -29,6 +29,7 @@ window.W = window.W || {};
     { id: "profile", icon: "👤", label: "Profile" },
     { id: "pro", icon: "🔮", label: "Weaver Pro" },
     { id: "theses", icon: "🎯", label: "Theses" },
+    { id: "journal", icon: "📓", label: "Journal" },
     { id: "sync", icon: "☁️", label: "Sync" },
     { id: "settings", icon: "⚙️", label: "Settings" },
   ];
@@ -100,6 +101,9 @@ window.W = window.W || {};
     theses: (v) =>
       W.theses?.render?.(v) ||
       W.ui?.toast?.("Theses module not loaded", "warn"),
+    journal: (v) =>
+      W.journal?.render?.(v) ||
+      W.ui?.toast?.("Journal module not loaded", "warn"),
     sync: (v) => {
       if (W.sync?.render) W.sync.render(v);
       else W.ui?.toast?.("Sync module not loaded", "warn");
