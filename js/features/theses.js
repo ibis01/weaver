@@ -3,7 +3,8 @@
 // ===============================================================
 //
 // Purpose: Track WHY a user holds an asset and evaluate the
-// health of that thesis against current evidence.
+// health of that thesis against current market evidence.
+// Integrates with W.thesisHealth (Task 19).
 //
 // ===============================================================
 
@@ -49,114 +50,65 @@ W.theses = W.theses || {};
     save();
   }
 
-  // ── Thesis Health Evaluator (Section 26) ───────────────
-
-  /**
-   * Compare original thesis vs current evidence.
-   * @param {Object} thesis
-   * @param {Array} evidenceRecords - Array of W.evidence objects
-   * @returns {Object} - { status, confidence, summary }
-   */
-  function evaluateHealth(thesis, evidenceRecords) {
-    if (!thesis || !evidenceRecords || !evidenceRecords.length) {
-      return {
-        status: "insufficient_evidence",
-        confidence: 0,
-        summary: "Waiting for market data...",
-      };
-    }
-
-    // Filter evidence relevant to this asset
-    const relevantEvidence = evidenceRecords.filter((e) =>
-      e.claim.toLowerCase().includes(thesis.asset.toLowerCase()),
-    );
-
-    if (relevantEvidence.length === 0) {
-      return {
-        status: "insufficient_evidence",
-        confidence: 0,
-        summary: `No recent evidence found for ${thesis.asset}.`,
-      };
-    }
-
-    // Simple heuristic evaluator (can be upgraded to AI later)
-    let positiveSignals = 0;
-    let negativeSignals = 0;
-    let totalConfidence = 0;
-
-    relevantEvidence.forEach((e) => {
-      totalConfidence += e.confidence || 0.5;
-      // Check if evidence matches expected signals or invalidation conditions
-      const claimLower = e.claim.toLowerCase();
-      const signalsLower = thesis.signals.toLowerCase();
-      const invalidationLower = thesis.invalidation.toLowerCase();
-
-      if (signalsLower && claimLower.includes(signalsLower.split(" ")[0]))
-        positiveSignals++;
-      if (
-        invalidationLower &&
-        claimLower.includes(invalidationLower.split(" ")[0])
-      )
-        negativeSignals++;
-    });
-
-    const avgConfidence = totalConfidence / relevantEvidence.length;
-
-    if (negativeSignals > positiveSignals) {
-      return {
-        status: "weakening",
-        confidence: avgConfidence,
-        summary: "Evidence suggests thesis is weakening.",
-      };
-    } else if (positiveSignals > negativeSignals) {
-      return {
-        status: "strengthening",
-        confidence: avgConfidence,
-        summary: "Evidence supports your thesis.",
-      };
-    }
-
-    return {
-      status: "neutral",
-      confidence: avgConfidence,
-      summary: "Mixed evidence. Monitor closely.",
-    };
-  }
-
   // ── Render UI ──────────────────────────────────────────
 
   async function render(view) {
-    const allEvidence = W.store.get("evidence_cache", []); // Assuming we cache evidence later
+    // 1. Get active theses and unique assets for efficient fetching
+    const activeTheses = theses.filter((t) => t.status === "active");
+    const uniqueAssets = [
+      ...new Set(activeTheses.map((t) => t.asset?.toLowerCase())),
+    ].filter(Boolean);
 
+    // 2. Fetch market data for these assets in bulk (Rule 31)
+    let marketData = {};
+    if (uniqueAssets.length > 0 && W.api?.markets) {
+      try {
+        const markets = await W.api.markets(uniqueAssets.join(","));
+        markets.forEach((m) => {
+          if (m && m.id) marketData[m.id.toLowerCase()] = m.current_price;
+        });
+      } catch (e) {
+        console.warn(
+          "[Theses] Failed to fetch market data for health check:",
+          e.message,
+        );
+      }
+    }
+
+    // 3. Generate HTML with Health Badges
     view.innerHTML = `
       <div class="card">
-        <h3> Investment Theses</h3>
+        <h3>📝 Investment Theses</h3>
         <p class="muted small">Track WHY you hold an asset. The system will evaluate your thesis against market evidence.</p>
         <button class="btn primary" id="btn-new-thesis">+ New Thesis</button>
       </div>
 
       <div id="theses-list" class="grid-2">
-        ${theses.length === 0 ? '<p class="muted">No active theses. Create one to start tracking.</p>' : ""}
-        ${theses
-          .filter((t) => t.status === "active")
+        ${activeTheses.length === 0 ? '<p class="muted">No active theses. Create one to start tracking.</p>' : ""}
+        ${activeTheses
           .map((t) => {
-            const health = evaluateHealth(t, allEvidence);
-            const statusColor =
-              health.status === "strengthening"
-                ? "var(--up)"
-                : health.status === "weakening"
-                  ? "var(--down)"
-                  : "var(--text-muted)";
+            // Calculate health using the new engine (Rule 21: handles null price gracefully)
+            const currentPrice = marketData[t.asset?.toLowerCase()] || null;
+            const health = W.thesisHealth
+              ? W.thesisHealth.evaluate(t, currentPrice, null)
+              : null;
+
+            const badgeHtml = health
+              ? W.thesisHealth.renderBadge(t.id, health)
+              : "";
 
             return `
-          <div class="card">
+          <div class="card" data-thesis-id="${t.id}">
             <div style="display:flex; justify-content:space-between; align-items:center;">
-              <h4>${W.fmt.escapeHTML(t.asset)}</h4>
-              <span style="color:${statusColor}; font-weight:bold; font-size:0.8em;">${health.status.replace("_", " ").toUpperCase()}</span>
+              <h4 style="margin:0;">${W.fmt.escapeHTML(t.asset)} ${badgeHtml}</h4>
             </div>
             <p class="small"><b>Statement:</b> ${W.fmt.escapeHTML(t.statement)}</p>
             <p class="small muted"><b>Horizon:</b> ${W.fmt.escapeHTML(t.horizon)} | <b>Target:</b> ${t.target ? "$" + t.target : "N/A"}</p>
             <p class="small muted"><b>Invalidation:</b> ${W.fmt.escapeHTML(t.invalidation)}</p>
+            
+            <!-- Hook for health details (injected below) -->
+            <div class="thesis-health-details" data-details-id="${t.id}" style="margin-top: 12px;"></div>
+
             <div style="margin-top:10px; display:flex; gap:10px;">
               <button class="btn tiny warn" data-action="invalidate" data-id="${t.id}">Mark Invalidated</button>
               <button class="btn tiny" data-action="delete" data-id="${t.id}">Delete</button>
@@ -184,27 +136,55 @@ W.theses = W.theses || {};
       </div>
     `;
 
-    // ── Event Listeners ──────────────────────────────────
-    view.querySelector("#btn-new-thesis").onclick = () => {
-      view.querySelector("#thesis-form-container").classList.remove("hidden");
-    };
-    view.querySelector("#btn-cancel-thesis").onclick = () => {
-      view.querySelector("#thesis-form-container").classList.add("hidden");
-    };
+    // 4. Inject Health Details after DOM is rendered (Rule 15: Safe rendering)
+    if (W.thesisHealth) {
+      activeTheses.forEach((t) => {
+        const currentPrice = marketData[t.asset?.toLowerCase()] || null;
+        const health = W.thesisHealth.evaluate(t, currentPrice, null);
 
-    view.querySelector("#thesis-form").onsubmit = (e) => {
-      e.preventDefault();
-      create({
-        asset: view.querySelector("#t-asset").value.trim().toUpperCase(),
-        horizon: view.querySelector("#t-horizon").value.trim(),
-        target: parseFloat(view.querySelector("#t-target").value) || null,
-        statement: view.querySelector("#t-statement").value.trim(),
-        signals: view.querySelector("#t-signals").value.trim(),
-        invalidation: view.querySelector("#t-invalidation").value.trim(),
+        // Only show detailed breakdown if it's not perfectly healthy, to save UI space
+        if (health && health.status !== "Healthy") {
+          const detailsContainer = view.querySelector(
+            `.thesis-health-details[data-details-id="${t.id}"]`,
+          );
+          if (detailsContainer) {
+            W.thesisHealth.renderDetails(detailsContainer, health);
+          }
+        }
       });
-      render(view);
-      W.ui.toast("Thesis created", "ok");
-    };
+    }
+
+    // ── Event Listeners ──────────────────────────────────
+    const newThesisBtn = view.querySelector("#btn-new-thesis");
+    if (newThesisBtn) {
+      newThesisBtn.onclick = () => {
+        view.querySelector("#thesis-form-container").classList.remove("hidden");
+      };
+    }
+
+    const cancelThesisBtn = view.querySelector("#btn-cancel-thesis");
+    if (cancelThesisBtn) {
+      cancelThesisBtn.onclick = () => {
+        view.querySelector("#thesis-form-container").classList.add("hidden");
+      };
+    }
+
+    const form = view.querySelector("#thesis-form");
+    if (form) {
+      form.onsubmit = (e) => {
+        e.preventDefault();
+        create({
+          asset: view.querySelector("#t-asset").value.trim().toUpperCase(),
+          horizon: view.querySelector("#t-horizon").value.trim(),
+          target: parseFloat(view.querySelector("#t-target").value) || null,
+          statement: view.querySelector("#t-statement").value.trim(),
+          signals: view.querySelector("#t-signals").value.trim(),
+          invalidation: view.querySelector("#t-invalidation").value.trim(),
+        });
+        render(view);
+        W.ui.toast("Thesis created", "ok");
+      };
+    }
 
     view.querySelectorAll("[data-action='delete']").forEach((btn) => {
       btn.onclick = () => {
@@ -213,6 +193,7 @@ W.theses = W.theses || {};
         W.ui.toast("Thesis deleted", "ok");
       };
     });
+
     view.querySelectorAll("[data-action='invalidate']").forEach((btn) => {
       btn.onclick = () => {
         const t = theses.find((x) => x.id === btn.dataset.id);
@@ -227,7 +208,7 @@ W.theses = W.theses || {};
   }
 
   // ── Exports ────────────────────────────────────────────
-  W.theses = { all, create, remove, evaluateHealth, render };
+  W.theses = { all, create, remove, render };
 })();
 
-console.log("[Theses] Module loaded.");
+console.log("[Theses] Module loaded (with Health Monitor integration).");
