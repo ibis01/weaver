@@ -1,28 +1,34 @@
 // ===============================================================
 //                     Weaver Dashboard UI
 // ===============================================================
+//
+// Purpose: Render the main dashboard, integrating portfolio,
+// market terminal, and the "What Matters Now" intelligence ranker.
+// Security: Strictly escapes all dynamic data
+//
+// ===============================================================
 
 window.W = window.W || {};
 
 W.dashboard = (() => {
   let chartAlloc = null;
-  let chartSpark = null;
 
-  // ── Helper: Stat Card HTML ───────────────────────────
-  const statCard = (label, big, sub) =>
-    `<div class="card stat">
-      <div class="stat-label">${label}</div>
+  // ── Helper: Safe Stat Card HTML ───────────────────────
+  const statCard = (label, big, sub) => `
+    <div class="card stat">
+      <div class="stat-label">${W.fmt.escapeHTML(label)}</div>
       <div class="stat-big">${big}</div>
-      <div class="stat-sub">${sub}</div>
+      <div class="stat-sub">${W.fmt.escapeHTML(sub)}</div>
     </div>`;
 
-  // ── Helper: Signed Money ────────────────────────────
-  const signedMoney = (n) =>
-    n == null
-      ? "—"
-      : `<span class="${n >= 0 ? "up" : "down"}">${n >= 0 ? "+" : "-"}${W.fmt.money(Math.abs(n))}</span>`;
+  // ── Helper: Signed Money ──────────────────────────────
+  const signedMoney = (n) => {
+    if (n == null || isNaN(n)) return "—";
+    const isUp = n >= 0;
+    return `<span class="${isUp ? "up" : "down"}">${isUp ? "+" : "-"}${W.fmt.money(Math.abs(n))}</span>`;
+  };
 
-  // ── Helper: Terminal Tape ────────────────────────────
+  // ── Helper: Terminal Tape ─────────────────────────────
   const tapeHTML = (coins) => {
     if (!coins || !Array.isArray(coins) || !coins.length) {
       return '<div class="tape-wrap"><div class="tape"><span class="tape-item muted">📊 Loading market data...</span></div></div>';
@@ -34,15 +40,18 @@ W.dashboard = (() => {
     for (let i = 0; i < coins.length; i++) {
       const c = coins[i];
       if (!c || typeof c !== "object") continue;
-      const symbol = c.symbol || (c.symbol === "" ? c.symbol : null);
+
+      const symbol = c.symbol ? String(c.symbol).toUpperCase() : null;
       if (!symbol) continue;
+
       const price =
         c.current_price !== undefined
           ? c.current_price
           : c.price !== undefined
             ? c.price
             : null;
-      if (price === null || price === undefined) continue;
+      if (price === null || price === undefined || isNaN(price)) continue;
+
       const change =
         c.price_change_percentage_24h_in_currency !== undefined
           ? c.price_change_percentage_24h_in_currency
@@ -50,7 +59,7 @@ W.dashboard = (() => {
 
       tapeItems += `
         <span class="tape-item">
-          <b>${symbol.toUpperCase()}</b>
+          <b>${W.fmt.escapeHTML(symbol)}</b>
           <span class="muted">${W.fmt.price(price)}</span>
           ${W.fmt.pct(change)}
         </span>`;
@@ -62,35 +71,35 @@ W.dashboard = (() => {
       return '<div class="tape-wrap"><div class="tape"><span class="tape-item muted">📊 No market data available</span></div></div>';
     }
 
-    const doubled = tapeItems + tapeItems;
-
-    return `<div class="tape-wrap">
-      <div class="tape">${doubled}</div>
-    </div>`;
+    return `<div class="tape-wrap"><div class="tape">${tapeItems + tapeItems}</div></div>`;
   };
 
-  // ── Helper: Sparkline ────────────────────────────────
+  // ── Helper: Sparkline Canvas ──────────────────────────
   function drawSpark(c) {
     const vals = (c.dataset.spark || "")
       .split(",")
       .map(Number)
       .filter((v) => !isNaN(v));
     if (vals.length < 2) return;
-    const w = (c.width = 110),
-      h = (c.height = 30),
-      ctx = c.getContext("2d");
-    const min = Math.min(...vals),
-      max = Math.max(...vals),
-      up = c.dataset.up === "1";
+
+    const w = (c.width = 110);
+    const h = (c.height = 30);
+    const ctx = c.getContext("2d");
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const up = c.dataset.up === "1";
+
     ctx.clearRect(0, 0, w, h);
     ctx.strokeStyle = up ? "#2ee6a8" : "#ff5c7a";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
+
     vals.forEach((v, i) => {
-      const x = (i / (vals.length - 1)) * w,
-        y = h - 3 - ((v - min) / (max - min || 1)) * (h - 6);
+      const x = (i / (vals.length - 1)) * w;
+      const y = h - 3 - ((v - min) / (max - min || 1)) * (h - 6);
       i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
     });
+
     ctx.stroke();
     ctx.lineTo(w, h);
     ctx.lineTo(0, h);
@@ -107,14 +116,14 @@ W.dashboard = (() => {
           .join(",")}"></canvas>`
       : '<span class="muted small">—</span>';
 
-  // ── Helper: Terminal Row (DEFENSIVE) ────────────────────
+  // ── Helper: Terminal Row (Strictly Escaped) ───────────
   const termRow = (c, i) => {
     if (!c || typeof c !== "object") return "";
 
     const id = c.id || "unknown";
     const image = c.image || "";
     const name = c.name || "Unknown";
-    const symbol = c.symbol ? c.symbol.toUpperCase() : "???";
+    const symbol = c.symbol ? String(c.symbol).toUpperCase() : "???";
     const price =
       c.current_price !== undefined ? c.current_price : c.price || 0;
     const p24 =
@@ -134,13 +143,13 @@ W.dashboard = (() => {
     const sparkline = (c.sparkline_in_7d || {}).price || [];
 
     return `
-      <tr class="clickable" data-coin="${id}">
+      <tr class="clickable" data-coin="${W.fmt.escapeHTML(id)}">
         <td class="muted">${i + 1}</td>
         <td class="coin-cell">
-          <img src="${image}" alt="${name}" style="width:24px;height:24px;border-radius:50%;">
+          <img src="${W.fmt.escapeHTML(image)}" alt="${W.fmt.escapeHTML(name)}" style="width:24px;height:24px;border-radius:50%;">
           <div>
-            <b>${symbol}</b>
-            <span class="muted small">${name}</span>
+            <b>${W.fmt.escapeHTML(symbol)}</b>
+            <br><span class="muted small">${W.fmt.escapeHTML(name)}</span>
           </div>
         </td>
         <td class="num"><b>${W.fmt.price(price)}</b></td>
@@ -154,17 +163,15 @@ W.dashboard = (() => {
     `;
   };
 
-  // ── Enrich Portfolio Data (with wallet sync) ──────────
+  // ── Enrich Portfolio Data ─────────────────────────────
   async function enrich() {
-    // Get manual holdings
     const manualHoldings = W.portfolio ? W.portfolio.all() : [];
-    // Get wallet holdings (if any)
     let walletHoldings = [];
+
     if (W.walletSync && typeof W.walletSync.holdings === "function") {
       walletHoldings = W.walletSync.holdings() || [];
     }
 
-    // Merge: wallet holdings are marked as wallet: true
     const allHoldings = [
       ...manualHoldings.map((h) => ({ ...h, wallet: false })),
       ...walletHoldings.map((h) => ({ ...h, wallet: true })),
@@ -172,8 +179,11 @@ W.dashboard = (() => {
 
     if (!allHoldings.length) return { rows: [], totals: null };
 
-    const ids = [...new Set(allHoldings.map((h) => h.coinId))].join(",");
+    const ids = [...new Set(allHoldings.map((h) => h.coinId))]
+      .filter(Boolean)
+      .join(",");
     let markets = [];
+
     if (ids.trim()) {
       try {
         markets = await W.api.markets(ids);
@@ -186,8 +196,10 @@ W.dashboard = (() => {
       .map((h) => {
         const m = markets.find((c) => c.id === h.coinId) || {};
         const price = m.current_price ?? h.buyPrice ?? 0;
-        const value = price * h.qty;
-        const cost = h.wallet ? value : (h.buyPrice || 0) * h.qty; // wallet holdings have no cost basis
+        const qty = parseFloat(h.qty) || 0;
+        const value = price * qty;
+        const cost = h.wallet ? value : (parseFloat(h.buyPrice) || 0) * qty;
+
         return {
           ...h,
           price,
@@ -205,22 +217,25 @@ W.dashboard = (() => {
     const totals = { value: 0, cost: 0 };
     let prev24 = 0,
       prev7 = 0;
+
     rows.forEach((r) => {
       totals.value += r.value;
       totals.cost += r.cost;
       if (r.p24 != null) prev24 += r.value / (1 + r.p24 / 100);
       if (r.p7 != null) prev7 += r.value / (1 + r.p7 / 100);
     });
+
     totals.allTime = totals.value - totals.cost;
     totals.allTimePct = totals.cost ? (totals.allTime / totals.cost) * 100 : 0;
     totals.day = totals.value - prev24;
     totals.dayPct = prev24 ? (totals.day / prev24) * 100 : 0;
     totals.week = totals.value - prev7;
     totals.weekPct = prev7 ? (totals.week / prev7) * 100 : 0;
+
     return { rows, totals };
   }
 
-  // ── Holdings Table ──────────────────────────────────
+  // ── Holdings Table (Strictly Escaped) ─────────────────
   const holdingsTable = (rows) => `
     <div class="table-wrap">
       <table>
@@ -242,10 +257,10 @@ W.dashboard = (() => {
               (r) => `
             <tr>
               <td class="coin-cell">
-                <img src="${r.image || r.img || ""}" alt="${r.name}">
+                <img src="${W.fmt.escapeHTML(r.image || r.img || "")}" alt="${W.fmt.escapeHTML(r.name)}">
                 <div>
-                  <b>${r.name}</b>
-                  <br><span class="muted small">${r.symbol.toUpperCase()}</span>
+                  <b>${W.fmt.escapeHTML(r.name)}</b>
+                  <br><span class="muted small">${W.fmt.escapeHTML(String(r.symbol).toUpperCase())}</span>
                 </div>
               </td>
               <td>${W.fmt.price(r.price)}</td>
@@ -258,10 +273,8 @@ W.dashboard = (() => {
                 ${
                   r.wallet
                     ? '<span class="tag rank" title="From connected wallet">👛 wallet</span>'
-                    : `
-                  <button class="icon-btn" data-edit="${r.id}" title="Edit">✏️</button>
-                  <button class="icon-btn" data-del="${r.id}" title="Delete">🗑️</button>
-                `
+                    : `<button class="icon-btn" data-edit="${W.fmt.escapeHTML(r.id)}" title="Edit">✏️</button>
+                     <button class="icon-btn" data-del="${W.fmt.escapeHTML(r.id)}" title="Delete">🗑️</button>`
                 }
               </td>
             </tr>
@@ -273,47 +286,50 @@ W.dashboard = (() => {
     </div>
   `;
 
-  // ── Wire row actions ─────────────────────────────────
+  // ── Wire Row Actions ──────────────────────────────────
   function wireRows(container, rows) {
     rows.forEach((r) => {
-      if (r.wallet) return; // skip wallet rows
-      const e = container.querySelector(`[data-edit="${r.id}"]`);
-      const d = container.querySelector(`[data-del="${r.id}"]`);
+      if (r.wallet) return;
+      const e = container.querySelector(`[data-edit="${CSS.escape(r.id)}"]`);
+      const d = container.querySelector(`[data-del="${CSS.escape(r.id)}"]`);
+
       if (e) e.onclick = () => holdingModal(r);
       if (d) {
         d.onclick = () =>
-          W.ui.confirm(`Remove <b>${r.name}</b> from your portfolio?`, () => {
-            if (W.portfolio && W.portfolio.remove) W.portfolio.remove(r.id);
-            W.ui.toast("Holding removed", "ok");
-            W.refresh();
-          });
+          W.ui.confirm(
+            `Remove <b>${W.fmt.escapeHTML(r.name)}</b> from your portfolio?`,
+            () => {
+              if (W.portfolio && W.portfolio.remove) W.portfolio.remove(r.id);
+              W.ui.toast("Holding removed", "ok");
+              W.refresh();
+            },
+          );
       }
     });
   }
 
-  // ── Holding Modal ────────────────────────────────────
+  // ── Holding Modal ─────────────────────────────────────
   function holdingModal(existing = null, preselect = null) {
     const coinLine = existing
-      ? `<p class="muted small">Coin: <b>${existing.name} (${existing.symbol.toUpperCase()})</b></p>`
+      ? `<p class="muted small">Coin: <b>${W.fmt.escapeHTML(existing.name)} (${W.fmt.escapeHTML(existing.symbol.toUpperCase())})</b></p>`
       : preselect
-        ? `<p class="muted small">Coin: <b>${preselect.name} (${preselect.symbol.toUpperCase()})</b></p>`
+        ? `<p class="muted small">Coin: <b>${W.fmt.escapeHTML(preselect.name)} (${W.fmt.escapeHTML(preselect.symbol.toUpperCase())})</b></p>`
         : `<div id="picker"></div>`;
 
     const m = W.ui.modal({
-      title: existing ? `Edit ${existing.name}` : "Add Holding",
+      title: existing
+        ? `Edit ${W.fmt.escapeHTML(existing.name)}`
+        : "Add Holding",
       body: `
         <form id="h-form">
           ${coinLine}
-          <label>
-            Quantity
+          <label>Quantity
             <input type="number" step="any" name="qty" required value="${existing ? existing.qty : ""}" placeholder="0.5">
           </label>
-          <label>
-            Average buy price
+          <label>Average buy price
             <input type="number" step="any" name="buyPrice" required value="${existing ? existing.buyPrice : ""}" placeholder="29500">
           </label>
-          <label>
-            Date (optional)
+          <label>Date (optional)
             <input type="date" name="date">
           </label>
         </form>
@@ -347,12 +363,14 @@ W.dashboard = (() => {
     m.el.querySelector("#h-cancel").onclick = m.close;
     m.el.querySelector("#h-save").onclick = () => {
       const f = m.el.querySelector("#h-form");
-      const qty = parseFloat(f.qty.value),
-        buyPrice = parseFloat(f.buyPrice.value);
+      const qty = parseFloat(f.qty.value);
+      const buyPrice = parseFloat(f.buyPrice.value);
+
       if (!picked) return W.ui.toast("Pick a coin first", "warn");
       if (!qty || qty <= 0 || isNaN(buyPrice) || buyPrice < 0) {
         return W.ui.toast("Enter valid quantity and price", "warn");
       }
+
       if (existing && W.portfolio && W.portfolio.update) {
         W.portfolio.update(existing.id, { qty, buyPrice });
       } else if (W.portfolio && W.portfolio.add) {
@@ -372,26 +390,23 @@ W.dashboard = (() => {
     };
   }
 
-  // ── Transaction Modal ────────────────────────────────
+  // ── Transaction Modal ─────────────────────────────────
   function txModal() {
     const m = W.ui.modal({
       title: "Record Transaction",
       body: `
         <form id="t-form">
-          <label>
-            Type
+          <label>Type
             <select name="type">
               <option value="buy">Buy</option>
               <option value="sell">Sell</option>
             </select>
           </label>
           <div id="picker"></div>
-          <label>
-            Quantity
+          <label>Quantity
             <input type="number" step="any" name="qty" required placeholder="0.25">
           </label>
-          <label>
-            Price per coin
+          <label>Price per coin
             <input type="number" step="any" name="price" required placeholder="Price at time of trade">
           </label>
         </form>
@@ -410,12 +425,14 @@ W.dashboard = (() => {
     m.el.querySelector("#t-cancel").onclick = m.close;
     m.el.querySelector("#t-save").onclick = () => {
       const f = m.el.querySelector("#t-form");
-      const qty = parseFloat(f.qty.value),
-        price = parseFloat(f.price.value);
+      const qty = parseFloat(f.qty.value);
+      const price = parseFloat(f.price.value);
+
       if (!picked) return W.ui.toast("Pick a coin first", "warn");
       if (!qty || qty <= 0 || !price || price <= 0) {
         return W.ui.toast("Enter valid quantity and price", "warn");
       }
+
       if (W.portfolio && W.portfolio.recordTx) {
         const ok = W.portfolio.recordTx({
           type: f.type.value,
@@ -439,11 +456,15 @@ W.dashboard = (() => {
     };
   }
 
-  // ── MAIN RENDER ──────────────────────────────────────
+  // ── MAIN RENDER ───────────────────────────────────────
   async function render(view) {
     view.innerHTML = `
+      <!-- Intelligence Layer: What Matters Now (Rule 28) -->
+      <div id="what-matters-now-container"></div>
+      <div id="what-changed-container"></div>
       <div id="d-tape"></div>
       <div class="cards" id="d-stats"></div>
+      
       <div class="card">
         <div class="watch-head">
           <h3>🌐 Markets Terminal</h3>
@@ -475,6 +496,7 @@ W.dashboard = (() => {
           </table>
         </div>
       </div>
+      
       <div class="grid-2">
         <div class="card">
           <div class="watch-head">
@@ -494,15 +516,15 @@ W.dashboard = (() => {
       </div>
     `;
 
-    // ── Wire buttons ────────────────────────────────────
-    const btns = view.querySelectorAll("#qa-add, #qa-add2");
-    btns.forEach((b) => (b.onclick = () => holdingModal()));
+    // ── Wire Buttons ────────────────────────────────────
+    view
+      .querySelectorAll("#qa-add, #qa-add2")
+      .forEach((b) => (b.onclick = () => holdingModal()));
+    view
+      .querySelectorAll("#qa-tx, #qa-tx2")
+      .forEach((b) => (b.onclick = () => txModal()));
 
-    const txBtns = view.querySelectorAll("#qa-tx, #qa-tx2");
-    txBtns.forEach((b) => (b.onclick = () => txModal()));
-
-    const sampleBtns = view.querySelectorAll("#qa-sample, #qa-sample2");
-    sampleBtns.forEach((b) => {
+    view.querySelectorAll("#qa-sample, #qa-sample2").forEach((b) => {
       b.onclick = () => {
         if (W.portfolio && W.portfolio.seed) {
           W.portfolio.seed();
@@ -525,7 +547,7 @@ W.dashboard = (() => {
       };
     }
 
-    // ── Fetch data ──────────────────────────────────────
+    // ── Fetch Data (Parallelized for Performance, Rule 31) ─
     const [topR, globR, fgR, pf] = await Promise.allSettled([
       W.api.top(100),
       W.api.global(),
@@ -542,7 +564,6 @@ W.dashboard = (() => {
     const g = globR.status === "fulfilled" ? globR.value.data : null;
     const fg = fgR.status === "fulfilled" ? fgR.value : null;
 
-    // ── Trending data ──────────────────────────────────
     let trendR;
     try {
       const trendData = await W.api.trending();
@@ -551,17 +572,14 @@ W.dashboard = (() => {
       trendR = { status: "rejected", reason: e };
     }
 
-    // ── Tape ────────────────────────────────────────────
+    // ── Render Tape ─────────────────────────────────────
     const tapeContainer = view.querySelector("#d-tape");
-    if (tapeContainer) {
-      if (TOP && TOP.length) {
-        tapeContainer.innerHTML = tapeHTML(TOP.slice(0, 20));
-      } else {
-        tapeContainer.innerHTML = tapeHTML([]);
-      }
-    }
+    if (tapeContainer)
+      tapeContainer.innerHTML = TOP.length
+        ? tapeHTML(TOP.slice(0, 20))
+        : tapeHTML([]);
 
-    // ── Stats ───────────────────────────────────────────
+    // ── Render Stats ────────────────────────────────────
     const fgColor = fg
       ? fg.value < 25
         ? "#ff5c7a"
@@ -571,8 +589,8 @@ W.dashboard = (() => {
             ? "#f5d76e"
             : "#2ee6a8"
       : "#9aa3b2";
-
     const statsEl = view.querySelector("#d-stats");
+
     if (statsEl) {
       statsEl.innerHTML = `
         ${totals ? statCard("Total Balance", W.fmt.money(totals.value), rows.length + " assets") : statCard("Total Balance", "—", "add holdings below")}
@@ -583,7 +601,7 @@ W.dashboard = (() => {
       `;
     }
 
-    // ── Terminal rows ───────────────────────────────────
+    // ── Render Terminal Rows ────────────────────────────
     let tab = "trending";
     const drawRows = () => {
       let list = TOP;
@@ -613,6 +631,7 @@ W.dashboard = (() => {
           )
           .slice(0, 20);
       }
+
       const rowsEl = view.querySelector("#d-rows");
       if (rowsEl) {
         const rowsHtml = list.length
@@ -621,19 +640,16 @@ W.dashboard = (() => {
               .filter((r) => r !== "")
               .join("")
           : '<tr><td colspan="9" class="muted center">All live sources unreachable — data appears when a pipe (or your cache) is available.</td></tr>';
+
         rowsEl.innerHTML = rowsHtml;
-        rowsEl
-          .querySelectorAll("tr[data-coin]")
-          .forEach(
-            (tr) =>
-              (tr.onclick = () =>
-                (location.hash = "#/coin/" + tr.dataset.coin)),
-          );
+        rowsEl.querySelectorAll("tr[data-coin]").forEach((tr) => {
+          tr.onclick = () => (location.hash = "#/coin/" + tr.dataset.coin);
+        });
         rowsEl.querySelectorAll("canvas.spark").forEach(drawSpark);
       }
     };
 
-    // ── Tab switchers ───────────────────────────────────
+    // ── Tab Switchers ───────────────────────────────────
     const tabContainer = view.querySelector(".watch-head .qa");
     if (tabContainer) {
       const tabs = ["trending", "top", "gain", "lose"];
@@ -655,20 +671,9 @@ W.dashboard = (() => {
       });
     }
 
-    view.querySelectorAll("[data-tab]").forEach((c) => {
-      c.onclick = () => {
-        view
-          .querySelectorAll("[data-tab]")
-          .forEach((x) => x.classList.remove("active"));
-        c.classList.add("active");
-        tab = c.dataset.tab;
-        drawRows();
-      };
-    });
-
     drawRows();
 
-    // ── Portfolio ──────────────────────────────────────
+    // ── Render Portfolio ────────────────────────────────
     const port = view.querySelector("#d-port");
     if (port) {
       if (!rows.length) {
@@ -683,16 +688,17 @@ W.dashboard = (() => {
       }
     }
 
-    // ── Allocation Chart ──────────────────────────────
+    // ── Render Allocation Chart ─────────────────────────
     if (window.Chart) {
       const allocCanvas = view.querySelector("#alloc");
       if (allocCanvas) {
-        chartAlloc?.destroy();
+        if (chartAlloc) chartAlloc.destroy();
+
         if (rows.length) {
           chartAlloc = new Chart(allocCanvas, {
             type: "doughnut",
             data: {
-              labels: rows.map((r) => r.symbol.toUpperCase()),
+              labels: rows.map((r) => String(r.symbol).toUpperCase()),
               datasets: [
                 {
                   data: rows.map((r) => +r.value.toFixed(2)),
@@ -773,80 +779,57 @@ W.dashboard = (() => {
         }
       }
     }
-  }
 
-  // ── Portfolio Page (separate view) ──────────────────
-  async function renderPortfolio(view) {
-    const has = W.portfolio ? W.portfolio.all().length > 0 : false;
+    // ── Render "What Matters Now" (Rule 28 Integration) ─
+    const rankerContainer = view.querySelector("#what-matters-now-container");
+    if (rankerContainer && W.ranker && W.events) {
+      const userContext = {
+        portfolio: (W.portfolio?.all() || []).map((h) => h.symbol),
+        watchlist: (W.watchlist?.all ? W.watchlist.all() : []).map(
+          (w) => w.symbol,
+        ),
+      };
 
-    view.innerHTML = `
-      <div class="card">
-        <div class="watch-head">
-          <h3>💼 Holdings</h3>
-          <div class="qa">
-            <button class="btn primary" id="p-add">+ Add Holding</button>
-            <button class="btn" id="p-tx">↔ Buy / Sell</button>
-          </div>
-        </div>
-        <div id="p-body">
-          ${has ? W.ui.spinner() : W.ui.empty("💼", "No holdings yet", "Add a holding or record a transaction")}
-        </div>
-      </div>
-      <div class="grid-2">
-        <div class="card">
-          <h3>📜 Transaction History</h3>
-          ${W.portfolio && W.portfolio.txs ? txList(W.portfolio.txs().slice().reverse()) : '<p class="muted small">No transactions yet.</p>'}
-        </div>
-        <div class="card">
-          <h3>👛 Wallet Tracking</h3>
-          <p class="muted small">Connect MetaMask or Phantom in the <a class="link" href="#/web3">Web3 tab</a> to view on-chain balances. Manual holdings above are stored privately in your browser.</p>
-        </div>
-      </div>
-    `;
+      W.events
+        .collectEvents()
+        .then((events) => {
+          W.ranker.renderCard(rankerContainer, events, userContext);
+        })
+        .catch((err) => {
+          console.warn("[Dashboard] Ranker update failed:", err);
+          rankerContainer.innerHTML =
+            '<div class="card"><p class="muted small">Intelligence feed unavailable.</p></div>';
+        });
+    }
 
-    const addBtn = view.querySelector("#p-add");
-    if (addBtn) addBtn.onclick = () => holdingModal();
+    // ── Render "What Changed" (Section 24 Integration) ────
+    const changedContainer = view.querySelector("#what-changed-container");
+    if (changedContainer && W.delta && totals) {
+      // 1. Compute deltas against the previous snapshot
+      const deltas = W.delta.computePortfolioDeltas(totals);
 
-    const txBtn = view.querySelector("#p-tx");
-    if (txBtn) txBtn.onclick = () => txModal();
+      // 2. Render the card
+      W.delta.renderCard(changedContainer, deltas);
 
-    if (has && W.portfolio) {
-      const { rows } = await enrich();
-      const body = view.querySelector("#p-body");
-      if (body) {
-        body.innerHTML = holdingsTable(rows);
-        wireRows(body, rows);
+      // 3. Update the snapshot for the next visit
+      // (Only update if the existing snapshot is older than 1 hour to preserve meaningful deltas)
+      const currentSnapshot = W.delta.getSnapshot();
+      if (
+        !currentSnapshot ||
+        Date.now() - currentSnapshot.timestamp > 3600000
+      ) {
+        W.delta.saveSnapshot(totals);
       }
     }
   }
 
-  // ── Transaction List Helper ──────────────────────────
-  function txList(list) {
-    if (!list || !list.length)
-      return '<p class="muted small">No transactions yet.</p>';
-    return `<ul class="tx-list">
-      ${list
-        .map(
-          (t) => `
-        <li>
-          <span class="tag ${t.type}">${t.type}</span>
-          ${t.qty} ${t.symbol.toUpperCase()} @ ${W.fmt.price(t.price)}
-          <span class="muted small">${W.fmt.date(t.date)}</span>
-        </li>
-      `,
-        )
-        .join("")}
-    </ul>`;
-  }
-
-  // ── Exports ──────────────────────────────────────────
+  // ── Exports ───────────────────────────────────────────
   return {
     render,
-    renderPortfolio,
     holdingModal,
     txModal,
     enrich,
   };
 })();
 
-console.log("[Dashboard] Module loaded.");
+console.log("[Dashboard] Module loaded (secure & optimized).");
