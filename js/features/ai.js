@@ -381,6 +381,16 @@ const AiModule = (() => {
 
     let marketContext = "";
     let regimeContext = "";
+
+    // ── Behavioral Context (Task 17) ─────────────────────
+    let behaviorContext = "";
+    if (W.behavior) {
+      const behaviorData = W.behavior.analyze();
+      if (behaviorData.pattern !== "none") {
+        behaviorContext = `USER BEHAVIORAL ALERT: The system has detected a "${behaviorData.pattern}" pattern. Evidence: ${behaviorData.evidence}. Recommendation: ${behaviorData.recommendation}.`;
+      }
+    }
+
     try {
       const fg = await W.api.fearGreed();
       const g = await W.api.global();
@@ -438,6 +448,9 @@ ${marketContext}
 
 REGIME CONTEXT:
 ${regimeContext}
+
+BEHAVIORAL CONTEXT:
+${behaviorContext}
 </data>
 
 <rules>
