@@ -1,16 +1,12 @@
 // ===============================================================
 //         Portfolio Management Module
 // ===============================================================
-//
-// Purpose: Manage user portfolio holdings with deterministic math.
-// Security: Never uses LLMs for calculations. All math is handled
-//           by W.finance to prevent NaN/Infinity edge cases.
-//
-// ===============================================================
 
+// CRITICAL: Initialize namespaces
 window.W = window.W || {};
+W.portfolio = W.portfolio || {};
 
-W.portfolio = (() => {
+(function () {
   const PORTFOLIO_KEY = "portfolio_holdings";
 
   // ── State ──────────────────────────────────────────────

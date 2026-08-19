@@ -1,14 +1,10 @@
-//  Premium AI Intelligence Engine
-// ================================================================
-//
-// 🧠 Weaver AI – Your Personal Crypto Intelligence Analyst
-//
-// Refactored for Task 6: Uses W.ai.providers abstraction layer.
-//
-// ================================================================
+// ===============================================================
+//         Premium AI Intelligence Engine
+// ===============================================================
 
+// CRITICAL: Initialize namespaces
 window.W = window.W || {};
-W.ai = W.ai || {}; // Preserve W.ai.providers loaded from providers.js
+W.ai = W.ai || {};
 
 const AiModule = (() => {
   // ── Constants ─────────────────────────────────────────

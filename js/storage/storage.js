@@ -2,8 +2,10 @@
 //  Weaver Storage Layer
 // ===============================================================
 
-// Prevent redeclaration errors
-if (!window.W) window.W = {};
+// Prevent if redeclaration errors
+
+// CRITICAL: Initialize W namespace FIRST
+window.W = window.W || {};
 
 const StorageModule = (function () {
   const Storage = {
