@@ -797,39 +797,43 @@ W.dashboard = (() => {
         })
         .catch((err) => {
           console.warn("[Dashboard] Ranker update failed:", err);
-          rankerContainer.innerHTML =
-            '<div class="card"><p class="muted small">Intelligence feed unavailable.</p></div>';
+          rankerContainer.innerHTML = '<div class="card"><p class="muted small">Intelligence feed unavailable.</p></div>';
         });
     }
 
-    // ── Render "What Changed" (Section 24 Integration) ────
+        // ── Render "What Changed" (Section 24 Integration) ────
     const changedContainer = view.querySelector("#what-changed-container");
-    if (changedContainer && W.delta && totals) {
-      // 1. Compute deltas against the previous snapshot
-      const deltas = W.delta.computePortfolioDeltas(totals);
-
-      // 2. Render the card
-      W.delta.renderCard(changedContainer, deltas);
-
-      // 3. Update the snapshot for the next visit
-      // (Only update if the existing snapshot is older than 1 hour to preserve meaningful deltas)
-      const currentSnapshot = W.delta.getSnapshot();
-      if (
-        !currentSnapshot ||
-        Date.now() - currentSnapshot.timestamp > 3600000
-      ) {
-        W.delta.saveSnapshot(totals);
+    if (changedContainer && W.delta) {
+      if (totals) {
+        // 1. Compute deltas against the previous snapshot
+        const deltas = W.delta.computePortfolioDeltas(totals);
+        
+        // 2. Render the card
+        W.delta.renderCard(changedContainer, deltas);
+        
+        // 3. Update the snapshot for the next visit
+        const currentSnapshot = W.delta.getSnapshot();
+        if (!currentSnapshot || (Date.now() - currentSnapshot.timestamp > 3600000)) {
+          W.delta.saveSnapshot(totals);
+        }
+      } else {
+        // Fallback UI when portfolio is empty
+        changedContainer.innerHTML = `
+          <div class="card">
+            <h3>📊 What Changed</h3>
+            <p class="muted small">Add holdings to your portfolio to start tracking value changes over time.</p>
+          </div>
+        `;
       }
     }
-  }
 
   // ── Exports ───────────────────────────────────────────
-  return {
+    return {
     render,
     holdingModal,
     txModal,
     enrich,
   };
-})();
+})(); 
 
-console.log("[Dashboard] Module loaded (secure & optimized).");
+console.log("[Dashboard] Module loaded (secure & optimized)");
