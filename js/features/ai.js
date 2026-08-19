@@ -22,7 +22,7 @@ W.ai = (() => {
   const INSIGHTS_KEY = "ai_insights";
   const MAX_HISTORY = 50;
 
-  // ── LLM Providers ─────────────────────────────────────
+  // ─ LLM Providers ─────────────────────────────────────
   const PROVIDERS = {
     openai: {
       name: "OpenAI",
@@ -47,14 +47,6 @@ W.ai = (() => {
   // ── State ──────────────────────────────────────────────
   let memory = W.store.get(MEMORY_KEY, { conversations: [], insights: [] });
   let insightsCache = W.store.get(INSIGHTS_KEY, []);
-
-  // ── Helpers ────────────────────────────────────────────
-  function escapeHTML(str) {
-    if (!str) return "";
-    const div = document.createElement("div");
-    div.textContent = str;
-    return div.innerHTML;
-  }
 
   function saveMemory() {
     W.store.set(MEMORY_KEY, memory);
@@ -356,7 +348,7 @@ W.ai = (() => {
         insights.push({
           type: "risk",
           severity: "info",
-          icon: "📊",
+          icon: "",
           title: "High Volatility Detected",
           message: `Average 7-day swing is ${risk.volatility.toFixed(1)}%`,
           suggestion: "Consider hedging or reducing position sizes",
@@ -381,7 +373,7 @@ W.ai = (() => {
         severity: p.severity,
         icon:
           p.type === "concentration"
-            ? "🎯"
+            ? ""
             : p.type === "ecosystem"
               ? "🌿"
               : "📈",
@@ -585,7 +577,8 @@ W.ai = (() => {
               const price = detail.market_data?.current_price?.usd;
               const change = detail.market_data?.price_change_percentage_24h;
               if (price) {
-                return `📊 <b>${detail.name}</b> is currently ${W.fmt.price(price)} (${W.fmt.pct(change)}). Market cap: ${W.fmt.money(detail.market_data.market_cap.usd, { compact: true })}.`;
+                // SECURE: Removed <b> tags to prevent HTML injection in deterministic fallback
+                return `${detail.name} is currently ${W.fmt.price(price)} (${W.fmt.pct(change)}). Market cap: ${W.fmt.money(detail.market_data.market_cap.usd, { compact: true })}.`;
               }
             }
           } catch (e) {}
@@ -594,18 +587,19 @@ W.ai = (() => {
 
       // Portfolio summary
       if (isPortfolioQuery && holdings.length) {
-        return `💼 Your portfolio is worth <b>${W.fmt.money(totals?.value || 0)}</b> across ${holdings.length} assets. All-time P/L: ${W.fmt.pct(totals?.allTimePct || 0)}. ${patterns.length ? `\n\n🧠 Insights: ${patterns.map((p) => p.message).join(". ")}` : ""}`;
+        // SECURE: Removed <b> tags
+        return `Your portfolio is worth ${W.fmt.money(totals?.value || 0)} across ${holdings.length} assets. All-time P/L: ${W.fmt.pct(totals?.allTimePct || 0)}. ${patterns.length ? `\n\nInsights: ${patterns.map((p) => p.message).join(". ")}` : ""}`;
       }
 
       // Market summary
       if (isMarketQuery) {
-        return `📈 Market: ${marketContext}`;
+        return `Market: ${marketContext}`;
       }
 
-      return `I can help you with your portfolio, market data, or specific coins. Try asking "What's my portfolio worth?" or "What's the price of Bitcoin?" ⚡ Add an AI API key in Settings for advanced conversational answers.`;
+      return `I can help you with your portfolio, market data, or specific coins. Try asking "What's my portfolio worth?" or "What's the price of Bitcoin?" Add an AI API key in Settings for advanced conversational answers.`;
     }
 
-    // ── Use LLM ──────────────────────────────────────────
+    // ─ Use LLM ──────────────────────────────────────────
     const systemPrompt = `
       You are Weaver, a sophisticated crypto intelligence analyst.
       You have access to portfolio data, market data, and on-chain insights.
@@ -647,7 +641,7 @@ W.ai = (() => {
     };
     if (!rows.length || !totals) {
       return {
-        summary: "No holdings to analyze. Add some assets to get started! 🚀",
+        summary: "No holdings to analyze. Add some assets to get started!",
         risk: null,
         patterns: [],
         metrics: null,
@@ -663,23 +657,24 @@ W.ai = (() => {
     // Generate recommendation
     let recommendation = "";
     if (risk?.concentration > 70) {
-      recommendation = "⚠️ Consider diversifying to reduce single-asset risk.";
+      recommendation = "Consider diversifying to reduce single-asset risk.";
     } else if (
       patterns.some((p) => p.type === "momentum" && p.severity === "bullish")
     ) {
       recommendation =
-        "📈 Strong momentum — consider taking some profits or setting stop-losses.";
+        "Strong momentum — consider taking some profits or setting stop-losses.";
     } else if (
       patterns.some((p) => p.type === "momentum" && p.severity === "bearish")
     ) {
-      recommendation = "📉 Dips are opportunities — DCA into quality projects.";
+      recommendation = "Dips are opportunities — DCA into quality projects.";
     } else {
       recommendation =
-        "✅ Your portfolio is well-balanced. Continue monitoring and DCA.";
+        "Your portfolio is well-balanced. Continue monitoring and DCA.";
     }
 
     return {
-      summary: `Your portfolio is worth <b>${W.fmt.money(totals.value)}</b> with ${rows.length} assets. All-time: ${W.fmt.pct(totals.allTimePct)}.`,
+      // SECURE: Removed <b> tags from summary
+      summary: `Your portfolio is worth ${W.fmt.money(totals.value)} with ${rows.length} assets. All-time: ${W.fmt.pct(totals.allTimePct)}.`,
       risk,
       patterns,
       metrics: {
@@ -727,9 +722,9 @@ W.ai = (() => {
 
       const regimeMsg = {
         greedy:
-          "🟢 Extreme Greed — Market may be overheated. Consider taking profits.",
-        fearful: "🔴 Extreme Fear — Contrarian buying opportunity.",
-        neutral: "⚖️ Neutral — Continue with your strategy.",
+          "Extreme Greed — Market may be overheated. Consider taking profits.",
+        fearful: "Extreme Fear — Contrarian buying opportunity.",
+        neutral: "Neutral — Continue with your strategy.",
       };
 
       return {
@@ -747,7 +742,7 @@ W.ai = (() => {
         },
         regime: regime,
         regimeMessage: regimeMsg[regime],
-        summary: `📊 Market: ${fg.value_classification} (${fg.value}/100). BTC dominance ${g.data.market_cap_percentage.btc.toFixed(1)}%. ${regimeMsg[regime]}`,
+        summary: `Market: ${fg.value_classification} (${fg.value}/100). BTC dominance ${g.data.market_cap_percentage.btc.toFixed(1)}%. ${regimeMsg[regime]}`,
       };
     } catch (e) {
       console.warn("[AI] Market intelligence error:", e);
@@ -797,61 +792,127 @@ W.ai = (() => {
       const insights = await portfolioInsights();
       const el = view.querySelector("#ai-portfolio-summary");
       if (el) {
-        el.innerHTML = `
-          <div class="ai-brief">${insights.summary}</div>
-          <div class="meter-bar mt"><div style="width:${100 - (insights.risk?.riskScore || 0)}%; background: ${(insights.risk?.riskScore || 0) < 40 ? "var(--up)" : (insights.risk?.riskScore || 0) < 60 ? "var(--warn)" : "var(--down)"};"></div></div>
-          <div class="small">Risk Score: ${(100 - (insights.risk?.riskScore || 0)).toFixed(0)}/100</div>
-          <div class="mt small">${insights.recommendation}</div>
-        `;
+        el.innerHTML = ""; // Clear safely
+
+        const brief = document.createElement("div");
+        brief.className = "ai-brief";
+        brief.textContent = insights.summary || "No summary available."; // Plain text is safe
+        el.appendChild(brief);
+
+        const meterContainer = document.createElement("div");
+        meterContainer.className = "meter-bar mt";
+
+        const meterFill = document.createElement("div");
+        const riskScore = insights.risk?.riskScore || 0;
+        const safeWidth = Math.max(0, Math.min(100, 100 - riskScore));
+
+        let safeColor = "var(--down)";
+        if (riskScore < 40) safeColor = "var(--up)";
+        else if (riskScore < 60) safeColor = "var(--warn)";
+
+        meterFill.style.width = `${safeWidth}%`;
+        meterFill.style.background = safeColor;
+        meterContainer.appendChild(meterFill);
+        el.appendChild(meterContainer);
+
+        const scoreText = document.createElement("div");
+        scoreText.className = "small";
+        scoreText.textContent = `Risk Score: ${(100 - riskScore).toFixed(0)}%`;
+        el.appendChild(scoreText);
       }
     } catch (e) {
-      view.querySelector("#ai-portfolio-summary").innerHTML =
-        `<p class="muted">${escapeHTML(e.message)}</p>`;
+      const el = view.querySelector("#ai-portfolio-summary");
+      if (el)
+        el.innerHTML = `<p class="muted">${W.fmt.escapeHTML(e.message)}</p>`;
     }
 
-    // ── Load market intelligence ────────────────────────
+    // ── Load market intelligence ───────────────────────
     try {
       const market = await marketIntelligence();
       const el = view.querySelector("#ai-market-summary");
       if (el) {
-        el.innerHTML = `
-          <div class="ai-brief">${market.summary}</div>
-          <div class="kv-row"><span class="muted">Fear & Greed</span><span><b>${market.fearGreed?.value}</b> (${market.fearGreed?.classification})</span></div>
-          <div class="kv-row"><span class="muted">BTC Dominance</span><span>${market.dominance}%</span></div>
-          <div class="kv-row"><span class="muted">Top Gainer</span><span>${market.topGainer?.name} ${W.fmt.pct(market.topGainer?.change)}</span></div>
-          <div class="kv-row"><span class="muted">Top Loser</span><span>${market.topLoser?.name} ${W.fmt.pct(market.topLoser?.change)}</span></div>
-        `;
+        el.innerHTML = "";
+
+        const brief = document.createElement("div");
+        brief.className = "ai-brief";
+        brief.textContent = market.summary || "Market data unavailable.";
+        el.appendChild(brief);
+
+        const rows = [
+          {
+            label: "Fear & Greed",
+            value: `${market.fearGreed?.value || "N/A"} (${market.fearGreed?.classification || "N/A"})`,
+          },
+          { label: "BTC Dominance", value: `${market.dominance || "N/A"}%` },
+          {
+            label: "Top Gainer",
+            value: `${market.topGainer?.name || "N/A"} ${market.topGainer?.change ? W.fmt.pct(market.topGainer.change) : ""}`,
+          },
+          {
+            label: "Top Loser",
+            value: `${market.topLoser?.name || "N/A"} ${market.topLoser?.change ? W.fmt.pct(market.topLoser.change) : ""}`,
+          },
+        ];
+
+        rows.forEach((row) => {
+          const kv = document.createElement("div");
+          kv.className = "kv-row";
+
+          const label = document.createElement("span");
+          label.className = "muted";
+          label.textContent = row.label;
+
+          const value = document.createElement("span");
+          // SAFE: We escape the dynamic value before allowing any HTML structure
+          value.innerHTML = `<b>${W.fmt.escapeHTML(row.value)}</b>`;
+
+          kv.appendChild(label);
+          kv.appendChild(value);
+          el.appendChild(kv);
+        });
       }
     } catch (e) {
-      view.querySelector("#ai-market-summary").innerHTML =
-        `<p class="muted">${escapeHTML(e.message)}</p>`;
+      const el = view.querySelector("#ai-market-summary");
+      if (el)
+        el.innerHTML = `<p class="muted">${W.fmt.escapeHTML(e.message)}</p>`;
     }
 
-    // ── Load proactive insights ─────────────────────────
+    // ─ Load proactive insights ─────────────────────────
     try {
       const insights = await generateInsights();
       const el = view.querySelector("#ai-insights");
       if (el) {
+        el.innerHTML = "";
         if (!insights.length) {
-          el.innerHTML =
-            '<p class="muted small">No insights yet. Add more assets to get started.</p>';
+          const p = document.createElement("p");
+          p.className = "muted small";
+          p.textContent = "No insights yet. Add more assets to get started.";
+          el.appendChild(p);
         } else {
-          el.innerHTML = insights
-            .slice(0, 4)
-            .map(
-              (i) => `
-            <div class="kv-row" style="border-bottom:1px solid var(--border);padding:8px 0;">
-              <span>${i.icon} <b>${escapeHTML(i.title)}</b><br><span class="muted small">${escapeHTML(i.message)}</span></span>
-              <span class="small">${escapeHTML(i.suggestion || "")}</span>
-            </div>
-          `,
-            )
-            .join("");
+          insights.slice(0, 4).forEach((i) => {
+            const div = document.createElement("div");
+            div.className = "kv-row";
+            div.style.cssText =
+              "border-bottom:1px solid var(--border);padding:8px 0;";
+
+            const left = document.createElement("span");
+            // SAFE: Escape title and message
+            left.innerHTML = `${i.icon || ""} <b>${W.fmt.escapeHTML(i.title)}</b><br><span class="muted small">${W.fmt.escapeHTML(i.message)}</span>`;
+
+            const right = document.createElement("span");
+            right.className = "small";
+            right.textContent = i.suggestion || ""; // SAFE: textContent
+
+            div.appendChild(left);
+            div.appendChild(right);
+            el.appendChild(div);
+          });
         }
       }
     } catch (e) {
-      view.querySelector("#ai-insights").innerHTML =
-        `<p class="muted">${escapeHTML(e.message)}</p>`;
+      const el = view.querySelector("#ai-insights");
+      if (el)
+        el.innerHTML = `<p class="muted">${W.fmt.escapeHTML(e.message)}</p>`;
     }
 
     // ── Ask Weaver ──────────────────────────────────────
@@ -866,9 +927,20 @@ W.ai = (() => {
 
       try {
         const response = await ask(q, useLLM);
-        answerBox.innerHTML = `<div class="ai-brief">${response}</div>`;
+
+        // CRITICAL SECURITY FIX: Use textContent for AI output to prevent XSS from prompt injection
+        answerBox.innerHTML = "";
+        const responseDiv = document.createElement("div");
+        responseDiv.className = "ai-brief";
+        responseDiv.textContent = response; // SAFE: Renders as plain text, no execution possible
+        answerBox.appendChild(responseDiv);
       } catch (e) {
-        answerBox.innerHTML = `<div class="ai-brief" style="border-color:var(--down);">❌ ${escapeHTML(e.message)}</div>`;
+        answerBox.innerHTML = "";
+        const errorDiv = document.createElement("div");
+        errorDiv.className = "ai-brief";
+        errorDiv.style.borderColor = "var(--down)";
+        errorDiv.textContent = `Error: ${e.message}`; // SAFE
+        answerBox.appendChild(errorDiv);
       }
     };
 
