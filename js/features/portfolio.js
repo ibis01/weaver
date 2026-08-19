@@ -219,7 +219,7 @@ W.portfolio = W.portfolio || {};
   }
 
   // ── Exports ────────────────────────────────────────────
-  return {
+  W.portfolio = {
     all,
     add,
     remove,

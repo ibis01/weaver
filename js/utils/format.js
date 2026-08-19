@@ -116,5 +116,15 @@ W.fmt = W.fmt || {};
     return W.fmt.date(timestamp, { short: true });
   };
 
+    /**
+   * Mask a wallet address for privacy.
+   * e.g., "0x1234567890abcdef1234567890abcdef12345678" -> "0x1234...5678"
+   */
+  W.fmt.maskAddress = function(address) {
+    if (!address || typeof address !== 'string') return '';
+    if (address.length <= 10) return address;
+    return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+  };
+
   console.log("[Format] Utilities loaded.");
 })();

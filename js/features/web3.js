@@ -1,9 +1,10 @@
 // ===============================================================
-//         Secure Web3 Wallet Connector
+//         Secure Web3 Wallet Connector (Privacy & Security)
 // ===============================================================
 //
 // Purpose: Observe wallets and securely request actions.
-// Security: Enforces Section 13 (Mandatory Preview, EIP-712).
+// Security: Enforces Section 13 (Mandatory Preview) &
+//           Section 14 (Wallet Privacy / No logging raw addresses).
 //
 // ===============================================================
 
@@ -46,7 +47,7 @@ W.web3 = W.web3 || {};
     }
     if (!/^0x[a-fA-F0-9]{40}$/i.test(address))
       throw new Error("Invalid EVM address");
-    return address; // Keep original case for checksums if needed
+    return address;
   }
 
   // ── Get Balances (Read-Only) ──────────────────────────
@@ -59,7 +60,7 @@ W.web3 = W.web3 || {};
       });
       return parseInt(balanceHex, 16) / 1e18;
     } catch (error) {
-      console.error("[Web3] EVM balance error:", error);
+      console.error("[Web3] EVM balance error"); // SAFE: No raw address logged
       return null;
     }
   }
@@ -83,7 +84,7 @@ W.web3 = W.web3 || {};
       const data = await response.json();
       return data.result?.value !== undefined ? data.result.value / 1e9 : null;
     } catch (error) {
-      console.error("[Web3] Solana balance error:", error);
+      console.error("[Web3] Solana balance error"); // SAFE: No raw address logged
       return null;
     }
   }
@@ -105,23 +106,12 @@ W.web3 = W.web3 || {};
       W.ui?.toast?.(`Switched to ${CHAINS[chainId]?.name || chainId}`, "ok");
       return true;
     } catch (error) {
-      if (error.code === 4902) {
-        /* Handle adding chain if needed */
-      }
-      W.ui?.toast?.(`Switch chain failed: ${error.message}`, "warn");
+      W.ui?.toast?.(`Switch chain failed`, "warn");
       return false;
     }
   }
 
   // ── SECTION 13: SECURE ACTION REQUEST WRAPPER ─────────
-  /**
-   * Enforces mandatory UI preview before ANY wallet interaction.
-   * Prevents blind signing and ensures user sees consequences.
-   *
-   * @param {string} actionType - 'sign_typed_data' | 'send_transaction'
-   * @param {Array} params - Params for window.ethereum.request
-   * @param {Object} preview - { chain, wallet, action, destination, assets, consequences }
-   */
   function requestSecureAction(actionType, params, preview) {
     return new Promise((resolve, reject) => {
       if (!window.ethereum) {
@@ -157,9 +147,10 @@ W.web3 = W.web3 || {};
         card.appendChild(row);
       };
 
+      // SAFE: Use maskAddress for UI display (Section 14)
       addRow("Chain", preview.chain);
-      addRow("Wallet", preview.wallet);
-      addRow("To", preview.destination);
+      addRow("Wallet", W.fmt.maskAddress(preview.wallet));
+      addRow("To", W.fmt.maskAddress(preview.destination));
       addRow("Assets", preview.assets);
 
       if (preview.consequences) {
@@ -167,7 +158,7 @@ W.web3 = W.web3 || {};
         cons.style.marginTop = "16px";
         cons.style.fontSize = "0.8em";
         cons.style.color = "#f85149";
-        cons.textContent = `️ ${preview.consequences}`;
+        cons.textContent = `⚠️ ${preview.consequences}`;
         card.appendChild(cons);
       }
 
@@ -176,7 +167,7 @@ W.web3 = W.web3 || {};
 
       const cancelBtn = document.createElement("button");
       cancelBtn.textContent = "Cancel";
-      cancelBtn.className = "btn"; // Assumes Weaver CSS classes
+      cancelBtn.className = "btn";
       cancelBtn.onclick = () => {
         document.body.removeChild(modal);
         reject(new Error("User cancelled action"));
@@ -184,7 +175,7 @@ W.web3 = W.web3 || {};
 
       const confirmBtn = document.createElement("button");
       confirmBtn.textContent = "Confirm in Wallet";
-      confirmBtn.className = "btn primary"; // Assumes Weaver CSS classes
+      confirmBtn.className = "btn primary";
       confirmBtn.onclick = async () => {
         confirmBtn.disabled = true;
         confirmBtn.textContent = "Waiting for wallet...";
@@ -210,14 +201,84 @@ W.web3 = W.web3 || {};
     });
   }
 
-  // ── Render UI (Security Info) ─────────────────────────
+  // ── Setup EIP-1193 Wallet Listeners ───────────────────
+  function setupWalletListeners() {
+    if (!window.ethereum) return;
+
+    // Listen for account changes (e.g., user switches or disconnects in wallet)
+    window.ethereum.on("accountsChanged", (accounts) => {
+      if (accounts.length === 0) {
+        // User disconnected from the wallet side
+        disconnectWallet();
+      } else {
+        // User switched to a different account in the wallet
+        state.evm = { address: accounts[0] };
+        saveState();
+        render(document.getElementById("view"));
+        W.ui?.toast?.("Wallet account updated", "info");
+      }
+    });
+
+    // Listen for chain changes (EIP-1193 best practice: reload on chain change)
+    window.ethereum.on("chainChanged", () => {
+      window.location.reload();
+    });
+  }
+
+  // ── Connect Wallet (EIP-1193) ────────────────────────
+  async function connectWallet() {
+    if (!window.ethereum) {
+      W.ui?.toast?.("No EVM wallet detected (e.g., MetaMask)", "warn");
+      return;
+    }
+    try {
+      // eth_requestAccounts forces the wallet to show the account selection/approval UI
+      const accounts = await window.ethereum.request({
+        method: "eth_requestAccounts",
+      });
+
+      if (accounts && accounts.length > 0) {
+        state.evm = { address: accounts[0] };
+        saveState();
+        setupWalletListeners(); // Ensure listeners are active
+        W.ui?.toast?.("Wallet connected securely", "ok");
+        render(document.getElementById("view"));
+      }
+    } catch (error) {
+      console.error("[Web3] Connection error:", error);
+      W.ui?.toast?.("Connection rejected or failed", "warn");
+    }
+  }
+
+  // ── Disconnect Wallet ────────────────────────────────
+  function disconnectWallet() {
+    state.evm = null;
+    saveState();
+    W.ui?.toast?.("Wallet disconnected", "ok");
+    render(document.getElementById("view"));
+  }
+
+  // ── Render UI (Privacy-First) ────────────────────────
   function render(view) {
+    const connectedAddress = state.evm?.address || null;
+    const displayAddress = connectedAddress
+      ? W.fmt.maskAddress(connectedAddress)
+      : "Not connected";
+
     view.innerHTML = `
       <div class="card">
         <h3>🌐 Web3 Wallets</h3>
         <p class="muted small">Connect your wallet to view on-chain balances. Weaver is read-only by default.</p>
-        <div id="wallet-status" class="mt">
-          <p class="muted">No wallet connected.</p>
+        <div id="wallet-status" class="mt" style="display:flex; align-items:center; gap:10px; flex-wrap: wrap;">
+          ${
+            connectedAddress
+              ? `
+                <span class="muted" id="address-display" style="cursor:pointer; font-family:monospace; font-size:1.1em;">${displayAddress}</span>
+                <span class="muted small" style="font-size:0.8em;">(Click to copy)</span>
+                <button class="btn tiny warn" id="btn-disconnect" style="margin-left: auto;">Disconnect</button>
+                `
+              : `<button class="btn primary" id="btn-connect">Connect Wallet</button>`
+          }
         </div>
       </div>
       <div class="card mt">
@@ -225,23 +286,49 @@ W.web3 = W.web3 || {};
         <ul class="tx-list" style="list-style:none;padding:0;">
           <li>✅ All wallet interactions require explicit UI preview.</li>
           <li>✅ Weaver never stores your private keys or seed phrases.</li>
-          <li>✅ Transactions must be manually confirmed in your wallet.</li>
-          <li>✅ Addresses are validated with checksums.</li>
+          <li>✅ Wallet addresses are masked in the UI to prevent shoulder surfing.</li>
+          <li>✅ Raw addresses are never logged to the console or analytics.</li>
           <li>✅ EIP-712 typed data signing preferred over blind signing.</li>
         </ul>
       </div>
     `;
-  }
 
+    // ── Event Listeners ──────────────────────────────────
+    const connectBtn = view.querySelector("#btn-connect");
+    if (connectBtn) {
+      connectBtn.onclick = connectWallet;
+    }
+
+    const disconnectBtn = view.querySelector("#btn-disconnect");
+    if (disconnectBtn) {
+      disconnectBtn.onclick = disconnectWallet;
+    }
+
+    // ── Click-to-Copy Logic (Section 14) ────────────────
+    if (connectedAddress) {
+      const addrEl = view.querySelector("#address-display");
+      if (addrEl) {
+        addrEl.onclick = async () => {
+          try {
+            await navigator.clipboard.writeText(connectedAddress);
+            W.ui.toast("Full address copied to clipboard", "ok");
+          } catch (e) {
+            W.ui.toast("Failed to copy address", "warn");
+          }
+        };
+      }
+    }
+  }
   // ── Exports ───────────────────────────────────────────
   W.web3 = {
     validateAddress,
     getEVMBalance,
     getSolBalance,
     switchChain,
-    requestSecureAction, // The Section 13 compliant wrapper
+    requestSecureAction,
+    connectWallet,
     render,
   };
 })();
 
-console.log("[Web3] Module loaded (secure).");
+console.log("[Web3] Module loaded (secure & private).");
