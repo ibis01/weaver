@@ -3,6 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- STRICT CONTENT SECURITY POLICY -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="
+    default-src 'self';
+    script-src 'self';
+    style-src 'self' https://fonts.googleapis.com 'unsafe-inline';
+    font-src 'self' https://fonts.gstatic.com;
+    img-src 'self' data: https:;
+    connect-src 'self' https://api.coingecko.com https://api.binance.com https://api.mainnet-beta.solana.com http://localhost:3001;
+    object-src 'none';
+    base-uri 'self';
+    form-action 'self';
+  "
+    />
+
+    <title>Weaver — Crypto Portfolio</title>
     <title>Weaver — Crypto Portfolio</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -74,18 +94,12 @@
 
     <!-- Modal root -->
     <div id="modal-root"></div>
-
+    <!-- Storage -->
+    <script src="js/lib/crypto/secure.js"></script>
+    <script src="js/storage/storage.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="dist/bundle.min.js"></script>
 
-    <script>
-      // Clock
-      function updateClock() {
-        const now = new Date();
-        document.getElementById("clock").textContent = now.toLocaleTimeString();
-      }
-      setInterval(updateClock, 1000);
-      updateClock();
-    </script>
+    <script src="js/init.js"></script>
   </body>
 </html>

@@ -10,16 +10,20 @@ window.W.dashboard = window.W.dashboard || {};
 // ==============================
 
 // ---- js/storage/storage.js ----
-// ================================================================
-// js/storage/storage.js – Weaver Storage Layer
-// ================================================================
-
-window.W = window.W || {};
+// ===============================================================
+//  Weaver Storage Layer
+// ===============================================================
 
 /**
- * Storage module – localStorage wrapper with fallback.
+ * Storage module – localStorage wrapper with fallback and secure encryption.
  * All keys are prefixed with 'weaver:' to avoid collisions.
+ * 
+ * Security:
+ *   - Sensitive data (API keys, Telegram tokens) encrypted before storage
+ *   - Uses Web Crypto API (AES-256-GCM) via W.crypto.secure
+ *   - Migration support for plaintext → encrypted transition
  */
+
 const Storage = {
   /**
    * Generate a prefixed key
@@ -82,59 +86,122 @@ const Storage = {
     }
   },
 
-  /**
-   * Alias for delete (some modules use 'del')
-   */
-  del(key) {
-    this.delete(key);
-  },
+  // ── Secure Storage Methods ──────────────────────────────
 
   /**
-   * Clear all Weaver-prefixed keys from localStorage
+   * Store sensitive settings with encryption
+   * @param {Object} settings - The full settings object
+   * @param {string} password - User's security password
    */
-  clearAll() {
+  async setSecureSettings(settings, password) {
     try {
-      const keys = Object.keys(localStorage);
-      keys
-        .filter((k) => k.startsWith("weaver:"))
-        .forEach((k) => localStorage.removeItem(k));
-      if (this._memory) this._memory = {};
+      if (!W.crypto || !W.crypto.secure) {
+        throw new Error("SecureCrypto module not loaded");
+      }
+
+      // Encrypt sensitive fields
+      const encrypted = await W.crypto.secure.encryptSettings(settings, password);
+      
+      // Store encrypted data
+      const secureData = {
+        encrypted: encrypted,
+        timestamp: Date.now(),
+      };
+      
+      localStorage.setItem(this._key("secure_settings"), JSON.stringify(secureData));
+      
+      // Remove sensitive fields from regular settings
+      const safeSettings = { ...settings };
+      delete safeSettings.ai;
+      delete safeSettings.telegram;
+      
+      // Store non-sensitive settings normally
+      this.set("settings", safeSettings);
+      
+      console.log("[Storage] Secure settings saved");
     } catch (e) {
-      console.warn("[Storage] clearAll error:", e.message);
+      console.error("[Storage] setSecureSettings error:", e.message);
+      throw e;
     }
   },
 
   /**
-   * Clear all keys (alias for clearAll)
+   * Retrieve and decrypt sensitive settings
+   * @param {string} password - User's security password
+   * @returns {Object|null} - Decrypted sensitive settings or null
    */
-  clear() {
-    this.clearAll();
-  },
-
-  /**
-   * Get all keys with the 'weaver:' prefix
-   * @returns {string[]} – Array of unprefixed keys
-   */
-  keys() {
+  async getSecureSettings(password) {
     try {
-      return Object.keys(localStorage)
-        .filter((k) => k.startsWith("weaver:"))
-        .map((k) => k.replace("weaver:", ""));
+      const raw = localStorage.getItem(this._key("secure_settings"));
+      if (!raw) return null;
+      
+      const secureData = JSON.parse(raw);
+      if (!secureData.encrypted) return null;
+      
+      const sensitiveData = await W.crypto.secure.decryptSettings(
+        secureData.encrypted,
+        password
+      );
+      
+      return sensitiveData;
     } catch (e) {
-      return [];
+      console.warn("[Storage] getSecureSettings error:", e.message);
+      return null;
     }
   },
 
   /**
-   * Get all stored data as an object
-   * @returns {Object} – All key-value pairs
+   * Check if migration from plaintext to encrypted is needed
+   * @returns {boolean}
    */
-  getAll() {
-    const result = {};
-    this.keys().forEach((k) => {
-      result[k] = this.get(k);
-    });
-    return result;
+  needsMigration() {
+    const settings = this.get("settings", {});
+    return !!(settings.ai?.key || settings.telegram?.token);
+  },
+
+  /**
+   * Migrate plaintext settings to encrypted storage
+   * @param {string} password - User's security password
+   */
+  async migrateToSecure(password) {
+    try {
+      const settings = this.get("settings", {});
+      
+      // Check if migration is needed
+      if (!this.needsMigration()) {
+        console.log("[Storage] No migration needed");
+        return true;
+      }
+      
+      console.log("[Storage] Starting migration to secure storage...");
+      
+      // Encrypt and save
+      await this.setSecureSettings(settings, password);
+      
+      // Verify by attempting to read back
+      const testRead = await this.getSecureSettings(password);
+      if (!testRead) {
+        throw new Error("Migration verification failed");
+      }
+      
+      console.log("[Storage] Migration completed successfully");
+      return true;
+    } catch (e) {
+      console.error("[Storage] Migration failed:", e.message);
+      throw e;
+    }
+  },
+
+  /**
+   * Clear all secure settings (for logout/reset)
+   */
+  clearSecureSettings() {
+    try {
+      localStorage.removeItem(this._key("secure_settings"));
+      console.log("[Storage] Secure settings cleared");
+    } catch (e) {
+      console.warn("[Storage] clearSecureSettings error:", e.message);
+    }
   },
 
   // ── Optional IndexedDB methods (for large data) ──
@@ -204,11 +271,10 @@ const Storage = {
   },
 };
 
-// ── Expose to global W ──────────────────────────────
+// ── Expose to global W ──────────────────────────────────
 W.store = Storage;
 
 console.log("[Storage] Module loaded.");
-
 // ---- js/api/prices.js ----
 // ===============================================================
 //                  Market Data API
