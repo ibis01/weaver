@@ -1,18 +1,16 @@
-// ===============================================================
-//         Premium AI Intelligence Engine
-// ===============================================================
+//  Premium AI Intelligence Engine
+// ================================================================
+// Refactored for Task 12: Uses W.regime for evidence-based detection.
+// ================================================================
 
-// CRITICAL: Initialize namespaces
 window.W = window.W || {};
 W.ai = W.ai || {};
 
 const AiModule = (() => {
-  // ── Constants ─────────────────────────────────────────
   const MEMORY_KEY = "ai_memory";
   const INSIGHTS_KEY = "ai_insights";
   const MAX_HISTORY = 50;
 
-  // ── State ──────────────────────────────────────────────
   let memory = W.store.get(MEMORY_KEY, { conversations: [], insights: [] });
   let insightsCache = W.store.get(INSIGHTS_KEY, []);
 
@@ -130,7 +128,7 @@ const AiModule = (() => {
     return patterns;
   }
 
-  // ── 2. ON-CHAIN INTELLIGENCE ──────────────────────────
+  // ─ 2. ON-CHAIN INTELLIGENCE ─────────────────────────
   async function getWhaleActivity(coinId, minUsd = 100000) {
     try {
       const coin = await W.api.coin(coinId);
@@ -206,7 +204,7 @@ const AiModule = (() => {
     }
   }
 
-  // ── 3. MEMORY SYSTEM ──────────────────────────────────
+  // ─ 3. MEMORY SYSTEM ──────────────────────────────────
   function remember(query, response, context = {}) {
     memory.conversations.push({
       timestamp: Date.now(),
@@ -225,7 +223,7 @@ const AiModule = (() => {
       .slice(-limit);
   }
 
-  // ─ 4. PROACTIVE INSIGHTS ─────────────────────────────
+  // ─ 4. PROACTIVE INSIGHTS ────────────────────────────
   async function generateInsights() {
     const holdings = W.portfolio?.all() || [];
     if (!holdings.length) return [];
@@ -321,13 +319,13 @@ const AiModule = (() => {
     return insights;
   }
 
-  // ── 5. LLM QUERY ENGINE (REFACTORED) ──────────────────
+  // ── 5. LLM QUERY ENGINE ─────────────────────────────
   async function queryLLM(prompt, systemPrompt = null) {
     const settings = getSettings();
     const providerName = settings.provider || "openai";
     const apiKey = settings.key;
     const model = settings.model;
-    const endpoint = settings.url; // Override endpoint if set in Custom provider
+    const endpoint = settings.url;
 
     if (!apiKey) throw new Error("API key required. Add one in Settings.");
 
@@ -336,7 +334,6 @@ const AiModule = (() => {
     messages.push({ role: "user", content: prompt });
 
     try {
-      // Use the abstracted provider layer
       const result = await W.ai.providers.generate({
         providerName,
         messages,
@@ -357,7 +354,7 @@ const AiModule = (() => {
       /portfolio|holdings|own|invest|balance|worth|value/i.test(question);
     const isPriceQuery = /price|worth|cost|value|how much/i.test(question);
     const isMarketQuery =
-      /market|sentiment|trend|fear|greed|dominance|cap/i.test(question);
+      /market|sentiment|trend|fear|greed|dominance|cap|regime/i.test(question);
 
     const holdings = W.portfolio?.all() || [];
     const { rows, totals } = (await W.dashboard?.enrich?.()) || {
@@ -381,12 +378,21 @@ const AiModule = (() => {
     }
 
     let marketContext = "";
+    let regimeContext = "";
     try {
       const fg = await W.api.fearGreed();
       const g = await W.api.global();
       marketContext = `Fear & Greed: ${fg.value} (${fg.value_classification}). `;
       marketContext += `BTC Dominance: ${g.data.market_cap_percentage.btc.toFixed(1)}%. `;
       marketContext += `Market Cap: ${W.fmt.money(g.data.total_market_cap.usd, { compact: true })}. `;
+
+      // Use new Regime Engine (Section 27)
+      const regimeData = W.regime.detect({
+        fearGreed: fg.value,
+        btcDominance: g.data.market_cap_percentage.btc,
+        capChange: g.data.market_cap_change_percentage_24h_usd,
+      });
+      regimeContext = `Current Market Regime: ${regimeData.regime} (Confidence: ${(regimeData.confidence * 100).toFixed(0)}%). Supporting signals: ${regimeData.signals.map((s) => `${s.type} (${s.value})`).join(", ")}.`;
     } catch (e) {}
 
     if (!useLLM) {
@@ -411,8 +417,8 @@ const AiModule = (() => {
       }
       if (isPortfolioQuery && holdings.length)
         return `Your portfolio is worth ${W.fmt.money(totals?.value || 0)} across ${holdings.length} assets. All-time P/L: ${W.fmt.pct(totals?.allTimePct || 0)}. ${patterns.length ? `\n\nInsights: ${patterns.map((p) => p.message).join(". ")}` : ""}`;
-      if (isMarketQuery) return `Market: ${marketContext}`;
-      return `I can help you with your portfolio, market data, or specific coins. Try asking "What's my portfolio worth?" or "What's the price of Bitcoin?" Add an AI API key in Settings for advanced conversational answers.`;
+      if (isMarketQuery) return `Market: ${marketContext} ${regimeContext}`;
+      return `I can help you with your portfolio, market data, or specific coins. Try asking "What's my portfolio worth?" or "What is the current market regime?" Add an AI API key in Settings for advanced conversational answers.`;
     }
 
     const systemPrompt = `
@@ -427,6 +433,9 @@ ${portfolioContext}
 
 MARKET CONTEXT:
 ${marketContext}
+
+REGIME CONTEXT:
+${regimeContext}
 </data>
 
 <rules>
@@ -504,7 +513,7 @@ ${marketContext}
     };
   }
 
-  // ── 8. MARKET INTELLIGENCE ───────────────────────────
+  // ── 8. MARKET INTELLIGENCE (REFACTORED) ──────────────
   async function marketIntelligence() {
     try {
       const [fg, g, top] = await Promise.all([
@@ -519,15 +528,14 @@ ${marketContext}
       );
       const best = movers[0];
       const worst = movers[movers.length - 1];
-      let regime = "neutral";
-      if (fg.value >= 75) regime = "greedy";
-      else if (fg.value <= 25) regime = "fearful";
-      const regimeMsg = {
-        greedy:
-          "Extreme Greed — Market may be overheated. Consider taking profits.",
-        fearful: "Extreme Fear — Contrarian buying opportunity.",
-        neutral: "Neutral — Continue with your strategy.",
-      };
+
+      // Use deterministic regime engine (Section 27)
+      const regimeData = W.regime.detect({
+        fearGreed: fg.value,
+        btcDominance: g.data.market_cap_percentage.btc,
+        capChange: g.data.market_cap_change_percentage_24h_usd,
+      });
+
       return {
         fearGreed: { value: fg.value, classification: fg.value_classification },
         dominance: g.data.market_cap_percentage.btc.toFixed(1),
@@ -541,13 +549,15 @@ ${marketContext}
           name: worst.name,
           change: worst.price_change_percentage_24h_in_currency,
         },
-        regime,
-        regimeMessage: regimeMsg[regime],
-        summary: `Market: ${fg.value_classification} (${fg.value}/100). BTC dominance ${g.data.market_cap_percentage.btc.toFixed(1)}%. ${regimeMsg[regime]}`,
+        regimeData, // Structured regime data
+        summary: `Market: ${fg.value_classification} (${fg.value}/100). BTC dominance ${g.data.market_cap_percentage.btc.toFixed(1)}%. Regime: ${regimeData.regime} (${(regimeData.confidence * 100).toFixed(0)}% confidence).`,
       };
     } catch (e) {
       console.warn("[AI] Market intelligence error:", e);
-      return { summary: "Market data unavailable. Try again later." };
+      return {
+        summary: "Market data unavailable. Try again later.",
+        regimeData: { regime: "UNKNOWN", confidence: 0, signals: [] },
+      };
     }
   }
 
@@ -555,20 +565,20 @@ ${marketContext}
   async function render(view) {
     view.innerHTML = `
       <div class="grid-2">
-        <div class="card"><h3>🧠 Portfolio Intelligence</h3><div id="ai-portfolio-summary">${W.ui.spinner()}</div></div>
-        <div class="card"><h3>📊 Market Intelligence</h3><div id="ai-market-summary">${W.ui.spinner()}</div></div>
+        <div class="card"><h3> Portfolio Intelligence</h3><div id="ai-portfolio-summary">${W.ui.spinner()}</div></div>
+        <div class="card"><h3> Market Intelligence</h3><div id="ai-market-summary">${W.ui.spinner()}</div></div>
       </div>
-      <div class="card"><h3> Proactive Insights</h3><div id="ai-insights">${W.ui.spinner()}</div></div>
+      <div class="card"><h3>💡 Proactive Insights</h3><div id="ai-insights">${W.ui.spinner()}</div></div>
       <div class="card">
         <h3>💬 Ask Weaver (AI Analyst)</h3>
         <div class="ask-row">
-          <input id="ai-q" class="input" placeholder='Try: "How is my portfolio doing?" or "What should I know about this market?"'>
+          <input id="ai-q" class="input" placeholder='Try: "How is my portfolio doing?" or "What is the current market regime?"'>
           <button class="btn primary" id="ai-go">Ask</button>
           <button class="btn tiny" id="ai-llm-toggle">⚡ LLM</button>
         </div>
         <div class="qa mt small">
           <button class="chip" data-quick="What's my portfolio worth?">💼 Portfolio</button>
-          <button class="chip" data-quick="How is the market doing today?">📈 Market</button>
+          <button class="chip" data-quick="What is the current market regime?">📊 Market Regime</button>
           <button class="chip" data-quick="Should I be worried about inflation?">💰 Macro</button>
           <button class="chip" data-quick="What's the sentiment on Bitcoin?">₿ Sentiment</button>
         </div>
@@ -616,12 +626,17 @@ ${marketContext}
         brief.className = "ai-brief";
         brief.textContent = market.summary || "Market data unavailable.";
         el.appendChild(brief);
+
         const rows = [
           {
             label: "Fear & Greed",
             value: `${market.fearGreed?.value || "N/A"} (${market.fearGreed?.classification || "N/A"})`,
           },
           { label: "BTC Dominance", value: `${market.dominance || "N/A"}%` },
+          {
+            label: "Market Regime",
+            value: `${market.regimeData.regime} (${(market.regimeData.confidence * 100).toFixed(0)}% confidence)`,
+          }, // NEW
           {
             label: "Top Gainer",
             value: `${market.topGainer?.name || "N/A"} ${market.topGainer?.change ? W.fmt.pct(market.topGainer.change) : ""}`,
@@ -712,7 +727,7 @@ ${marketContext}
     view.querySelector("#ai-llm-toggle").onclick = () => {
       useLLM = !useLLM;
       view.querySelector("#ai-llm-toggle").textContent = useLLM
-        ? "⚡ LLM"
+        ? " LLM"
         : "💡 Rule";
       view.querySelector("#ai-llm-toggle").classList.toggle("primary", useLLM);
       W.ui.toast(
@@ -728,7 +743,6 @@ ${marketContext}
     });
   }
 
-  // ── Exports ────────────────────────────────────────────
   return {
     render,
     ask,
@@ -745,7 +759,5 @@ ${marketContext}
   };
 })();
 
-// CRITICAL FIX: Merge the module into W.ai without overwriting W.ai.providers
 Object.assign(W.ai, AiModule);
-
 console.log("[AI] Module loaded.");
