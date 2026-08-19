@@ -89,16 +89,16 @@ W.ranker = (() => {
 
   /**
    * Render the "What Matters Now" card into a container.
-   * Uses textContent to prevent XSS from untrusted event data.
+   * Now integrates W.context to explain why each event matters.
    */
   function renderCard(container, events, context) {
     if (!container) return;
 
     const top = getTopEvents(events, context, 3);
-    container.innerHTML = ""; // Clear existing
+    container.innerHTML = "";
 
     const card = document.createElement("div");
-    card.className = "card"; // Assumes Weaver CSS classes
+    card.className = "card";
 
     const title = document.createElement("h3");
     title.textContent = "⚡ What Matters Now";
@@ -116,7 +116,7 @@ W.ranker = (() => {
       top.forEach((item) => {
         const li = document.createElement("li");
         li.style.cssText =
-          "padding: 8px 0; border-bottom: 1px solid var(--border, #30363d);";
+          "padding: 12px 0; border-bottom: 1px solid var(--border, #30363d);";
 
         const header = document.createElement("div");
         header.style.cssText =
@@ -136,9 +136,20 @@ W.ranker = (() => {
         const desc = document.createElement("p");
         desc.className = "small muted";
         desc.style.margin = "4px 0 0 0";
-        // SAFE: textContent prevents XSS (Section 15)
         desc.textContent = item.title || item.description || "Event detected.";
         li.appendChild(desc);
+
+        // ─ NEW: Render Context (Task 18) ────────────────
+        if (W.context) {
+          const contextData = W.context.generateContext(item, context);
+          if (contextData) {
+            const contextContainer = document.createElement("div");
+            li.appendChild(contextContainer);
+            W.context.renderContext(contextContainer, contextData);
+          }
+        }
+        // ──────────────────────────────────────────────────
+
         list.appendChild(li);
       });
       card.appendChild(list);

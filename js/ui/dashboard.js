@@ -784,10 +784,13 @@ W.dashboard = (() => {
     const rankerContainer = view.querySelector("#what-matters-now-container");
     if (rankerContainer && W.ranker && W.events) {
       const userContext = {
-        portfolio: (W.portfolio?.all() || []).map((h) => h.symbol),
+        portfolio: W.portfolio?.all() || [], // Pass full objects for context generator
         watchlist: (W.watchlist?.all ? W.watchlist.all() : []).map(
           (w) => w.symbol,
         ),
+        theses: W.theses?.all() || [], // Pass full thesis objects
+        journal: W.journal?.all() || [], // Pass full journal entries
+        behavior: W.behavior?.analyze() || { pattern: "none" }, // Pass behavioral insights
       };
 
       W.events
@@ -797,23 +800,27 @@ W.dashboard = (() => {
         })
         .catch((err) => {
           console.warn("[Dashboard] Ranker update failed:", err);
-          rankerContainer.innerHTML = '<div class="card"><p class="muted small">Intelligence feed unavailable.</p></div>';
+          rankerContainer.innerHTML =
+            '<div class="card"><p class="muted small">Intelligence feed unavailable.</p></div>';
         });
     }
 
-        // ── Render "What Changed" (Section 24 Integration) ────
+    // ── Render "What Changed" (Section 24 Integration) ────
     const changedContainer = view.querySelector("#what-changed-container");
     if (changedContainer && W.delta) {
       if (totals) {
         // 1. Compute deltas against the previous snapshot
         const deltas = W.delta.computePortfolioDeltas(totals);
-        
+
         // 2. Render the card
         W.delta.renderCard(changedContainer, deltas);
-        
+
         // 3. Update the snapshot for the next visit
         const currentSnapshot = W.delta.getSnapshot();
-        if (!currentSnapshot || (Date.now() - currentSnapshot.timestamp > 3600000)) {
+        if (
+          !currentSnapshot ||
+          Date.now() - currentSnapshot.timestamp > 3600000
+        ) {
           W.delta.saveSnapshot(totals);
         }
       } else {
@@ -826,14 +833,14 @@ W.dashboard = (() => {
         `;
       }
     }
-
+  }
   // ── Exports ───────────────────────────────────────────
-    return {
+  return {
     render,
     holdingModal,
     txModal,
     enrich,
   };
-})(); 
+})();
 
 console.log("[Dashboard] Module loaded (secure & optimized)");
