@@ -354,7 +354,9 @@ const AiModule = (() => {
       /portfolio|holdings|own|invest|balance|worth|value/i.test(question);
     const isPriceQuery = /price|worth|cost|value|how much/i.test(question);
     const isMarketQuery =
-      /market|sentiment|trend|fear|greed|dominance|cap|regime/i.test(question);
+      /market|sentiment|trend|fear|greed|dominance|cap|regime|matter|matters/i.test(
+        question,
+      );
 
     const holdings = W.portfolio?.all() || [];
     const { rows, totals } = (await W.dashboard?.enrich?.()) || {
