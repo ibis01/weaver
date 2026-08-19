@@ -1,257 +1,237 @@
-// ================================================================
-// js/features/portfolio.js – Portfolio Management
-// ================================================================
+// ===============================================================
+//         Portfolio Management Module
+// ===============================================================
+//
+// Purpose: Manage user portfolio holdings with deterministic math.
+// Security: Never uses LLMs for calculations. All math is handled
+//           by W.finance to prevent NaN/Infinity edge cases.
+//
+// ===============================================================
 
 window.W = window.W || {};
 
 W.portfolio = (() => {
-  const HKEY = "portfolio";
-  const TKEY = "transactions";
-  const STREAK_KEY = "portfolio_streak";
+  const PORTFOLIO_KEY = "portfolio_holdings";
 
-  // ── Helpers ──────────────────────────────────────────────
-  function uid() {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+  // ── State ──────────────────────────────────────────────
+  let holdings = W.store.get(PORTFOLIO_KEY, []);
+
+  function save() {
+    W.store.set(PORTFOLIO_KEY, holdings);
   }
 
-  function escapeHTML(str) {
-    if (!str) return "";
-    const div = document.createElement("div");
-    div.textContent = str;
-    return div.innerHTML;
-  }
+  // ── CRUD Operations ────────────────────────────────────
 
-  // ── Data Access ─────────────────────────────────────────
   function all() {
-    return W.store.get(HKEY, []);
-  }
-
-  function save(list) {
-    W.store.set(HKEY, list);
-    if (W.achievements) W.achievements.check();
-    updateStreak();
-  }
-
-  function txs() {
-    return W.store.get(TKEY, []);
-  }
-
-  function saveTxs(list) {
-    W.store.set(TKEY, list);
-  }
-
-  // ── Streak Tracking ─────────────────────────────────────
-  function updateStreak() {
-    const today = new Date().toDateString();
-    const streak = W.store.get(STREAK_KEY, { last: today, count: 1 });
-    if (streak.last !== today) {
-      const yesterday = new Date(Date.now() - 864e5).toDateString();
-      streak.count = streak.last === yesterday ? streak.count + 1 : 1;
-      streak.last = today;
-      W.store.set(STREAK_KEY, streak);
-    }
-    return streak;
-  }
-
-  function getStreak() {
-    return W.store.get(STREAK_KEY, {
-      last: new Date().toDateString(),
-      count: 1,
-    });
-  }
-
-  // ── CRUD Operations ─────────────────────────────────────
-  function add({ coinId, symbol, name, img, qty, buyPrice, date }) {
-    if (!coinId || !symbol || !name) throw new Error("Missing required fields");
-    if (!qty || qty <= 0) throw new Error("Quantity must be positive");
-    if (!buyPrice || buyPrice <= 0)
-      throw new Error("Buy price must be positive");
-
-    const list = all();
-    const existing = list.find((x) => x.coinId === coinId);
-    if (existing) {
-      const totalQty = existing.qty + qty;
-      existing.buyPrice =
-        (existing.qty * existing.buyPrice + qty * buyPrice) / totalQty;
-      existing.qty = totalQty;
-    } else {
-      list.push({
-        id: uid(),
-        coinId,
-        symbol: symbol.toLowerCase(),
-        name,
-        img: img || "",
-        qty,
-        buyPrice,
-        date: date || Date.now(),
-      });
-    }
-    save(list);
-    return list;
-  }
-
-  function update(id, { qty, buyPrice }) {
-    const list = all();
-    const item = list.find((x) => x.id === id);
-    if (!item) throw new Error("Holding not found");
-    if (qty && qty > 0) item.qty = qty;
-    if (buyPrice && buyPrice > 0) item.buyPrice = buyPrice;
-    save(list);
-    return list;
-  }
-
-  function remove(id) {
-    save(all().filter((h) => h.id !== id));
-  }
-
-  function clear() {
-    W.store.delete(HKEY);
-    W.store.delete(TKEY);
-  }
-
-  // ── Transaction Recording ──────────────────────────────
-  function recordTx(tx) {
-    const { type, coin, qty, price } = tx;
-    if (
-      !type ||
-      !coin ||
-      !coin.id ||
-      !qty ||
-      qty <= 0 ||
-      !price ||
-      price <= 0
-    ) {
-      throw new Error("Invalid transaction data");
-    }
-    if (!["buy", "sell"].includes(type))
-      throw new Error("Invalid transaction type");
-
-    const list = all();
-    const existing = list.find((h) => h.coinId === coin.id);
-
-    if (type === "buy") {
-      if (existing) {
-        const totalQty = existing.qty + qty;
-        existing.buyPrice =
-          (existing.qty * existing.buyPrice + qty * price) / totalQty;
-        existing.qty = totalQty;
-      } else {
-        list.push({
-          id: uid(),
-          coinId: coin.id,
-          symbol: coin.symbol.toLowerCase(),
-          name: coin.name,
-          img: coin.img || "",
-          qty,
-          buyPrice: price,
-          date: Date.now(),
-        });
-      }
-    } else {
-      // sell
-      if (!existing) throw new Error(`You don't hold ${coin.name}`);
-      if (qty > existing.qty)
-        throw new Error(`Cannot sell more than you hold (${existing.qty})`);
-      existing.qty -= qty;
-      if (existing.qty <= 1e-9) {
-        const idx = list.indexOf(existing);
-        if (idx > -1) list.splice(idx, 1);
-      }
-    }
-
-    save(list);
-    const txList = txs();
-    txList.push({
-      id: uid(),
-      type,
-      coinId: coin.id,
-      symbol: coin.symbol.toLowerCase(),
-      name: coin.name,
-      qty,
-      price,
-      date: Date.now(),
-    });
-    saveTxs(txList.slice(-500)); // keep last 500 transactions
-    return true;
-  }
-
-  // ── Seed Demo Data ──────────────────────────────────────
-  function seed() {
-    const now = Date.now();
-    const samples = [
-      {
-        coinId: "bitcoin",
-        symbol: "btc",
-        name: "Bitcoin",
-        qty: 0.25,
-        buyPrice: 43250,
-      },
-      {
-        coinId: "ethereum",
-        symbol: "eth",
-        name: "Ethereum",
-        qty: 2.4,
-        buyPrice: 2280,
-      },
-      {
-        coinId: "solana",
-        symbol: "sol",
-        name: "Solana",
-        qty: 18,
-        buyPrice: 98,
-      },
-      {
-        coinId: "chainlink",
-        symbol: "link",
-        name: "Chainlink",
-        qty: 120,
-        buyPrice: 14.2,
-      },
-      {
-        coinId: "dogecoin",
-        symbol: "doge",
-        name: "Dogecoin",
-        qty: 3000,
-        buyPrice: 0.082,
-      },
-    ];
-
-    const holdings = samples.map((s, i) => ({
-      ...s,
-      img: "",
-      id: uid(),
-      date: now - (200 - i * 30) * 864e5,
-    }));
-    save(holdings);
-
-    const transactions = samples.map((s) => ({
-      id: uid(),
-      type: "buy",
-      coinId: s.coinId,
-      symbol: s.symbol,
-      name: s.name,
-      qty: s.qty,
-      price: s.buyPrice,
-      date: now - 200 * 864e5,
-    }));
-    saveTxs(transactions);
     return holdings;
   }
 
-  // ── Exports ─────────────────────────────────────────────
+  function add(holding) {
+    // holding = { id, symbol, name, amount, price, cost }
+    if (!holding || !holding.symbol) {
+      console.warn("[Portfolio] Invalid holding data");
+      return false;
+    }
+
+    // Check if exists, update if so
+    const existingIndex = holdings.findIndex(
+      (h) => h.symbol === holding.symbol,
+    );
+    if (existingIndex !== -1) {
+      holdings[existingIndex] = { ...holdings[existingIndex], ...holding };
+    } else {
+      holdings.push(holding);
+    }
+
+    save();
+    return true;
+  }
+
+  function remove(symbol) {
+    holdings = holdings.filter((h) => h.symbol !== symbol);
+    save();
+    return true;
+  }
+
+  function update(symbol, updates) {
+    const index = holdings.findIndex((h) => h.symbol === symbol);
+    if (index !== -1) {
+      holdings[index] = { ...holdings[index], ...updates };
+      save();
+      return true;
+    }
+    return false;
+  }
+
+  function clear() {
+    holdings = [];
+    save();
+  }
+
+  // ── Deterministic Calculations ────────────────────────
+
+  /**
+   * Get enriched holdings with calculated value, PL, PL%, and allocation.
+   * Uses W.finance for 100% deterministic, edge-case-safe math.
+   */
+  function getEnrichedHoldings() {
+    const totals = W.finance.calculatePortfolioTotals(holdings);
+
+    return holdings.map((h) => {
+      const value = W.finance.calculateValue(h.amount, h.price);
+      const cost = W.finance.safeNumber(h.cost);
+      const pl = W.finance.calculatePL(value, cost);
+      const plPercent = W.finance.calculatePLPercent(pl, cost);
+      const allocation = W.finance.calculateAllocation(
+        value,
+        totals.totalValue,
+      );
+
+      return {
+        ...h,
+        value,
+        cost,
+        pl,
+        plPercent,
+        allocation,
+      };
+    });
+  }
+
+  /**
+   * Get total portfolio metrics.
+   */
+  function getTotals() {
+    return W.finance.calculatePortfolioTotals(holdings);
+  }
+
+  // ── Render UI ──────────────────────────────────────────
+
+  async function render(view) {
+    const enriched = getEnrichedHoldings();
+    const totals = getTotals();
+
+    view.innerHTML = `
+      <div class="card">
+        <h3>💼 Portfolio Overview</h3>
+        <div class="stats-grid">
+          <div class="stat">
+            <span class="label">Total Value</span>
+            <span class="value">${W.fmt.money(totals.totalValue)}</span>
+          </div>
+          <div class="stat">
+            <span class="label">Total Cost</span>
+            <span class="value">${W.fmt.money(totals.totalCost)}</span>
+          </div>
+          <div class="stat">
+            <span class="label">Total P/L</span>
+            <span class="value ${totals.totalPL >= 0 ? "up" : "down"}">
+              ${W.fmt.money(totals.totalPL)} (${W.fmt.pct(totals.totalPLPercent)})
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Holdings</h3>
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Asset</th>
+                <th>Amount</th>
+                <th>Price</th>
+                <th>Value</th>
+                <th>P/L</th>
+                <th>Alloc %</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${enriched
+                .map(
+                  (h) => `
+                <tr>
+                  <td><b>${W.fmt.escapeHTML(h.name || h.symbol)}</b><br><span class="muted small">${W.fmt.escapeHTML(h.symbol)}</span></td>
+                  <td>${h.amount}</td>
+                  <td>${W.fmt.price(h.price)}</td>
+                  <td>${W.fmt.money(h.value)}</td>
+                  <td class="${h.pl >= 0 ? "up" : "down"}">
+                    ${W.fmt.money(h.pl)}<br><span class="small">${W.fmt.pct(h.plPercent)}</span>
+                  </td>
+                  <td>${W.fmt.pct(h.allocation)}</td>
+                  <td>
+                    <button class="btn tiny warn" data-action="remove" data-symbol="${W.fmt.escapeHTML(h.symbol)}">Remove</button>
+                  </td>
+                </tr>
+              `,
+                )
+                .join("")}
+            </tbody>
+          </table>
+          ${enriched.length === 0 ? '<p class="muted text-center">No holdings yet. Add your first asset!</p>' : ""}
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Add / Update Asset</h3>
+        <form id="portfolio-form" class="form-grid">
+          <input type="text" id="p-symbol" placeholder="Symbol (e.g. BTC)" required class="input">
+          <input type="text" id="p-name" placeholder="Name (e.g. Bitcoin)" class="input">
+          <input type="number" id="p-amount" placeholder="Amount" step="any" required class="input">
+          <input type="number" id="p-price" placeholder="Current Price" step="any" required class="input">
+          <input type="number" id="p-cost" placeholder="Total Cost Basis" step="any" required class="input">
+          <button type="submit" class="btn primary">Save Asset</button>
+        </form>
+      </div>
+    `;
+
+    // ── Event Listeners ──────────────────────────────────
+    const form = view.querySelector("#portfolio-form");
+    if (form) {
+      form.onsubmit = (e) => {
+        e.preventDefault();
+        const symbol = view
+          .querySelector("#p-symbol")
+          .value.trim()
+          .toUpperCase();
+        const name = view.querySelector("#p-name").value.trim();
+        const amount = parseFloat(view.querySelector("#p-amount").value);
+        const price = parseFloat(view.querySelector("#p-price").value);
+        const cost = parseFloat(view.querySelector("#p-cost").value);
+
+        if (symbol && !isNaN(amount) && !isNaN(price) && !isNaN(cost)) {
+          add({ symbol, name, amount, price, cost });
+          render(view); // Re-render
+          W.ui.toast(`Updated ${symbol}`, "ok");
+        } else {
+          W.ui.toast("Invalid input data", "warn");
+        }
+      };
+    }
+
+    view.querySelectorAll("[data-action='remove']").forEach((btn) => {
+      btn.onclick = () => {
+        const symbol = btn.dataset.symbol;
+        if (confirm(`Remove ${symbol} from portfolio?`)) {
+          remove(symbol);
+          render(view);
+          W.ui.toast(`Removed ${symbol}`, "ok");
+        }
+      };
+    });
+  }
+
+  // ── Exports ────────────────────────────────────────────
   return {
     all,
-    save,
-    txs,
-    saveTxs,
     add,
-    update,
     remove,
+    update,
     clear,
-    recordTx,
-    seed,
-    getStreak,
-    uid,
+    getEnrichedHoldings,
+    getTotals,
+    render,
   };
 })();
 
