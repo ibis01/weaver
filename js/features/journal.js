@@ -4,7 +4,8 @@
 //
 // Purpose: Record WHY a decision was made, linking actions to
 // investment theses and preserving context for future review.
-// (Section 25)
+// Integrates with Decision Replay Engine (Task 21).
+// Rules: 15 (Security), 21 (Data Correctness), 25 (Journal), 31 (Performance).
 //
 // ===============================================================
 
@@ -83,6 +84,8 @@ W.journal = W.journal || {};
               <div>
                 <span style="color:${actionColor}; font-weight:bold; font-size:1.1em;">${d.action.toUpperCase()}</span> 
                 <b>${W.fmt.escapeHTML(d.asset)}</b>
+                <!-- Hook for Decision Replay Badge -->
+                <span class="replay-container" data-decision-id="${d.id}"></span>
                 <span class="muted small"> @ ${W.fmt.price(d.price)}</span>
               </div>
               <span class="muted small">${W.fmt.relativeTime(d.timestamp)}</span>
@@ -166,10 +169,47 @@ W.journal = W.journal || {};
         W.ui.toast("Decision deleted", "ok");
       };
     });
+
+    // ── Decision Replay Integration (Task 21) ─────────────
+    if (W.decisionReplay && decisions.length > 0) {
+      // 1. Get unique assets to fetch prices efficiently (Rule 31)
+      const uniqueAssets = [
+        ...new Set(decisions.map((d) => d.asset?.toLowerCase())),
+      ].filter(Boolean);
+      let priceMap = {};
+
+      if (uniqueAssets.length > 0 && W.api?.markets) {
+        try {
+          const markets = await W.api.markets(uniqueAssets.join(","));
+          markets.forEach((m) => {
+            if (m && m.id) priceMap[m.id.toLowerCase()] = m.current_price;
+          });
+        } catch (e) {
+          console.warn(
+            "[Journal] Failed to fetch market data for replay:",
+            e.message,
+          );
+        }
+      }
+
+      // 2. Evaluate and inject badges
+      decisions.forEach((d) => {
+        const currentPrice = priceMap[d.asset?.toLowerCase()] || null;
+        const outcome = W.decisionReplay.evaluate(d, currentPrice);
+
+        const container = view.querySelector(
+          `.replay-container[data-decision-id="${d.id}"]`,
+        );
+        if (container) {
+          // innerHTML is safe here because renderBadge returns a strictly controlled, static string
+          container.innerHTML = W.decisionReplay.renderBadge(outcome);
+        }
+      });
+    }
   }
 
   // ── Exports ────────────────────────────────────────────
   W.journal = { all, create, remove, render };
 })();
 
-console.log("[Journal] Decision module loaded.");
+console.log("[Journal] Decision module loaded (with Replay integration).");
