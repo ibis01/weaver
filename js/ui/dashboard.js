@@ -784,13 +784,13 @@ W.dashboard = (() => {
     const rankerContainer = view.querySelector("#what-matters-now-container");
     if (rankerContainer && W.ranker && W.events) {
       const userContext = {
-        portfolio: W.portfolio?.all() || [], // Pass full objects for context generator
+        portfolio: W.portfolio?.all() || [],
         watchlist: (W.watchlist?.all ? W.watchlist.all() : []).map(
           (w) => w.symbol,
         ),
-        theses: W.theses?.all() || [], // Pass full thesis objects
-        journal: W.journal?.all() || [], // Pass full journal entries
-        behavior: W.behavior?.analyze() || { pattern: "none" }, // Pass behavioral insights
+        theses: W.theses?.all() || [],
+        journal: W.journal?.all() || [],
+        behavior: W.behavior?.analyze() || { pattern: "none" },
       };
 
       W.events
@@ -809,13 +809,9 @@ W.dashboard = (() => {
     const changedContainer = view.querySelector("#what-changed-container");
     if (changedContainer && W.delta) {
       if (totals) {
-        // 1. Compute deltas against the previous snapshot
         const deltas = W.delta.computePortfolioDeltas(totals);
-
-        // 2. Render the card
         W.delta.renderCard(changedContainer, deltas);
 
-        // 3. Update the snapshot for the next visit
         const currentSnapshot = W.delta.getSnapshot();
         if (
           !currentSnapshot ||
@@ -824,7 +820,6 @@ W.dashboard = (() => {
           W.delta.saveSnapshot(totals);
         }
       } else {
-        // Fallback UI when portfolio is empty
         changedContainer.innerHTML = `
           <div class="card">
             <h3>📊 What Changed</h3>
@@ -834,10 +829,7 @@ W.dashboard = (() => {
       }
     }
   }
-<<<<<<< Updated upstream
-=======
 
->>>>>>> Stashed changes
   // ── Exports ───────────────────────────────────────────
   return {
     render,

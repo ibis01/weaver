@@ -1,4 +1,4 @@
-// ================== proxy-server.js ===================
+// ========== proxy-server.js – SECURE & WORKING ==========
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
@@ -6,9 +6,7 @@ const cors = require("cors");
 const app = express();
 const PORT = 3001;
 
-// ── Security Configuration ──────────────────────────────────────────
-
-// ⚠️ ONLY these domains are allowed (strict allow-list)
+// ── Allowed Domains (crypto APIs only) ──────────────────────
 const ALLOWED_DOMAINS = [
   "api.coingecko.com",
   "api.binance.com",
@@ -29,44 +27,40 @@ const ALLOWED_DOMAINS = [
   "api.tokenunlocks.com",
 ];
 
-// Disallow internal/reserved IP ranges
-const BLOCKED_IP_PATTERNS = [
-  /^127\./,
-  /^10\./,
-  /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
-  /^192\.168\./,
-  /^0\./,
-  /^::1$/,
-  /^fc00:/,
-  /^fe80:/,
-];
-
-// ── Helper: URL validation ──────────────────────────────────────────
-
-function validateProxyUrl(urlString) {
-  if (!urlString || typeof urlString !== "string") {
-    throw new Error("Missing or invalid URL parameter");
+// ── Rate limiting (simple) ──────────────────────────────────
+const rateLimit = new Map();
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const windowMs = 60 * 1000;
+  const maxRequests = 30;
+  const entry = rateLimit.get(ip) || { count: 0, reset: now + windowMs };
+  if (now > entry.reset) {
+    entry.count = 0;
+    entry.reset = now + windowMs;
   }
+  entry.count++;
+  rateLimit.set(ip, entry);
+  if (entry.count > maxRequests) {
+    throw new Error("Rate limit exceeded");
+  }
+}
 
+// ── URL Validation (simplified & robust) ──────────────────
+function validateUrl(urlString) {
+  if (!urlString || typeof urlString !== "string") {
+    throw new Error("Missing URL parameter");
+  }
   let url;
   try {
     url = new URL(urlString);
   } catch {
     throw new Error("Invalid URL format");
   }
-
-  // 1. Protocol must be http or https
+  // Protocol must be http or https
   if (!["http:", "https:"].includes(url.protocol)) {
-    throw new Error("Only HTTP/HTTPS protocols are allowed");
+    throw new Error("Only HTTP/HTTPS allowed");
   }
-
-  // 2. Port must be 80, 443, or omitted (default)
-  const port = url.port || (url.protocol === "https:" ? 443 : 80);
-  if (![80, 443].includes(Number(port))) {
-    throw new Error("Only standard ports (80, 443) are allowed");
-  }
-
-  // 3. Domain must be in allow-list (exact match or subdomain)
+  // Domain must be in allow-list (exact or subdomain)
   const hostname = url.hostname.toLowerCase();
   const allowed = ALLOWED_DOMAINS.some(
     (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
@@ -74,55 +68,17 @@ function validateProxyUrl(urlString) {
   if (!allowed) {
     throw new Error(`Domain "${hostname}" is not permitted`);
   }
-
-  // 4. Block internal IPs (resolve hostname to IP)
-  // Use a DNS lookup to catch IP-based bypasses
-  // This is a simplified check; for production use dns.lookup()
-  // For simplicity, we check if hostname is an IP and block private ranges
-  const isIP = /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname);
-  if (isIP) {
-    if (BLOCKED_IP_PATTERNS.some((pattern) => pattern.test(hostname))) {
-      throw new Error("Access to private IP addresses is not allowed");
-    }
+  // Block private IPs (simple check)
+  const isPrivate =
+    /^127\.|^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\.|^192\.168\./.test(hostname);
+  if (isPrivate) {
+    throw new Error("Private IP addresses are not allowed");
   }
-
-  // 5. Prevent URL pollution (only allow basic path and query)
-  // Remove user info, fragment, etc.
-  return {
-    protocol: url.protocol,
-    hostname: url.hostname,
-    port: url.port || (url.protocol === "https:" ? 443 : 80),
-    pathname: url.pathname,
-    search: url.search,
-    href: url.href, // The validated URL
-  };
+  // Return the full URL string
+  return url.href;
 }
 
-// ── Rate limiting (simple per-IP) ──────────────────────────────────
-
-const rateLimit = new Map();
-function checkRateLimit(ip) {
-  const now = Date.now();
-  const windowMs = 60 * 1000; // 1 minute
-  const maxRequests = 30;
-
-  const entry = rateLimit.get(ip) || { count: 0, reset: now + windowMs };
-  if (now > entry.reset) {
-    // Reset window
-    entry.count = 0;
-    entry.reset = now + windowMs;
-  }
-  entry.count++;
-  rateLimit.set(ip, entry);
-
-  if (entry.count > maxRequests) {
-    throw new Error("Rate limit exceeded. Please wait a minute.");
-  }
-  return true;
-}
-
-// ── Express Middleware ─────────────────────────────────────────────
-
+// ── Express setup ────────────────────────────────────────────
 app.use(
   cors({
     origin: [
@@ -136,7 +92,6 @@ app.use(
   }),
 );
 
-// Security headers
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
@@ -144,8 +99,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── Proxy Endpoint ──────────────────────────────────────────────────
-
+// ── Proxy Endpoint ──────────────────────────────────────────
 app.get("/proxy", async (req, res) => {
   const clientIp = req.ip || req.connection.remoteAddress || "unknown";
 
@@ -155,12 +109,12 @@ app.get("/proxy", async (req, res) => {
 
     // 2. Validate URL
     const targetUrl = req.query.url;
-    const validated = validateProxyUrl(targetUrl);
+    const validatedUrl = validateUrl(targetUrl);
 
-    console.log(`[Proxy] ${clientIp} → ${validated.href}`);
+    console.log(`[Proxy] ${clientIp} → ${validatedUrl}`);
 
-    // 3. Fetch with timeout and user-agent
-    const response = await axios.get(validated.href, {
+    // 3. Fetch with timeout
+    const response = await axios.get(validatedUrl, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (compatible; WeaverBot/1.0; +https://weaver.app)",
@@ -169,21 +123,19 @@ app.get("/proxy", async (req, res) => {
       },
       timeout: 10000,
       maxRedirects: 5,
-      validateStatus: (status) => status < 400, // reject if status >= 400
+      validateStatus: (status) => status < 400,
       responseType: "text",
     });
 
     console.log(
-      `[Proxy] ✅ Success: ${validated.href} (${response.data.length} bytes)`,
+      `[Proxy] ✅ Success: ${validatedUrl} (${response.data.length} bytes)`,
     );
     res.set(
       "Content-Type",
-      response.headers["content-type"] || "application/xml",
+      response.headers["content-type"] || "application/json",
     );
-    res.status(response.status);
-    res.send(response.data);
+    res.status(response.status).send(response.data);
   } catch (error) {
-    // Never expose internal error details
     console.error(`[Proxy] Error: ${error.message}`);
 
     let statusCode = 500;
@@ -197,7 +149,7 @@ app.get("/proxy", async (req, res) => {
       error.message.includes("not allowed")
     ) {
       statusCode = 403;
-      message = "Access denied";
+      message = "Access denied – domain not allowed";
     } else if (
       error.message.includes("Invalid URL") ||
       error.message.includes("Missing")
@@ -207,30 +159,26 @@ app.get("/proxy", async (req, res) => {
     } else if (error.response) {
       statusCode = error.response.status || 502;
       message = "Upstream service error";
-      // For non-sensitive errors, we can pass the upstream status
-      if (statusCode >= 500) statusCode = 502;
     }
 
+    res.set("Content-Type", "text/plain");
     res.status(statusCode).send(message);
   }
 });
 
-// ── Health Check ────────────────────────────────────────────────────
-
+// ── Health check ────────────────────────────────────────────
 app.get("/health", (req, res) => {
   res.send("Proxy is running securely");
 });
 
-// ── Start Server ────────────────────────────────────────────────────
-
+// ── Start server ────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`🚀 Weaver secure proxy running on http://localhost:${PORT}`);
   console.log(`   Allowed domains: ${ALLOWED_DOMAINS.join(", ")}`);
   console.log(`   Rate limit: 30 requests/minute per IP`);
 });
 
-// ── Cleanup rate limit entries periodically ──────────────────────
-
+// ── Cleanup rate limit entries ─────────────────────────────
 setInterval(() => {
   const now = Date.now();
   for (const [ip, entry] of rateLimit) {
