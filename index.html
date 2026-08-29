@@ -4,28 +4,30 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <!-- STRICT CONTENT SECURITY POLICY -->
+    <!-- STRICT CONTENT SECURITY POLICY – Production Hardened -->
     <meta
       http-equiv="Content-Security-Policy"
       content="
-    default-src 'self';
-    script-src 'self' https://cdn.jsdelivr.net;
-    style-src 'self' https://fonts.googleapis.com 'unsafe-inline';
-    font-src 'self' https://fonts.gstatic.com;
-    img-src 'self' data: https:;
-    connect-src 'self' 
-      https://api.coingecko.com 
-      https://api.binance.com 
-      https://api.mainnet-beta.solana.com 
-      https://api.alternative.me 
-      https://api.allorigins.win 
-      https://api.codetabs.com 
-      https://eth.blockscout.com 
-      http://localhost:3001;
-    object-src 'none';
-    base-uri 'self';
-    form-action 'self';
-  "
+        default-src 'self';
+        script-src 'self' https://cdn.jsdelivr.net;
+        style-src 'self' https://fonts.googleapis.com;
+        font-src 'self' https://fonts.gstatic.com;
+        img-src 'self' data: https:;
+        connect-src 'self' 
+          https://api.coingecko.com 
+          https://api.binance.com 
+          https://api.mainnet-beta.solana.com 
+          https://api.alternative.me 
+          https://api.allorigins.win 
+          https://api.codetabs.com 
+          https://eth.blockscout.com 
+          https://mempool.space
+          https://cloudflare-eth.com;
+        worker-src 'self';
+        object-src 'none';
+        base-uri 'self';
+        form-action 'self';
+      "
     />
     <title>Weaver — Crypto Portfolio</title>
 
@@ -101,80 +103,10 @@
     <div id="modal-root"></div>
 
     <!-- =================================================== -->
-    <!-- Core Libraries (Load in strict dependency order)    -->
+    <!-- Production Bundle (minified, all logic included)    -->
     <!-- =================================================== -->
+    <script src="dist/bundle.min.js"></script>
 
-    <!-- 1. Storage (MUST LOAD FIRST - provides W.store) -->
-    <script src="js/storage/storage.js"></script>
-
-    <!-- 2. Crypto (for secure encryption) -->
-    <script src="js/lib/crypto/secure.js"></script>
-
-    <!-- 3. Utilities -->
-    <script src="js/utils/format.js"></script>
-    <script src="js/utils/finance.js"></script>
-    <script src="js/utils/debounce.js"></script>
-
-    <!-- 4. UI Core -->
-    <script src="js/ui/theme.js"></script>
-    <script src="js/ui/ui.js"></script>
-    <script src="js/ui/dashboard.js"></script>
-
-    <!-- 5. API Layer -->
-    <script src="js/api/prices.js"></script>
-    <script src="js/api/snapshot.js"></script>
-
-    <!-- 6. AI Providers (before features/ai.js) -->
-    <script src="js/ai/providers.js"></script>
-
-    <!-- 7. Intelligence Layer -->
-    <script src="js/intelligence/evidence.js"></script>
-    <script src="js/intelligence/regime.js"></script>
-    <script src="js/intelligence/ranker.js"></script>
-    <script src="js/intelligence/events.js"></script>
-    <script src="js/intelligence/delta.js"></script>
-    <script src="js/intelligence/behavior.js"></script>
-    <script src="js/intelligence/context.js"></script>
-    <script src="js/intelligence/thesis-health.js"></script>
-    <script src="js/intelligence/opportunities.js"></script>
-    <script src="js/intelligence/decision-replay.js"></script>
-
-    <!-- 8. Features  -->
-    <script src="js/features/portfolio.js"></script>
-    <script src="js/features/watchlist.js"></script>
-    <script src="js/features/explorer.js"></script>
-    <script src="js/features/alerts.js"></script>
-    <script src="js/features/news.js"></script>
-    <script src="js/features/ai.js"></script>
-    <script src="js/features/optimizer.js"></script>
-    <script src="js/features/timemachine.js"></script>
-    <script src="js/features/trader.js"></script>
-    <script src="js/features/gems.js"></script>
-    <script src="js/features/shield.js"></script>
-    <script src="js/features/web3.js"></script>
-    <script src="js/features/misc.js"></script>
-    <script src="js/features/whales.js"></script>
-    <script src="js/features/smart.js"></script>
-    <script src="js/features/unlocks.js"></script>
-    <script src="js/features/sectors.js"></script>
-    <script src="js/features/learn.js"></script>
-    <script src="js/features/sync.js"></script>
-    <script src="js/features/telegram.js"></script>
-    <script src="js/features/walletsync.js"></script>
-    <script src="js/features/theses.js"></script>
-    <script src="js/features/journal.js"></script>
-
-    <!-- 9. UI Enhancements -->
-    <script src="js/ui/particles.js"></script>
-    <script src="js/ui/tilt.js"></script>
-
-    <!-- 10. Core App (MUST LOAD LAST) -->
-    <script src="js/app.js"></script>
-
-    <!-- 11. Initialization -->
-    <script src="js/init.js"></script>
-
-    <!-- 12. Tests -->
-<script src="js/test.js"></script>
+    <!-- <script src="js/test.js"></script> -->
   </body>
 </html>
