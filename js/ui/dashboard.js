@@ -5,6 +5,7 @@
 // Purpose: Render the main dashboard, integrating portfolio,
 // market terminal, and the "What Matters Now" intelligence ranker.
 // Security: Strictly escapes all dynamic data
+// Intelligence: Uses W.decisionEngine for signal ranking.
 //
 // ===============================================================
 
@@ -198,15 +199,51 @@ W.dashboard = (() => {
         const price = m.current_price ?? h.buyPrice ?? 0;
         const qty = parseFloat(h.qty) || 0;
         const value = price * qty;
-        const cost = h.wallet ? value : (parseFloat(h.buyPrice) || 0) * qty;
+
+        // ── Cost basis logic ────────────────────────────
+        let cost;
+        let costBasisType = "KNOWN";
+
+        if (h.wallet) {
+          // Wallet holdings: default to UNKNOWN cost basis
+          if (
+            h.manualCostBasis &&
+            typeof h.manualCostBasis.totalCost === "number"
+          ) {
+            cost = h.manualCostBasis.totalCost;
+            costBasisType = "MANUAL";
+          } else {
+            cost = undefined;
+            costBasisType = "UNKNOWN";
+          }
+        } else {
+          // Manual holdings: use totalCost if available, else compute from qty*buyPrice
+          cost =
+            h.totalCost !== undefined
+              ? h.totalCost
+              : (parseFloat(h.buyPrice) || 0) * qty;
+          if (cost === undefined || cost === null || isNaN(cost) || cost < 0) {
+            cost = 0;
+          }
+        }
+
+        let pnl, pnlPct;
+        if (cost !== undefined && cost !== null && !isNaN(cost)) {
+          pnl = value - cost;
+          pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
+        } else {
+          pnl = undefined;
+          pnlPct = undefined;
+        }
 
         return {
           ...h,
           price,
           value,
           cost,
-          pnl: value - cost,
-          pnlPct: cost ? ((value - cost) / cost) * 100 : 0,
+          costBasisType,
+          pnl,
+          pnlPct,
           p24: m.price_change_percentage_24h_in_currency ?? null,
           p7: m.price_change_percentage_7d_in_currency ?? null,
           image: m.image || h.img,
@@ -220,7 +257,9 @@ W.dashboard = (() => {
 
     rows.forEach((r) => {
       totals.value += r.value;
-      totals.cost += r.cost;
+      if (r.cost !== undefined && r.cost !== null && !isNaN(r.cost)) {
+        totals.cost += r.cost;
+      }
       if (r.p24 != null) prev24 += r.value / (1 + r.p24 / 100);
       if (r.p7 != null) prev7 += r.value / (1 + r.p7 / 100);
     });
@@ -266,9 +305,20 @@ W.dashboard = (() => {
               <td>${W.fmt.price(r.price)}</td>
               <td>${W.fmt.pct(r.p24)}</td>
               <td>${r.qty}</td>
-              <td>${r.wallet ? "—" : W.fmt.price(r.buyPrice)}</td>
+              <td>${r.wallet ? (r.costBasisType === "UNKNOWN" ? '<span class="muted small">Unknown</span>' : "—") : W.fmt.price(r.buyPrice)}</td>
               <td><b>${W.fmt.money(r.value)}</b></td>
-              <td>${r.wallet ? '<span class="muted">—</span>' : signedMoney(r.pnl) + '<div class="small">' + W.fmt.pct(r.pnlPct) + "</div>"}</td>
+              <td>
+                ${
+                  r.costBasisType === "UNKNOWN"
+                    ? '<span class="muted small">Cost basis unknown</span>'
+                    : r.wallet
+                      ? '<span class="muted">—</span>'
+                      : signedMoney(r.pnl) +
+                        '<div class="small">' +
+                        W.fmt.pct(r.pnlPct) +
+                        "</div>"
+                }
+              </td>
               <td class="row-actions">
                 ${
                   r.wallet
@@ -459,7 +509,7 @@ W.dashboard = (() => {
   // ── MAIN RENDER ───────────────────────────────────────
   async function render(view) {
     view.innerHTML = `
-      <!-- Intelligence Layer: What Matters Now (Rule 28) -->
+      <!-- Intelligence Layer: What Matters Now (Powered by Decision Engine) -->
       <div id="what-matters-now-container"></div>
       <div id="what-changed-container"></div>
       <div id="d-tape"></div>
@@ -780,29 +830,17 @@ W.dashboard = (() => {
       }
     }
 
-    // ── Render "What Matters Now" (Rule 28 Integration) ─
+    // ── Render "What Matters Now" (Power by Decision Engine) ──
     const rankerContainer = view.querySelector("#what-matters-now-container");
-    if (rankerContainer && W.ranker && W.events) {
-      const userContext = {
-        portfolio: W.portfolio?.all() || [],
-        watchlist: (W.watchlist?.all ? W.watchlist.all() : []).map(
-          (w) => w.symbol,
-        ),
-        theses: W.theses?.all() || [],
-        journal: W.journal?.all() || [],
-        behavior: W.behavior?.analyze() || { pattern: "none" },
-      };
-
-      W.events
-        .collectEvents()
-        .then((events) => {
-          W.ranker.renderCard(rankerContainer, events, userContext);
-        })
-        .catch((err) => {
-          console.warn("[Dashboard] Ranker update failed:", err);
-          rankerContainer.innerHTML =
-            '<div class="card"><p class="muted small">Intelligence feed unavailable.</p></div>';
-        });
+    if (rankerContainer && W.decisionEngine) {
+      try {
+        const decisions = await W.decisionEngine.run();
+        W.decisionEngine.render(rankerContainer, decisions);
+      } catch (err) {
+        console.warn("[Dashboard] Decision Engine failed:", err);
+        rankerContainer.innerHTML =
+          '<div class="card"><p class="muted small">Intelligence feed unavailable.</p></div>';
+      }
     }
 
     // ── Render "What Changed" (Section 24 Integration) ────
@@ -839,4 +877,7 @@ W.dashboard = (() => {
   };
 })();
 
-console.log("[Dashboard] Module loaded (secure & optimized)");
+console.log(
+  "[Dashboard] Module loaded (secure & optimized, with Decision Engine).",
+);
+s

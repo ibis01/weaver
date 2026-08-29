@@ -65,8 +65,6 @@ W.whales = (() => {
         return parseInt(data.result || "0x0", 16) / 1e18;
       },
       txs: async (addr, minValue = 0) => {
-        // Etherscan API (free, requires key for many requests – we'll use a public proxy)
-        // Fallback: use Blockscout's public instance
         const data = await fetch(
           `https://eth.blockscout.com/api/v2/addresses/${addr}/transactions`,
         ).then((r) => r.json());
@@ -215,13 +213,9 @@ W.whales = (() => {
         return (data.result?.value || 0) / 1e9;
       },
       txs: async (addr, minValue = 0) => {
-        // Solana RPC does not return historical txs easily; we use a public API like Solscan
-        // Fallback: use Helius or QuickNode; for simplicity, we use an aggregate from public APIs
-        // Since the response format can be large, we limit to the most recent 10
         const data = await fetch(`https://api.solscan.io/account/${addr}`)
           .then((r) => r.json())
           .catch(() => ({ txs: [] }));
-        // Solscan's API is not always free; we'll return mock data if it fails
         if (!data.txs) return [];
         return data.txs
           .slice(0, 20)
@@ -345,7 +339,11 @@ W.whales = (() => {
         </div>
       `;
     } catch (e) {
-      console.warn(`[Whales] Error for ${w.chain}:${w.addr}`, e);
+      // ✅ FIX: Mask address in error logs
+      console.warn(
+        `[Whales] Error for ${w.chain}:${W.fmt.maskAddress(w.addr)}`,
+        e,
+      );
       return `
         <div class="card">
           <div class="watch-head">
@@ -362,8 +360,8 @@ W.whales = (() => {
   // ── Load and render all cards ──────────────────────
   async function load(view) {
     const body = view.querySelector("#whale-body");
-    const min = parseFloat(view.querySelector("#whale-min").value) || 1; // in USD millions
-    const minValue = min * 1e6; // in USD
+    const min = parseFloat(view.querySelector("#whale-min").value) || 1;
+    const minValue = min * 1e6;
 
     const list = wallets();
     if (!list.length) {
@@ -378,7 +376,6 @@ W.whales = (() => {
     body.innerHTML = W.ui.spinner();
     const cards = await Promise.all(list.map((w) => renderCard(w, minValue)));
     body.innerHTML = cards.join("");
-    // Re-bind delete buttons
     body.querySelectorAll("[data-untrack]").forEach((btn) => {
       btn.onclick = () => {
         const addr = btn.dataset.untrack;
@@ -427,9 +424,7 @@ W.whales = (() => {
       const label =
         m.el.querySelector("#w-label").value.trim() ||
         `${CHAINS[chain].symbol} Whale`;
-      // Basic validation
       if (!addr) return W.ui.toast("Please enter an address.", "warn");
-      // Chain-specific simple validation
       if (
         chain === "btc" &&
         !/^[13][a-zA-Z0-9]{25,34}$/.test(addr) &&
@@ -491,7 +486,7 @@ W.whales = (() => {
     await load(view);
   }
 
-  // ── Public track function (used by smart.js etc.) ──
+  // ── Public track function ──────────────────────────
   function track(addr, label, chain = "eth") {
     const list = wallets();
     if (list.some((w) => w.addr.toLowerCase() === addr.toLowerCase()))
@@ -503,4 +498,4 @@ W.whales = (() => {
   return { render, track };
 })();
 
-console.log("[Whales] Module loaded.");
+console.log("[Whales] Module loaded (with masked logging).");

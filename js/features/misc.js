@@ -366,11 +366,64 @@ W.misc = (() => {
     `;
   }
 
+  // ── Passphrase Helpers ─────────────────────────────────
+  let _passphrase = null;
+
+  function getPassphrase(forcePrompt = false) {
+    if (!forcePrompt && _passphrase) return _passphrase;
+    const pwd = prompt(
+      "Enter your passphrase to access API keys (leave blank to skip encryption):",
+    );
+    if (pwd === null) return null; // user cancelled
+    if (pwd && pwd.length < 12) {
+      W.ui.toast("Passphrase must be at least 12 characters.", "warn");
+      return getPassphrase(true);
+    }
+    if (pwd) _passphrase = pwd;
+    return pwd;
+  }
+
+  function clearPassphrase() {
+    _passphrase = null;
+  }
+
   // ── Settings ────────────────────────────────────────────
-  function renderSettings(view) {
-    const s = W.store.get("settings", {});
-    const tg = s.telegram || {};
-    const ai = s.ai || {};
+  async function renderSettings(view) {
+    // Load existing settings
+    let settings = W.store.get("settings", {});
+    let sensitive = null;
+
+    // Check if encrypted settings exist
+    const encryptedBlob = W.store.get("encrypted_settings", null);
+    if (encryptedBlob) {
+      const passphrase = getPassphrase();
+      if (passphrase) {
+        try {
+          sensitive = await W.crypto.secure.decryptSettings(
+            encryptedBlob,
+            passphrase,
+          );
+          // Merge sensitive into settings for display
+          settings.ai = sensitive.ai || {};
+          settings.telegram = sensitive.telegram || {};
+        } catch (e) {
+          W.ui.toast(
+            "Incorrect passphrase or corrupted data. API keys will not be shown.",
+            "warn",
+          );
+          // Clear sensitive fields from settings
+          settings.ai = { url: "", key: "", model: "" };
+          settings.telegram = { on: false, token: "", chat: "" };
+        }
+      } else {
+        // User cancelled or no passphrase
+        settings.ai = { url: "", key: "", model: "" };
+        settings.telegram = { on: false, token: "", chat: "" };
+      }
+    }
+
+    const tg = settings.telegram || {};
+    const ai = settings.ai || {};
 
     view.innerHTML = `
       <div class="card">
@@ -378,12 +431,12 @@ W.misc = (() => {
         <label>
           Currency
           <select id="set-cur">
-            ${["usd", "eur", "gbp", "inr", "jpy", "aud", "cad"].map((c) => `<option ${s.currency === c ? "selected" : ""}>${c}</option>`).join("")}
+            ${["usd", "eur", "gbp", "inr", "jpy", "aud", "cad"].map((c) => `<option ${settings.currency === c ? "selected" : ""}>${c}</option>`).join("")}
           </select>
         </label>
         <label>
           Auto-refresh seconds (0 = off)
-          <input id="set-refresh" type="number" min="0" value="${s.refresh ?? 60}">
+          <input id="set-refresh" type="number" min="0" value="${settings.refresh ?? 60}">
         </label>
         <h3 class="mt">🤖 AI Assistant (optional)</h3>
         <p class="muted small">Plug in any OpenAI-compatible endpoint to power "Ask Weaver". Without a key, Weaver answers with live on-chain data.</p>
@@ -400,6 +453,8 @@ W.misc = (() => {
           <input id="set-aimodel" placeholder="gpt-4o-mini" value="${escapeHTML(ai.model || "")}">
         </label>
         <button class="btn primary mt" id="set-save">Save Settings</button>
+        <button class="btn ghost mt" id="set-unlock" style="display:${encryptedBlob ? "inline-block" : "none"};">🔓 Unlock Keys</button>
+        <button class="btn ghost mt" id="set-lock" style="display:${_passphrase ? "inline-block" : "none"};">🔒 Lock Keys</button>
       </div>
       <div class="card">
         <h3>📨 Telegram Alerts (optional)</h3>
@@ -430,26 +485,78 @@ W.misc = (() => {
       </div>
     `;
 
-    view.querySelector("#set-save").onclick = () => {
-      const settings = {
+    // ── Save handler ──────────────────────────────────────
+    view.querySelector("#set-save").onclick = async () => {
+      const aiSettings = {
+        url: view.querySelector("#set-aiurl").value.trim(),
+        key: view.querySelector("#set-aikey").value.trim(),
+        model: view.querySelector("#set-aimodel").value.trim(),
+      };
+      const tgSettings = {
+        on: view.querySelector("#set-tgon").checked,
+        token: view.querySelector("#set-tgtoken").value.trim(),
+        chat: view.querySelector("#set-tgchat").value.trim(),
+      };
+
+      const hasSensitive = aiSettings.key || tgSettings.token;
+
+      // Non-sensitive settings
+      const nonSensitive = {
         currency: view.querySelector("#set-cur").value,
         refresh: +view.querySelector("#set-refresh").value,
-        ai: {
-          url: view.querySelector("#set-aiurl").value.trim(),
-          key: view.querySelector("#set-aikey").value.trim(),
-          model: view.querySelector("#set-aimodel").value.trim(),
-        },
-        telegram: {
-          on: view.querySelector("#set-tgon").checked,
-          token: view.querySelector("#set-tgtoken").value.trim(),
-          chat: view.querySelector("#set-tgchat").value.trim(),
-        },
       };
-      W.store.set("settings", settings);
-      W.ui.toast("Settings saved ✓", "ok");
-      W.applySettings?.();
+
+      if (hasSensitive) {
+        let passphrase = _passphrase;
+        if (!passphrase) {
+          passphrase = getPassphrase(true);
+          if (!passphrase) {
+            W.ui.toast("Passphrase required to save API keys.", "warn");
+            return;
+          }
+          _passphrase = passphrase;
+        }
+        try {
+          const sensitive = { ai: aiSettings, telegram: tgSettings };
+          const encrypted = await W.crypto.secure.encryptSettings(
+            sensitive,
+            passphrase,
+          );
+          W.store.set("encrypted_settings", encrypted);
+          // Store non-sensitive separately
+          W.store.set("settings", nonSensitive);
+          W.ui.toast("Settings saved (sensitive data encrypted) ✓", "ok");
+        } catch (e) {
+          W.ui.toast(`Encryption failed: ${e.message}`, "warn");
+        }
+      } else {
+        // No sensitive data; remove encrypted blob
+        W.store.delete("encrypted_settings");
+        W.store.set("settings", nonSensitive);
+        W.ui.toast("Settings saved ✓", "ok");
+      }
+      // Refresh UI to reflect changes
+      renderSettings(view);
     };
 
+    // ── Unlock handler ─────────────────────────────────────
+    view.querySelector("#set-unlock").onclick = async () => {
+      const pwd = getPassphrase(true);
+      if (pwd) {
+        _passphrase = pwd;
+        renderSettings(view);
+        W.ui.toast("Passphrase stored for this session.", "ok");
+      }
+    };
+
+    // ── Lock handler ─────────────────────────────────────
+    view.querySelector("#set-lock").onclick = () => {
+      clearPassphrase();
+      renderSettings(view);
+      W.ui.toast("Keys locked.", "info");
+    };
+
+    // ── Telegram test ─────────────────────────────────────
     view.querySelector("#set-tgtest").onclick = async () => {
       const token = view.querySelector("#set-tgtoken").value.trim();
       const chat = view.querySelector("#set-tgchat").value.trim();
@@ -466,6 +573,7 @@ W.misc = (() => {
       );
     };
 
+    // ── Export Tax ────────────────────────────────────────
     view.querySelector("#set-tax").onclick = () => {
       const txs = W.portfolio?.txs() || [];
       if (!txs.length) return W.ui.toast("No transactions to export.", "warn");
@@ -483,6 +591,7 @@ W.misc = (() => {
       W.ui.toast("Tax report downloaded 🧾", "ok");
     };
 
+    // ── Export Backup ──────────────────────────────────────
     view.querySelector("#set-export").onclick = () => {
       const data = {};
       [
@@ -504,6 +613,7 @@ W.misc = (() => {
       a.click();
     };
 
+    // ── Wipe Data ──────────────────────────────────────────
     view.querySelector("#set-wipe").onclick = () => {
       W.ui.confirm(
         "This deletes ALL Weaver data from this browser. Continue?",
@@ -525,4 +635,4 @@ W.misc = (() => {
   };
 })();
 
-console.log("[Misc] Module loaded.");
+console.log("[Misc] Module loaded (with encrypted settings).");

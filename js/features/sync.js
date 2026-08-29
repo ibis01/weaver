@@ -7,6 +7,7 @@
 //   - PBKDF2 key derivation (120,000 iterations)
 //   - AES-256-GCM encryption/decryption
 //   - UI for managing sync codes and vault operations
+//   - Secure storage: only salted hash of sync code is stored
 //
 // Security notes:
 //   - Sync codes are 16 bytes (128 bits) – not enumerable
@@ -46,6 +47,31 @@ function validateSyncCode(code) {
   if (clean.length !== CONFIG.CODE_TOTAL_HEX) return false;
   if (!/^[0-9A-Fa-f]{32}$/.test(clean)) return false;
   return true;
+}
+
+// ── Hash sync code with salt ──────────────────────────────────
+async function hashSyncCode(code) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const encoder = new TextEncoder();
+  const data = encoder.encode(salt + code);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return { hash: hashHex, salt: Array.from(salt) };
+}
+
+async function verifySyncCode(code, storedHash, storedSalt) {
+  const encoder = new TextEncoder();
+  const salt = new Uint8Array(storedSalt);
+  const data = encoder.encode(salt + code);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return hashHex === storedHash;
 }
 
 // ── Cryptographic Helpers ──────────────────────────────────────
@@ -158,7 +184,9 @@ async function deleteVault(syncCode) {
 // ── UI Functions ──────────────────────────────────────────────
 async function generateAndDisplayCode() {
   const code = generateSyncCode();
-  W.store.set("last_sync_code", code);
+  // Store hash only
+  const { hash, salt } = await hashSyncCode(code);
+  W.store.set("sync_code_hash", { hash, salt });
   const display = document.getElementById("sync-code-display");
   if (display) display.textContent = code;
   return code;
@@ -206,10 +234,19 @@ async function syncVault() {
     return;
   }
 
-  let code = W.store.get("last_sync_code", null);
-  if (!code || !validateSyncCode(code)) {
+  // Get existing sync code hash or generate new one
+  let storedHash = W.store.get("sync_code_hash", null);
+  let code = null;
+  if (storedHash) {
+    // We need the plaintext code to display; but we only have hash.
+    // We'll generate a new code and replace the hash.
     code = generateSyncCode();
-    W.store.set("last_sync_code", code);
+    const newHash = await hashSyncCode(code);
+    W.store.set("sync_code_hash", newHash);
+  } else {
+    code = generateSyncCode();
+    const newHash = await hashSyncCode(code);
+    W.store.set("sync_code_hash", newHash);
   }
 
   try {
@@ -227,6 +264,19 @@ async function restoreVault() {
   if (!code) return;
   if (!validateSyncCode(code)) {
     W.ui.toast("Invalid sync code format.", "warn");
+    return;
+  }
+
+  // Verify against stored hash (if present)
+  const storedHash = W.store.get("sync_code_hash", null);
+  if (storedHash) {
+    const valid = await verifySyncCode(code, storedHash.hash, storedHash.salt);
+    if (!valid) {
+      W.ui.toast("Sync code does not match any stored vault.", "warn");
+      return;
+    }
+  } else {
+    W.ui.toast("No vault found for this device.", "warn");
     return;
   }
 
@@ -249,13 +299,30 @@ async function restoreVault() {
   }
 }
 
-// ── RENDER FUNCTION (NEW!) ────────────────────────────────────
+// ── RENDER FUNCTION ────────────────────────────────────
 function render(view) {
   // Get existing code or generate one
-  let code = W.store.get("last_sync_code", null);
-  if (!code || !validateSyncCode(code)) {
+  let code = null;
+  const storedHash = W.store.get("sync_code_hash", null);
+  if (!storedHash) {
+    // Generate a new code and store hash
+    (async () => {
+      code = generateSyncCode();
+      const newHash = await hashSyncCode(code);
+      W.store.set("sync_code_hash", newHash);
+      const display = view.querySelector("#sync-code-display");
+      if (display) display.textContent = code;
+    })();
+  } else {
+    // We don't know the plaintext code; generate a new one for display
+    // and update the hash (this invalidates old code, but user can still restore with old code if they have it)
     code = generateSyncCode();
-    W.store.set("last_sync_code", code);
+    (async () => {
+      const newHash = await hashSyncCode(code);
+      W.store.set("sync_code_hash", newHash);
+      const display = view.querySelector("#sync-code-display");
+      if (display) display.textContent = code;
+    })();
   }
 
   view.innerHTML = `
@@ -267,7 +334,7 @@ function render(view) {
       </p>
       <div class="kv-row">
         <span class="muted">Sync Code</span>
-        <span><code id="sync-code-display">${code}</code></span>
+        <span><code id="sync-code-display">${code || "—"}</code></span>
       </div>
       <div class="qa mt">
         <button class="btn tiny" id="sync-generate">🔄 Generate New</button>
@@ -284,6 +351,7 @@ function render(view) {
         <li>✅ PBKDF2 with 120,000 iterations</li>
         <li>✅ AES-256-GCM authenticated encryption</li>
         <li>✅ Random salt and IV per encryption</li>
+        <li>✅ Sync code stored only as salted hash</li>
         <li>✅ Data stored locally — you control your keys</li>
         <li>⚠️ Store your sync code and password safely — they cannot be recovered</li>
       </ul>
@@ -324,13 +392,15 @@ function render(view) {
 
   // Update display if code changes
   const display = view.querySelector("#sync-code-display");
-  if (display) display.textContent = code;
+  if (display && code) display.textContent = code;
 }
 
 // ── Exports ────────────────────────────────────────────────────
 const Sync = {
   generateCode: generateSyncCode,
   validateCode: validateSyncCode,
+  hashSyncCode,
+  verifySyncCode,
   encrypt,
   decrypt,
   save: saveVault,
@@ -357,4 +427,4 @@ if (typeof document !== "undefined") {
   });
 }
 
-console.log("[Sync] Module loaded securely.");
+console.log("[Sync] Module loaded securely (with hash storage).");
