@@ -1,15 +1,36 @@
 // ===============================================================
-//         Live Event Collector & Normalizer (Task 20 Update)
+//         Live Event Collector – Includes Thesis Health
 // ===============================================================
 
 window.W = window.W || {};
 W.events = (() => {
   const CACHE_KEY = "w_events_cache";
-  const TTL = 5 * 60 * 1000; // 5 minutes cache
+  const TTL = 5 * 60 * 1000;
   const DAY = 864e5;
+
+  const { sourceReliability, freshnessWindows } = W.intelligence || {};
 
   function safeNum(val, fallback = 0.5) {
     return typeof val === "number" && !isNaN(val) ? val : fallback;
+  }
+
+  function computeConfidence(signal) {
+    const source = signal.source || "unknown";
+    const reliability = sourceReliability?.[source] || 0.5;
+    const age = Date.now() - signal.timestamp;
+    const window = freshnessWindows?.[signal.type] || 3600;
+    const freshness = Math.max(0, 1 - age / (window * 1000));
+    const corroboration = 1;
+    const completeness = 0.8;
+    const interpretation = 0.7;
+    let confidence =
+      reliability *
+      freshness *
+      (1 + (corroboration - 1) * 0.1) *
+      completeness *
+      interpretation;
+    confidence = Math.min(1, Math.max(0, confidence));
+    return confidence;
   }
 
   function normalize(raw, type) {
@@ -22,22 +43,29 @@ W.events = (() => {
     );
     if (!title) return null;
 
-    return {
-      type,
-      symbol,
-      title,
-      description: String(raw.description || raw.summary || ""),
-      impactValue: safeNum(raw.impactValue, 0.5),
-      confidence: safeNum(raw.confidence, 0.7),
-      urgency: safeNum(raw.urgency, 0.5),
-      timestamp: raw.timestamp
-        ? new Date(raw.timestamp).toISOString()
-        : new Date().toISOString(),
-      source: raw.source || "weaver",
+    const assetId = {
+      chainId: raw.chainId || "unknown",
+      contractAddress: raw.contractAddress || null,
+      symbol: symbol,
+      coingeckoId: raw.coingeckoId || null,
     };
-  }
 
-  // ── Collectors ──────────────────────────────────────────
+    const timestamp = raw.timestamp
+      ? new Date(raw.timestamp).getTime()
+      : Date.now();
+    const impactValue = safeNum(raw.impactValue, 0.5);
+
+    const signal = {
+      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+      type,
+      source: raw.source || "weaver",
+      assetId,
+      timestamp,
+      rawData: raw,
+    };
+    signal._confidence = computeConfidence(signal);
+    return signal;
+  }
 
   function collectPriceEvents(markets) {
     const events = [];
@@ -53,11 +81,10 @@ W.events = (() => {
               name: coin.name,
               title: `${coin.name} moved ${coin.price_change_percentage_24h.toFixed(1)}% in 24h`,
               impactValue: Math.min(1, change / 15),
-              confidence: 0.95,
-              urgency: change > 7 ? 0.9 : 0.6,
               source: "coingecko",
+              coingeckoId: coin.id,
             },
-            "price_change",
+            "PRICE_MOVE",
           ),
         );
       }
@@ -83,11 +110,9 @@ W.events = (() => {
               title: `Market Regime Shift: ${regimeData.regime}`,
               description: `Confidence: ${(regimeData.confidence * 100).toFixed(0)}%. Signals: ${regimeData.signals.map((s) => s.value).join(", ")}`,
               impactValue: regimeData.confidence,
-              confidence: regimeData.confidence,
-              urgency: regimeData.regime === "RISK-OFF" ? 0.9 : 0.7,
-              source: "weaver_regime",
+              source: "regime_engine",
             },
-            "regime_shift",
+            "REGIME_SHIFT",
           ),
         );
       }
@@ -110,8 +135,6 @@ W.events = (() => {
       });
       if (!upcoming.length) return events;
 
-      // Note: For unlocks, we ideally need market data to calculate pressure.
-      // In this optimized version, we pass a simplified unlock event.
       upcoming.forEach((u) => {
         const daysLeft = (u.date - now) / DAY;
         events.push(
@@ -122,11 +145,10 @@ W.events = (() => {
               title: `${u.name} Unlock: ${u.amount.toLocaleString()} tokens`,
               description: `${u.type} unlock in ${daysLeft.toFixed(1)} days.`,
               impactValue: 0.6,
-              confidence: 0.95,
-              urgency: daysLeft < 1 ? 0.95 : daysLeft < 7 ? 0.75 : 0.5,
               source: "token_unlocks",
+              coingeckoId: u.coinId,
             },
-            "unlock",
+            "UNLOCK",
           ),
         );
       });
@@ -136,7 +158,6 @@ W.events = (() => {
     return events;
   }
 
-  // ── NEW: Opportunity Collector (Task 20) ────────────────
   function collectOpportunityEvents(markets, regimeData) {
     const events = [];
     try {
@@ -158,12 +179,10 @@ W.events = (() => {
               symbol: opp.symbol,
               title: opp.title,
               description: opp.description,
-              impactValue: opp.impactValue,
-              confidence: opp.confidence,
-              urgency: opp.urgency,
-              source: opp.source,
+              impactValue: opp.impactValue || 0.5,
+              source: opp.source || "opportunity_scanner",
             },
-            "opportunity",
+            "OPPORTUNITY",
           ),
         );
       });
@@ -173,7 +192,56 @@ W.events = (() => {
     return events;
   }
 
-  // ── Core Aggregation ────────────────────────────────────
+  // ── NEW: Collect Thesis Health signals ──────────────────
+  function collectThesisHealthEvents() {
+    const events = [];
+    try {
+      if (!W.thesisHealth || !W.theses) return events;
+      const activeTheses = W.theses.all().filter((t) => t.status === "active");
+      if (!activeTheses.length) return events;
+
+      let priceMap = {};
+      const assetIds = activeTheses
+        .map((t) => t.assetId || t.symbol)
+        .filter(Boolean);
+      if (assetIds.length) {
+        W.api
+          .markets(assetIds.join(","))
+          .then((markets) => {
+            markets.forEach((m) => {
+              priceMap[m.id] = m.current_price;
+            });
+          })
+          .catch(() => {});
+      }
+
+      activeTheses.forEach((thesis) => {
+        const price =
+          priceMap[thesis.coingeckoId] ||
+          priceMap[thesis.symbol?.toLowerCase()] ||
+          null;
+        const health = W.thesisHealth.evaluate(thesis, price, null);
+        if (health && health.status !== "Healthy") {
+          events.push(
+            normalize(
+              {
+                symbol: thesis.symbol,
+                title: `Thesis Deteriorating: ${thesis.symbol}`,
+                description: `Health score: ${health.healthScore}/100. ${health.reasons.join(" ")}`,
+                impactValue: 0.7,
+                source: "thesis_health",
+                coingeckoId: thesis.coingeckoId,
+              },
+              "THESIS_DETERIORATION",
+            ),
+          );
+        }
+      });
+    } catch (e) {
+      console.warn("[Events] Thesis health collection failed:", e.message);
+    }
+    return events;
+  }
 
   async function collectEvents() {
     const cached = W.store?.get(CACHE_KEY);
@@ -181,7 +249,6 @@ W.events = (() => {
       return cached.events;
     }
 
-    // 1. Fetch shared data once (Rule 31)
     let markets = [];
     let fg = null;
     let g = null;
@@ -196,7 +263,6 @@ W.events = (() => {
       g = await W.api?.global?.();
     } catch (e) {}
 
-    // 2. Calculate regime once to pass to collectors
     let regimeData = null;
     if (W.regime && fg && g) {
       regimeData = W.regime.detect({
@@ -206,22 +272,39 @@ W.events = (() => {
       });
     }
 
-    // 3. Aggregate all sources
-    const prices = collectPriceEvents(markets);
-    const regime = collectRegimeEvents(fg, g);
-    const unlocks = collectUnlockEvents();
-    const opportunities = collectOpportunityEvents(markets, regimeData);
+    let allSignals = [
+      ...collectPriceEvents(markets),
+      ...collectRegimeEvents(fg, g),
+      ...collectUnlockEvents(),
+      ...collectOpportunityEvents(markets, regimeData),
+      ...collectThesisHealthEvents(),
+    ].filter(Boolean);
 
-    const allEvents = [...prices, ...regime, ...unlocks, ...opportunities];
+    const seen = new Map();
+    allSignals = allSignals.filter((s) => {
+      const key = `${s.type}_${s.assetId.symbol}`;
+      if (seen.has(key)) {
+        const existing = seen.get(key);
+        if (s._confidence > existing._confidence) {
+          seen.set(key, s);
+          return false;
+        }
+        return false;
+      }
+      seen.set(key, s);
+      return true;
+    });
+
+    allSignals.sort((a, b) => b._confidence - a._confidence);
 
     if (W.store) {
-      W.store.set(CACHE_KEY, { timestamp: Date.now(), events: allEvents });
+      W.store.set(CACHE_KEY, { timestamp: Date.now(), events: allSignals });
     }
 
-    return allEvents;
+    return allSignals;
   }
 
-  return { normalize, collectEvents };
+  return { normalize, collectEvents, computeConfidence };
 })();
 
-console.log("[Events] Live event collector loaded (with Opportunities).");
+console.log("[Events] Module loaded (with confidence model).");

@@ -5,16 +5,43 @@
 const fs = require("fs");
 const path = require("path");
 
-// ── Define the correct order (same as in index.html) ──────────
 const files = [
+  // ── Core ──────────────────────────────────────────────────────
   "js/storage/storage.js",
-  "js/api/prices.js",
+  "js/lib/crypto/secure.js",
   "js/utils/format.js",
+  "js/utils/finance.js",
   "js/utils/debounce.js",
+
+  // ── UI Core ──────────────────────────────────────────────────
   "js/ui/theme.js",
   "js/ui/ui.js",
   "js/ui/dashboard.js",
+
+  // ── API Layer ─────────────────────────────────────────────────
+  "js/api/prices.js",
   "js/api/snapshot.js",
+
+  // ── AI ────────────────────────────────────────────────────────
+  "js/ai/providers.js",
+
+  // ── Intelligence Layer ──────────────────────────────────────
+  "js/intelligence/evidence.js",
+  "js/intelligence/regime.js",
+  "js/intelligence/ranker.js",
+  "js/intelligence/delta.js",
+  "js/intelligence/behavior.js",
+  "js/intelligence/context.js",
+  "js/intelligence/thesis-health.js",
+  "js/intelligence/opportunities.js",
+  "js/intelligence/decision-replay.js",
+
+  // ── Intelligence Contracts & Engine ─────────────────────────
+  "js/intelligence/types.js",
+  "js/intelligence/decision-engine.js",
+  "js/intelligence/events.js",
+
+  // ── Features ──────────────────────────────────────────────────
   "js/features/portfolio.js",
   "js/features/watchlist.js",
   "js/features/explorer.js",
@@ -36,27 +63,26 @@ const files = [
   "js/features/sync.js",
   "js/features/telegram.js",
   "js/features/walletsync.js",
+  "js/features/theses.js",
+  "js/features/journal.js",
+
+  // ── UI Enhancements ──────────────────────────────────────────
   "js/ui/particles.js",
   "js/ui/tilt.js",
+
+  // ── Core App (MUST LOAD LAST) ──────────────────────────────
   "js/app.js",
+  "js/init.js",
 ];
 
-// ── Ensure dist folder exists ──────────────────────────────────
 const distDir = path.join(__dirname, "dist");
 if (!fs.existsSync(distDir)) {
   fs.mkdirSync(distDir);
 }
 
-// ── Build bundle with safety prelude ──────────────────────────
 let output = "// ====== Weaver Bundle ======\n";
 output += "// Ensure global W object exists\n";
 output += 'if (typeof window.W === "undefined") window.W = {};\n';
-output += "window.W.features = window.W.features || {};\n";
-output += "window.W.api = window.W.api || {};\n";
-output += "window.W.fmt = window.W.fmt || {};\n";
-output += "window.W.ui = window.W.ui || {};\n";
-output += "window.W.store = window.W.store || {};\n";
-output += "window.W.dashboard = window.W.dashboard || {};\n";
 output += "// ==============================\n\n";
 
 let fileCount = 0;
@@ -64,17 +90,18 @@ for (const file of files) {
   const filePath = path.join(__dirname, file);
   if (fs.existsSync(filePath)) {
     let content = fs.readFileSync(filePath, "utf8");
-    // Remove any leading shebang or BOM if present
-    content = content.replace(/^#!.*/, "").replace(/^\uFEFF/, "");
+    // Remove BOM and shebang if present
+    content = content.replace(/^\uFEFF/, "").replace(/^#!.*/, "");
+    // Trim trailing whitespace to avoid stray characters
+    content = content.trimEnd();
     output += `// ---- ${file} ----\n`;
-    output += content + "\n";
+    output += content + "\n;\n"; // Semicolon after each file prevents concatenation errors
     fileCount++;
   } else {
     console.warn(`⚠️ Warning: ${file} not found, skipping.`);
   }
 }
 
-// ── Write bundle ────────────────────────────────────────────────
 const bundlePath = path.join(distDir, "bundle.js");
 fs.writeFileSync(bundlePath, output);
 console.log(

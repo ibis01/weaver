@@ -1,12 +1,6 @@
 // ====== Weaver Bundle ======
 // Ensure global W object exists
 if (typeof window.W === "undefined") window.W = {};
-window.W.features = window.W.features || {};
-window.W.api = window.W.api || {};
-window.W.fmt = window.W.fmt || {};
-window.W.ui = window.W.ui || {};
-window.W.store = window.W.store || {};
-window.W.dashboard = window.W.dashboard || {};
 // ==============================
 
 // ---- js/storage/storage.js ----
@@ -14,49 +8,29 @@ window.W.dashboard = window.W.dashboard || {};
 //  Weaver Storage Layer
 // ===============================================================
 
-// Prevent if redeclaration errors
-
 // CRITICAL: Initialize W namespace FIRST
 window.W = window.W || {};
 
 const StorageModule = (function () {
   const Storage = {
-    /**
-     * Generate a prefixed key
-     * @param {string} key – The raw key
-     * @returns {string} – Prefixed key
-     */
     _key(key) {
       return `weaver:${key}`;
     },
 
-    /**
-     * Store a value in localStorage
-     * @param {string} key – The key
-     * @param {*} value – Any JSON-serializable value
-     */
     set(key, value) {
       try {
         localStorage.setItem(this._key(key), JSON.stringify(value));
       } catch (e) {
         console.warn("[Storage] set error:", e.message);
-        // Fallback: store in memory if localStorage fails
         if (!this._memory) this._memory = {};
         this._memory[key] = value;
       }
     },
 
-    /**
-     * Retrieve a value from localStorage
-     * @param {string} key – The key
-     * @param {*} fallback – Value to return if key not found
-     * @returns {*} – Parsed JSON or fallback
-     */
     get(key, fallback = null) {
       try {
         const raw = localStorage.getItem(this._key(key));
         if (raw === null) {
-          // Check memory fallback
           if (this._memory && key in this._memory) {
             return this._memory[key];
           }
@@ -69,10 +43,6 @@ const StorageModule = (function () {
       }
     },
 
-    /**
-     * Delete a key from localStorage
-     * @param {string} key – The key
-     */
     delete(key) {
       try {
         localStorage.removeItem(this._key(key));
@@ -83,43 +53,27 @@ const StorageModule = (function () {
     },
 
     // ── Secure Storage Methods ──────────────────────────────
-
-    /**
-     * Store sensitive settings with encryption
-     * @param {Object} settings - The full settings object
-     * @param {string} password - User's security password
-     */
     async setSecureSettings(settings, password) {
       try {
         if (!W.crypto || !W.crypto.secure) {
           throw new Error("SecureCrypto module not loaded");
         }
-
-        // Encrypt sensitive fields
         const encrypted = await W.crypto.secure.encryptSettings(
           settings,
           password,
         );
-
-        // Store encrypted data
         const secureData = {
           encrypted: encrypted,
           timestamp: Date.now(),
         };
-
         localStorage.setItem(
           this._key("secure_settings"),
           JSON.stringify(secureData),
         );
-
-        // Remove sensitive fields from regular settings
         const safeSettings = { ...settings };
         delete safeSettings.ai;
         delete safeSettings.telegram;
-
-        // Store non-sensitive settings normally
         this.set("settings", safeSettings);
-
         console.log("[Storage] Secure settings saved");
       } catch (e) {
         console.error("[Storage] setSecureSettings error:", e.message);
@@ -127,24 +81,16 @@ const StorageModule = (function () {
       }
     },
 
-    /**
-     * Retrieve and decrypt sensitive settings
-     * @param {string} password - User's security password
-     * @returns {Object|null} - Decrypted sensitive settings or null
-     */
     async getSecureSettings(password) {
       try {
         const raw = localStorage.getItem(this._key("secure_settings"));
         if (!raw) return null;
-
         const secureData = JSON.parse(raw);
         if (!secureData.encrypted) return null;
-
         const sensitiveData = await W.crypto.secure.decryptSettings(
           secureData.encrypted,
           password,
         );
-
         return sensitiveData;
       } catch (e) {
         console.warn("[Storage] getSecureSettings error:", e.message);
@@ -152,41 +98,22 @@ const StorageModule = (function () {
       }
     },
 
-    /**
-     * Check if migration from plaintext to encrypted is needed
-     * @returns {boolean}
-     */
     needsMigration() {
       const settings = this.get("settings", {});
       return !!(settings.ai?.key || settings.telegram?.token);
     },
 
-    /**
-     * Migrate plaintext settings to encrypted storage
-     * @param {string} password - User's security password
-     * @returns {Promise<boolean>} - True if migration succeeded
-     */
     async migrateToSecure(password) {
       try {
         const settings = this.get("settings", {});
-
-        // Check if migration is needed
         if (!this.needsMigration()) {
           console.log("[Storage] No migration needed");
           return true;
         }
-
         console.log("[Storage] Starting migration to secure storage...");
-
-        // Encrypt and save
         await this.setSecureSettings(settings, password);
-
-        // Verify by attempting to read back
         const testRead = await this.getSecureSettings(password);
-        if (!testRead) {
-          throw new Error("Migration verification failed");
-        }
-
+        if (!testRead) throw new Error("Migration verification failed");
         console.log("[Storage] Migration completed successfully");
         return true;
       } catch (e) {
@@ -195,9 +122,6 @@ const StorageModule = (function () {
       }
     },
 
-    /**
-     * Clear all secure settings (for logout/reset)
-     */
     clearSecureSettings() {
       try {
         localStorage.removeItem(this._key("secure_settings"));
@@ -207,25 +131,12 @@ const StorageModule = (function () {
       }
     },
 
-    /**
-     * Check if secure settings exist
-     * @returns {boolean}
-     */
     hasSecureSettings() {
       const raw = localStorage.getItem(this._key("secure_settings"));
       return !!raw;
     },
 
-    // ── Optional IndexedDB methods (for large data) ──
-    // These are placeholders; you can implement them later
-    // if you need to store large amounts of data.
-
-    /**
-     * Open an IndexedDB database (placeholder)
-     * @param {string} dbName – Database name
-     * @param {number} version – Database version
-     * @returns {Promise<IDBDatabase>}
-     */
+    // ── IndexedDB placeholders ──────────────────────────────
     async openIndexedDB(dbName = "WeaverDB", version = 1) {
       return new Promise((resolve, reject) => {
         const request = indexedDB.open(dbName, version);
@@ -240,12 +151,6 @@ const StorageModule = (function () {
       });
     },
 
-    /**
-     * Save to IndexedDB (placeholder)
-     * @param {string} key – The key
-     * @param {*} value – The value
-     * @returns {Promise<void>}
-     */
     async saveToIndexedDB(key, value) {
       try {
         const db = await this.openIndexedDB();
@@ -261,11 +166,6 @@ const StorageModule = (function () {
       }
     },
 
-    /**
-     * Load from IndexedDB (placeholder)
-     * @param {string} key – The key
-     * @returns {Promise<any>}
-     */
     async loadFromIndexedDB(key) {
       try {
         const db = await this.openIndexedDB();
@@ -286,357 +186,121 @@ const StorageModule = (function () {
   return Storage;
 })();
 
-// Only assign if not already assigned
-if (!W.store) {
-  W.store = StorageModule;
-  console.log("[Storage] Module loaded.");
-} else {
-  console.log("[Storage] Module already loaded, skipping reassignment.");
-}
+// ── ALWAYS assign the proper storage module ──────────────────
+W.store = StorageModule;
+console.log("[Storage] Module loaded.");
+;
+// ---- js/lib/crypto/secure.js ----
+// ===============================================================
+//         Secure Encryption Module for Weaver Settings
+// ===============================================================
 
-// ---- js/api/prices.js ----
-// ===============================================================
-//                  Market Data API
-// ===============================================================
+const SecureCrypto = {
+  CONFIG: {
+    ITERATIONS: 120000,
+    HASH: "SHA-256",
+    KEY_LENGTH: 256,
+    AES_ALGORITHM: "AES-GCM",
+    IV_LENGTH: 12,
+    SALT_LENGTH: 16,
+  },
+
+  async deriveKey(password, salt) {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      "raw",
+      enc.encode(password),
+      "PBKDF2",
+      false,
+      ["deriveKey"],
+    );
+    return crypto.subtle.deriveKey(
+      {
+        name: "PBKDF2",
+        salt,
+        iterations: this.CONFIG.ITERATIONS,
+        hash: this.CONFIG.HASH,
+      },
+      keyMaterial,
+      { name: this.CONFIG.AES_ALGORITHM, length: this.CONFIG.KEY_LENGTH },
+      false,
+      ["encrypt", "decrypt"],
+    );
+  },
+
+  async encrypt(plaintext, password) {
+    if (!password || typeof password !== "string") {
+      throw new Error("Password is required for encryption");
+    }
+    const salt = crypto.getRandomValues(
+      new Uint8Array(this.CONFIG.SALT_LENGTH),
+    );
+    const iv = crypto.getRandomValues(new Uint8Array(this.CONFIG.IV_LENGTH));
+    const key = await this.deriveKey(password, salt);
+    const enc = new TextEncoder();
+    const ciphertext = await crypto.subtle.encrypt(
+      { name: this.CONFIG.AES_ALGORITHM, iv },
+      key,
+      enc.encode(plaintext),
+    );
+    return {
+      ciphertext: Array.from(new Uint8Array(ciphertext)),
+      iv: Array.from(iv),
+      salt: Array.from(salt),
+    };
+  },
+
+  async decrypt(encryptedObj, password) {
+    if (!password || typeof password !== "string") {
+      throw new Error("Password is required for decryption");
+    }
+    if (
+      !encryptedObj ||
+      !encryptedObj.ciphertext ||
+      !encryptedObj.iv ||
+      !encryptedObj.salt
+    ) {
+      throw new Error("Invalid encrypted object structure");
+    }
+    const salt = new Uint8Array(encryptedObj.salt);
+    const iv = new Uint8Array(encryptedObj.iv);
+    const ciphertext = new Uint8Array(encryptedObj.ciphertext);
+    const key = await this.deriveKey(password, salt);
+    try {
+      const plaintext = await crypto.subtle.decrypt(
+        { name: this.CONFIG.AES_ALGORITHM, iv },
+        key,
+        ciphertext,
+      );
+      return new TextDecoder().decode(plaintext);
+    } catch (e) {
+      throw new Error(
+        "Decryption failed: incorrect password or corrupted data",
+      );
+    }
+  },
+
+  async encryptSettings(settings, password) {
+    const sensitiveData = {
+      ai: settings.ai || {},
+      telegram: settings.telegram || {},
+    };
+    const plaintext = JSON.stringify(sensitiveData);
+    return await this.encrypt(plaintext, password);
+  },
+
+  async decryptSettings(encryptedObj, password) {
+    const plaintext = await this.decrypt(encryptedObj, password);
+    return JSON.parse(plaintext);
+  },
+};
 
 window.W = window.W || {};
+W.crypto = W.crypto || {};
+W.crypto.secure = SecureCrypto;
 
-W.api = (() => {
-  // ── Constants ─────────────────────────────────────────
-  const CG_API = "https://api.coingecko.com/api/v3";
-  const BINANCE_API = "https://api.binance.com/api/v3";
-  const CACHE_TTL = 60000; // 1 minute
-  const LONG_CACHE_TTL = 300000; // 5 minutes
-
-  // ── Proxy chain for CORS bypass ─────────────────────────
-  const PROXIES = [
-    // Use your local proxy first (must be running on port 3001)
-    (u) => "http://localhost:3001/proxy?url=" + encodeURIComponent(u),
-    // Direct (will fail due to CORS, but kept as fallback)
-    (u) => u,
-    // Public proxies
-    (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-    (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
-  ];
-
-  // ── State ──────────────────────────────────────────────
-  let source = "coingecko";
-  let circuitBreaker = { failures: 0, until: 0 };
-
-  // ── Helpers ────────────────────────────────────────────
-  function getCurrency() {
-    return W.currency ? W.currency() : "usd";
-  }
-
-  function getCacheKey(url) {
-    return "api_cache:" + url;
-  }
-
-  function getCached(url, ttl = CACHE_TTL) {
-    try {
-      const raw = sessionStorage.getItem(getCacheKey(url));
-      if (!raw) return null;
-      const data = JSON.parse(raw);
-      if (Date.now() - data.timestamp > ttl) {
-        sessionStorage.removeItem(getCacheKey(url));
-        return null;
-      }
-      return data.value;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function setCached(url, value) {
-    try {
-      sessionStorage.setItem(
-        getCacheKey(url),
-        JSON.stringify({
-          timestamp: Date.now(),
-          value: value,
-        }),
-      );
-    } catch (e) {
-      // sessionStorage full or unavailable
-    }
-  }
-
-  function isCircuitOpen() {
-    return Date.now() < circuitBreaker.until;
-  }
-
-  function recordFailure() {
-    circuitBreaker.failures++;
-    if (circuitBreaker.failures >= 5) {
-      circuitBreaker.until = Date.now() + 90000; // 90 seconds
-      circuitBreaker.failures = 0;
-      console.warn("[Prices] Circuit breaker open for 90s");
-    }
-  }
-
-  function resetCircuit() {
-    circuitBreaker.failures = 0;
-    circuitBreaker.until = 0;
-  }
-
-  // ── Fetch with proxy fallback ─────────────────────────
-  async function fetchWithProxy(url, timeout = 10000, ttl = CACHE_TTL) {
-    // Check cache first
-    const cached = getCached(url, ttl);
-    if (cached !== null) {
-      source = "cache";
-      return cached;
-    }
-
-    // Check circuit breaker
-    if (isCircuitOpen()) {
-      throw new Error("Circuit breaker open (network issues)");
-    }
-
-    let lastError = null;
-    for (const proxy of PROXIES) {
-      const proxyUrl = proxy(url);
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeout);
-
-      try {
-        const response = await fetch(proxyUrl, {
-          signal: controller.signal,
-          headers: {
-            "User-Agent": "Weaver/1.0 (Crypto Portfolio Tracker)",
-            Accept: "application/json",
-          },
-        });
-        clearTimeout(timer);
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        setCached(url, data);
-        resetCircuit();
-        source =
-          proxy === PROXIES[0]
-            ? "proxy"
-            : proxy === PROXIES[1]
-              ? "direct"
-              : "public-proxy";
-        return data;
-      } catch (e) {
-        lastError = e;
-        clearTimeout(timer);
-        console.warn(
-          `[Prices] Proxy ${proxyUrl.substring(0, 60)}... failed:`,
-          e.message,
-        );
-      }
-    }
-
-    recordFailure();
-    throw lastError || new Error("All proxies failed");
-  }
-
-  // ── Symbol mapping cache ──────────────────────────────
-  const symMap = () => W.store.get("sym-map", {});
-
-  function learnSymbols(coins) {
-    const map = symMap();
-    (coins || []).forEach((c) => {
-      if (c.id && c.symbol) map[c.id] = c.symbol;
-    });
-    try {
-      W.store.set("sym-map", map);
-    } catch (e) {}
-  }
-
-  function getSymbol(id) {
-    return (symMap()[id] || id).toUpperCase();
-  }
-
-  // ── CoinGecko API ──────────────────────────────────────
-  const coingecko = {
-    markets: (ids) =>
-      fetchWithProxy(
-        `${CG_API}/coins/markets?vs_currency=${getCurrency()}&ids=${ids.join(",")}&price_change_percentage=24h,7d,30d&sparkline=true`,
-        CACHE_TTL,
-      ).then((d) => {
-        learnSymbols(d);
-        source = "coingecko";
-        return d;
-      }),
-
-    chart: (id, days) =>
-      fetchWithProxy(
-        `${CG_API}/coins/${id}/market_chart?vs_currency=${getCurrency()}&days=${days}`,
-        LONG_CACHE_TTL,
-      ).then((d) => d.prices || []),
-
-    top: (limit) =>
-      fetchWithProxy(
-        `${CG_API}/coins/markets?vs_currency=${getCurrency()}&order=market_cap_desc&per_page=${limit}&page=1&price_change_percentage=24h,7d,30d&sparkline=true`,
-        CACHE_TTL,
-      ).then((d) => {
-        learnSymbols(d);
-        source = "coingecko";
-        return d;
-      }),
-
-    global: () =>
-      fetchWithProxy(`${CG_API}/global`, LONG_CACHE_TTL).then((d) => d),
-
-    search: (query) =>
-      fetchWithProxy(
-        `${CG_API}/search?query=${encodeURIComponent(query)}`,
-        CACHE_TTL,
-      ).then((d) => d),
-
-    coin: (id) =>
-      fetchWithProxy(
-        `${CG_API}/coins/${id}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false`,
-        LONG_CACHE_TTL,
-      ).then((d) => d),
-
-    trending: () =>
-      fetchWithProxy(`${CG_API}/search/trending`, CACHE_TTL).then((d) => d),
-  };
-
-  // ── Binance API (fallback) ────────────────────────────
-  const binance = {
-    markets: (ids) => {
-      const symbols = ids.map((id) => getSymbol(id) + "USDT");
-      return fetchWithProxy(
-        `${BINANCE_API}/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(symbols))}`,
-        CACHE_TTL,
-      ).then((d) => {
-        const arr = Array.isArray(d) ? d : [];
-        source = "binance";
-        return arr.map((item) => ({
-          id: item.symbol.replace("USDT", "").toLowerCase(),
-          symbol: item.symbol.replace("USDT", "").toLowerCase(),
-          name: item.symbol.replace("USDT", ""),
-          image: "",
-          current_price: parseFloat(item.lastPrice),
-          market_cap: null,
-          total_volume: parseFloat(item.quoteVolume),
-          price_change_percentage_24h_in_currency: parseFloat(
-            item.priceChangePercent,
-          ),
-          price_change_percentage_7d_in_currency: null,
-          price_change_percentage_30d_in_currency: null,
-          sparkline_in_7d: null,
-          market_cap_rank: null,
-        }));
-      });
-    },
-
-    chart: (id, days) => {
-      const symbol = getSymbol(id) + "USDT";
-      return fetchWithProxy(
-        `${BINANCE_API}/klines?symbol=${symbol}&interval=1d&limit=${days}`,
-        LONG_CACHE_TTL,
-      ).then((d) => {
-        const arr = Array.isArray(d) ? d : [];
-        return arr.map((k) => [k[0], parseFloat(k[4])]);
-      });
-    },
-  };
-
-  // ── API with smart failover ────────────────────────────
-  async function withFailover(method, ...args) {
-    const order = method === "top" ? ["coingecko"] : ["coingecko", "binance"];
-
-    for (const providerName of order) {
-      const provider = providerName === "coingecko" ? coingecko : binance;
-      if (!provider[method]) continue;
-
-      try {
-        const result = await provider[method](...args);
-        source = providerName;
-        return result;
-      } catch (e) {
-        console.warn(`[Prices] ${providerName}.${method} failed:`, e.message);
-        // Continue to next provider
-      }
-    }
-
-    throw new Error(`All providers failed for ${method}`);
-  }
-
-  // ── Top cache (fallback for top data) ─────────────────
-  let topCache = null;
-  let topCacheTime = 0;
-
-  async function getTopCached(limit) {
-    const now = Date.now();
-    if (topCache && now - topCacheTime < 3600000) {
-      source = "topcache";
-      return topCache.slice(0, limit);
-    }
-
-    try {
-      const data = await withFailover("top", 100);
-      topCache = data;
-      topCacheTime = now;
-      return data.slice(0, limit);
-    } catch (e) {
-      if (topCache) {
-        source = "topcache (stale)";
-        return topCache.slice(0, limit);
-      }
-      throw e;
-    }
-  }
-
-  // ── Public API ──────────────────────────────────────────
-  return {
-    // Core methods
-    markets: (ids) => {
-      if (!ids || !ids.length) return Promise.resolve([]);
-      const idArray = typeof ids === "string" ? ids.split(",") : ids;
-      return withFailover("markets", idArray);
-    },
-
-    chart: (id, days = 30) => withFailover("chart", id, days),
-
-    top: (limit = 100) => {
-      if (limit <= 50) {
-        // Use cached top data for small requests
-        return getTopCached(limit);
-      }
-      return withFailover("top", limit);
-    },
-
-    global: () => withFailover("global"),
-
-    search: (query) => withFailover("search", query),
-
-    coin: (id) => withFailover("coin", id),
-
-    trending: () => withFailover("trending"),
-
-    // Fear & Greed (special endpoint)
-    fearGreed: () =>
-      fetchWithProxy("https://api.alternative.me/fng/?limit=1", CACHE_TTL).then(
-        (d) => d.data?.[0] || { value: "50", value_classification: "Neutral" },
-      ),
-
-    // Symbol utilities
-    getSymbol,
-    learnSymbols,
-
-    // Source tracking
-    get source() {
-      return source;
-    },
-    set source(s) {
-      source = s;
-    },
-  };
-})();
-
-console.log("[Prices] Module loaded.");
-
+console.log("[SecureCrypto] Module loaded.");
+;
 // ---- js/utils/format.js ----
 // ===============================================================
 //         Formatting Utilities for Weaver
@@ -768,7 +432,204 @@ W.fmt = W.fmt || {};
 
   console.log("[Format] Utilities loaded.");
 })();
+;
+// ---- js/utils/finance.js ----
+// ===============================================================
+//         Deterministic Financial Math Engine for Weaver
+// ===============================================================
+//
+// Purpose: Provide 100% deterministic, edge-case-safe financial
+//          calculations. Never use LLMs for these operations.
+//
+// Rules:
+//   - Never return NaN or Infinity.
+//   - Handle missing/null/zero values gracefully.
+//   - All arithmetic is strictly deterministic.
+//
+// ===============================================================
 
+window.W = window.W || {};
+
+W.finance = (() => {
+  /**
+   * Safely parse a number. Returns 0 if NaN/null/undefined.
+   */
+  function safeNumber(val) {
+    if (val === null || val === undefined || val === "") return 0;
+    const num = parseFloat(val);
+    return isNaN(num) ? 0 : num;
+  }
+
+  /**
+   * Calculate total value (Amount * Price).
+   */
+  function calculateValue(amount, price) {
+    return safeNumber(amount) * safeNumber(price);
+  }
+
+  /**
+   * Calculate Profit/Loss (Value - Cost).
+   */
+  function calculatePL(value, cost) {
+    return safeNumber(value) - safeNumber(cost);
+  }
+
+  /**
+   * Calculate Profit/Loss Percentage.
+   * Safely handles division by zero (returns 0 instead of Infinity/NaN).
+   */
+  function calculatePLPercent(pl, cost) {
+    const safeCost = safeNumber(cost);
+    if (safeCost === 0) return 0;
+    return (safeNumber(pl) / safeCost) * 100;
+  }
+
+  /**
+   * Calculate portfolio allocation percentage.
+   * Safely handles division by zero.
+   */
+  function calculateAllocation(assetValue, totalValue) {
+    const safeTotal = safeNumber(totalValue);
+    if (safeTotal === 0) return 0;
+    return (safeNumber(assetValue) / safeTotal) * 100;
+  }
+
+  /**
+   * Calculate total portfolio metrics from an array of holdings.
+   * Each holding must have: { amount, price, cost }
+   *
+   * FIXED: Added proper validation and error handling.
+   */
+  function calculatePortfolioTotals(holdings) {
+    // Validate input
+    if (!Array.isArray(holdings)) {
+      console.warn(
+        "[Finance] calculatePortfolioTotals: holdings is not an array",
+      );
+      return { totalValue: 0, totalCost: 0, totalPL: 0, totalPLPercent: 0 };
+    }
+
+    if (holdings.length === 0) {
+      return { totalValue: 0, totalCost: 0, totalPL: 0, totalPLPercent: 0 };
+    }
+
+    let totalValue = 0;
+    let totalCost = 0;
+    let invalidCount = 0;
+
+    holdings.forEach((h, index) => {
+      // Skip invalid holdings
+      if (!h || typeof h !== "object") {
+        invalidCount++;
+        return;
+      }
+
+      const amount = safeNumber(h.amount);
+      const price = safeNumber(h.price);
+      const cost = safeNumber(h.cost);
+
+      // Validate: cost should be >= 0
+      if (cost < 0) {
+        console.warn(
+          `[Finance] Negative cost for ${h.symbol || "holding #" + index}, using 0`,
+        );
+        // Use amount * price as fallback cost
+        const fallbackCost = amount * price;
+        totalValue += amount * price;
+        totalCost += fallbackCost;
+        return;
+      }
+
+      // Validate: amount should be >= 0
+      if (amount < 0) {
+        console.warn(
+          `[Finance] Negative amount for ${h.symbol || "holding #" + index}, using 0`,
+        );
+        return;
+      }
+
+      // Validate: price should be >= 0
+      if (price < 0) {
+        console.warn(
+          `[Finance] Negative price for ${h.symbol || "holding #" + index}, using 0`,
+        );
+        return;
+      }
+
+      totalValue += amount * price;
+      totalCost += cost;
+    });
+
+    if (invalidCount > 0) {
+      console.warn(`[Finance] Skipped ${invalidCount} invalid holdings`);
+    }
+
+    const totalPL = calculatePL(totalValue, totalCost);
+    const totalPLPercent = calculatePLPercent(totalPL, totalCost);
+
+    return {
+      totalValue: Math.round(totalValue * 100) / 100, // Round to 2 decimals
+      totalCost: Math.round(totalCost * 100) / 100,
+      totalPL: Math.round(totalPL * 100) / 100,
+      totalPLPercent: Math.round(totalPLPercent * 100) / 100,
+    };
+  }
+
+  /**
+   * Calculate weighted average price for an asset.
+   * Useful for cost basis tracking with multiple buys.
+   */
+  function calculateWeightedAverage(holdings, symbol) {
+    const filtered = holdings.filter(
+      (h) => h.symbol?.toUpperCase() === symbol?.toUpperCase(),
+    );
+    if (!filtered.length) return 0;
+
+    let totalCost = 0;
+    let totalAmount = 0;
+
+    filtered.forEach((h) => {
+      const amount = safeNumber(h.amount);
+      const cost = safeNumber(h.cost);
+      totalCost += cost;
+      totalAmount += amount;
+    });
+
+    if (totalAmount === 0) return 0;
+    return totalCost / totalAmount;
+  }
+
+  /**
+   * Calculate the Sharpe-like ratio for a portfolio.
+   * Simplified: (Return - Risk-Free) / Volatility
+   */
+  function calculateRiskAdjustedReturn(returns, riskFreeRate = 0.02) {
+    if (!Array.isArray(returns) || returns.length < 2) return 0;
+
+    const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
+    const variance =
+      returns.reduce((a, b) => a + Math.pow(b - avgReturn, 2), 0) /
+      returns.length;
+    const volatility = Math.sqrt(variance);
+
+    if (volatility === 0) return 0;
+    return (avgReturn - riskFreeRate) / volatility;
+  }
+
+  return {
+    safeNumber,
+    calculateValue,
+    calculatePL,
+    calculatePLPercent,
+    calculateAllocation,
+    calculatePortfolioTotals,
+    calculateWeightedAverage,
+    calculateRiskAdjustedReturn,
+  };
+})();
+
+console.log("[Finance] Deterministic math engine loaded.");
+;
 // ---- js/utils/debounce.js ----
 //  Debounce Utility
 
@@ -908,7 +769,7 @@ W.throttleLeading = function (fn, ms = 300) {
 };
 
 console.log("[Utils] Debounce module loaded.");
-
+;
 // ---- js/ui/theme.js ----
 // ================================================================
 // js/ui/theme.js – Weaver Theme Configuration
@@ -1155,7 +1016,7 @@ if (typeof document !== "undefined") {
 }
 
 console.log("[Theme] Module loaded.");
-
+;
 // ---- js/ui/ui.js ----
 // ================================================================
 // js/ui/ui.js – Weaver UI Utilities
@@ -1404,7 +1265,7 @@ W.ui = {
 };
 
 console.log("[UI] Module loaded.");
-
+;
 // ---- js/ui/dashboard.js ----
 // ===============================================================
 //                     Weaver Dashboard UI
@@ -2288,7 +2149,351 @@ W.dashboard = (() => {
 console.log(
   "[Dashboard] Module loaded (secure & optimized, with Decision Engine).",
 );
-s
+
+;
+// ---- js/api/prices.js ----
+// ===============================================================
+//                  Market Data API
+// ===============================================================
+
+window.W = window.W || {};
+
+W.api = (() => {
+  // ── Constants ─────────────────────────────────────────
+  const CG_API = "https://api.coingecko.com/api/v3";
+  const BINANCE_API = "https://api.binance.com/api/v3";
+  const CACHE_TTL = 60000; // 1 minute
+  const LONG_CACHE_TTL = 300000; // 5 minutes
+
+  // ── Proxy chain for CORS bypass ─────────────────────────
+  const PROXIES = [
+    // Use your local proxy first (must be running on port 3001)
+    (u) => "http://localhost:3001/proxy?url=" + encodeURIComponent(u),
+    // Direct (will fail due to CORS, but kept as fallback)
+    (u) => u,
+    // Public proxies
+    (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
+    (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
+  ];
+
+  // ── State ──────────────────────────────────────────────
+  let source = "coingecko";
+  let circuitBreaker = { failures: 0, until: 0 };
+
+  // ── Helpers ────────────────────────────────────────────
+  function getCurrency() {
+    return W.currency ? W.currency() : "usd";
+  }
+
+  function getCacheKey(url) {
+    return "api_cache:" + url;
+  }
+
+  function getCached(url, ttl = CACHE_TTL) {
+    try {
+      const raw = sessionStorage.getItem(getCacheKey(url));
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (Date.now() - data.timestamp > ttl) {
+        sessionStorage.removeItem(getCacheKey(url));
+        return null;
+      }
+      return data.value;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function setCached(url, value) {
+    try {
+      sessionStorage.setItem(
+        getCacheKey(url),
+        JSON.stringify({
+          timestamp: Date.now(),
+          value: value,
+        }),
+      );
+    } catch (e) {
+      // sessionStorage full or unavailable
+    }
+  }
+
+  function isCircuitOpen() {
+    return Date.now() < circuitBreaker.until;
+  }
+
+  function recordFailure() {
+    circuitBreaker.failures++;
+    if (circuitBreaker.failures >= 5) {
+      circuitBreaker.until = Date.now() + 90000; // 90 seconds
+      circuitBreaker.failures = 0;
+      console.warn("[Prices] Circuit breaker open for 90s");
+    }
+  }
+
+  function resetCircuit() {
+    circuitBreaker.failures = 0;
+    circuitBreaker.until = 0;
+  }
+
+  // ── Fetch with proxy fallback ─────────────────────────
+  async function fetchWithProxy(url, timeout = 10000, ttl = CACHE_TTL) {
+    // Check cache first
+    const cached = getCached(url, ttl);
+    if (cached !== null) {
+      source = "cache";
+      return cached;
+    }
+
+    // Check circuit breaker
+    if (isCircuitOpen()) {
+      throw new Error("Circuit breaker open (network issues)");
+    }
+
+    let lastError = null;
+    for (const proxy of PROXIES) {
+      const proxyUrl = proxy(url);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeout);
+
+      try {
+        const response = await fetch(proxyUrl, {
+          signal: controller.signal,
+          headers: {
+            "User-Agent": "Weaver/1.0 (Crypto Portfolio Tracker)",
+            Accept: "application/json",
+          },
+        });
+        clearTimeout(timer);
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        setCached(url, data);
+        resetCircuit();
+        source =
+          proxy === PROXIES[0]
+            ? "proxy"
+            : proxy === PROXIES[1]
+              ? "direct"
+              : "public-proxy";
+        return data;
+      } catch (e) {
+        lastError = e;
+        clearTimeout(timer);
+        console.warn(
+          `[Prices] Proxy ${proxyUrl.substring(0, 60)}... failed:`,
+          e.message,
+        );
+      }
+    }
+
+    recordFailure();
+    throw lastError || new Error("All proxies failed");
+  }
+
+  // ── Symbol mapping cache ──────────────────────────────
+  const symMap = () => W.store.get("sym-map", {});
+
+  function learnSymbols(coins) {
+    const map = symMap();
+    (coins || []).forEach((c) => {
+      if (c.id && c.symbol) map[c.id] = c.symbol;
+    });
+    try {
+      W.store.set("sym-map", map);
+    } catch (e) {}
+  }
+
+  function getSymbol(id) {
+    return (symMap()[id] || id).toUpperCase();
+  }
+
+  // ── CoinGecko API ──────────────────────────────────────
+  const coingecko = {
+    markets: (ids) =>
+      fetchWithProxy(
+        `${CG_API}/coins/markets?vs_currency=${getCurrency()}&ids=${ids.join(",")}&price_change_percentage=24h,7d,30d&sparkline=true`,
+        CACHE_TTL,
+      ).then((d) => {
+        learnSymbols(d);
+        source = "coingecko";
+        return d;
+      }),
+
+    chart: (id, days) =>
+      fetchWithProxy(
+        `${CG_API}/coins/${id}/market_chart?vs_currency=${getCurrency()}&days=${days}`,
+        LONG_CACHE_TTL,
+      ).then((d) => d.prices || []),
+
+    top: (limit) =>
+      fetchWithProxy(
+        `${CG_API}/coins/markets?vs_currency=${getCurrency()}&order=market_cap_desc&per_page=${limit}&page=1&price_change_percentage=24h,7d,30d&sparkline=true`,
+        CACHE_TTL,
+      ).then((d) => {
+        learnSymbols(d);
+        source = "coingecko";
+        return d;
+      }),
+
+    global: () =>
+      fetchWithProxy(`${CG_API}/global`, LONG_CACHE_TTL).then((d) => d),
+
+    search: (query) =>
+      fetchWithProxy(
+        `${CG_API}/search?query=${encodeURIComponent(query)}`,
+        CACHE_TTL,
+      ).then((d) => d),
+
+    coin: (id) =>
+      fetchWithProxy(
+        `${CG_API}/coins/${id}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false`,
+        LONG_CACHE_TTL,
+      ).then((d) => d),
+
+    trending: () =>
+      fetchWithProxy(`${CG_API}/search/trending`, CACHE_TTL).then((d) => d),
+  };
+
+  // ── Binance API (fallback) ────────────────────────────
+  const binance = {
+    markets: (ids) => {
+      const symbols = ids.map((id) => getSymbol(id) + "USDT");
+      return fetchWithProxy(
+        `${BINANCE_API}/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(symbols))}`,
+        CACHE_TTL,
+      ).then((d) => {
+        const arr = Array.isArray(d) ? d : [];
+        source = "binance";
+        return arr.map((item) => ({
+          id: item.symbol.replace("USDT", "").toLowerCase(),
+          symbol: item.symbol.replace("USDT", "").toLowerCase(),
+          name: item.symbol.replace("USDT", ""),
+          image: "",
+          current_price: parseFloat(item.lastPrice),
+          market_cap: null,
+          total_volume: parseFloat(item.quoteVolume),
+          price_change_percentage_24h_in_currency: parseFloat(
+            item.priceChangePercent,
+          ),
+          price_change_percentage_7d_in_currency: null,
+          price_change_percentage_30d_in_currency: null,
+          sparkline_in_7d: null,
+          market_cap_rank: null,
+        }));
+      });
+    },
+
+    chart: (id, days) => {
+      const symbol = getSymbol(id) + "USDT";
+      return fetchWithProxy(
+        `${BINANCE_API}/klines?symbol=${symbol}&interval=1d&limit=${days}`,
+        LONG_CACHE_TTL,
+      ).then((d) => {
+        const arr = Array.isArray(d) ? d : [];
+        return arr.map((k) => [k[0], parseFloat(k[4])]);
+      });
+    },
+  };
+
+  // ── API with smart failover ────────────────────────────
+  async function withFailover(method, ...args) {
+    const order = method === "top" ? ["coingecko"] : ["coingecko", "binance"];
+
+    for (const providerName of order) {
+      const provider = providerName === "coingecko" ? coingecko : binance;
+      if (!provider[method]) continue;
+
+      try {
+        const result = await provider[method](...args);
+        source = providerName;
+        return result;
+      } catch (e) {
+        console.warn(`[Prices] ${providerName}.${method} failed:`, e.message);
+        // Continue to next provider
+      }
+    }
+
+    throw new Error(`All providers failed for ${method}`);
+  }
+
+  // ── Top cache (fallback for top data) ─────────────────
+  let topCache = null;
+  let topCacheTime = 0;
+
+  async function getTopCached(limit) {
+    const now = Date.now();
+    if (topCache && now - topCacheTime < 3600000) {
+      source = "topcache";
+      return topCache.slice(0, limit);
+    }
+
+    try {
+      const data = await withFailover("top", 100);
+      topCache = data;
+      topCacheTime = now;
+      return data.slice(0, limit);
+    } catch (e) {
+      if (topCache) {
+        source = "topcache (stale)";
+        return topCache.slice(0, limit);
+      }
+      throw e;
+    }
+  }
+
+  // ── Public API ──────────────────────────────────────────
+  return {
+    // Core methods
+    markets: (ids) => {
+      if (!ids || !ids.length) return Promise.resolve([]);
+      const idArray = typeof ids === "string" ? ids.split(",") : ids;
+      return withFailover("markets", idArray);
+    },
+
+    chart: (id, days = 30) => withFailover("chart", id, days),
+
+    top: (limit = 100) => {
+      if (limit <= 50) {
+        // Use cached top data for small requests
+        return getTopCached(limit);
+      }
+      return withFailover("top", limit);
+    },
+
+    global: () => withFailover("global"),
+
+    search: (query) => withFailover("search", query),
+
+    coin: (id) => withFailover("coin", id),
+
+    trending: () => withFailover("trending"),
+
+    // Fear & Greed (special endpoint)
+    fearGreed: () =>
+      fetchWithProxy("https://api.alternative.me/fng/?limit=1", CACHE_TTL).then(
+        (d) => d.data?.[0] || { value: "50", value_classification: "Neutral" },
+      ),
+
+    // Symbol utilities
+    getSymbol,
+    learnSymbols,
+
+    // Source tracking
+    get source() {
+      return source;
+    },
+    set source(s) {
+      source = s;
+    },
+  };
+})();
+
+console.log("[Prices] Module loaded.");
+;
 // ---- js/api/snapshot.js ----
 
 // js/api/snapshot.js – Fallback Snapshot Cache
@@ -2571,7 +2776,2028 @@ window.W = window.W || {};
 
   console.log("[Snapshot] Module loaded.");
 })();
+;
+// ---- js/ai/providers.js ----
+// ===============================================================
+//         AI Provider Abstraction Layer
+// ===============================================================
+//
+// Purpose: Decouple Weaver from specific LLM APIs.
+// Allows adding new providers (Qwen, DeepSeek, Local) without
+// modifying the core AI logic.
+//
+// ===============================================================
 
+window.W = window.W || {};
+W.ai = W.ai || {}; // Ensure we don't overwrite existing W.ai properties
+
+W.ai.providers = (() => {
+  const registry = {};
+
+  function register(name, provider) {
+    if (!name || !provider) throw new Error("Invalid provider registration");
+    registry[name] = provider;
+  }
+
+  async function generate({
+    providerName,
+    messages,
+    model,
+    apiKey,
+    endpointOverride,
+  }) {
+    const provider = registry[providerName];
+    if (!provider)
+      throw new Error(`AI Provider '${providerName}' is not registered.`);
+    if (!apiKey) throw new Error("API key is required.");
+
+    const endpoint = endpointOverride || provider.endpoint;
+    if (!endpoint) throw new Error("API endpoint is missing.");
+
+    const headers = provider.buildHeaders(apiKey);
+    const body = provider.buildPayload(messages, model);
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      let errorMsg = `HTTP ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMsg = errorData.error?.message || errorData.message || errorMsg;
+      } catch (e) {}
+      throw new Error(errorMsg);
+    }
+
+    const data = await response.json();
+    return provider.parseResponse(data);
+  }
+
+  return { register, generate };
+})();
+
+// ── Register Built-in Providers ─────────────────────────
+
+W.ai.providers.register("openai", {
+  name: "OpenAI",
+  endpoint: "https://api.openai.com/v1/chat/completions",
+  buildHeaders: (apiKey) => ({
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+  }),
+  buildPayload: (messages, model) => ({
+    model: model || "gpt-4o-mini",
+    messages: messages,
+    temperature: 0.7,
+    max_tokens: 1000,
+  }),
+  parseResponse: (data) => data.choices?.[0]?.message?.content || "",
+});
+
+W.ai.providers.register("anthropic", {
+  name: "Anthropic",
+  endpoint: "https://api.anthropic.com/v1/messages",
+  buildHeaders: (apiKey) => ({
+    "Content-Type": "application/json",
+    "x-api-key": apiKey,
+    "anthropic-version": "2023-06-01",
+  }),
+  buildPayload: (messages, model) => ({
+    model: model || "claude-3-sonnet",
+    messages: messages,
+    max_tokens: 1000,
+    temperature: 0.7,
+  }),
+  parseResponse: (data) => data.content?.[0]?.text || "",
+});
+
+W.ai.providers.register("custom", {
+  name: "Custom",
+  endpoint: "", // Must be provided via settings
+  buildHeaders: (apiKey) => ({
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+  }),
+  buildPayload: (messages, model) => ({
+    model: model || "",
+    messages: messages,
+    temperature: 0.7,
+    max_tokens: 1000,
+  }),
+  parseResponse: (data) =>
+    data.choices?.[0]?.message?.content || data.text || "",
+});
+
+console.log("[AI Providers] Registry initialized.");
+;
+// ---- js/intelligence/evidence.js ----
+// ===============================================================
+//         Evidence Engine for Weaver Intelligence
+// ===============================================================
+
+window.W = window.W || {};
+W.intelligence = W.intelligence || {};
+
+W.evidence = (() => {
+  const REQUIRED_FIELDS = [
+    "claim",
+    "evidence",
+    "source",
+    "timestamp",
+    "confidence",
+  ];
+
+  function create(data) {
+    if (!data || typeof data !== "object") {
+      console.warn("[Evidence] Invalid input: expected object.");
+      return null;
+    }
+
+    const record = {
+      claim: typeof data.claim === "string" ? data.claim.trim() : null,
+      evidence: typeof data.evidence === "string" ? data.evidence.trim() : null,
+      source: typeof data.source === "string" ? data.source.trim() : null,
+      timestamp: data.timestamp
+        ? new Date(data.timestamp).toISOString()
+        : new Date().toISOString(),
+      confidence: parseFloat(data.confidence),
+    };
+
+    if (
+      isNaN(record.confidence) ||
+      record.confidence < 0 ||
+      record.confidence > 1
+    ) {
+      console.warn("[Evidence] Invalid confidence score. Defaulting to 0.5.");
+      record.confidence = 0.5;
+    }
+
+    if (!record.claim || !record.evidence || !record.source) {
+      console.warn(
+        "[Evidence] Missing required fields. Record rejected.",
+        data,
+      );
+      return null;
+    }
+
+    return record;
+  }
+
+  function validate(record) {
+    if (!record || typeof record !== "object") return false;
+    return REQUIRED_FIELDS.every(
+      (field) => record[field] !== null && record[field] !== undefined,
+    );
+  }
+
+  function sortByConfidence(records) {
+    if (!Array.isArray(records)) return [];
+    return [...records].sort(
+      (a, b) => (b.confidence || 0) - (a.confidence || 0),
+    );
+  }
+
+  function filterByConfidence(records, minConfidence = 0.5) {
+    if (!Array.isArray(records)) return [];
+    return records.filter((r) => (r.confidence || 0) >= minConfidence);
+  }
+
+  return {
+    create,
+    validate,
+    sortByConfidence,
+    filterByConfidence,
+  };
+})();
+
+console.log("[Evidence Engine] Module loaded.");
+;
+// ---- js/intelligence/regime.js ----
+// ===============================================================
+//         Market Regime Detection Engine
+// ===============================================================
+//
+// Purpose: Evidence-based market regime detection (Section 27).
+// Outputs: RISK-ON, TRANSITION, RISK-OFF, UNKNOWN.
+// Always provides confidence and supporting signals.
+//
+// ===============================================================
+
+window.W = window.W || {};
+W.intelligence = W.intelligence || {};
+
+W.regime = (() => {
+  const STATES = {
+    RISK_ON: "RISK-ON",
+    TRANSITION: "TRANSITION",
+    RISK_OFF: "RISK-OFF",
+    UNKNOWN: "UNKNOWN",
+  };
+
+  /**
+   * Detect market regime based on multiple evidence signals.
+   * @param {Object} data - { fearGreed, btcDominance, capChange }
+   * @returns {Object} - { regime, confidence, signals, timestamp }
+   */
+  function detect({ fearGreed, btcDominance, capChange }) {
+    let score = 0; // Range: -3 to +3
+    const signals = [];
+
+    // 1. Sentiment (Fear & Greed Index)
+    if (fearGreed !== null && fearGreed !== undefined) {
+      if (fearGreed >= 75) {
+        score += 2;
+        signals.push({
+          type: "sentiment",
+          value: `Extreme Greed (${fearGreed})`,
+          impact: "risk-on",
+        });
+      } else if (fearGreed >= 60) {
+        score += 1;
+        signals.push({
+          type: "sentiment",
+          value: `Greed (${fearGreed})`,
+          impact: "risk-on",
+        });
+      } else if (fearGreed <= 25) {
+        score -= 2;
+        signals.push({
+          type: "sentiment",
+          value: `Extreme Fear (${fearGreed})`,
+          impact: "risk-off",
+        });
+      } else if (fearGreed <= 40) {
+        score -= 1;
+        signals.push({
+          type: "sentiment",
+          value: `Fear (${fearGreed})`,
+          impact: "risk-off",
+        });
+      } else {
+        signals.push({
+          type: "sentiment",
+          value: `Neutral (${fearGreed})`,
+          impact: "neutral",
+        });
+      }
+    }
+
+    // 2. Momentum (24h Market Cap Change)
+    if (capChange !== null && capChange !== undefined) {
+      if (capChange > 5) {
+        score += 1;
+        signals.push({
+          type: "momentum",
+          value: `Strong Up (${capChange.toFixed(2)}%)`,
+          impact: "risk-on",
+        });
+      } else if (capChange > 1) {
+        score += 0.5;
+        signals.push({
+          type: "momentum",
+          value: `Moderate Up (${capChange.toFixed(2)}%)`,
+          impact: "risk-on",
+        });
+      } else if (capChange < -5) {
+        score -= 1;
+        signals.push({
+          type: "momentum",
+          value: `Strong Down (${capChange.toFixed(2)}%)`,
+          impact: "risk-off",
+        });
+      } else if (capChange < -1) {
+        score -= 0.5;
+        signals.push({
+          type: "momentum",
+          value: `Moderate Down (${capChange.toFixed(2)}%)`,
+          impact: "risk-off",
+        });
+      } else {
+        signals.push({
+          type: "momentum",
+          value: `Flat (${capChange.toFixed(2)}%)`,
+          impact: "neutral",
+        });
+      }
+    }
+
+    // Determine Regime & Confidence
+    let regime = STATES.UNKNOWN;
+    let confidence = 0;
+
+    if (score >= 2) {
+      regime = STATES.RISK_ON;
+      confidence = Math.min(0.95, 0.5 + (score - 2) * 0.15);
+    } else if (score <= -2) {
+      regime = STATES.RISK_OFF;
+      confidence = Math.min(0.95, 0.5 + (Math.abs(score) - 2) * 0.15);
+    } else if (score > 0) {
+      regime = STATES.TRANSITION;
+      confidence = 0.45;
+    } else if (score < 0) {
+      regime = STATES.TRANSITION;
+      confidence = 0.45;
+    } else {
+      regime = STATES.UNKNOWN;
+      confidence = 0.1;
+    }
+
+    // Fallback if no data provided
+    if (signals.length === 0) {
+      regime = STATES.UNKNOWN;
+      confidence = 0;
+    }
+
+    return {
+      regime,
+      confidence: parseFloat(confidence.toFixed(2)),
+      signals,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  return { detect, STATES };
+})();
+
+console.log("[Regime] Market regime engine loaded.");
+;
+// ---- js/intelligence/ranker.js ----
+// ===============================================================
+//         "What Matters Now" Ranker Engine
+// ===============================================================
+//
+// Purpose: Rank events by importance to the user.
+// Formula: Score = Impact × Relevance × Confidence × Urgency
+// (Section 28)
+//
+// ===============================================================
+
+window.W = window.W || {};
+W.ranker = (() => {
+  // ── Safe Number Utility (Section 21: Data Correctness) ──
+  function safeNum(val, fallback = 0.5) {
+    const n = parseFloat(val);
+    if (isNaN(n)) return fallback;
+    return Math.max(0, Math.min(1, n)); // Clamp between 0.0 and 1.0
+  }
+
+  // ── Scoring Components ──────────────────────────────────
+
+  function calculateImpact(event) {
+    if (
+      event.type === "price_change" &&
+      typeof event.impactValue === "number"
+    ) {
+      // A 10% move is considered maximum impact (1.0)
+      return Math.min(1, Math.abs(event.impactValue) / 10);
+    }
+    // For news, unlocks, etc., use provided impactValue or default
+    return typeof event.impactValue === "number"
+      ? Math.min(1, Math.max(0, event.impactValue))
+      : 0.5;
+  }
+
+  function calculateRelevance(symbol, context) {
+    if (!symbol) return 0.1;
+    const sym = String(symbol).toUpperCase();
+    const portfolio = (context.portfolio || []).map((s) =>
+      String(s).toUpperCase(),
+    );
+    const watchlist = (context.watchlist || []).map((s) =>
+      String(s).toUpperCase(),
+    );
+
+    if (portfolio.includes(sym)) return 1.0;
+    if (watchlist.includes(sym)) return 0.6;
+    return 0.2; // Low relevance for unrelated assets
+  }
+
+  // ── Core Ranking Logic ──────────────────────────────────
+
+  /**
+   * Score and sort an array of events.
+   * @param {Array} events - Array of event objects.
+   * @param {Object} context - { portfolio: ['BTC'], watchlist: ['ETH'] }
+   * @returns {Array} - Sorted events with score breakdown.
+   */
+  function scoreEvents(events, context = {}) {
+    if (!Array.isArray(events)) return [];
+
+    return events
+      .map((event) => {
+        const impact = calculateImpact(event);
+        const relevance = calculateRelevance(event.symbol, context);
+        const confidence = safeNum(event.confidence, 0.5);
+        const urgency = safeNum(event.urgency, 0.5);
+
+        // Deterministic final score (Section 22)
+        const finalScore = impact * relevance * confidence * urgency;
+
+        return {
+          ...event,
+          scores: { impact, relevance, confidence, urgency },
+          finalScore,
+        };
+      })
+      .sort((a, b) => b.finalScore - a.finalScore);
+  }
+
+  /**
+   * Get the top N most important events.
+   */
+  function getTopEvents(events, context, limit = 3) {
+    return scoreEvents(events, context).slice(0, limit);
+  }
+
+  // ── Safe UI Renderer (Section 15: Frontend Security) ──
+
+  /**
+   * Render the "What Matters Now" card into a container.
+   * Now integrates W.context to explain why each event matters.
+   */
+  function renderCard(container, events, context) {
+    if (!container) return;
+
+    const top = getTopEvents(events, context, 3);
+    container.innerHTML = "";
+
+    const card = document.createElement("div");
+    card.className = "card";
+
+    const title = document.createElement("h3");
+    title.textContent = "⚡ What Matters Now";
+    card.appendChild(title);
+
+    if (top.length === 0) {
+      const p = document.createElement("p");
+      p.className = "muted small";
+      p.textContent = "No significant events detected right now.";
+      card.appendChild(p);
+    } else {
+      const list = document.createElement("ul");
+      list.style.cssText = "list-style:none; padding:0; margin:0;";
+
+      top.forEach((item) => {
+        const li = document.createElement("li");
+        li.style.cssText =
+          "padding: 12px 0; border-bottom: 1px solid var(--border, #30363d);";
+
+        const header = document.createElement("div");
+        header.style.cssText =
+          "display:flex; justify-content:space-between; align-items:center;";
+
+        const sym = document.createElement("b");
+        sym.textContent = item.symbol || "MARKET";
+
+        const score = document.createElement("span");
+        score.className = "muted small";
+        score.textContent = `Score: ${(item.finalScore * 100).toFixed(0)}%`;
+
+        header.appendChild(sym);
+        header.appendChild(score);
+        li.appendChild(header);
+
+        const desc = document.createElement("p");
+        desc.className = "small muted";
+        desc.style.margin = "4px 0 0 0";
+        desc.textContent = item.title || item.description || "Event detected.";
+        li.appendChild(desc);
+
+        // ─ NEW: Render Context (Task 18) ────────────────
+        if (W.context) {
+          const contextData = W.context.generateContext(item, context);
+          if (contextData) {
+            const contextContainer = document.createElement("div");
+            li.appendChild(contextContainer);
+            W.context.renderContext(contextContainer, contextData);
+          }
+        }
+        // ──────────────────────────────────────────────────
+
+        list.appendChild(li);
+      });
+      card.appendChild(list);
+    }
+    container.appendChild(card);
+  }
+
+  return { scoreEvents, getTopEvents, renderCard };
+})();
+
+console.log("[Ranker] What Matters Now engine loaded.");
+;
+// ---- js/intelligence/delta.js ----
+// ===============================================================
+//         "What Changed" Delta Engine
+// ===============================================================
+//
+// Purpose: Compare current portfolio state with a previous
+// snapshot to surface meaningful changes (Section 24).
+//
+// ===============================================================
+
+window.W = window.W || {};
+W.delta = (() => {
+  const SNAPSHOT_KEY = "w_portfolio_snapshot";
+  const SNAPSHOT_TTL = 60 * 60 * 1000; // 1 hour
+
+  // ── Utilities (Section 21 & 22) ─────────────────────────
+  function safeNum(val, fallback = 0) {
+    return typeof val === "number" && !isNaN(val) ? val : fallback;
+  }
+
+  // ── Snapshot Management ─────────────────────────────────
+  function getSnapshot() {
+    const stored = W.store?.get(SNAPSHOT_KEY);
+    if (!stored) return null;
+
+    // If snapshot is too old, treat it as stale (optional, but good for UX)
+    // For now, we return it regardless of age to show long-term deltas.
+    return stored;
+  }
+
+  function saveSnapshot(currentTotals) {
+    if (!currentTotals || !W.store) return;
+
+    const snapshot = {
+      timestamp: Date.now(),
+      value: currentTotals.value,
+      cost: currentTotals.cost,
+      day: currentTotals.day,
+      week: currentTotals.week,
+    };
+
+    W.store.set(SNAPSHOT_KEY, snapshot);
+  }
+
+  // ── Delta Computation ───────────────────────────────────
+  function computePortfolioDeltas(currentTotals) {
+    const previous = getSnapshot();
+    const deltas = [];
+
+    // Section 21: Never silently invent missing values.
+    if (!previous) {
+      return deltas;
+    }
+
+    const metrics = [
+      { key: "value", label: "Total Portfolio Value" },
+      { key: "day", label: "24h P/L" },
+      { key: "week", label: "7d P/L" },
+    ];
+
+    metrics.forEach((m) => {
+      const prev = safeNum(previous[m.key], 0);
+      const curr = safeNum(currentTotals[m.key], 0);
+
+      // Deterministic arithmetic (Section 22)
+      const abs = curr - prev;
+      const pct = prev !== 0 ? (abs / prev) * 100 : 0;
+
+      // Only surface significant changes (e.g., > $10 or > 1%)
+      if (Math.abs(abs) > 10 || Math.abs(pct) > 1) {
+        deltas.push({
+          type: "portfolio_value",
+          metric: m.label,
+          previousValue: prev,
+          currentValue: curr,
+          deltaAbsolute: abs,
+          deltaPercent: pct,
+          timestamp: new Date().toISOString(),
+          significance: Math.abs(pct) > 5 ? "high" : "medium",
+        });
+      }
+    });
+
+    return deltas;
+  }
+
+  // ── Safe UI Renderer (Section 15) ───────────────────────
+  function renderCard(container, deltas) {
+    if (!container) return;
+    container.innerHTML = "";
+
+    const card = document.createElement("div");
+    card.className = "card";
+
+    const title = document.createElement("h3");
+    title.textContent = "📊 What Changed";
+    card.appendChild(title);
+
+    if (!deltas || deltas.length === 0) {
+      const p = document.createElement("p");
+      p.className = "muted small";
+      p.textContent = "No significant changes since your last visit.";
+      card.appendChild(p);
+    } else {
+      const list = document.createElement("ul");
+      list.style.cssText = "list-style:none; padding:0; margin:0;";
+
+      deltas.forEach((d) => {
+        const li = document.createElement("li");
+        li.style.cssText =
+          "padding: 8px 0; border-bottom: 1px solid var(--border, #30363d); display:flex; justify-content:space-between; align-items:center;";
+
+        const label = document.createElement("span");
+        label.textContent = d.metric; // SAFE: textContent
+
+        const value = document.createElement("span");
+        const isUp = d.deltaAbsolute >= 0;
+        value.style.color = isUp
+          ? "var(--up, #2ee6a8)"
+          : "var(--down, #ff5c7a)";
+        value.style.fontWeight = "bold";
+        value.textContent = `${isUp ? "+" : ""}${W.fmt.money(d.deltaAbsolute)} (${isUp ? "+" : ""}${d.deltaPercent.toFixed(2)}%)`; // SAFE
+
+        li.appendChild(label);
+        li.appendChild(value);
+        list.appendChild(li);
+      });
+      card.appendChild(list);
+    }
+    container.appendChild(card);
+  }
+
+  return { getSnapshot, saveSnapshot, computePortfolioDeltas, renderCard };
+})();
+
+console.log("[Delta] What Changed engine loaded.");
+;
+// ---- js/intelligence/behavior.js ----
+// ===============================================================
+//         Behavioral Pattern Detection Engine
+// ===============================================================
+//
+// Purpose: Analyze decision journal to surface cognitive biases.
+// Privacy: 100% local processing. Never sends data externally (Rule 14).
+// Security: Uses textContent/escapeHTML for safe rendering (Rule 15).
+//
+// ===============================================================
+
+window.W = window.W || {};
+W.behavior = (() => {
+  const HOUR = 3600000;
+  const DAY = 86400000;
+
+  // ── Core Analysis Logic ─────────────────────────────────
+  function analyze() {
+    const decisions = W.journal?.all() || [];
+
+    // Rule 21: Handle insufficient data gracefully
+    if (decisions.length < 3) {
+      return {
+        pattern: "none",
+        severity: "low",
+        evidence: "Insufficient decision history to detect patterns.",
+        recommendation:
+          "Log more decisions in the Journal to unlock behavioral insights.",
+      };
+    }
+
+    // Sort chronologically (oldest to newest)
+    const sorted = [...decisions].sort(
+      (a, b) => new Date(a.timestamp) - new Date(b.timestamp),
+    );
+
+    // 1. Panic Selling Detection
+    // Heuristic: 3+ sells within 7 days, OR sells with very low confidence (<0.3)
+    const recentSells = sorted.filter(
+      (d) =>
+        d.action === "Sell" && Date.now() - new Date(d.timestamp) < 7 * DAY,
+    );
+    const lowConfSells = sorted.filter(
+      (d) => d.action === "Sell" && parseFloat(d.confidence) < 0.3,
+    );
+
+    if (recentSells.length >= 3 || lowConfSells.length >= 2) {
+      return {
+        pattern: "panic_selling",
+        severity: "high",
+        evidence: `Detected ${recentSells.length} recent sell decisions, with ${lowConfSells.length} made under low confidence.`,
+        recommendation:
+          "Consider setting predefined stop-losses based on your thesis invalidation conditions, rather than making emotional sell decisions during volatility.",
+      };
+    }
+
+    // 2. FOMO / Revenge Trading Detection
+    // Heuristic: Interacting with the same asset within 24 hours
+    for (let i = 0; i < sorted.length; i++) {
+      const d1 = sorted[i];
+      for (let j = i + 1; j < sorted.length; j++) {
+        const d2 = sorted[j];
+        const timeDiff = Math.abs(
+          new Date(d2.timestamp) - new Date(d1.timestamp),
+        );
+
+        if (timeDiff < 24 * HOUR && d1.asset === d2.asset) {
+          // Revenge Trading: Sell then Buy same asset quickly
+          if (d1.action === "Sell" && d2.action === "Buy") {
+            return {
+              pattern: "revenge_trading",
+              severity: "high",
+              evidence: `Bought ${d1.asset} shortly after selling it (within 24h).`,
+              recommendation:
+                "Avoid round-tripping trades. Stick to your original thesis. If the thesis was invalidated, do not re-enter immediately out of regret.",
+            };
+          }
+          // FOMO Buying: Multiple buys of same asset quickly
+          if (d1.action === "Buy" && d2.action === "Buy") {
+            return {
+              pattern: "fomo_buying",
+              severity: "medium",
+              evidence: `Multiple buy decisions for ${d1.asset} within a 24-hour window.`,
+              recommendation:
+                "Ensure you are dollar-cost averaging according to a predefined plan, rather than chasing short-term price action.",
+            };
+          }
+        }
+      }
+    }
+
+    return {
+      pattern: "none",
+      severity: "low",
+      evidence: "No significant behavioral biases detected in recent history.",
+      recommendation: "Continue logging decisions to maintain self-awareness.",
+    };
+  }
+
+  // ── Safe UI Renderer (Rule 15) ──────────────────────────
+  function renderSummary(container) {
+    if (!container) return;
+    const result = analyze();
+    container.innerHTML = "";
+
+    const card = document.createElement("div");
+    card.className = "card";
+
+    const title = document.createElement("h3");
+    title.textContent = "🧠 Behavioral Insights";
+    card.appendChild(title);
+
+    const p = document.createElement("p");
+    p.className = "small";
+    p.textContent = result.evidence; // SAFE: textContent prevents XSS
+    card.appendChild(p);
+
+    if (result.pattern !== "none") {
+      const rec = document.createElement("div");
+      rec.style.cssText =
+        "margin-top:10px; padding:10px; background:rgba(255, 92, 122, 0.1); border-radius:6px;";
+      // SAFE: escapeHTML used for dynamic text injected via innerHTML
+      rec.innerHTML = `<b class="small" style="color:var(--down)">⚠️ Recommendation:</b> <span class="small">${W.fmt.escapeHTML(result.recommendation)}</span>`;
+      card.appendChild(rec);
+    }
+
+    container.appendChild(card);
+  }
+
+  return { analyze, renderSummary };
+})();
+
+console.log("[Behavior] Pattern detection engine loaded.");
+;
+// ---- js/intelligence/context.js ----
+// ===============================================================
+//         "Why It Matters" Context Generator
+// ===============================================================
+//
+// Purpose: Synthesize portfolio, thesis, and behavioral data
+// to explain why a ranked event matters to the specific user.
+// Privacy: 100% local processing (Rule 14).
+// Security: Uses textContent for safe rendering (Rule 15).
+// Correctness: Handles missing data gracefully (Rule 21).
+//
+// ===============================================================
+
+window.W = window.W || {};
+W.context = (() => {
+  // ── Core Context Generation ─────────────────────────────
+  function generateContext(event, userContext) {
+    const portfolio = userContext?.portfolio || [];
+    const theses = userContext?.theses || [];
+    const journal = userContext?.journal || [];
+    const behavior = userContext?.behavior || { pattern: "none" };
+
+    const symbol = event?.symbol?.toUpperCase();
+    if (!symbol) return null; // Rule 21: Reject invalid events
+
+    const holding = portfolio.find((h) => h?.symbol?.toUpperCase() === symbol);
+    const thesis = theses.find((t) => t?.asset?.toUpperCase() === symbol);
+    const recentDecisions = journal.filter(
+      (d) =>
+        d?.asset?.toUpperCase() === symbol &&
+        Date.now() - new Date(d.timestamp).getTime() < 7 * 86400000,
+    );
+
+    let whyItMatters = "";
+    let personalRelevance = "low";
+    let thesisImpact = "none";
+    let recommendedAction = "Monitor the broader market.";
+    const evidence = [];
+
+    // 1. Portfolio Impact
+    if (holding) {
+      personalRelevance = "high";
+      const qty = parseFloat(holding.qty) || 0;
+      whyItMatters += `You hold ${qty} ${symbol}. `;
+      evidence.push({
+        claim: `User holds ${symbol}`,
+        evidence: `${qty} units`,
+        source: "portfolio",
+        timestamp: new Date().toISOString(),
+        confidence: 0.95,
+      });
+    }
+
+    // 2. Thesis Impact
+    if (thesis) {
+      whyItMatters += `You have an active thesis on ${symbol}. `;
+      // Basic heuristic: high impact negative events or unlocks weaken thesis
+      if (
+        (event.type === "price_change" && event.impactValue > 0.6) ||
+        event.type === "unlock"
+      ) {
+        thesisImpact = "weakening";
+        recommendedAction = "Review your thesis invalidation conditions.";
+      }
+      evidence.push({
+        claim: `User has thesis on ${symbol}`,
+        evidence: thesis.statement || "Thesis exists",
+        source: "theses",
+        timestamp: new Date().toISOString(),
+        confidence: 0.9,
+      });
+    }
+
+    // 3. Decision History
+    if (recentDecisions.length > 0) {
+      whyItMatters += `You made ${recentDecisions.length} decision(s) regarding ${symbol} in the last 7 days. `;
+      evidence.push({
+        claim: `Recent decisions on ${symbol}`,
+        evidence: `${recentDecisions.length} recent journal entries`,
+        source: "journal",
+        timestamp: new Date().toISOString(),
+        confidence: 0.85,
+      });
+    }
+
+    // 4. Behavioral Warning
+    if (behavior?.pattern !== "none" && personalRelevance === "high") {
+      whyItMatters += `Note: Your recent behavior shows a "${behavior.pattern}" pattern. Proceed with caution. `;
+    }
+
+    // Fallback for low relevance
+    if (!whyItMatters) {
+      whyItMatters = `This event may impact the broader market, but you have no direct exposure to ${symbol}.`;
+    }
+
+    return {
+      event,
+      whyItMatters,
+      personalRelevance,
+      thesisImpact,
+      recommendedAction,
+      evidence,
+      confidence: 0.8,
+    };
+  }
+
+  // ── Safe UI Renderer (Rule 15) ──────────────────────────
+  function renderContext(container, contextData) {
+    if (!container || !contextData) return;
+
+    // Clear previous context if re-rendering
+    const existing = container.querySelector(".context-render");
+    if (existing) existing.remove();
+
+    const div = document.createElement("div");
+    div.className = "context-render";
+    div.style.cssText =
+      "margin-top: 8px; padding: 8px 12px; background: rgba(124, 92, 255, 0.05); border-left: 3px solid var(--primary, #7c5cff); border-radius: 4px;";
+
+    const title = document.createElement("div");
+    title.className = "small";
+    title.style.fontWeight = "bold";
+    title.textContent = "Why it matters:";
+    div.appendChild(title);
+
+    const text = document.createElement("div");
+    text.className = "small muted";
+    text.style.marginTop = "4px";
+    text.style.lineHeight = "1.4";
+    text.textContent = contextData.whyItMatters; // SAFE: textContent prevents XSS
+    div.appendChild(text);
+
+    if (
+      contextData.recommendedAction &&
+      contextData.personalRelevance !== "low"
+    ) {
+      const action = document.createElement("div");
+      action.className = "small";
+      action.style.marginTop = "6px";
+      action.style.color = "var(--up, #2ee6a8)";
+      action.textContent = `→ ${contextData.recommendedAction}`; // SAFE
+      div.appendChild(action);
+    }
+
+    container.appendChild(div);
+  }
+
+  return { generateContext, renderContext };
+})();
+
+console.log("[Context] Why It Matters generator loaded.");
+;
+// ---- js/intelligence/thesis-health.js ----
+// ===============================================================
+//         Thesis Health Monitor Engine
+// ===============================================================
+//
+// Purpose: Evaluate active theses against current market evidence.
+// Rules: 21 (Data Correctness), 22 (Deterministic Math), 26 (Thesis Tracking), 15 (Security).
+//
+// ===============================================================
+
+window.W = window.W || {};
+W.thesisHealth = (() => {
+  const STATUS = {
+    HEALTHY: "Healthy",
+    WEAKENING: "Weakening",
+    INVALIDATED: "Invalidated",
+    UNKNOWN: "Unknown",
+  };
+
+  // ─ Core Evaluation Logic (Deterministic, Rule 22) ─────
+  function evaluate(thesis, currentPrice, currentRegime) {
+    if (!thesis) return null;
+
+    let score = 100; // Start at 100, deduct for negative signals
+    const reasons = [];
+    let status = STATUS.HEALTHY;
+
+    // 1. Price Action Analysis
+    const entryPrice = parseFloat(thesis.entryPrice);
+    const targetPrice = parseFloat(thesis.targetPrice);
+
+    if (!isNaN(entryPrice) && entryPrice > 0 && currentPrice > 0) {
+      const pctChange = ((currentPrice - entryPrice) / entryPrice) * 100;
+
+      if (pctChange <= -40) {
+        score -= 60;
+        reasons.push(
+          `Price is down ${pctChange.toFixed(1)}% from entry (Critical drawdown).`,
+        );
+      } else if (pctChange <= -20) {
+        score -= 30;
+        reasons.push(`Price is down ${pctChange.toFixed(1)}% from entry.`);
+      } else if (pctChange <= -10) {
+        score -= 10;
+        reasons.push(`Price is down ${pctChange.toFixed(1)}% from entry.`);
+      }
+
+      // Check if target was hit (Positive signal, but we focus on risk here)
+      if (
+        !isNaN(targetPrice) &&
+        targetPrice > entryPrice &&
+        currentPrice >= targetPrice
+      ) {
+        reasons.push(`Price target of ${targetPrice} has been reached.`);
+      }
+    } else if (thesis.entryPrice) {
+      // Rule 21: Never silently invent missing values.
+      reasons.push("Insufficient price data to evaluate entry.");
+    }
+
+    // 2. Regime Shift Analysis
+    if (
+      currentRegime &&
+      currentRegime.regime === "RISK-OFF" &&
+      thesis.bias === "bullish"
+    ) {
+      score -= 20;
+      reasons.push(
+        "Market regime shifted to RISK-OFF, contradicting bullish bias.",
+      );
+    }
+
+    // 3. Time Decay Analysis
+    if (thesis.createdAt && thesis.timeHorizon) {
+      const created = new Date(thesis.createdAt).getTime();
+      const horizonMs = thesis.timeHorizon * 24 * 60 * 60 * 1000; // Assuming horizon in days
+      if (Date.now() > created + horizonMs) {
+        score -= 15;
+        reasons.push(`Time horizon (${thesis.timeHorizon} days) has expired.`);
+      }
+    }
+
+    // Determine Final Status
+    score = Math.max(0, Math.min(100, score)); // Clamp 0-100
+
+    if (score < 40) status = STATUS.INVALIDATED;
+    else if (score < 70) status = STATUS.WEAKENING;
+    else if (reasons.length === 0 && !currentPrice) status = STATUS.UNKNOWN;
+
+    // Generate Recommendation
+    let recommendation =
+      "Thesis conditions remain intact. Continue monitoring.";
+    if (status === STATUS.WEAKENING)
+      recommendation =
+        "Review invalidation conditions. Consider reducing exposure if risks are escalating.";
+    if (status === STATUS.INVALIDATED)
+      recommendation =
+        "Core thesis assumptions appear broken. Strongly consider exiting or fully re-evaluating the position.";
+
+    return {
+      thesisId: thesis.id,
+      healthScore: score,
+      status,
+      reasons,
+      recommendation,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  // ── Safe UI Renderer (Rule 15) ──────────────────────────
+  function renderBadge(thesisId, healthData) {
+    if (!healthData) return "";
+
+    // Determine color based on status
+    let color = "var(--up, #2ee6a8)"; // Healthy
+    if (healthData.status === STATUS.WEAKENING) color = "var(--warn, #ffb35c)";
+    if (healthData.status === STATUS.INVALIDATED)
+      color = "var(--down, #ff5c7a)";
+    if (healthData.status === STATUS.UNKNOWN)
+      color = "var(--text-muted, #9aa3b2)";
+
+    // Return a safe HTML string. Dynamic text is NOT injected here to prevent XSS.
+    // The actual text will be populated via textContent in the caller if needed,
+    // but for a simple badge, we use safe static text with a data attribute.
+    return `<span class="thesis-health-badge" data-id="${thesisId}" style="display:inline-block; padding: 2px 8px; border-radius: 12px; background: ${color}20; color: ${color}; font-size: 0.8em; font-weight: bold; margin-left: 8px;">${healthData.status} (${healthData.healthScore}%)</span>`;
+  }
+
+  function renderDetails(container, healthData) {
+    if (!container || !healthData) return;
+    container.innerHTML = ""; // Clear previous
+
+    if (healthData.reasons.length > 0) {
+      const ul = document.createElement("ul");
+      ul.style.cssText =
+        "list-style: none; padding: 0; margin: 8px 0; font-size: 0.9em;";
+
+      healthData.reasons.forEach((reason) => {
+        const li = document.createElement("li");
+        li.style.cssText = "padding: 4px 0; color: var(--text-muted);";
+        li.textContent = `• ${reason}`; // SAFE: textContent (Rule 15)
+        ul.appendChild(li);
+      });
+      container.appendChild(ul);
+    }
+
+    const rec = document.createElement("div");
+    rec.style.cssText =
+      "margin-top: 8px; padding: 8px; background: rgba(124, 92, 255, 0.05); border-left: 3px solid var(--primary); border-radius: 4px; font-size: 0.9em;";
+    rec.textContent = `Recommendation: ${healthData.recommendation}`; // SAFE: textContent
+    container.appendChild(rec);
+  }
+
+  return { evaluate, renderBadge, renderDetails, STATUS };
+})();
+
+console.log("[ThesisHealth] Monitor engine loaded.");
+;
+// ---- js/intelligence/opportunities.js ----
+// ===============================================================
+//         Opportunity Scanner Engine
+// ===============================================================
+//
+// Purpose: Proactively synthesize portfolio, thesis, and market
+// data to surface personalized, actionable observations.
+// Rules: 22 (Deterministic), 24 (Intelligence), 28 (Ranking).
+//
+// ===============================================================
+
+window.W = window.W || {};
+W.opportunities = (() => {
+  const DISCLAIMER =
+    "Observation based on your tracked data. Not financial advice.";
+
+  /**
+   * Scan user data for potential opportunities or risks.
+   * @param {Array} portfolio - Array of holding objects.
+   * @param {Array} theses - Array of thesis objects.
+   * @param {Array} markets - Array of market data objects (from W.api.top).
+   * @param {Object} regimeData - Output from W.regime.detect().
+   * @returns {Array} - Array of opportunity event objects.
+   */
+  function scan(portfolio, theses, markets, regimeData) {
+    const opportunities = [];
+    if (!portfolio || !theses) return opportunities;
+
+    // Create a quick lookup map for current prices
+    const priceMap = {};
+    if (Array.isArray(markets)) {
+      markets.forEach((m) => {
+        if (m && m.symbol) priceMap[m.symbol.toLowerCase()] = m.current_price;
+      });
+    }
+
+    // ── Scanner 1: Thesis Alignment (DCA Signal) ────────────
+    theses
+      .filter((t) => t.status === "active" && t.target)
+      .forEach((t) => {
+        const currentPrice = priceMap[t.asset?.toLowerCase()];
+        if (currentPrice && currentPrice < t.target * 0.85) {
+          const pctBelow = (
+            ((currentPrice - t.target) / t.target) *
+            100
+          ).toFixed(1);
+          opportunities.push({
+            type: "opportunity",
+            symbol: t.asset,
+            title: `Potential DCA Zone: ${t.asset}`,
+            description: `${t.asset} is currently ${pctBelow}% below your thesis target of $${t.target}. ${DISCLAIMER}`,
+            impactValue: 0.7,
+            confidence: 0.8,
+            urgency: 0.6,
+            source: "opportunity_scanner",
+          });
+        }
+      });
+
+    // ── Scanner 2: Diversification Gap ──────────────────────
+    if (portfolio.length > 1) {
+      let totalValue = 0;
+      const assetValues = portfolio.map((p) => {
+        const price = priceMap[p.symbol?.toLowerCase()] || 0;
+        const val = (parseFloat(p.qty) || 0) * price;
+        totalValue += val;
+        return { symbol: p.symbol, val };
+      });
+
+      if (totalValue > 0) {
+        assetValues.forEach((v) => {
+          const pct = (v.val / totalValue) * 100;
+          if (pct > 50) {
+            opportunities.push({
+              type: "opportunity",
+              symbol: v.symbol,
+              title: `Concentration Risk: ${v.symbol}`,
+              description: `${v.symbol} makes up ${pct.toFixed(1)}% of your portfolio value. Consider rebalancing. ${DISCLAIMER}`,
+              impactValue: 0.8,
+              confidence: 0.95,
+              urgency: 0.7,
+              source: "opportunity_scanner",
+            });
+          }
+        });
+      }
+    }
+
+    // ── Scanner 3: Regime Mismatch ──────────────────────────
+    if (
+      regimeData &&
+      regimeData.regime === "RISK-OFF" &&
+      portfolio.length > 0
+    ) {
+      opportunities.push({
+        type: "opportunity",
+        symbol: "PORTFOLIO",
+        title: "Regime Mismatch: Risk-Off Environment",
+        description: `Market regime is RISK-OFF (${(regimeData.confidence * 100).toFixed(0)}% confidence). Review exposure to speculative assets. ${DISCLAIMER}`,
+        impactValue: 0.9,
+        confidence: regimeData.confidence,
+        urgency: 0.8,
+        source: "opportunity_scanner",
+      });
+    }
+
+    return opportunities;
+  }
+
+  return { scan };
+})();
+
+console.log("[Opportunities] Scanner engine loaded.");
+;
+// ---- js/intelligence/decision-replay.js ----
+// ===============================================================
+//         Decision Replay Engine
+// ===============================================================
+//
+// Purpose: Evaluate past decisions against current market outcomes
+// to measure decision quality and confidence calibration.
+// Rules: 21 (Data Correctness), 22 (Deterministic Math), 25 (Journal).
+//
+// ===============================================================
+
+window.W = window.W || {};
+W.decisionReplay = (() => {
+  /**
+   * Evaluate a single decision against current market data.
+   * @param {Object} decision - The journal entry object.
+   * @param {number} currentPrice - The current market price of the asset.
+   * @returns {Object} - Structured outcome data.
+   */
+  function evaluate(decision, currentPrice) {
+    // Rule 21: Never silently invent missing values.
+    if (!decision || !currentPrice || !decision.price) {
+      return {
+        outcome: "inconclusive",
+        priceDeltaPercent: 0,
+        horizonStatus: "unknown",
+        confidenceCalibration: "unknown",
+        insight: "Missing baseline price data. Cannot evaluate outcome.",
+      };
+    }
+
+    const entryPrice = parseFloat(decision.price);
+    if (isNaN(entryPrice) || entryPrice <= 0) {
+      return {
+        outcome: "inconclusive",
+        priceDeltaPercent: 0,
+        horizonStatus: "unknown",
+        confidenceCalibration: "unknown",
+        insight: "Invalid entry price recorded.",
+      };
+    }
+
+    // Deterministic math (Rule 22)
+    const deltaPercent = ((currentPrice - entryPrice) / entryPrice) * 100;
+    const action = String(decision.action || "").toLowerCase();
+
+    let outcome = "inconclusive";
+    if (action === "buy" && deltaPercent > 0) outcome = "successful";
+    else if (action === "sell" && deltaPercent < 0) outcome = "successful";
+    else if (deltaPercent !== 0) outcome = "unsuccessful";
+
+    // Horizon check
+    const horizonDays = parseInt(
+      decision.horizonDays || decision.horizon || 30,
+      10,
+    );
+    const horizonMs = horizonDays * 86400000;
+    const timeSince = Date.now() - new Date(decision.timestamp).getTime();
+    const horizonStatus = timeSince > horizonMs ? "expired" : "active";
+
+    // Confidence Calibration
+    const conf = parseFloat(decision.confidence) || 0.5;
+    let calibration = "well_calibrated";
+    if (conf >= 0.8 && outcome === "unsuccessful")
+      calibration = "overconfident";
+    else if (conf <= 0.3 && outcome === "successful")
+      calibration = "underconfident";
+
+    const direction = deltaPercent >= 0 ? "+" : "";
+
+    return {
+      decisionId: decision.id,
+      outcome,
+      priceDeltaPercent: deltaPercent,
+      horizonStatus,
+      confidenceCalibration: calibration,
+      insight: `Price moved ${direction}${deltaPercent.toFixed(2)}% since your ${action} at $${entryPrice.toFixed(2)}.`,
+    };
+  }
+
+  /**
+   * Safe UI Renderer for outcome badges (Rule 15)
+   */
+  function renderBadge(outcomeData) {
+    if (!outcomeData || outcomeData.outcome === "inconclusive") {
+      return `<span class="replay-badge muted small" style="margin-left:8px; opacity:0.7;">⏳ Inconclusive</span>`;
+    }
+
+    let color = "var(--text-muted, #9aa3b2)";
+    let icon = "️";
+    let statusText = outcomeData.outcome.toUpperCase();
+
+    if (outcomeData.outcome === "successful") {
+      color = "var(--up, #2ee6a8)";
+      icon = "✅";
+    }
+    if (outcomeData.outcome === "unsuccessful") {
+      color = "var(--down, #ff5c7a)";
+      icon = "❌";
+    }
+
+    // Using inline styles for simplicity, but text is static/safe to prevent XSS.
+    return `<span class="replay-badge small" style="margin-left:8px; color:${color}; font-weight:bold;">${icon} ${statusText} (${outcomeData.priceDeltaPercent.toFixed(1)}%)</span>`;
+  }
+
+  return { evaluate, renderBadge };
+})();
+
+console.log("[DecisionReplay] Engine loaded.");
+;
+// ---- js/intelligence/types.js ----
+// ===============================================================
+// js/intelligence/types.js – Canonical Intelligence Contracts
+// ===============================================================
+//
+// These types define the structure of all intelligence data.
+// No business logic – only type definitions and validation helpers.
+//
+// ===============================================================
+
+window.W = window.W || {};
+W.intelligence = W.intelligence || {};
+
+/**
+ * @typedef {Object} AssetId
+ * @property {string} chainId - 'ethereum' | 'solana' | 'bitcoin' | ...
+ * @property {string|null} contractAddress - null for native coins
+ * @property {string} symbol - display symbol
+ * @property {string|null} coingeckoId - primary key for price lookup
+ */
+
+/**
+ * @typedef {Object} Signal
+ * @property {string} id - UUID or hash
+ * @property {string} type - 'PRICE_MOVE' | 'REGIME_SHIFT' | 'UNLOCK' | 'OPPORTUNITY' | 'THESIS_DETERIORATION' | 'BEHAVIORAL_PATTERN'
+ * @property {string} source - e.g., 'coingecko', 'regime_engine'
+ * @property {AssetId} assetId
+ * @property {number} timestamp
+ * @property {*} rawData - original provider-specific data
+ */
+
+/**
+ * @typedef {Object} Evidence
+ * @property {string} signalId
+ * @property {number} sourceReliability - 0–1, static per source
+ * @property {number} dataFreshness - 0–1, decays with age
+ * @property {number} corroborationCount - number of independent sources confirming
+ * @property {number} dataCompleteness - 0–1, full/partial data
+ * @property {number} interpretationConfidence - 0–1, model-specific confidence
+ * @property {number} confidence - 0–1, computed product of above (with corroboration boost)
+ * @property {string[]} reasoning
+ */
+
+/**
+ * @typedef {Object} PersonalContext
+ * @property {AssetId} assetId
+ * @property {number} portfolioWeight - 0–1
+ * @property {string} watchlistStatus - 'WATCHING' | 'NOT_WATCHING'
+ * @property {string} thesisStatus - 'ACTIVE' | 'INVALIDATED' | 'NONE'
+ * @property {number} recentDecisions - count in last 7 days
+ * @property {string} behavioralRisk - 'PANIC' | 'FOMO' | 'NONE'
+ */
+
+/**
+ * @typedef {Object} Assessment
+ * @property {string} signalId
+ * @property {number} relevance - 0–1, from PersonalContext
+ * @property {number} impact - 0–1, from Evidence + market cap factor
+ * @property {number} urgency - 0–1, time decay or volatility
+ * @property {number} confidence - 0–1, from Evidence.confidence
+ * @property {string[]} reasoning
+ */
+
+/**
+ * @typedef {Object} DecisionPriority
+ * @property {string} signalId
+ * @property {Assessment} assessment
+ * @property {number} score - weighted sum
+ * @property {string} recommendedAction - 'MONITOR' | 'REVIEW_THESIS' | 'REBALANCE' | 'LOG_DECISION'
+ * @property {string} explanation
+ */
+
+// ── Source reliability map ────────────────────────────────
+W.intelligence.sourceReliability = {
+  coingecko: 0.95,
+  binance: 0.9,
+  regime_engine: 0.8,
+  token_unlocks: 0.7,
+  dex_screener: 0.6,
+  rss_feed: 0.4,
+  wallet_sync: 0.85,
+  user_input: 0.5,
+};
+
+// ── Freshness windows (seconds) ────────────────────────────
+W.intelligence.freshnessWindows = {
+  PRICE_MOVE: 300, // 5 minutes
+  REGIME_SHIFT: 3600, // 1 hour
+  UNLOCK: 86400, // 1 day
+  OPPORTUNITY: 86400,
+  THESIS_DETERIORATION: 3600,
+  BEHAVIORAL_PATTERN: 86400,
+};
+
+console.log("[Intelligence] Types and constants loaded.");
+;
+// ---- js/intelligence/decision-engine.js ----
+// ===============================================================
+//         Unified Decision Engine
+// ===============================================================
+//
+// Orchestrates: Signals → Evidence → PersonalContext → Assessment → DecisionPriority → Presentation
+// This replaces the monolithic ranker and provides a clean pipeline.
+//
+// ===============================================================
+
+window.W = window.W || {};
+W.decisionEngine = (() => {
+  // ── Compute Personal Context for an asset ──────────────────
+  function computePersonalContext(
+    assetId,
+    portfolio,
+    watchlist,
+    theses,
+    journal,
+    behavior,
+  ) {
+    const symbol = assetId.symbol.toUpperCase();
+    let portfolioWeight = 0;
+    let watchlistStatus = "NOT_WATCHING";
+    let thesisStatus = "NONE";
+    let recentDecisions = 0;
+    let behavioralRisk = "NONE";
+
+    // Portfolio
+    const holdings = portfolio.filter(
+      (h) => (h.symbol || "").toUpperCase() === symbol,
+    );
+    const totalValue = portfolio.reduce((sum, h) => sum + (h.value || 0), 0);
+    if (totalValue > 0) {
+      portfolioWeight =
+        holdings.reduce((sum, h) => sum + (h.value || 0), 0) / totalValue;
+    }
+
+    // Watchlist
+    if (watchlist.some((w) => (w || "").toUpperCase() === symbol)) {
+      watchlistStatus = "WATCHING";
+    }
+
+    // Thesis
+    const thesis = theses.find(
+      (t) => (t.assetId?.symbol || t.symbol || "").toUpperCase() === symbol,
+    );
+    if (thesis) {
+      thesisStatus = thesis.status === "active" ? "ACTIVE" : "INVALIDATED";
+    }
+
+    // Recent decisions
+    const now = Date.now();
+    const weekAgo = now - 7 * 86400000;
+    recentDecisions = journal.filter((d) => {
+      const dSymbol = d.assetId?.symbol || d.asset || "";
+      return dSymbol.toUpperCase() === symbol && d.timestamp > weekAgo;
+    }).length;
+
+    // Behavioral risk (if behavior module provides per-asset risk)
+    if (behavior && behavior.pattern !== "none") {
+      behavioralRisk = behavior.pattern.toUpperCase();
+    }
+
+    return {
+      assetId,
+      portfolioWeight,
+      watchlistStatus,
+      thesisStatus,
+      recentDecisions,
+      behavioralRisk,
+    };
+  }
+
+  // ── Compute Assessment from Signal and Context ────────────
+  function computeAssessment(signal, personalContext, evidence) {
+    // Relevance: portfolioWeight*0.4 + watchlist*0.2 + thesis*0.2 + recentDecisions*0.1 + behavioralRisk*0.1
+    let relevance = 0;
+    if (personalContext.portfolioWeight > 0)
+      relevance += personalContext.portfolioWeight * 0.4;
+    if (personalContext.watchlistStatus === "WATCHING") relevance += 0.2;
+    if (personalContext.thesisStatus === "ACTIVE") relevance += 0.2;
+    relevance += Math.min(1, personalContext.recentDecisions / 5) * 0.1;
+    if (
+      personalContext.behavioralRisk === "PANIC" ||
+      personalContext.behavioralRisk === "FOMO"
+    ) {
+      relevance += 0.1;
+    }
+    relevance = Math.min(1, relevance);
+
+    // Impact: based on evidence strength and market cap factor (rough)
+    let impact = evidence.confidence * 0.7 + 0.3; // baseline 0.3
+    // Market cap factor: if asset is in top 100, increase impact
+    // For now, we'll just use a placeholder based on rawData
+    const raw = signal.rawData || {};
+    const marketCap = raw.market_cap || raw.mcap || 0;
+    const capFactor = marketCap > 1e9 ? 1.0 : marketCap > 1e8 ? 0.8 : 0.5;
+    impact = impact * capFactor;
+    impact = Math.min(1, impact);
+
+    // Urgency: time decay to event or volatility
+    let urgency = 0.5;
+    if (signal.type === "UNLOCK") {
+      const now = Date.now();
+      const eventTime = signal.rawData?.date || now + 7 * 86400000;
+      const daysLeft = (eventTime - now) / 86400000;
+      urgency = Math.max(0, Math.min(1, 1 - daysLeft / 14));
+    } else if (signal.type === "PRICE_MOVE") {
+      const change = Math.abs(signal.rawData?.price_change_percentage_24h || 0);
+      urgency = Math.min(1, change / 10);
+    } else {
+      urgency = 0.5;
+    }
+
+    // Confidence: use evidence.confidence
+    const confidence = evidence.confidence || 0.5;
+
+    // Reasoning
+    const reasoning = [
+      `Relevance: ${(relevance * 100).toFixed(0)}%`,
+      `Impact: ${(impact * 100).toFixed(0)}%`,
+      `Urgency: ${(urgency * 100).toFixed(0)}%`,
+      `Confidence: ${(confidence * 100).toFixed(0)}%`,
+    ];
+
+    return { relevance, impact, urgency, confidence, reasoning };
+  }
+
+  // ── Compute DecisionPriority from Assessment ──────────────
+  function computeDecisionPriority(signal, assessment) {
+    const score =
+      assessment.relevance *
+      assessment.impact *
+      assessment.urgency *
+      assessment.confidence;
+    // Determine action
+    let recommendedAction = "MONITOR";
+    if (
+      assessment.relevance > 0.7 &&
+      assessment.impact > 0.6 &&
+      assessment.urgency > 0.5
+    ) {
+      recommendedAction = "REBALANCE";
+    } else if (assessment.relevance > 0.5 && assessment.impact > 0.4) {
+      recommendedAction = "REVIEW_THESIS";
+    } else if (assessment.confidence > 0.8 && assessment.relevance > 0.3) {
+      recommendedAction = "LOG_DECISION";
+    }
+
+    const explanation = `Signal: ${signal.type} for ${signal.assetId.symbol}. Score: ${(score * 100).toFixed(0)}%. ${assessment.reasoning.join(". ")}`;
+
+    return {
+      signalId: signal.id,
+      assessment,
+      score,
+      recommendedAction,
+      explanation,
+    };
+  }
+
+  // ── Main pipeline ──────────────────────────────────────────
+  async function run() {
+    // 1. Collect signals
+    const signals = await W.events.collectEvents();
+    if (!signals || !signals.length) return [];
+
+    // 2. Gather personal data
+    const portfolio = W.portfolio?.all() || [];
+    const watchlist = W.watchlist?.list ? W.watchlist.list() : [];
+    const theses = W.theses?.all ? W.theses.all() : [];
+    const journal = W.journal?.all ? W.journal.all() : [];
+    const behavior = W.behavior?.analyze
+      ? W.behavior.analyze()
+      : { pattern: "none" };
+
+    // 3. For each signal, compute evidence, context, assessment, priority
+    const decisions = [];
+
+    for (const signal of signals) {
+      // Evidence: use signal's _confidence and other attributes
+      const evidence = {
+        signalId: signal.id,
+        sourceReliability:
+          W.intelligence?.sourceReliability?.[signal.source] || 0.5,
+        dataFreshness: 0.8, // placeholder
+        corroborationCount: 1,
+        dataCompleteness: 0.8,
+        interpretationConfidence: 0.7,
+        confidence: signal._confidence || 0.5,
+        reasoning: ["Based on source reliability and freshness"],
+      };
+
+      // Personal context
+      const context = computePersonalContext(
+        signal.assetId,
+        portfolio,
+        watchlist,
+        theses,
+        journal,
+        behavior,
+      );
+
+      // Assessment
+      const assessment = computeAssessment(signal, context, evidence);
+
+      // Decision priority
+      const priority = computeDecisionPriority(signal, assessment);
+
+      decisions.push(priority);
+    }
+
+    // Sort by score descending
+    decisions.sort((a, b) => b.score - a.score);
+
+    return decisions;
+  }
+
+  // ── Render top decisions ───────────────────────────────────
+  function render(container, decisions, limit = 5) {
+    if (!container) return;
+    const top = decisions.slice(0, limit);
+    container.innerHTML = "";
+
+    if (!top.length) {
+      container.innerHTML =
+        '<div class="card"><p class="muted small">No actionable insights at this time.</p></div>';
+      return;
+    }
+
+    const card = document.createElement("div");
+    card.className = "card";
+    const title = document.createElement("h3");
+    title.textContent = "⚡ What Matters Now";
+    card.appendChild(title);
+
+    const list = document.createElement("ul");
+    list.style.cssText = "list-style:none; padding:0; margin:0;";
+
+    top.forEach((item) => {
+      const li = document.createElement("li");
+      li.style.cssText =
+        "padding: 12px 0; border-bottom: 1px solid var(--border, #30363d);";
+
+      const header = document.createElement("div");
+      header.style.cssText =
+        "display:flex; justify-content:space-between; align-items:center;";
+
+      const sym = document.createElement("b");
+      sym.textContent = item.assessment.signalId; // we'll improve
+      // Better: get asset symbol from signal
+      const signal = W.events._signals?.find((s) => s.id === item.signalId);
+      const symbol = signal ? signal.assetId.symbol : "Unknown";
+      sym.textContent = symbol;
+
+      const score = document.createElement("span");
+      score.className = "muted small";
+      score.textContent = `Score: ${(item.score * 100).toFixed(0)}%`;
+
+      header.appendChild(sym);
+      header.appendChild(score);
+      li.appendChild(header);
+
+      const desc = document.createElement("p");
+      desc.className = "small muted";
+      desc.style.margin = "4px 0 0 0";
+      desc.textContent =
+        item.explanation || `Recommended action: ${item.recommendedAction}`;
+      li.appendChild(desc);
+
+      // Add context from W.context if available
+      if (W.context) {
+        const contextContainer = document.createElement("div");
+        li.appendChild(contextContainer);
+        // We need to generate context; pass the signal and user data
+        // For simplicity, we skip detailed context here.
+      }
+
+      list.appendChild(li);
+    });
+
+    card.appendChild(list);
+    container.appendChild(card);
+  }
+
+  // ── Public API ────────────────────────────────────────────
+  return {
+    run,
+    render,
+    computePersonalContext,
+    computeAssessment,
+    computeDecisionPriority,
+  };
+})();
+
+console.log("[DecisionEngine] Module loaded.");
+;
+// ---- js/intelligence/events.js ----
+// ===============================================================
+//         Live Event Collector – Includes Thesis Health
+// ===============================================================
+
+window.W = window.W || {};
+W.events = (() => {
+  const CACHE_KEY = "w_events_cache";
+  const TTL = 5 * 60 * 1000;
+  const DAY = 864e5;
+
+  const { sourceReliability, freshnessWindows } = W.intelligence || {};
+
+  function safeNum(val, fallback = 0.5) {
+    return typeof val === "number" && !isNaN(val) ? val : fallback;
+  }
+
+  function computeConfidence(signal) {
+    const source = signal.source || "unknown";
+    const reliability = sourceReliability?.[source] || 0.5;
+    const age = Date.now() - signal.timestamp;
+    const window = freshnessWindows?.[signal.type] || 3600;
+    const freshness = Math.max(0, 1 - age / (window * 1000));
+    const corroboration = 1;
+    const completeness = 0.8;
+    const interpretation = 0.7;
+    let confidence =
+      reliability *
+      freshness *
+      (1 + (corroboration - 1) * 0.1) *
+      completeness *
+      interpretation;
+    confidence = Math.min(1, Math.max(0, confidence));
+    return confidence;
+  }
+
+  function normalize(raw, type) {
+    if (!raw || typeof raw !== "object") return null;
+    const symbol = String(
+      raw.symbol || raw.id || raw.coin_id || "",
+    ).toUpperCase();
+    const title = String(
+      raw.title || raw.headline || raw.name || "Market Event",
+    );
+    if (!title) return null;
+
+    const assetId = {
+      chainId: raw.chainId || "unknown",
+      contractAddress: raw.contractAddress || null,
+      symbol: symbol,
+      coingeckoId: raw.coingeckoId || null,
+    };
+
+    const timestamp = raw.timestamp
+      ? new Date(raw.timestamp).getTime()
+      : Date.now();
+    const impactValue = safeNum(raw.impactValue, 0.5);
+
+    const signal = {
+      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+      type,
+      source: raw.source || "weaver",
+      assetId,
+      timestamp,
+      rawData: raw,
+    };
+    signal._confidence = computeConfidence(signal);
+    return signal;
+  }
+
+  function collectPriceEvents(markets) {
+    const events = [];
+    if (!Array.isArray(markets)) return events;
+
+    markets.forEach((coin) => {
+      const change = Math.abs(coin.price_change_percentage_24h || 0);
+      if (change > 3) {
+        events.push(
+          normalize(
+            {
+              symbol: coin.symbol,
+              name: coin.name,
+              title: `${coin.name} moved ${coin.price_change_percentage_24h.toFixed(1)}% in 24h`,
+              impactValue: Math.min(1, change / 15),
+              source: "coingecko",
+              coingeckoId: coin.id,
+            },
+            "PRICE_MOVE",
+          ),
+        );
+      }
+    });
+    return events;
+  }
+
+  function collectRegimeEvents(fg, g) {
+    const events = [];
+    try {
+      if (!W.regime || !fg || !g) return events;
+      const regimeData = W.regime.detect({
+        fearGreed: fg.value,
+        btcDominance: g.data?.market_cap_percentage?.btc,
+        capChange: g.data?.market_cap_change_percentage_24h_usd,
+      });
+
+      if (regimeData.regime !== "UNKNOWN") {
+        events.push(
+          normalize(
+            {
+              symbol: "BTC",
+              title: `Market Regime Shift: ${regimeData.regime}`,
+              description: `Confidence: ${(regimeData.confidence * 100).toFixed(0)}%. Signals: ${regimeData.signals.map((s) => s.value).join(", ")}`,
+              impactValue: regimeData.confidence,
+              source: "regime_engine",
+            },
+            "REGIME_SHIFT",
+          ),
+        );
+      }
+    } catch (e) {
+      console.warn("[Events] Regime collection failed:", e.message);
+    }
+    return events;
+  }
+
+  function collectUnlockEvents() {
+    const events = [];
+    try {
+      const unlocks = W.unlocks?.list ? W.unlocks.list() : [];
+      if (!unlocks.length) return events;
+
+      const now = Date.now();
+      const upcoming = unlocks.filter((u) => {
+        const daysLeft = (u.date - now) / DAY;
+        return daysLeft >= 0 && daysLeft <= 14;
+      });
+      if (!upcoming.length) return events;
+
+      upcoming.forEach((u) => {
+        const daysLeft = (u.date - now) / DAY;
+        events.push(
+          normalize(
+            {
+              symbol: u.symbol,
+              name: u.name,
+              title: `${u.name} Unlock: ${u.amount.toLocaleString()} tokens`,
+              description: `${u.type} unlock in ${daysLeft.toFixed(1)} days.`,
+              impactValue: 0.6,
+              source: "token_unlocks",
+              coingeckoId: u.coinId,
+            },
+            "UNLOCK",
+          ),
+        );
+      });
+    } catch (e) {
+      console.warn("[Events] Unlock collection failed:", e.message);
+    }
+    return events;
+  }
+
+  function collectOpportunityEvents(markets, regimeData) {
+    const events = [];
+    try {
+      if (!W.opportunities) return events;
+      const portfolio = W.portfolio?.all() || [];
+      const theses = W.theses?.all() || [];
+
+      const opportunities = W.opportunities.scan(
+        portfolio,
+        theses,
+        markets,
+        regimeData,
+      );
+
+      opportunities.forEach((opp) => {
+        events.push(
+          normalize(
+            {
+              symbol: opp.symbol,
+              title: opp.title,
+              description: opp.description,
+              impactValue: opp.impactValue || 0.5,
+              source: opp.source || "opportunity_scanner",
+            },
+            "OPPORTUNITY",
+          ),
+        );
+      });
+    } catch (e) {
+      console.warn("[Events] Opportunity collection failed:", e.message);
+    }
+    return events;
+  }
+
+  // ── NEW: Collect Thesis Health signals ──────────────────
+  function collectThesisHealthEvents() {
+    const events = [];
+    try {
+      if (!W.thesisHealth || !W.theses) return events;
+      const activeTheses = W.theses.all().filter((t) => t.status === "active");
+      if (!activeTheses.length) return events;
+
+      let priceMap = {};
+      const assetIds = activeTheses
+        .map((t) => t.assetId || t.symbol)
+        .filter(Boolean);
+      if (assetIds.length) {
+        W.api
+          .markets(assetIds.join(","))
+          .then((markets) => {
+            markets.forEach((m) => {
+              priceMap[m.id] = m.current_price;
+            });
+          })
+          .catch(() => {});
+      }
+
+      activeTheses.forEach((thesis) => {
+        const price =
+          priceMap[thesis.coingeckoId] ||
+          priceMap[thesis.symbol?.toLowerCase()] ||
+          null;
+        const health = W.thesisHealth.evaluate(thesis, price, null);
+        if (health && health.status !== "Healthy") {
+          events.push(
+            normalize(
+              {
+                symbol: thesis.symbol,
+                title: `Thesis Deteriorating: ${thesis.symbol}`,
+                description: `Health score: ${health.healthScore}/100. ${health.reasons.join(" ")}`,
+                impactValue: 0.7,
+                source: "thesis_health",
+                coingeckoId: thesis.coingeckoId,
+              },
+              "THESIS_DETERIORATION",
+            ),
+          );
+        }
+      });
+    } catch (e) {
+      console.warn("[Events] Thesis health collection failed:", e.message);
+    }
+    return events;
+  }
+
+  async function collectEvents() {
+    const cached = W.store?.get(CACHE_KEY);
+    if (cached && Date.now() - cached.timestamp < TTL) {
+      return cached.events;
+    }
+
+    let markets = [];
+    let fg = null;
+    let g = null;
+
+    try {
+      markets = (await W.api?.top?.(50)) || [];
+    } catch (e) {}
+    try {
+      fg = await W.api?.fearGreed?.();
+    } catch (e) {}
+    try {
+      g = await W.api?.global?.();
+    } catch (e) {}
+
+    let regimeData = null;
+    if (W.regime && fg && g) {
+      regimeData = W.regime.detect({
+        fearGreed: fg.value,
+        btcDominance: g.data?.market_cap_percentage?.btc,
+        capChange: g.data?.market_cap_change_percentage_24h_usd,
+      });
+    }
+
+    let allSignals = [
+      ...collectPriceEvents(markets),
+      ...collectRegimeEvents(fg, g),
+      ...collectUnlockEvents(),
+      ...collectOpportunityEvents(markets, regimeData),
+      ...collectThesisHealthEvents(),
+    ].filter(Boolean);
+
+    const seen = new Map();
+    allSignals = allSignals.filter((s) => {
+      const key = `${s.type}_${s.assetId.symbol}`;
+      if (seen.has(key)) {
+        const existing = seen.get(key);
+        if (s._confidence > existing._confidence) {
+          seen.set(key, s);
+          return false;
+        }
+        return false;
+      }
+      seen.set(key, s);
+      return true;
+    });
+
+    allSignals.sort((a, b) => b._confidence - a._confidence);
+
+    if (W.store) {
+      W.store.set(CACHE_KEY, { timestamp: Date.now(), events: allSignals });
+    }
+
+    return allSignals;
+  }
+
+  return { normalize, collectEvents, computeConfidence };
+})();
+
+console.log("[Events] Module loaded (with confidence model).");
+;
 // ---- js/features/portfolio.js ----
 // ===============================================================
 //         Portfolio Management Module (Weighted Average)
@@ -2753,7 +4979,7 @@ W.portfolio = W.portfolio || {};
 })();
 
 console.log("[Portfolio] Module loaded (weighted-average cost basis).");
-
+;
 // ---- js/features/watchlist.js ----
 // ================================================================
 // js/features/watchlist.js – Weaver Watchlist
@@ -2951,7 +5177,7 @@ W.watchlist = (() => {
 })();
 
 console.log("[Watchlist] Module loaded.");
-
+;
 // ---- js/features/explorer.js ----
 // ===============================================================
 //                   Coin Explorer
@@ -3251,7 +5477,7 @@ W.explorer = (() => {
 })();
 
 console.log("[Explorer] Module loaded.");
-
+;
 // ---- js/features/alerts.js ----
 // js/features/alerts.js – Price Alerts
 
@@ -3482,7 +5708,7 @@ W.alerts = (() => {
 })();
 
 console.log("[Alerts] Module loaded.");
-
+;
 // ---- js/features/news.js ----
 // js/features/news.js – Complete News Module
 
@@ -3642,7 +5868,7 @@ W.features.news = { render };
 W.news = { render };
 
 console.log("[News] Module loaded.");
-
+;
 // ---- js/features/ai.js ----
 //  Premium AI Intelligence Engine
 // ================================================================
@@ -4422,7 +6648,7 @@ ${behaviorContext}
 
 Object.assign(W.ai, AiModule);
 console.log("[AI] Module loaded.");
-
+;
 // ---- js/features/optimizer.js ----
 // ================================================================
 // js/features/optimizer.js – Portfolio Optimizer
@@ -4706,7 +6932,7 @@ W.optimizer = (() => {
 })();
 
 console.log("[Optimizer] Module loaded.");
-
+;
 // ---- js/features/timemachine.js ----
 // ================================================================
 // js/features/timemachine.js – Time Machine: Replay Portfolio History
@@ -5071,7 +7297,7 @@ W.time = W.time || {};
 
   console.log("[TimeMachine] Module loaded.");
 })();
-
+;
 // ---- js/features/trader.js ----
 // ================================================================
 // js/features/trader.js – AI Trading Assistant
@@ -5530,7 +7756,7 @@ W.trader = (() => {
 })();
 
 console.log("[Trader] Module loaded.");
-
+;
 // ---- js/features/gems.js ----
 // js/features/gems.js – Gem Agent: Token Hunter
 
@@ -5846,7 +8072,7 @@ W.gems = (() => {
 })();
 
 console.log("[Gems] Module loaded.");
-
+;
 // ---- js/features/shield.js ----
 // ================================================================
 // js/features/shield.js – Token Shield (Contract Security Auditor)
@@ -6295,7 +8521,7 @@ W.shield = (() => {
 })();
 
 console.log("[Shield] Module loaded.");
-
+;
 // ---- js/features/web3.js ----
 // ===============================================================
 //         Secure Web3 Wallet Connector (Privacy & Security)
@@ -6631,7 +8857,7 @@ W.web3 = W.web3 || {};
 })();
 
 console.log("[Web3] Module loaded (secure & private).");
-
+;
 // ---- js/features/misc.js ----
 // ================================================================
 // js/features/misc.js – Miscellaneous Features
@@ -7271,7 +9497,7 @@ W.misc = (() => {
 })();
 
 console.log("[Misc] Module loaded (with encrypted settings).");
-
+;
 // ---- js/features/whales.js ----
 // ================================================================
 // js/features/whales.js – Multi‑Chain Whale Wallet Tracker
@@ -7774,7 +10000,7 @@ W.whales = (() => {
 })();
 
 console.log("[Whales] Module loaded (with masked logging).");
-
+;
 // ---- js/features/smart.js ----
 // ================================================================
 // js/features/smart.js – Smart Money Tracker
@@ -8150,7 +10376,7 @@ W.smart = (() => {
 })();
 
 console.log("[Smart] Module loaded.");
-
+;
 // ---- js/features/unlocks.js ----
 // ================================================================
 // js/features/unlocks.js – Token Unlock Calendar
@@ -8514,7 +10740,7 @@ W.unlocks = (() => {
 })();
 
 console.log("[Unlocks] Module loaded.");
-
+;
 // ---- js/features/sectors.js ----
 // ================================================================
 // js/features/sectors.js – Sector Rotation Heatmap
@@ -8772,7 +10998,7 @@ W.sectors = (() => {
 })();
 
 console.log("[Sectors] Module loaded.");
-
+;
 // ---- js/features/learn.js ----
 //  Comprehensive Crypto & Web3 Education
 
@@ -9418,7 +11644,7 @@ W.learn = (() => {
 })();
 
 console.log("[Learn] Module loaded.");
-
+;
 // ---- js/features/sync.js ----
 // ===============================================================
 //             Secure Encrypted Sync for Weaver
@@ -9850,7 +12076,7 @@ if (typeof document !== "undefined") {
 }
 
 console.log("[Sync] Module loaded securely (with hash storage).");
-
+;
 // ---- js/features/telegram.js ----
 // ================================================================
 // js/features/telegram.js – Telegram Alert Integration
@@ -10147,7 +12373,7 @@ W.tg = (() => {
 })();
 
 console.log("[Telegram] Module loaded.");
-
+;
 // ---- js/features/walletsync.js ----
 // ================================================================
 // js/features/walletsync.js – Secure Multi‑Chain Wallet Sync
@@ -10786,7 +13012,440 @@ W.walletSync = (() => {
 })();
 
 console.log("[WalletSync] Module loaded (secure).");
+;
+// ---- js/features/theses.js ----
+// ===============================================================
+//         Investment Thesis Tracking Module
+// ===============================================================
+//
+// Purpose: Track WHY a user holds an asset and evaluate the
+// health of that thesis against current market evidence.
+// Integrates with W.thesisHealth (Task 19).
+//
+// ===============================================================
 
+window.W = window.W || {};
+W.theses = W.theses || {};
+
+(function () {
+  const THESES_KEY = "investment_theses";
+
+  // ── State ──────────────────────────────────────────────
+  let theses = W.store.get(THESES_KEY, []);
+
+  function save() {
+    W.store.set(THESES_KEY, theses);
+  }
+
+  // ── CRUD Operations ────────────────────────────────────
+
+  function all() {
+    return theses;
+  }
+
+  function create(data) {
+    const thesis = {
+      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+      asset: data.asset || "UNKNOWN",
+      statement: data.statement || "",
+      reasons: data.reasons || "",
+      signals: data.signals || "",
+      invalidation: data.invalidation || "",
+      horizon: data.horizon || "Medium-term",
+      target: data.target || null,
+      createdAt: new Date().toISOString(),
+      status: "active", // active, invalidated, completed
+    };
+    theses.push(thesis);
+    save();
+    return thesis;
+  }
+
+  function remove(id) {
+    theses = theses.filter((t) => t.id !== id);
+    save();
+  }
+
+  // ── Render UI ──────────────────────────────────────────
+
+  async function render(view) {
+    // 1. Get active theses and unique assets for efficient fetching
+    const activeTheses = theses.filter((t) => t.status === "active");
+    const uniqueAssets = [
+      ...new Set(activeTheses.map((t) => t.asset?.toLowerCase())),
+    ].filter(Boolean);
+
+    // 2. Fetch market data for these assets in bulk (Rule 31)
+    let marketData = {};
+    if (uniqueAssets.length > 0 && W.api?.markets) {
+      try {
+        const markets = await W.api.markets(uniqueAssets.join(","));
+        markets.forEach((m) => {
+          if (m && m.id) marketData[m.id.toLowerCase()] = m.current_price;
+        });
+      } catch (e) {
+        console.warn(
+          "[Theses] Failed to fetch market data for health check:",
+          e.message,
+        );
+      }
+    }
+
+    // 3. Generate HTML with Health Badges
+    view.innerHTML = `
+      <div class="card">
+        <h3>📝 Investment Theses</h3>
+        <p class="muted small">Track WHY you hold an asset. The system will evaluate your thesis against market evidence.</p>
+        <button class="btn primary" id="btn-new-thesis">+ New Thesis</button>
+      </div>
+
+      <div id="theses-list" class="grid-2">
+        ${activeTheses.length === 0 ? '<p class="muted">No active theses. Create one to start tracking.</p>' : ""}
+        ${activeTheses
+          .map((t) => {
+            // Calculate health using the new engine (Rule 21: handles null price gracefully)
+            const currentPrice = marketData[t.asset?.toLowerCase()] || null;
+            const health = W.thesisHealth
+              ? W.thesisHealth.evaluate(t, currentPrice, null)
+              : null;
+
+            const badgeHtml = health
+              ? W.thesisHealth.renderBadge(t.id, health)
+              : "";
+
+            return `
+          <div class="card" data-thesis-id="${t.id}">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <h4 style="margin:0;">${W.fmt.escapeHTML(t.asset)} ${badgeHtml}</h4>
+            </div>
+            <p class="small"><b>Statement:</b> ${W.fmt.escapeHTML(t.statement)}</p>
+            <p class="small muted"><b>Horizon:</b> ${W.fmt.escapeHTML(t.horizon)} | <b>Target:</b> ${t.target ? "$" + t.target : "N/A"}</p>
+            <p class="small muted"><b>Invalidation:</b> ${W.fmt.escapeHTML(t.invalidation)}</p>
+            
+            <!-- Hook for health details (injected below) -->
+            <div class="thesis-health-details" data-details-id="${t.id}" style="margin-top: 12px;"></div>
+
+            <div style="margin-top:10px; display:flex; gap:10px;">
+              <button class="btn tiny warn" data-action="invalidate" data-id="${t.id}">Mark Invalidated</button>
+              <button class="btn tiny" data-action="delete" data-id="${t.id}">Delete</button>
+            </div>
+          </div>
+          `;
+          })
+          .join("")}
+      </div>
+
+      <div id="thesis-form-container" class="card hidden" style="margin-top:20px;">
+        <h4>Create New Thesis</h4>
+        <form id="thesis-form" class="form-grid">
+          <input type="text" id="t-asset" placeholder="Asset (e.g. BTC)" required class="input">
+          <input type="text" id="t-horizon" placeholder="Time Horizon (e.g. 6 months)" class="input">
+          <input type="number" id="t-target" placeholder="Price Target (Optional)" step="any" class="input">
+          <textarea id="t-statement" placeholder="Core Thesis Statement (Why are you buying?)" required class="input" rows="3"></textarea>
+          <textarea id="t-signals" placeholder="Expected confirming signals" class="input" rows="2"></textarea>
+          <textarea id="t-invalidation" placeholder="What would prove this thesis wrong?" class="input" rows="2"></textarea>
+          <div style="grid-column: 1 / -1; display:flex; gap:10px;">
+            <button type="submit" class="btn primary">Save Thesis</button>
+            <button type="button" class="btn" id="btn-cancel-thesis">Cancel</button>
+          </div>
+        </form>
+      </div>
+    `;
+
+    // 4. Inject Health Details after DOM is rendered (Rule 15: Safe rendering)
+    if (W.thesisHealth) {
+      activeTheses.forEach((t) => {
+        const currentPrice = marketData[t.asset?.toLowerCase()] || null;
+        const health = W.thesisHealth.evaluate(t, currentPrice, null);
+
+        // Only show detailed breakdown if it's not perfectly healthy, to save UI space
+        if (health && health.status !== "Healthy") {
+          const detailsContainer = view.querySelector(
+            `.thesis-health-details[data-details-id="${t.id}"]`,
+          );
+          if (detailsContainer) {
+            W.thesisHealth.renderDetails(detailsContainer, health);
+          }
+        }
+      });
+    }
+
+    // ── Event Listeners ──────────────────────────────────
+    const newThesisBtn = view.querySelector("#btn-new-thesis");
+    if (newThesisBtn) {
+      newThesisBtn.onclick = () => {
+        view.querySelector("#thesis-form-container").classList.remove("hidden");
+      };
+    }
+
+    const cancelThesisBtn = view.querySelector("#btn-cancel-thesis");
+    if (cancelThesisBtn) {
+      cancelThesisBtn.onclick = () => {
+        view.querySelector("#thesis-form-container").classList.add("hidden");
+      };
+    }
+
+    const form = view.querySelector("#thesis-form");
+    if (form) {
+      form.onsubmit = (e) => {
+        e.preventDefault();
+        create({
+          asset: view.querySelector("#t-asset").value.trim().toUpperCase(),
+          horizon: view.querySelector("#t-horizon").value.trim(),
+          target: parseFloat(view.querySelector("#t-target").value) || null,
+          statement: view.querySelector("#t-statement").value.trim(),
+          signals: view.querySelector("#t-signals").value.trim(),
+          invalidation: view.querySelector("#t-invalidation").value.trim(),
+        });
+        render(view);
+        W.ui.toast("Thesis created", "ok");
+      };
+    }
+
+    view.querySelectorAll("[data-action='delete']").forEach((btn) => {
+      btn.onclick = () => {
+        remove(btn.dataset.id);
+        render(view);
+        W.ui.toast("Thesis deleted", "ok");
+      };
+    });
+
+    view.querySelectorAll("[data-action='invalidate']").forEach((btn) => {
+      btn.onclick = () => {
+        const t = theses.find((x) => x.id === btn.dataset.id);
+        if (t) {
+          t.status = "invalidated";
+          save();
+          render(view);
+          W.ui.toast("Thesis invalidated", "warn");
+        }
+      };
+    });
+  }
+
+  // ── Exports ────────────────────────────────────────────
+  W.theses = { all, create, remove, render };
+})();
+
+console.log("[Theses] Module loaded (with Health Monitor integration).");
+;
+// ---- js/features/journal.js ----
+// ===============================================================
+//         Decision Journal Module
+// ===============================================================
+//
+// Purpose: Record WHY a decision was made, linking actions to
+// investment theses and preserving context for future review.
+// Integrates with Decision Replay Engine (Task 21).
+// Rules: 15 (Security), 21 (Data Correctness), 25 (Journal), 31 (Performance).
+//
+// ===============================================================
+
+window.W = window.W || {};
+W.journal = W.journal || {};
+
+(function () {
+  const JOURNAL_KEY = "decision_journal";
+
+  // ── State ──────────────────────────────────────────────
+  let decisions = W.store.get(JOURNAL_KEY, []);
+
+  function save() {
+    W.store.set(JOURNAL_KEY, decisions);
+  }
+
+  // ── CRUD Operations ────────────────────────────────────
+
+  function all() {
+    return decisions;
+  }
+
+  function create(data) {
+    const decision = {
+      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+      asset: data.asset || "UNKNOWN",
+      action: data.action || "Hold", // Buy, Sell, Hold
+      amount: parseFloat(data.amount) || 0,
+      price: parseFloat(data.price) || 0,
+      thesisId: data.thesisId || null,
+      reasoning: data.reasoning || "",
+      confidence: parseFloat(data.confidence) || 0.5, // 0.0 to 1.0
+      horizon: data.horizon || "Short-term",
+      timestamp: new Date().toISOString(),
+    };
+    decisions.unshift(decision); // Add to top
+    save();
+    return decision;
+  }
+
+  function remove(id) {
+    decisions = decisions.filter((d) => d.id !== id);
+    save();
+  }
+
+  // ── Render UI ──────────────────────────────────────────
+
+  async function render(view) {
+    const activeTheses = W.theses
+      ? W.theses.all().filter((t) => t.status === "active")
+      : [];
+
+    view.innerHTML = `
+      <div class="card">
+        <h3>📓 Decision Journal</h3>
+        <p class="muted small">Record WHY you are making a trade. A transaction records WHAT happened; this records WHY.</p>
+        <button class="btn primary" id="btn-new-decision">+ Log Decision</button>
+      </div>
+
+      <div id="decision-list" style="margin-top: 20px;">
+        ${decisions.length === 0 ? '<p class="muted">No decisions logged yet.</p>' : ""}
+        ${decisions
+          .map((d) => {
+            // Find linked thesis
+            const linkedThesis = activeTheses.find((t) => t.id === d.thesisId);
+            const actionColor =
+              d.action === "Buy"
+                ? "var(--up)"
+                : d.action === "Sell"
+                  ? "var(--down)"
+                  : "var(--text-muted)";
+
+            return `
+          <div class="card" style="margin-bottom: 15px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <div>
+                <span style="color:${actionColor}; font-weight:bold; font-size:1.1em;">${d.action.toUpperCase()}</span> 
+                <b>${W.fmt.escapeHTML(d.asset)}</b>
+                <!-- Hook for Decision Replay Badge -->
+                <span class="replay-container" data-decision-id="${d.id}"></span>
+                <span class="muted small"> @ ${W.fmt.price(d.price)}</span>
+              </div>
+              <span class="muted small">${W.fmt.relativeTime(d.timestamp)}</span>
+            </div>
+            
+            <p class="small"><b>Reasoning:</b> ${W.fmt.escapeHTML(d.reasoning)}</p>
+            
+            <div style="display:flex; gap:15px; margin-top:10px; font-size:0.85em;">
+              <span class="muted"><b>Confidence:</b> ${(d.confidence * 100).toFixed(0)}%</span>
+              <span class="muted"><b>Horizon:</b> ${W.fmt.escapeHTML(d.horizon)}</span>
+              ${linkedThesis ? `<span class="muted"><b>Linked Thesis:</b> ${W.fmt.escapeHTML(linkedThesis.statement.substring(0, 40))}...</span>` : ""}
+            </div>
+
+            <div style="margin-top:10px; text-align:right;">
+              <button class="btn tiny warn" data-action="delete" data-id="${d.id}">Delete</button>
+            </div>
+          </div>
+          `;
+          })
+          .join("")}
+      </div>
+
+      <div id="decision-form-container" class="card hidden" style="margin-top:20px;">
+        <h4>Log New Decision</h4>
+        <form id="decision-form" class="form-grid">
+          <input type="text" id="d-asset" placeholder="Asset (e.g. BTC)" required class="input">
+          <select id="d-action" class="input">
+            <option value="Buy">Buy</option>
+            <option value="Sell">Sell</option>
+            <option value="Hold">Hold / DCA</option>
+          </select>
+          <input type="number" id="d-amount" placeholder="Amount" step="any" class="input">
+          <input type="number" id="d-price" placeholder="Execution Price" step="any" class="input">
+          
+          <select id="d-thesis" class="input">
+            <option value="">-- Link to Thesis (Optional) --</option>
+            ${activeTheses.map((t) => `<option value="${t.id}">${W.fmt.escapeHTML(t.asset)}: ${W.fmt.escapeHTML(t.statement.substring(0, 30))}...</option>`).join("")}
+          </select>
+
+          <input type="number" id="d-confidence" placeholder="Confidence (0.0 to 1.0)" step="0.1" min="0" max="1" class="input">
+          <input type="text" id="d-horizon" placeholder="Time Horizon (e.g. 2 weeks)" class="input">
+          
+          <textarea id="d-reasoning" placeholder="Why are you making this decision? What is the context?" required class="input" rows="3" style="grid-column: 1 / -1;"></textarea>
+          
+          <div style="grid-column: 1 / -1; display:flex; gap:10px;">
+            <button type="submit" class="btn primary">Save Decision</button>
+            <button type="button" class="btn" id="btn-cancel-decision">Cancel</button>
+          </div>
+        </form>
+      </div>
+    `;
+
+    // ── Event Listeners ──────────────────────────────────
+    view.querySelector("#btn-new-decision").onclick = () => {
+      view.querySelector("#decision-form-container").classList.remove("hidden");
+    };
+    view.querySelector("#btn-cancel-decision").onclick = () => {
+      view.querySelector("#decision-form-container").classList.add("hidden");
+    };
+
+    view.querySelector("#decision-form").onsubmit = (e) => {
+      e.preventDefault();
+      create({
+        asset: view.querySelector("#d-asset").value.trim().toUpperCase(),
+        action: view.querySelector("#d-action").value,
+        amount: view.querySelector("#d-amount").value,
+        price: view.querySelector("#d-price").value,
+        thesisId: view.querySelector("#d-thesis").value || null,
+        confidence: view.querySelector("#d-confidence").value,
+        horizon: view.querySelector("#d-horizon").value.trim(),
+        reasoning: view.querySelector("#d-reasoning").value.trim(),
+      });
+      render(view);
+      W.ui.toast("Decision logged", "ok");
+    };
+
+    view.querySelectorAll("[data-action='delete']").forEach((btn) => {
+      btn.onclick = () => {
+        remove(btn.dataset.id);
+        render(view);
+        W.ui.toast("Decision deleted", "ok");
+      };
+    });
+
+    // ── Decision Replay Integration (Task 21) ─────────────
+    if (W.decisionReplay && decisions.length > 0) {
+      // 1. Get unique assets to fetch prices efficiently (Rule 31)
+      const uniqueAssets = [
+        ...new Set(decisions.map((d) => d.asset?.toLowerCase())),
+      ].filter(Boolean);
+      let priceMap = {};
+
+      if (uniqueAssets.length > 0 && W.api?.markets) {
+        try {
+          const markets = await W.api.markets(uniqueAssets.join(","));
+          markets.forEach((m) => {
+            if (m && m.id) priceMap[m.id.toLowerCase()] = m.current_price;
+          });
+        } catch (e) {
+          console.warn(
+            "[Journal] Failed to fetch market data for replay:",
+            e.message,
+          );
+        }
+      }
+
+      // 2. Evaluate and inject badges
+      decisions.forEach((d) => {
+        const currentPrice = priceMap[d.asset?.toLowerCase()] || null;
+        const outcome = W.decisionReplay.evaluate(d, currentPrice);
+
+        const container = view.querySelector(
+          `.replay-container[data-decision-id="${d.id}"]`,
+        );
+        if (container) {
+          // innerHTML is safe here because renderBadge returns a strictly controlled, static string
+          container.innerHTML = W.decisionReplay.renderBadge(outcome);
+        }
+      });
+    }
+  }
+
+  // ── Exports ────────────────────────────────────────────
+  W.journal = { all, create, remove, render };
+})();
+
+console.log("[Journal] Decision module loaded (with Replay integration).");
+;
 // ---- js/ui/particles.js ----
 // ================================================================
 // js/ui/particles.js – Futuristic Particle System (Starfield + Neural Network)
@@ -10917,7 +13576,7 @@ console.log("[WalletSync] Module loaded (secure).");
 
   console.log("[Particles] Initialized");
 })();
-
+;
 // ---- js/ui/tilt.js ----
 // ================================================================
 // js/ui/tilt.js – 3D Tilt on .card elements (smooth, subtle)
@@ -10973,7 +13632,7 @@ console.log("[WalletSync] Module loaded (secure).");
 
   console.log(`[Tilt] Enabled on ${cards.length} cards.`);
 })();
-
+;
 // ---- js/app.js ----
 //  Weaver Core Application
 
@@ -11397,4 +14056,133 @@ window.W = window.W || {};
 })();
 
 console.log("[App] Module loaded.");
+;
+// ---- js/init.js ----
+// ===============================================================
+//         Initialization Script for Weaver 
+// ===============================================================
 
+(function () {
+  // Ensure W is defined
+  window.W = window.W || {};
+
+  // ── Clock Updates ────────────────────────────────────────
+  function updateClock() {
+    const clockEl = document.getElementById("clock");
+    if (clockEl) {
+      clockEl.textContent = new Date().toLocaleTimeString();
+    }
+  }
+
+  // ── Currency Initialization ──────────────────────────────
+  function initCurrency() {
+    const curEl = document.getElementById("currency");
+    if (!curEl) return;
+
+    // Get stored currency or default to USD
+    const settings = W.store?.get?.("settings", {}) || {};
+    const storedCurrency = settings.currency || "usd";
+
+    // Update dropdown
+    curEl.value = storedCurrency;
+
+    // Add change handler if not already set
+    if (!curEl._listenerAttached) {
+      curEl._listenerAttached = true;
+      curEl.addEventListener("change", function () {
+        const settings = W.store?.get?.("settings", {}) || {};
+        settings.currency = this.value;
+        W.store?.set?.("settings", settings);
+        // Refresh the view to update prices
+        if (W.refresh) W.refresh();
+        if (W.ui?.toast)
+          W.ui.toast(`Currency changed to ${this.value.toUpperCase()}`, "info");
+      });
+    }
+  }
+
+  // ── Auto-Refresh Initialization ──────────────────────────
+  function initRefresh() {
+    const settings = W.store?.get?.("settings", {}) || {};
+    const seconds = settings.refresh ?? 60;
+
+    // Clear existing interval
+    if (window._refreshInterval) {
+      clearInterval(window._refreshInterval);
+      window._refreshInterval = null;
+    }
+
+    if (seconds > 0) {
+      window._refreshInterval = setInterval(() => {
+        // Only refresh if no modal is open
+        if (!document.querySelector("#modal-root .modal")) {
+          if (W.refresh) W.refresh();
+        }
+      }, seconds * 1000);
+    }
+  }
+
+  // ── Sync Button Handler ──────────────────────────────────
+  function initSyncButton() {
+    const syncBtn = document.getElementById("sync-btn");
+    if (!syncBtn) return;
+
+    if (!syncBtn._listenerAttached) {
+      syncBtn._listenerAttached = true;
+      syncBtn.onclick = () => {
+        if (W.sync?.syncVault) {
+          W.sync.syncVault();
+        } else if (W.ui?.toast) {
+          W.ui.toast("Sync module not available", "warn");
+        }
+      };
+    }
+  }
+
+  // ── Theme Initialization ─────────────────────────────────
+  function initTheme() {
+    // Check for saved theme preference
+    const settings = W.store?.get?.("settings", {}) || {};
+    const theme = settings.theme || "dark";
+
+    // Apply theme
+    if (theme === "light") {
+      document.documentElement.setAttribute("data-theme", "light");
+    } else {
+      document.documentElement.removeAttribute("data-theme");
+    }
+  }
+
+  // ── Run All Initializations ──────────────────────────────
+  function runInit() {
+    // Wait for W.store to be available
+    if (!W.store) {
+      setTimeout(runInit, 100);
+      return;
+    }
+
+    updateClock();
+    initCurrency();
+    initRefresh();
+    initSyncButton();
+    initTheme();
+
+    console.log("✅ Weaver initialization complete.");
+  }
+
+  // ── Start ─────────────────────────────────────────────────
+  // Update clock immediately, then every second
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  // Run full initialization
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", runInit);
+  } else {
+    runInit();
+  }
+
+  // ── Expose refresh initializer ───────────────────────────
+  window._initRefresh = initRefresh;
+})();
+;

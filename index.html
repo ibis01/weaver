@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <!-- STRICT CONTENT SECURITY POLICY – Production Hardened -->
+    <!-- STRICT CSP – now allows CDN for Chart.js sub-resources -->
     <meta
       http-equiv="Content-Security-Policy"
       content="
         default-src 'self';
-        script-src 'self' https://cdn.jsdelivr.net;
-        style-src 'self' https://fonts.googleapis.com;
+        script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline';
+        style-src 'self' https://fonts.googleapis.com 'unsafe-inline';
         font-src 'self' https://fonts.gstatic.com;
         img-src 'self' data: https:;
         connect-src 'self' 
@@ -22,7 +22,10 @@
           https://api.codetabs.com 
           https://eth.blockscout.com 
           https://mempool.space
-          https://cloudflare-eth.com;
+          https://cloudflare-eth.com
+          https://cdn.jsdelivr.net
+          http://localhost:3001
+          http://127.0.0.1:3001;
         worker-src 'self';
         object-src 'none';
         base-uri 'self';
@@ -103,10 +106,16 @@
     <div id="modal-root"></div>
 
     <!-- =================================================== -->
+    <!-- Chart.js – Load BEFORE the bundle                    -->
+    <!-- =================================================== -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+    <!-- =================================================== -->
     <!-- Production Bundle (minified, all logic included)    -->
     <!-- =================================================== -->
-    <script src="dist/bundle.min.js"></script>
+    <script src="dist/bundle.js"></script>
 
-    <!-- <script src="js/test.js"></script> -->
+    <!-- Tests are excluded in production -->
+    <<script src="js/test.js"></script>
   </body>
 </html>
