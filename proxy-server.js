@@ -114,29 +114,35 @@ async function validateUrl(urlString) {
   return url;
 }
 
-// ── Express setup ──────────────────────────────────────
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      // Allow no‑origin (health checks, server-to-server)
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Origin not allowed by CORS"));
-      }
-    },
-    methods: ["GET"],
-    credentials: false,
-  }),
-);
+// ── Strict CORS Configuration ──────────────────────────
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
+  : [
+      'http://localhost:3000',
+      'http://localhost:8000',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:8000'
+      // Add verified production frontend URL here (e.g., 'https://weaver.app')
+    ];
 
-app.use((req, res, next) => {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("X-XSS-Protection", "1; mode=block");
-  next();
-});
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (e.g., mobile apps, curl, or health checks)
+    if (!origin) {
+      return callback(null, true); 
+    }
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`[CORS] Blocked request from unauthorized origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200
+}));
 
 // ── Proxy endpoint ──────────────────────────────────────
 app.get("/proxy", async (req, res) => {
