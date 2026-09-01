@@ -1,5 +1,5 @@
 // ===============================================================
-//         Portfolio Management Module (Weighted Average)
+//         Portfolio Management Module – Data Correctness
 // ===============================================================
 
 window.W = window.W || {};
@@ -7,7 +7,6 @@ W.portfolio = W.portfolio || {};
 
 (function () {
   const PORTFOLIO_KEY = "portfolio_holdings";
-
   let holdings = W.store.get(PORTFOLIO_KEY, []);
 
   function save() {
@@ -25,6 +24,7 @@ W.portfolio = W.portfolio || {};
       return false;
     }
 
+    // Normalize symbol to uppercase; later we'll use AssetId
     const symbol = holding.symbol.toUpperCase();
     const qty = parseFloat(holding.qty) || 0;
     const buyPrice = parseFloat(holding.buyPrice) || 0;
@@ -42,19 +42,23 @@ W.portfolio = W.portfolio || {};
       const existing = holdings[existingIndex];
       const oldQty = parseFloat(existing.qty) || 0;
       const oldAvg = parseFloat(existing.buyPrice) || 0;
+      // Use totalCost if available, else compute from old qty and avg
+      const oldTotalCost =
+        existing.totalCost !== undefined ? existing.totalCost : oldQty * oldAvg;
+      const newTotalCost = oldTotalCost + qty * buyPrice;
       const newTotalQty = oldQty + qty;
-      const newTotalCost = oldQty * oldAvg + qty * buyPrice;
       const newAvgPrice = newTotalQty > 0 ? newTotalCost / newTotalQty : 0;
 
       holdings[existingIndex] = {
         ...existing,
         qty: newTotalQty,
         buyPrice: newAvgPrice,
-        totalCost: newTotalCost, // new field for exact cost tracking
+        totalCost: newTotalCost,
         updatedAt: Date.now(),
       };
     } else {
-      // New holding
+      // New holding – compute totalCost
+      const totalCost = qty * buyPrice;
       holdings.push({
         id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
         symbol: symbol,
@@ -63,7 +67,7 @@ W.portfolio = W.portfolio || {};
         img: holding.img || "",
         qty: qty,
         buyPrice: buyPrice,
-        totalCost: qty * buyPrice,
+        totalCost: totalCost,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
@@ -81,7 +85,6 @@ W.portfolio = W.portfolio || {};
   function update(id, updates) {
     const index = holdings.findIndex((h) => h.id === id);
     if (index === -1) return false;
-    // Only update allowed fields, but recompute totalCost if qty or buyPrice changes
     const current = holdings[index];
     const newQty =
       updates.qty !== undefined ? parseFloat(updates.qty) : current.qty;
@@ -89,12 +92,13 @@ W.portfolio = W.portfolio || {};
       updates.buyPrice !== undefined
         ? parseFloat(updates.buyPrice)
         : current.buyPrice;
+    const newTotalCost = newQty * newPrice;
     holdings[index] = {
       ...current,
       ...updates,
       qty: newQty,
       buyPrice: newPrice,
-      totalCost: newQty * newPrice,
+      totalCost: newTotalCost,
       updatedAt: Date.now(),
     };
     save();
@@ -106,7 +110,7 @@ W.portfolio = W.portfolio || {};
     save();
   }
 
-  // ── Transactions (for tax reporting) ─────────────────────────
+  // ── Transactions (tax reporting) ─────────────────────────────
   const TX_KEY = "portfolio_transactions";
   function txs() {
     return W.store.get(TX_KEY, []);
@@ -119,13 +123,10 @@ W.portfolio = W.portfolio || {};
       timestamp: Date.now(),
     });
     W.store.set(TX_KEY, list);
-    // Also update the holding's qty and cost basis automatically?
-    // For now, we'll let the user manually add holdings.
-    // In a full implementation, this would adjust holdings.
     return true;
   }
 
-  // ── Seed sample portfolio ────────────────────────────────────
+  // ── Seed sample portfolio (for testing) ──────────────────────
   function seed() {
     const samples = [
       {
@@ -157,13 +158,14 @@ W.portfolio = W.portfolio || {};
     return true;
   }
 
-  // ── Render UI ──────────────────────────────────────────────────
+  // ── Render UI (minimal; dashboard handles full rendering) ──
   async function render(view) {
-    // (Existing render logic – keep as is, but ensure it uses the new fields)
-    // We'll skip the full render code here for brevity; it's unchanged.
-    // Just note that the `add` function now handles weighted average.
+    // This is a stub; dashboard.js renders the portfolio table.
+    // We keep it for consistency.
+    view.innerHTML = '<p class="muted">Portfolio module loaded</p>';
   }
 
+  // ── Public API ──────────────────────────────────────────────
   W.portfolio = {
     all,
     add,
@@ -177,4 +179,6 @@ W.portfolio = W.portfolio || {};
   };
 })();
 
-console.log("[Portfolio] Module loaded (weighted-average cost basis).");
+console.log(
+  "[Portfolio] Module loaded (weighted-average cost basis with totalCost).",
+);

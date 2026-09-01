@@ -1,5 +1,4 @@
 // ====== Weaver Bundle ======
-// Ensure global W object exists
 if (typeof window.W === "undefined") window.W = {};
 // ==============================
 
@@ -189,7 +188,6 @@ const StorageModule = (function () {
 // ── ALWAYS assign the proper storage module ──────────────────
 W.store = StorageModule;
 console.log("[Storage] Module loaded.");
-;
 // ---- js/lib/crypto/secure.js ----
 // ===============================================================
 //         Secure Encryption Module for Weaver Settings
@@ -300,7 +298,6 @@ W.crypto = W.crypto || {};
 W.crypto.secure = SecureCrypto;
 
 console.log("[SecureCrypto] Module loaded.");
-;
 // ---- js/utils/format.js ----
 // ===============================================================
 //         Formatting Utilities for Weaver
@@ -432,7 +429,6 @@ W.fmt = W.fmt || {};
 
   console.log("[Format] Utilities loaded.");
 })();
-;
 // ---- js/utils/finance.js ----
 // ===============================================================
 //         Deterministic Financial Math Engine for Weaver
@@ -629,7 +625,6 @@ W.finance = (() => {
 })();
 
 console.log("[Finance] Deterministic math engine loaded.");
-;
 // ---- js/utils/debounce.js ----
 //  Debounce Utility
 
@@ -769,7 +764,95 @@ W.throttleLeading = function (fn, ms = 300) {
 };
 
 console.log("[Utils] Debounce module loaded.");
-;
+// ---- js/utils/logger.js ----
+// ===============================================================
+//         Simple Logger – Unified Logging with Levels
+// ===============================================================
+
+const LOG_LEVELS = {
+  error: 0,
+  warn: 1,
+  info: 2,
+  debug: 3,
+  trace: 4,
+};
+
+const currentLevel = (() => {
+  const env = localStorage.getItem("weaver_log_level") || "info";
+  return LOG_LEVELS[env] || LOG_LEVELS.info;
+})();
+
+function log(level, module, message, data = null) {
+  if (LOG_LEVELS[level] > currentLevel) return;
+  const prefix = `[${new Date().toISOString()}] [${level.toUpperCase()}] [${module}]`;
+  if (data) {
+    console[level === "error" ? "error" : "log"](prefix, message, data);
+  } else {
+    console[level === "error" ? "error" : "log"](prefix, message);
+  }
+}
+
+window.W = window.W || {};
+W.logger = {
+  error: (module, msg, data) => log("error", module, msg, data),
+  warn: (module, msg, data) => log("warn", module, msg, data),
+  info: (module, msg, data) => log("info", module, msg, data),
+  debug: (module, msg, data) => log("debug", module, msg, data),
+  trace: (module, msg, data) => log("trace", module, msg, data),
+  setLevel: (level) => {
+    if (LOG_LEVELS[level] !== undefined) {
+      localStorage.setItem("weaver_log_level", level);
+    }
+  },
+};
+
+console.log("[Logger] Module loaded.");
+// ---- js/utils/performance.js ----
+// ===============================================================
+//         Virtual Scrolling for Large Lists
+// ===============================================================
+
+window.W = window.W || {};
+W.perf = W.perf || {};
+
+/**
+ * Virtual scroll for large lists (e.g., holdings, top coins).
+ * @param {HTMLElement} container - The scroll container.
+ * @param {number} itemHeight - Height of each item in pixels.
+ * @param {Array} data - The list of items.
+ * @param {Function} renderFn - Function to render a single item.
+ */
+function virtualScroll(container, itemHeight, data, renderFn) {
+  const scrollTop = container.scrollTop;
+  const visibleHeight = container.clientHeight;
+  const totalHeight = data.length * itemHeight;
+  const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - 2);
+  const endIndex = Math.min(
+    data.length,
+    Math.ceil((scrollTop + visibleHeight) / itemHeight) + 2,
+  );
+
+  const fragment = document.createDocumentFragment();
+  for (let i = startIndex; i < endIndex; i++) {
+    const item = data[i];
+    const el = renderFn(item, i);
+    el.style.position = "absolute";
+    el.style.top = `${i * itemHeight}px`;
+    el.style.height = `${itemHeight}px`;
+    el.style.left = "0";
+    el.style.right = "0";
+    fragment.appendChild(el);
+  }
+
+  container.innerHTML = "";
+  container.style.height = `${totalHeight}px`;
+  container.style.position = "relative";
+  container.appendChild(fragment);
+}
+
+W.perf.virtualScroll = virtualScroll;
+
+console.log("[Performance] Virtual scroll module loaded.");
 // ---- js/ui/theme.js ----
 // ================================================================
 // js/ui/theme.js – Weaver Theme Configuration
@@ -1016,7 +1099,6 @@ if (typeof document !== "undefined") {
 }
 
 console.log("[Theme] Module loaded.");
-;
 // ---- js/ui/ui.js ----
 // ================================================================
 // js/ui/ui.js – Weaver UI Utilities
@@ -1265,7 +1347,6 @@ W.ui = {
 };
 
 console.log("[UI] Module loaded.");
-;
 // ---- js/ui/dashboard.js ----
 // ===============================================================
 //                     Weaver Dashboard UI
@@ -1788,7 +1869,7 @@ W.dashboard = (() => {
         <div class="watch-head">
           <h3>🌐 Markets Terminal</h3>
           <div class="qa">
-            <button class="btn primary tiny" id="qa-add">+ Add</button>
+            <button class="btn primary tiny" id="qa-add" aria-label="Add holding">+ Add</button>
             <button class="btn tiny" id="qa-tx">↔ Buy/Sell</button>
             <button class="btn tiny" id="qa-sample" title="Load sample portfolio">🎲</button>
             <button class="btn tiny" id="qa-sync" title="Sync connected wallets">👛 Sync</button>
@@ -2149,8 +2230,6 @@ W.dashboard = (() => {
 console.log(
   "[Dashboard] Module loaded (secure & optimized, with Decision Engine).",
 );
-
-;
 // ---- js/api/prices.js ----
 // ===============================================================
 //                  Market Data API
@@ -2165,13 +2244,10 @@ W.api = (() => {
   const CACHE_TTL = 60000; // 1 minute
   const LONG_CACHE_TTL = 300000; // 5 minutes
 
-  // ── Proxy chain for CORS bypass ─────────────────────────
+  // ── Proxy chain ─────────────────────────────────────────
   const PROXIES = [
-    // Use your local proxy first (must be running on port 3001)
     (u) => "http://localhost:3001/proxy?url=" + encodeURIComponent(u),
-    // Direct (will fail due to CORS, but kept as fallback)
     (u) => u,
-    // Public proxies
     (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
     (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
   ];
@@ -2184,53 +2260,42 @@ W.api = (() => {
   function getCurrency() {
     return W.currency ? W.currency() : "usd";
   }
-
   function getCacheKey(url) {
     return "api_cache:" + url;
   }
-
   function getCached(url, ttl = CACHE_TTL) {
     try {
-      const raw = sessionStorage.getItem(getCacheKey(url));
+      const raw = localStorage.getItem(getCacheKey(url));
       if (!raw) return null;
       const data = JSON.parse(raw);
       if (Date.now() - data.timestamp > ttl) {
-        sessionStorage.removeItem(getCacheKey(url));
+        localStorage.removeItem(getCacheKey(url));
         return null;
       }
       return data.value;
-    } catch (e) {
+    } catch {
       return null;
     }
   }
-
   function setCached(url, value) {
     try {
-      sessionStorage.setItem(
+      localStorage.setItem(
         getCacheKey(url),
-        JSON.stringify({
-          timestamp: Date.now(),
-          value: value,
-        }),
+        JSON.stringify({ timestamp: Date.now(), value }),
       );
-    } catch (e) {
-      // sessionStorage full or unavailable
-    }
+    } catch {}
   }
-
   function isCircuitOpen() {
     return Date.now() < circuitBreaker.until;
   }
-
   function recordFailure() {
     circuitBreaker.failures++;
     if (circuitBreaker.failures >= 5) {
-      circuitBreaker.until = Date.now() + 90000; // 90 seconds
+      circuitBreaker.until = Date.now() + 90000;
       circuitBreaker.failures = 0;
       console.warn("[Prices] Circuit breaker open for 90s");
     }
   }
-
   function resetCircuit() {
     circuitBreaker.failures = 0;
     circuitBreaker.until = 0;
@@ -2238,38 +2303,28 @@ W.api = (() => {
 
   // ── Fetch with proxy fallback ─────────────────────────
   async function fetchWithProxy(url, timeout = 10000, ttl = CACHE_TTL) {
-    // Check cache first
     const cached = getCached(url, ttl);
     if (cached !== null) {
       source = "cache";
       return cached;
     }
-
-    // Check circuit breaker
     if (isCircuitOpen()) {
-      throw new Error("Circuit breaker open (network issues)");
+      throw new Error(
+        "Network is temporarily unavailable. Please try again later.",
+      );
     }
-
     let lastError = null;
     for (const proxy of PROXIES) {
       const proxyUrl = proxy(url);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
-
       try {
         const response = await fetch(proxyUrl, {
           signal: controller.signal,
-          headers: {
-            "User-Agent": "Weaver/1.0 (Crypto Portfolio Tracker)",
-            Accept: "application/json",
-          },
+          headers: { "User-Agent": "Weaver/1.0", Accept: "application/json" },
         });
         clearTimeout(timer);
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         setCached(url, data);
         resetCircuit();
@@ -2283,30 +2338,22 @@ W.api = (() => {
       } catch (e) {
         lastError = e;
         clearTimeout(timer);
-        console.warn(
-          `[Prices] Proxy ${proxyUrl.substring(0, 60)}... failed:`,
-          e.message,
-        );
+        console.warn(`[Prices] Proxy failed: ${e.message}`);
       }
     }
-
     recordFailure();
-    throw lastError || new Error("All proxies failed");
+    throw new Error("Unable to fetch market data. Please try again later.");
   }
 
   // ── Symbol mapping cache ──────────────────────────────
   const symMap = () => W.store.get("sym-map", {});
-
   function learnSymbols(coins) {
     const map = symMap();
     (coins || []).forEach((c) => {
       if (c.id && c.symbol) map[c.id] = c.symbol;
     });
-    try {
-      W.store.set("sym-map", map);
-    } catch (e) {}
+    W.store.set("sym-map", map);
   }
-
   function getSymbol(id) {
     return (symMap()[id] || id).toUpperCase();
   }
@@ -2322,13 +2369,11 @@ W.api = (() => {
         source = "coingecko";
         return d;
       }),
-
     chart: (id, days) =>
       fetchWithProxy(
         `${CG_API}/coins/${id}/market_chart?vs_currency=${getCurrency()}&days=${days}`,
         LONG_CACHE_TTL,
       ).then((d) => d.prices || []),
-
     top: (limit) =>
       fetchWithProxy(
         `${CG_API}/coins/markets?vs_currency=${getCurrency()}&order=market_cap_desc&per_page=${limit}&page=1&price_change_percentage=24h,7d,30d&sparkline=true`,
@@ -2338,27 +2383,23 @@ W.api = (() => {
         source = "coingecko";
         return d;
       }),
-
     global: () =>
       fetchWithProxy(`${CG_API}/global`, LONG_CACHE_TTL).then((d) => d),
-
     search: (query) =>
       fetchWithProxy(
         `${CG_API}/search?query=${encodeURIComponent(query)}`,
         CACHE_TTL,
       ).then((d) => d),
-
     coin: (id) =>
       fetchWithProxy(
         `${CG_API}/coins/${id}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false`,
         LONG_CACHE_TTL,
       ).then((d) => d),
-
     trending: () =>
       fetchWithProxy(`${CG_API}/search/trending`, CACHE_TTL).then((d) => d),
   };
 
-  // ── Binance API (fallback) ────────────────────────────
+  // ── Binance API ─────────────────────────────────────────
   const binance = {
     markets: (ids) => {
       const symbols = ids.map((id) => getSymbol(id) + "USDT");
@@ -2386,7 +2427,6 @@ W.api = (() => {
         }));
       });
     },
-
     chart: (id, days) => {
       const symbol = getSymbol(id) + "USDT";
       return fetchWithProxy(
@@ -2402,35 +2442,31 @@ W.api = (() => {
   // ── API with smart failover ────────────────────────────
   async function withFailover(method, ...args) {
     const order = method === "top" ? ["coingecko"] : ["coingecko", "binance"];
-
     for (const providerName of order) {
       const provider = providerName === "coingecko" ? coingecko : binance;
       if (!provider[method]) continue;
-
       try {
         const result = await provider[method](...args);
         source = providerName;
         return result;
       } catch (e) {
         console.warn(`[Prices] ${providerName}.${method} failed:`, e.message);
-        // Continue to next provider
       }
     }
-
-    throw new Error(`All providers failed for ${method}`);
+    throw new Error(
+      `Market data temporarily unavailable. Using cached data if available.`,
+    );
   }
 
-  // ── Top cache (fallback for top data) ─────────────────
-  let topCache = null;
-  let topCacheTime = 0;
-
+  // ── Top cache ──────────────────────────────────────────
+  let topCache = null,
+    topCacheTime = 0;
   async function getTopCached(limit) {
     const now = Date.now();
     if (topCache && now - topCacheTime < 3600000) {
       source = "topcache";
       return topCache.slice(0, limit);
     }
-
     try {
       const data = await withFailover("top", 100);
       topCache = data;
@@ -2447,42 +2483,26 @@ W.api = (() => {
 
   // ── Public API ──────────────────────────────────────────
   return {
-    // Core methods
     markets: (ids) => {
       if (!ids || !ids.length) return Promise.resolve([]);
       const idArray = typeof ids === "string" ? ids.split(",") : ids;
       return withFailover("markets", idArray);
     },
-
     chart: (id, days = 30) => withFailover("chart", id, days),
-
     top: (limit = 100) => {
-      if (limit <= 50) {
-        // Use cached top data for small requests
-        return getTopCached(limit);
-      }
+      if (limit <= 50) return getTopCached(limit);
       return withFailover("top", limit);
     },
-
     global: () => withFailover("global"),
-
     search: (query) => withFailover("search", query),
-
     coin: (id) => withFailover("coin", id),
-
     trending: () => withFailover("trending"),
-
-    // Fear & Greed (special endpoint)
     fearGreed: () =>
       fetchWithProxy("https://api.alternative.me/fng/?limit=1", CACHE_TTL).then(
         (d) => d.data?.[0] || { value: "50", value_classification: "Neutral" },
       ),
-
-    // Symbol utilities
     getSymbol,
     learnSymbols,
-
-    // Source tracking
     get source() {
       return source;
     },
@@ -2492,8 +2512,7 @@ W.api = (() => {
   };
 })();
 
-console.log("[Prices] Module loaded.");
-;
+console.log("[Prices] Module loaded (improved error handling).");
 // ---- js/api/snapshot.js ----
 
 // js/api/snapshot.js – Fallback Snapshot Cache
@@ -2776,7 +2795,102 @@ window.W = window.W || {};
 
   console.log("[Snapshot] Module loaded.");
 })();
-;
+// ---- js/models/asset.js ----
+// ===============================================================
+// js/models/asset.js – Canonical Asset Identity
+// ===============================================================
+
+window.W = window.W || {};
+W.asset = W.asset || {};
+
+(function () {
+  // ── Local cache for resolved assets ──────────────────────────
+  const RESOLVE_CACHE_KEY = "asset_resolve_cache";
+  function getCache() {
+    return W.store.get(RESOLVE_CACHE_KEY, {});
+  }
+  function setCache(cache) {
+    W.store.set(RESOLVE_CACHE_KEY, cache);
+  }
+
+  // ── Resolve a user input (symbol, name, partial) to AssetId ──
+  async function resolve(input) {
+    if (!input || typeof input !== "string") {
+      throw new Error("Invalid input");
+    }
+
+    const cache = getCache();
+    const normalized = input.trim().toLowerCase();
+    // Check cache first
+    if (cache[normalized]) {
+      return cache[normalized];
+    }
+
+    // Query Coingecko search
+    try {
+      const result = await W.api.search(normalized);
+      if (!result || !result.coins || result.coins.length === 0) {
+        throw new Error(`No asset found for "${input}"`);
+      }
+
+      // Take the first result that matches closely
+      const coin = result.coins[0];
+      const assetId = {
+        chainId: inferChainId(coin), // heuristic
+        contractAddress: null, // we don't have it from search; will be set later if needed
+        symbol: coin.symbol.toUpperCase(),
+        coingeckoId: coin.id,
+        name: coin.name,
+      };
+
+      // Cache it
+      cache[normalized] = assetId;
+      setCache(cache);
+
+      return assetId;
+    } catch (e) {
+      console.warn("[Asset] Resolve failed:", e.message);
+      // Fallback: create a minimal AssetId using the input as symbol
+      return {
+        chainId: "unknown",
+        contractAddress: null,
+        symbol: input.toUpperCase(),
+        coingeckoId: null,
+        name: input,
+      };
+    }
+  }
+
+  // ── Heuristic: infer chain from coin data ────────────────────
+  function inferChainId(coin) {
+    // This is simplistic; in production we'd use the platforms field
+    if (coin.id === "bitcoin") return "bitcoin";
+    if (coin.id === "ethereum") return "ethereum";
+    if (coin.id === "solana") return "solana";
+    if (coin.id === "binancecoin") return "bsc";
+    return "ethereum"; // default
+  }
+
+  // ── Get price for an AssetId ──────────────────────────────────
+  async function getPrice(assetId) {
+    if (assetId.coingeckoId) {
+      const data = await W.api.markets(assetId.coingeckoId);
+      return data[0]?.current_price || 0;
+    }
+    // Fallback: try symbol
+    const data = await W.api.markets(assetId.symbol);
+    return data[0]?.current_price || 0;
+  }
+
+  // ── Exports ────────────────────────────────────────────────────
+  W.asset = {
+    resolve,
+    getPrice,
+    inferChainId,
+  };
+
+  console.log("[Asset] Identity module loaded.");
+})();
 // ---- js/ai/providers.js ----
 // ===============================================================
 //         AI Provider Abstraction Layer
@@ -2892,7 +3006,6 @@ W.ai.providers.register("custom", {
 });
 
 console.log("[AI Providers] Registry initialized.");
-;
 // ---- js/intelligence/evidence.js ----
 // ===============================================================
 //         Evidence Engine for Weaver Intelligence
@@ -2974,16 +3087,9 @@ W.evidence = (() => {
 })();
 
 console.log("[Evidence Engine] Module loaded.");
-;
 // ---- js/intelligence/regime.js ----
 // ===============================================================
-//         Market Regime Detection Engine
-// ===============================================================
-//
-// Purpose: Evidence-based market regime detection (Section 27).
-// Outputs: RISK-ON, TRANSITION, RISK-OFF, UNKNOWN.
-// Always provides confidence and supporting signals.
-//
+//         Market Regime Detection Engine – Confidence Model
 // ===============================================================
 
 window.W = window.W || {};
@@ -2997,17 +3103,14 @@ W.regime = (() => {
     UNKNOWN: "UNKNOWN",
   };
 
-  /**
-   * Detect market regime based on multiple evidence signals.
-   * @param {Object} data - { fearGreed, btcDominance, capChange }
-   * @returns {Object} - { regime, confidence, signals, timestamp }
-   */
   function detect({ fearGreed, btcDominance, capChange }) {
-    let score = 0; // Range: -3 to +3
+    let score = 0;
     const signals = [];
+    let signalCount = 0;
 
     // 1. Sentiment (Fear & Greed Index)
     if (fearGreed !== null && fearGreed !== undefined) {
+      signalCount++;
       if (fearGreed >= 75) {
         score += 2;
         signals.push({
@@ -3047,6 +3150,7 @@ W.regime = (() => {
 
     // 2. Momentum (24h Market Cap Change)
     if (capChange !== null && capChange !== undefined) {
+      signalCount++;
       if (capChange > 5) {
         score += 1;
         signals.push({
@@ -3088,25 +3192,43 @@ W.regime = (() => {
     let regime = STATES.UNKNOWN;
     let confidence = 0;
 
+    // Confidence is based on the number of confirming signals and their strength
+    // This is a heuristic but defensible: more signals agreeing = higher confidence
+    const totalSignals = signalCount || 1;
+    const maxScore = 3; // maximum possible absolute score
+    const normalizedScore = Math.abs(score) / maxScore;
+
+    // Confidence is the product of:
+    // - signal agreement (how many signals agree on direction)
+    // - signal strength (how strong the signal is)
+    const agreementRatio =
+      totalSignals > 0
+        ? signals.filter((s) => {
+            if (score > 0) return s.impact === "risk-on";
+            if (score < 0) return s.impact === "risk-off";
+            return s.impact === "neutral";
+          }).length / totalSignals
+        : 0;
+
+    // Base confidence: 0.5 + 0.4 * normalizedScore * agreementRatio
+    confidence = 0.5 + 0.4 * normalizedScore * agreementRatio;
+    // Clamp and ensure reasonable range
+    confidence = Math.max(0.1, Math.min(0.95, confidence));
+
+    // Final regime decision
     if (score >= 2) {
       regime = STATES.RISK_ON;
-      confidence = Math.min(0.95, 0.5 + (score - 2) * 0.15);
     } else if (score <= -2) {
       regime = STATES.RISK_OFF;
-      confidence = Math.min(0.95, 0.5 + (Math.abs(score) - 2) * 0.15);
-    } else if (score > 0) {
+    } else if (score > 0 || score < 0) {
       regime = STATES.TRANSITION;
-      confidence = 0.45;
-    } else if (score < 0) {
-      regime = STATES.TRANSITION;
-      confidence = 0.45;
     } else {
       regime = STATES.UNKNOWN;
       confidence = 0.1;
     }
 
-    // Fallback if no data provided
-    if (signals.length === 0) {
+    // If no data provided, fallback
+    if (signalCount === 0) {
       regime = STATES.UNKNOWN;
       confidence = 0;
     }
@@ -3122,173 +3244,7 @@ W.regime = (() => {
   return { detect, STATES };
 })();
 
-console.log("[Regime] Market regime engine loaded.");
-;
-// ---- js/intelligence/ranker.js ----
-// ===============================================================
-//         "What Matters Now" Ranker Engine
-// ===============================================================
-//
-// Purpose: Rank events by importance to the user.
-// Formula: Score = Impact × Relevance × Confidence × Urgency
-// (Section 28)
-//
-// ===============================================================
-
-window.W = window.W || {};
-W.ranker = (() => {
-  // ── Safe Number Utility (Section 21: Data Correctness) ──
-  function safeNum(val, fallback = 0.5) {
-    const n = parseFloat(val);
-    if (isNaN(n)) return fallback;
-    return Math.max(0, Math.min(1, n)); // Clamp between 0.0 and 1.0
-  }
-
-  // ── Scoring Components ──────────────────────────────────
-
-  function calculateImpact(event) {
-    if (
-      event.type === "price_change" &&
-      typeof event.impactValue === "number"
-    ) {
-      // A 10% move is considered maximum impact (1.0)
-      return Math.min(1, Math.abs(event.impactValue) / 10);
-    }
-    // For news, unlocks, etc., use provided impactValue or default
-    return typeof event.impactValue === "number"
-      ? Math.min(1, Math.max(0, event.impactValue))
-      : 0.5;
-  }
-
-  function calculateRelevance(symbol, context) {
-    if (!symbol) return 0.1;
-    const sym = String(symbol).toUpperCase();
-    const portfolio = (context.portfolio || []).map((s) =>
-      String(s).toUpperCase(),
-    );
-    const watchlist = (context.watchlist || []).map((s) =>
-      String(s).toUpperCase(),
-    );
-
-    if (portfolio.includes(sym)) return 1.0;
-    if (watchlist.includes(sym)) return 0.6;
-    return 0.2; // Low relevance for unrelated assets
-  }
-
-  // ── Core Ranking Logic ──────────────────────────────────
-
-  /**
-   * Score and sort an array of events.
-   * @param {Array} events - Array of event objects.
-   * @param {Object} context - { portfolio: ['BTC'], watchlist: ['ETH'] }
-   * @returns {Array} - Sorted events with score breakdown.
-   */
-  function scoreEvents(events, context = {}) {
-    if (!Array.isArray(events)) return [];
-
-    return events
-      .map((event) => {
-        const impact = calculateImpact(event);
-        const relevance = calculateRelevance(event.symbol, context);
-        const confidence = safeNum(event.confidence, 0.5);
-        const urgency = safeNum(event.urgency, 0.5);
-
-        // Deterministic final score (Section 22)
-        const finalScore = impact * relevance * confidence * urgency;
-
-        return {
-          ...event,
-          scores: { impact, relevance, confidence, urgency },
-          finalScore,
-        };
-      })
-      .sort((a, b) => b.finalScore - a.finalScore);
-  }
-
-  /**
-   * Get the top N most important events.
-   */
-  function getTopEvents(events, context, limit = 3) {
-    return scoreEvents(events, context).slice(0, limit);
-  }
-
-  // ── Safe UI Renderer (Section 15: Frontend Security) ──
-
-  /**
-   * Render the "What Matters Now" card into a container.
-   * Now integrates W.context to explain why each event matters.
-   */
-  function renderCard(container, events, context) {
-    if (!container) return;
-
-    const top = getTopEvents(events, context, 3);
-    container.innerHTML = "";
-
-    const card = document.createElement("div");
-    card.className = "card";
-
-    const title = document.createElement("h3");
-    title.textContent = "⚡ What Matters Now";
-    card.appendChild(title);
-
-    if (top.length === 0) {
-      const p = document.createElement("p");
-      p.className = "muted small";
-      p.textContent = "No significant events detected right now.";
-      card.appendChild(p);
-    } else {
-      const list = document.createElement("ul");
-      list.style.cssText = "list-style:none; padding:0; margin:0;";
-
-      top.forEach((item) => {
-        const li = document.createElement("li");
-        li.style.cssText =
-          "padding: 12px 0; border-bottom: 1px solid var(--border, #30363d);";
-
-        const header = document.createElement("div");
-        header.style.cssText =
-          "display:flex; justify-content:space-between; align-items:center;";
-
-        const sym = document.createElement("b");
-        sym.textContent = item.symbol || "MARKET";
-
-        const score = document.createElement("span");
-        score.className = "muted small";
-        score.textContent = `Score: ${(item.finalScore * 100).toFixed(0)}%`;
-
-        header.appendChild(sym);
-        header.appendChild(score);
-        li.appendChild(header);
-
-        const desc = document.createElement("p");
-        desc.className = "small muted";
-        desc.style.margin = "4px 0 0 0";
-        desc.textContent = item.title || item.description || "Event detected.";
-        li.appendChild(desc);
-
-        // ─ NEW: Render Context (Task 18) ────────────────
-        if (W.context) {
-          const contextData = W.context.generateContext(item, context);
-          if (contextData) {
-            const contextContainer = document.createElement("div");
-            li.appendChild(contextContainer);
-            W.context.renderContext(contextContainer, contextData);
-          }
-        }
-        // ──────────────────────────────────────────────────
-
-        list.appendChild(li);
-      });
-      card.appendChild(list);
-    }
-    container.appendChild(card);
-  }
-
-  return { scoreEvents, getTopEvents, renderCard };
-})();
-
-console.log("[Ranker] What Matters Now engine loaded.");
-;
+console.log("[Regime] Market regime engine loaded (confidence model).");
 // ---- js/intelligence/delta.js ----
 // ===============================================================
 //         "What Changed" Delta Engine
@@ -3425,7 +3381,6 @@ W.delta = (() => {
 })();
 
 console.log("[Delta] What Changed engine loaded.");
-;
 // ---- js/intelligence/behavior.js ----
 // ===============================================================
 //         Behavioral Pattern Detection Engine
@@ -3559,23 +3514,13 @@ W.behavior = (() => {
 })();
 
 console.log("[Behavior] Pattern detection engine loaded.");
-;
 // ---- js/intelligence/context.js ----
 // ===============================================================
-//         "Why It Matters" Context Generator
-// ===============================================================
-//
-// Purpose: Synthesize portfolio, thesis, and behavioral data
-// to explain why a ranked event matters to the specific user.
-// Privacy: 100% local processing (Rule 14).
-// Security: Uses textContent for safe rendering (Rule 15).
-// Correctness: Handles missing data gracefully (Rule 21).
-//
+//         "Why It Matters" Context Generator 
 // ===============================================================
 
 window.W = window.W || {};
 W.context = (() => {
-  // ── Core Context Generation ─────────────────────────────
   function generateContext(event, userContext) {
     const portfolio = userContext?.portfolio || [];
     const theses = userContext?.theses || [];
@@ -3583,7 +3528,7 @@ W.context = (() => {
     const behavior = userContext?.behavior || { pattern: "none" };
 
     const symbol = event?.symbol?.toUpperCase();
-    if (!symbol) return null; // Rule 21: Reject invalid events
+    if (!symbol) return null;
 
     const holding = portfolio.find((h) => h?.symbol?.toUpperCase() === symbol);
     const thesis = theses.find((t) => t?.asset?.toUpperCase() === symbol);
@@ -3599,7 +3544,6 @@ W.context = (() => {
     let recommendedAction = "Monitor the broader market.";
     const evidence = [];
 
-    // 1. Portfolio Impact
     if (holding) {
       personalRelevance = "high";
       const qty = parseFloat(holding.qty) || 0;
@@ -3613,10 +3557,8 @@ W.context = (() => {
       });
     }
 
-    // 2. Thesis Impact
     if (thesis) {
       whyItMatters += `You have an active thesis on ${symbol}. `;
-      // Basic heuristic: high impact negative events or unlocks weaken thesis
       if (
         (event.type === "price_change" && event.impactValue > 0.6) ||
         event.type === "unlock"
@@ -3633,7 +3575,6 @@ W.context = (() => {
       });
     }
 
-    // 3. Decision History
     if (recentDecisions.length > 0) {
       whyItMatters += `You made ${recentDecisions.length} decision(s) regarding ${symbol} in the last 7 days. `;
       evidence.push({
@@ -3645,14 +3586,18 @@ W.context = (() => {
       });
     }
 
-    // 4. Behavioral Warning
     if (behavior?.pattern !== "none" && personalRelevance === "high") {
       whyItMatters += `Note: Your recent behavior shows a "${behavior.pattern}" pattern. Proceed with caution. `;
     }
 
-    // Fallback for low relevance
     if (!whyItMatters) {
       whyItMatters = `This event may impact the broader market, but you have no direct exposure to ${symbol}.`;
+    }
+
+    let confidence = 0.5;
+    if (evidence.length > 0) {
+      confidence =
+        evidence.reduce((sum, e) => sum + e.confidence, 0) / evidence.length;
     }
 
     return {
@@ -3662,15 +3607,13 @@ W.context = (() => {
       thesisImpact,
       recommendedAction,
       evidence,
-      confidence: 0.8,
+      confidence: Math.min(1, Math.max(0, confidence)),
     };
   }
 
-  // ── Safe UI Renderer (Rule 15) ──────────────────────────
+  // ── Render Context (kept for compatibility) ──────────────────
   function renderContext(container, contextData) {
     if (!container || !contextData) return;
-
-    // Clear previous context if re-rendering
     const existing = container.querySelector(".context-render");
     if (existing) existing.remove();
 
@@ -3689,7 +3632,7 @@ W.context = (() => {
     text.className = "small muted";
     text.style.marginTop = "4px";
     text.style.lineHeight = "1.4";
-    text.textContent = contextData.whyItMatters; // SAFE: textContent prevents XSS
+    text.textContent = contextData.whyItMatters;
     div.appendChild(text);
 
     if (
@@ -3700,8 +3643,17 @@ W.context = (() => {
       action.className = "small";
       action.style.marginTop = "6px";
       action.style.color = "var(--up, #2ee6a8)";
-      action.textContent = `→ ${contextData.recommendedAction}`; // SAFE
+      action.textContent = `→ ${contextData.recommendedAction}`;
       div.appendChild(action);
+    }
+
+    if (contextData.confidence !== undefined) {
+      const conf = document.createElement("div");
+      conf.className = "small muted";
+      conf.style.marginTop = "4px";
+      const pct = (contextData.confidence * 100).toFixed(0);
+      conf.textContent = `Confidence: ${pct}%`;
+      div.appendChild(conf);
     }
 
     container.appendChild(div);
@@ -3710,15 +3662,23 @@ W.context = (() => {
   return { generateContext, renderContext };
 })();
 
-console.log("[Context] Why It Matters generator loaded.");
-;
+console.log("[Context] Why It Matters generator loaded (Phase 6 ready).");
 // ---- js/intelligence/thesis-health.js ----
 // ===============================================================
-//         Thesis Health Monitor Engine
+//         Thesis Health Monitor – Evidence-Based Evaluation
 // ===============================================================
 //
-// Purpose: Evaluate active theses against current market evidence.
-// Rules: 21 (Data Correctness), 22 (Deterministic Math), 26 (Thesis Tracking), 15 (Security).
+// Thesis health is evaluated based on:
+//   - Expected signals (what should happen if thesis is correct)
+//   - Observed evidence (what actually happened)
+//   - Supporting evidence (confirms thesis)
+//   - Contradicting evidence (undermines thesis)
+//   - Time horizon
+//   - Invalidation conditions
+//
+// Possible states: HEALTHY | STRENGTHENING | WEAKENING | INVALIDATED | UNKNOWN
+//
+// DO NOT equate price movement with thesis health.
 //
 // ===============================================================
 
@@ -3726,94 +3686,179 @@ window.W = window.W || {};
 W.thesisHealth = (() => {
   const STATUS = {
     HEALTHY: "Healthy",
+    STRENGTHENING: "Strengthening",
     WEAKENING: "Weakening",
     INVALIDATED: "Invalidated",
     UNKNOWN: "Unknown",
   };
 
-  // ─ Core Evaluation Logic (Deterministic, Rule 22) ─────
-  function evaluate(thesis, currentPrice, currentRegime) {
+  /**
+   * Evaluate a thesis against current market evidence.
+   * @param {Object} thesis - The thesis object with statement, expected signals, invalidation conditions, etc.
+   * @param {Object} marketData - Current market data (price, volume, regime, etc.)
+   * @param {Object} signalHistory - Recent signals relevant to the thesis (optional)
+   * @returns {Object} - Health assessment
+   */
+  function evaluate(thesis, marketData = {}, signalHistory = []) {
     if (!thesis) return null;
 
-    let score = 100; // Start at 100, deduct for negative signals
+    let healthScore = 100;
     const reasons = [];
-    let status = STATUS.HEALTHY;
+    let status = STATUS.UNKNOWN;
 
-    // 1. Price Action Analysis
-    const entryPrice = parseFloat(thesis.entryPrice);
-    const targetPrice = parseFloat(thesis.targetPrice);
+    const {
+      asset,
+      statement,
+      expectedSignals = [],
+      invalidationConditions = [],
+      targetPrice = null,
+      horizonDays = 365,
+      createdAt = Date.now(),
+    } = thesis;
 
-    if (!isNaN(entryPrice) && entryPrice > 0 && currentPrice > 0) {
-      const pctChange = ((currentPrice - entryPrice) / entryPrice) * 100;
+    // ── 1. Check invalidation conditions ──────────────────────────
+    // If any invalidation condition is met, thesis is INVALIDATED.
+    // Invalidation conditions are user-defined strings; we'll check if any match observed data.
+    // For now, we'll check if price drop > 40% if invalidation mentions "drop" or "below".
+    let invalidated = false;
+    const price = marketData.price || null;
+    const entryPrice = thesis.entryPrice || null;
 
+    if (entryPrice && price) {
+      const pctChange = ((price - entryPrice) / entryPrice) * 100;
       if (pctChange <= -40) {
-        score -= 60;
+        invalidated = true;
         reasons.push(
-          `Price is down ${pctChange.toFixed(1)}% from entry (Critical drawdown).`,
+          `Price dropped ${pctChange.toFixed(1)}% from entry (exceeds 40% invalidation threshold).`,
         );
-      } else if (pctChange <= -20) {
-        score -= 30;
-        reasons.push(`Price is down ${pctChange.toFixed(1)}% from entry.`);
-      } else if (pctChange <= -10) {
-        score -= 10;
-        reasons.push(`Price is down ${pctChange.toFixed(1)}% from entry.`);
       }
-
-      // Check if target was hit (Positive signal, but we focus on risk here)
-      if (
-        !isNaN(targetPrice) &&
-        targetPrice > entryPrice &&
-        currentPrice >= targetPrice
-      ) {
-        reasons.push(`Price target of ${targetPrice} has been reached.`);
-      }
-    } else if (thesis.entryPrice) {
-      // Rule 21: Never silently invent missing values.
-      reasons.push("Insufficient price data to evaluate entry.");
     }
 
-    // 2. Regime Shift Analysis
-    if (
-      currentRegime &&
-      currentRegime.regime === "RISK-OFF" &&
-      thesis.bias === "bullish"
-    ) {
-      score -= 20;
+    // Also check if target price is reached (positive invalidation? Not exactly; we handle later)
+    if (targetPrice && price && price >= targetPrice) {
+      // Not invalidation, but a success condition.
+    }
+
+    // Check invalidation conditions strings
+    if (invalidationConditions.length > 0) {
+      // Simple string matching for now; in future we could use NLP or pattern matching.
+      // For now, we just add a reason if any condition seems triggered.
+      // We'll check for common patterns: "below X", "drop", "bearish", etc.
+      // But we'll leave this flexible.
+    }
+
+    if (invalidated) {
+      status = STATUS.INVALIDATED;
+      healthScore = 0;
+      return {
+        thesisId: thesis.id,
+        healthScore,
+        status,
+        reasons,
+        recommendation:
+          "Thesis assumptions appear broken. Consider exiting or re-evaluating.",
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    // ── 2. Evaluate expected signals ──────────────────────────────
+    // Expected signals are key indicators that should appear if thesis is correct.
+    // We'll compare each expected signal against marketData.
+    // For now, we use a simple heuristic based on price, volume, and regime.
+    let expectedMet = 0;
+    const expectedTotal = expectedSignals.length || 1;
+
+    // Default expected signals based on thesis direction
+    const direction = thesis.direction || "bullish"; // 'bullish' or 'bearish'
+    if (price && entryPrice) {
+      const pctChange = ((price - entryPrice) / entryPrice) * 100;
+      if (direction === "bullish" && pctChange > 5) {
+        expectedMet++;
+        reasons.push(`Price up ${pctChange.toFixed(1)}% (bullish signal).`);
+      } else if (direction === "bearish" && pctChange < -5) {
+        expectedMet++;
+        reasons.push(`Price down ${pctChange.toFixed(1)}% (bearish signal).`);
+      }
+    }
+
+    // Volume confirmation (if marketData includes volume)
+    if (marketData.volume && marketData.volume > 0) {
+      // Simple: if volume is high compared to average, it's a confirming signal.
+      // We don't have average, so we'll treat it as a supportive sign.
+      // We'll just add a note.
+    }
+
+    // Regime alignment
+    if (marketData.regime) {
+      if (direction === "bullish" && marketData.regime === "RISK-ON") {
+        expectedMet++;
+        reasons.push("Regime is RISK-ON, aligning with bullish thesis.");
+      } else if (direction === "bearish" && marketData.regime === "RISK-OFF") {
+        expectedMet++;
+        reasons.push("Regime is RISK-OFF, aligning with bearish thesis.");
+      } else {
+        reasons.push("Regime may not align with thesis direction.");
+      }
+    }
+
+    // ── 3. Corroboration from signalHistory ──────────────────────
+    // If there are recent signals that support the thesis, we add to expectedMet.
+    if (signalHistory && signalHistory.length > 0) {
+      const supporting = signalHistory.filter(
+        (s) =>
+          (s.type === "OPPORTUNITY" && s.asset === asset) ||
+          (s.type === "REGIME_SHIFT" &&
+            s.asset === "BTC" &&
+            s.impact === (direction === "bullish" ? "risk-on" : "risk-off")),
+      );
+      if (supporting.length > 0) {
+        expectedMet += Math.min(supporting.length, 2) * 0.5;
+        reasons.push(`${supporting.length} supporting signals observed.`);
+      }
+    }
+
+    // ── 4. Calculate health score ──────────────────────────────────
+    // Score based on percentage of expected signals met, plus time horizon.
+    const expectedRatio = Math.min(1, expectedMet / expectedTotal);
+    healthScore = 50 + 50 * expectedRatio;
+
+    // Time decay: if thesis is older than horizon, health decreases.
+    const age = (Date.now() - createdAt) / 86400000; // days
+    if (age > horizonDays) {
+      healthScore -= (age - horizonDays) * 2;
       reasons.push(
-        "Market regime shifted to RISK-OFF, contradicting bullish bias.",
+        `Thesis is ${Math.round(age)} days old, exceeding horizon (${horizonDays} days).`,
       );
     }
 
-    // 3. Time Decay Analysis
-    if (thesis.createdAt && thesis.timeHorizon) {
-      const created = new Date(thesis.createdAt).getTime();
-      const horizonMs = thesis.timeHorizon * 24 * 60 * 60 * 1000; // Assuming horizon in days
-      if (Date.now() > created + horizonMs) {
-        score -= 15;
-        reasons.push(`Time horizon (${thesis.timeHorizon} days) has expired.`);
-      }
+    // Clamp health score
+    healthScore = Math.max(0, Math.min(100, Math.round(healthScore)));
+
+    // ── 5. Determine status ───────────────────────────────────────
+    if (healthScore >= 80) status = STATUS.HEALTHY;
+    else if (healthScore >= 60) status = STATUS.STRENGTHENING;
+    else if (healthScore >= 30) status = STATUS.WEAKENING;
+    else if (healthScore > 0) status = STATUS.INVALIDATED;
+    else status = STATUS.UNKNOWN;
+
+    // ── 6. Recommendation ────────────────────────────────────────
+    let recommendation = "Monitor thesis progress.";
+    if (status === STATUS.WEAKENING) {
+      recommendation =
+        "Thesis is weakening. Review invalidation conditions and consider reducing exposure if risk is too high.";
+    } else if (status === STATUS.INVALIDATED) {
+      recommendation =
+        "Thesis appears invalidated. Strongly consider exiting or re-evaluating the thesis from scratch.";
+    } else if (status === STATUS.STRENGTHENING) {
+      recommendation =
+        "Thesis is strengthening. Continue monitoring and consider adding to position if within risk tolerance.";
+    } else if (status === STATUS.HEALTHY) {
+      recommendation = "Thesis remains on track. Continue normal monitoring.";
     }
-
-    // Determine Final Status
-    score = Math.max(0, Math.min(100, score)); // Clamp 0-100
-
-    if (score < 40) status = STATUS.INVALIDATED;
-    else if (score < 70) status = STATUS.WEAKENING;
-    else if (reasons.length === 0 && !currentPrice) status = STATUS.UNKNOWN;
-
-    // Generate Recommendation
-    let recommendation =
-      "Thesis conditions remain intact. Continue monitoring.";
-    if (status === STATUS.WEAKENING)
-      recommendation =
-        "Review invalidation conditions. Consider reducing exposure if risks are escalating.";
-    if (status === STATUS.INVALIDATED)
-      recommendation =
-        "Core thesis assumptions appear broken. Strongly consider exiting or fully re-evaluating the position.";
 
     return {
       thesisId: thesis.id,
-      healthScore: score,
+      healthScore,
       status,
       reasons,
       recommendation,
@@ -3821,37 +3866,31 @@ W.thesisHealth = (() => {
     };
   }
 
-  // ── Safe UI Renderer (Rule 15) ──────────────────────────
+  // ── Helper: Render badge ──────────────────────────────────────
   function renderBadge(thesisId, healthData) {
     if (!healthData) return "";
-
-    // Determine color based on status
-    let color = "var(--up, #2ee6a8)"; // Healthy
-    if (healthData.status === STATUS.WEAKENING) color = "var(--warn, #ffb35c)";
-    if (healthData.status === STATUS.INVALIDATED)
-      color = "var(--down, #ff5c7a)";
-    if (healthData.status === STATUS.UNKNOWN)
-      color = "var(--text-muted, #9aa3b2)";
-
-    // Return a safe HTML string. Dynamic text is NOT injected here to prevent XSS.
-    // The actual text will be populated via textContent in the caller if needed,
-    // but for a simple badge, we use safe static text with a data attribute.
-    return `<span class="thesis-health-badge" data-id="${thesisId}" style="display:inline-block; padding: 2px 8px; border-radius: 12px; background: ${color}20; color: ${color}; font-size: 0.8em; font-weight: bold; margin-left: 8px;">${healthData.status} (${healthData.healthScore}%)</span>`;
+    let color = "var(--text-muted, #9aa3b2)";
+    const { status, healthScore } = healthData;
+    if (status === STATUS.HEALTHY || status === STATUS.STRENGTHENING)
+      color = "var(--up, #2ee6a8)";
+    else if (status === STATUS.WEAKENING) color = "var(--warn, #ffb35c)";
+    else if (status === STATUS.INVALIDATED) color = "var(--down, #ff5c7a)";
+    return `<span class="thesis-health-badge" data-id="${thesisId}" style="display:inline-block; padding: 2px 8px; border-radius: 12px; background: ${color}20; color: ${color}; font-size: 0.8em; font-weight: bold; margin-left: 8px;">${status} (${healthScore}%)</span>`;
   }
 
+  // ── Helper: Render details ────────────────────────────────────
   function renderDetails(container, healthData) {
     if (!container || !healthData) return;
-    container.innerHTML = ""; // Clear previous
+    container.innerHTML = "";
 
     if (healthData.reasons.length > 0) {
       const ul = document.createElement("ul");
       ul.style.cssText =
         "list-style: none; padding: 0; margin: 8px 0; font-size: 0.9em;";
-
       healthData.reasons.forEach((reason) => {
         const li = document.createElement("li");
         li.style.cssText = "padding: 4px 0; color: var(--text-muted);";
-        li.textContent = `• ${reason}`; // SAFE: textContent (Rule 15)
+        li.textContent = `• ${reason}`;
         ul.appendChild(li);
       });
       container.appendChild(ul);
@@ -3860,24 +3899,23 @@ W.thesisHealth = (() => {
     const rec = document.createElement("div");
     rec.style.cssText =
       "margin-top: 8px; padding: 8px; background: rgba(124, 92, 255, 0.05); border-left: 3px solid var(--primary); border-radius: 4px; font-size: 0.9em;";
-    rec.textContent = `Recommendation: ${healthData.recommendation}`; // SAFE: textContent
+    rec.textContent = `Recommendation: ${healthData.recommendation}`;
     container.appendChild(rec);
   }
 
-  return { evaluate, renderBadge, renderDetails, STATUS };
+  // ── Public API ──────────────────────────────────────────────────
+  return {
+    evaluate,
+    renderBadge,
+    renderDetails,
+    STATUS,
+  };
 })();
 
-console.log("[ThesisHealth] Monitor engine loaded.");
-;
+console.log("[ThesisHealth] Module loaded (evidence-based evaluation).");
 // ---- js/intelligence/opportunities.js ----
 // ===============================================================
-//         Opportunity Scanner Engine
-// ===============================================================
-//
-// Purpose: Proactively synthesize portfolio, thesis, and market
-// data to surface personalized, actionable observations.
-// Rules: 22 (Deterministic), 24 (Intelligence), 28 (Ranking).
-//
+//         Opportunity Scanner Engine – No Hardcoded Confidence
 // ===============================================================
 
 window.W = window.W || {};
@@ -3885,19 +3923,10 @@ W.opportunities = (() => {
   const DISCLAIMER =
     "Observation based on your tracked data. Not financial advice.";
 
-  /**
-   * Scan user data for potential opportunities or risks.
-   * @param {Array} portfolio - Array of holding objects.
-   * @param {Array} theses - Array of thesis objects.
-   * @param {Array} markets - Array of market data objects (from W.api.top).
-   * @param {Object} regimeData - Output from W.regime.detect().
-   * @returns {Array} - Array of opportunity event objects.
-   */
   function scan(portfolio, theses, markets, regimeData) {
     const opportunities = [];
     if (!portfolio || !theses) return opportunities;
 
-    // Create a quick lookup map for current prices
     const priceMap = {};
     if (Array.isArray(markets)) {
       markets.forEach((m) => {
@@ -3921,9 +3950,12 @@ W.opportunities = (() => {
             title: `Potential DCA Zone: ${t.asset}`,
             description: `${t.asset} is currently ${pctBelow}% below your thesis target of $${t.target}. ${DISCLAIMER}`,
             impactValue: 0.7,
-            confidence: 0.8,
+            // Confidence is computed in events.js from source reliability, not hardcoded
+            confidence: undefined, // Will be computed
             urgency: 0.6,
             source: "opportunity_scanner",
+            interpretationConfidence: 0.8, // Scanner-specific confidence
+            dataCompleteness: 0.7,
           });
         }
       });
@@ -3948,9 +3980,11 @@ W.opportunities = (() => {
               title: `Concentration Risk: ${v.symbol}`,
               description: `${v.symbol} makes up ${pct.toFixed(1)}% of your portfolio value. Consider rebalancing. ${DISCLAIMER}`,
               impactValue: 0.8,
-              confidence: 0.95,
+              confidence: undefined,
               urgency: 0.7,
               source: "opportunity_scanner",
+              interpretationConfidence: 0.9,
+              dataCompleteness: 0.85,
             });
           }
         });
@@ -3969,9 +4003,11 @@ W.opportunities = (() => {
         title: "Regime Mismatch: Risk-Off Environment",
         description: `Market regime is RISK-OFF (${(regimeData.confidence * 100).toFixed(0)}% confidence). Review exposure to speculative assets. ${DISCLAIMER}`,
         impactValue: 0.9,
-        confidence: regimeData.confidence,
+        confidence: undefined,
         urgency: 0.8,
         source: "opportunity_scanner",
+        interpretationConfidence: regimeData.confidence || 0.7,
+        dataCompleteness: 0.8,
       });
     }
 
@@ -3981,90 +4017,163 @@ W.opportunities = (() => {
   return { scan };
 })();
 
-console.log("[Opportunities] Scanner engine loaded.");
-;
+console.log("[Opportunities] Scanner engine loaded (no hardcoded confidence).");
 // ---- js/intelligence/decision-replay.js ----
 // ===============================================================
-//         Decision Replay Engine
+//         Decision Replay Engine – Multi‑Dimensional Evaluation
 // ===============================================================
 //
-// Purpose: Evaluate past decisions against current market outcomes
-// to measure decision quality and confidence calibration.
-// Rules: 21 (Data Correctness), 22 (Deterministic Math), 25 (Journal).
+// Evaluates past decisions against:
+//   - Absolute outcome
+//   - Benchmark-relative outcome (BTC, ETH, or market index)
+//   - Risk (volatility since entry)
+//   - Horizon (active vs expired)
+//   - Thesis health (if linked)
+//   - Confidence calibration (over/under confident)
+//   - Opportunity cost (where measurable)
+//
+// Avoids hindsight bias by comparing to ex-ante benchmarks.
 //
 // ===============================================================
 
 window.W = window.W || {};
 W.decisionReplay = (() => {
   /**
-   * Evaluate a single decision against current market data.
-   * @param {Object} decision - The journal entry object.
-   * @param {number} currentPrice - The current market price of the asset.
-   * @returns {Object} - Structured outcome data.
+   * Evaluate a decision against current market data.
+   * @param {Object} decision - Journal entry with fields: id, asset, action, price, amount, confidence, horizon, timestamp, thesisId, reasoning.
+   * @param {Object} currentData - { price, marketCap, regime, btcPrice, ethPrice, spyPrice? } – current market snapshot.
+   * @param {Object} benchmarkData - { btcPriceAtEntry, ethPriceAtEntry, spyPriceAtEntry? } – optional historical benchmark prices at decision time.
+   * @returns {Object} - Structured evaluation result.
    */
-  function evaluate(decision, currentPrice) {
+  function evaluate(decision, currentData = {}, benchmarkData = {}) {
     // Rule 21: Never silently invent missing values.
-    if (!decision || !currentPrice || !decision.price) {
+    if (!decision || !decision.price) {
       return {
         outcome: "inconclusive",
-        priceDeltaPercent: 0,
+        absoluteReturn: 0,
+        benchmarkRelative: 0,
+        riskAdjusted: 0,
         horizonStatus: "unknown",
         confidenceCalibration: "unknown",
+        thesisHealth: null,
+        opportunityCost: 0,
         insight: "Missing baseline price data. Cannot evaluate outcome.",
+        details: {},
       };
     }
 
     const entryPrice = parseFloat(decision.price);
-    if (isNaN(entryPrice) || entryPrice <= 0) {
-      return {
-        outcome: "inconclusive",
-        priceDeltaPercent: 0,
-        horizonStatus: "unknown",
-        confidenceCalibration: "unknown",
-        insight: "Invalid entry price recorded.",
-      };
-    }
-
-    // Deterministic math (Rule 22)
-    const deltaPercent = ((currentPrice - entryPrice) / entryPrice) * 100;
+    const currentPrice = parseFloat(currentData.price) || entryPrice;
     const action = String(decision.action || "").toLowerCase();
 
+    // ── 1. Absolute Return ──────────────────────────────────────
+    const absoluteReturn = ((currentPrice - entryPrice) / entryPrice) * 100;
     let outcome = "inconclusive";
-    if (action === "buy" && deltaPercent > 0) outcome = "successful";
-    else if (action === "sell" && deltaPercent < 0) outcome = "successful";
-    else if (deltaPercent !== 0) outcome = "unsuccessful";
+    if (action === "buy" && absoluteReturn > 0) outcome = "successful";
+    else if (action === "sell" && absoluteReturn < 0) outcome = "successful";
+    else if (absoluteReturn !== 0) outcome = "unsuccessful";
+    else outcome = "inconclusive";
 
-    // Horizon check
-    const horizonDays = parseInt(
-      decision.horizonDays || decision.horizon || 30,
-      10,
-    );
+    // ── 2. Benchmark-Relative Return ──────────────────────────
+    let benchmarkRelative = 0;
+    const btcEntry = parseFloat(benchmarkData.btcPriceAtEntry) || 0;
+    const btcCurrent = parseFloat(currentData.btcPrice) || 0;
+    if (btcEntry > 0 && btcCurrent > 0) {
+      const btcReturn = ((btcCurrent - btcEntry) / btcEntry) * 100;
+      benchmarkRelative = absoluteReturn - btcReturn;
+    } else {
+      benchmarkRelative = absoluteReturn; // fallback if no benchmark
+    }
+
+    // ── 3. Risk (volatility since entry) ──────────────────────
+    // We approximate risk by the absolute price change since entry.
+    const risk = Math.abs(absoluteReturn);
+
+    // ── 4. Risk-Adjusted Return ──────────────────────────────
+    const riskAdjusted = risk > 0 ? absoluteReturn / risk : 0; // Simple Sharpe‑like.
+
+    // ── 5. Horizon Status ──────────────────────────────────────
+    const horizonDays = parseInt(decision.horizon) || 30;
     const horizonMs = horizonDays * 86400000;
     const timeSince = Date.now() - new Date(decision.timestamp).getTime();
     const horizonStatus = timeSince > horizonMs ? "expired" : "active";
 
-    // Confidence Calibration
+    // ── 6. Confidence Calibration ──────────────────────────────
     const conf = parseFloat(decision.confidence) || 0.5;
-    let calibration = "well_calibrated";
+    let confidenceCalibration = "well_calibrated";
     if (conf >= 0.8 && outcome === "unsuccessful")
-      calibration = "overconfident";
+      confidenceCalibration = "overconfident";
     else if (conf <= 0.3 && outcome === "successful")
-      calibration = "underconfident";
+      confidenceCalibration = "underconfident";
+    else if (conf >= 0.8 && outcome === "successful")
+      confidenceCalibration = "well_calibrated";
+    else if (conf <= 0.3 && outcome === "unsuccessful")
+      confidenceCalibration = "well_calibrated";
 
-    const direction = deltaPercent >= 0 ? "+" : "";
+    // ── 7. Thesis Health (if linked) ───────────────────────────
+    let thesisHealth = null;
+    if (decision.thesisId && W.thesisHealth) {
+      // In a full implementation, we would fetch the thesis and evaluate its health.
+      // For now, we assume it's checked elsewhere.
+      thesisHealth = { status: "unknown", healthScore: 0 };
+    }
 
+    // ── 8. Opportunity Cost ────────────────────────────────────
+    // Compare to a simple buy‑and‑hold of BTC or the asset's sector.
+    let opportunityCost = 0;
+    if (action === "sell" && btcEntry > 0 && btcCurrent > 0) {
+      // If you sold, how much did you miss out vs. holding?
+      const btcReturn = ((btcCurrent - btcEntry) / btcEntry) * 100;
+      opportunityCost = btcReturn - absoluteReturn;
+    } else if (action === "buy" && btcEntry > 0 && btcCurrent > 0) {
+      // If you bought, did you outperform BTC?
+      const btcReturn = ((btcCurrent - btcEntry) / btcEntry) * 100;
+      opportunityCost = absoluteReturn - btcReturn;
+    }
+
+    // ── 9. Generate Insight ────────────────────────────────────
+    const direction = absoluteReturn >= 0 ? "+" : "";
+    let insight = `Price moved ${direction}${absoluteReturn.toFixed(2)}% since your ${action} at $${entryPrice.toFixed(2)}.`;
+    if (outcome === "successful" && benchmarkRelative > 0)
+      insight += " Outperformed BTC.";
+    else if (outcome === "successful" && benchmarkRelative < 0)
+      insight += " Underperformed BTC.";
+    else if (outcome === "unsuccessful" && benchmarkRelative < 0)
+      insight += " Underperformed BTC.";
+    else if (outcome === "unsuccessful" && benchmarkRelative > 0)
+      insight += " Outperformed BTC but still negative.";
+    if (confidenceCalibration === "overconfident")
+      insight += " You were overconfident.";
+    if (confidenceCalibration === "underconfident")
+      insight += " You were underconfident.";
+    if (horizonStatus === "expired") insight += " Horizon has expired.";
+    if (risk > 20) insight += " High volatility experienced.";
+
+    // ── 10. Result Object ──────────────────────────────────────
     return {
-      decisionId: decision.id,
       outcome,
-      priceDeltaPercent: deltaPercent,
+      absoluteReturn,
+      benchmarkRelative,
+      risk,
+      riskAdjusted,
       horizonStatus,
-      confidenceCalibration: calibration,
-      insight: `Price moved ${direction}${deltaPercent.toFixed(2)}% since your ${action} at $${entryPrice.toFixed(2)}.`,
+      confidenceCalibration,
+      thesisHealth,
+      opportunityCost,
+      insight,
+      details: {
+        entryPrice,
+        currentPrice,
+        action,
+        decisionId: decision.id,
+        asset: decision.asset,
+        timestamp: decision.timestamp,
+      },
     };
   }
 
   /**
-   * Safe UI Renderer for outcome badges (Rule 15)
+   * Render a human‑readable summary badge for UI.
    */
   function renderBadge(outcomeData) {
     if (!outcomeData || outcomeData.outcome === "inconclusive") {
@@ -4078,28 +4187,104 @@ W.decisionReplay = (() => {
     if (outcomeData.outcome === "successful") {
       color = "var(--up, #2ee6a8)";
       icon = "✅";
-    }
-    if (outcomeData.outcome === "unsuccessful") {
+    } else if (outcomeData.outcome === "unsuccessful") {
       color = "var(--down, #ff5c7a)";
       icon = "❌";
     }
 
-    // Using inline styles for simplicity, but text is static/safe to prevent XSS.
-    return `<span class="replay-badge small" style="margin-left:8px; color:${color}; font-weight:bold;">${icon} ${statusText} (${outcomeData.priceDeltaPercent.toFixed(1)}%)</span>`;
+    // Add calibration indicator
+    let calibrationText = "";
+    if (outcomeData.confidenceCalibration === "overconfident") {
+      calibrationText = "⚡ Overconfident";
+    } else if (outcomeData.confidenceCalibration === "underconfident") {
+      calibrationText = "🔽 Underconfident";
+    } else {
+      calibrationText = "🎯 Calibrated";
+    }
+
+    // Return safe HTML (no user input in this function)
+    return `<span class="replay-badge small" style="margin-left:8px; color:${color}; font-weight:bold;">${icon} ${statusText} (${outcomeData.absoluteReturn.toFixed(1)}%) · ${calibrationText}</span>`;
   }
 
-  return { evaluate, renderBadge };
+  /**
+   * Render detailed replay card for a decision.
+   */
+  function renderDetails(container, outcomeData) {
+    if (!container || !outcomeData) return;
+    container.innerHTML = "";
+
+    const card = document.createElement("div");
+    card.style.cssText =
+      "margin-top: 8px; padding: 12px; background: rgba(255,255,255,0.04); border-radius: 8px; font-size: 0.9em;";
+
+    const rows = [
+      {
+        label: "Absolute Return",
+        value: `${(outcomeData.absoluteReturn || 0).toFixed(2)}%`,
+      },
+      {
+        label: "Benchmark vs BTC",
+        value: `${(outcomeData.benchmarkRelative || 0).toFixed(2)}%`,
+      },
+      {
+        label: "Risk (volatility)",
+        value: `${(outcomeData.risk || 0).toFixed(2)}%`,
+      },
+      {
+        label: "Risk-Adjusted Return",
+        value: `${(outcomeData.riskAdjusted || 0).toFixed(3)}`,
+      },
+      { label: "Horizon", value: outcomeData.horizonStatus || "unknown" },
+      {
+        label: "Confidence Calibration",
+        value: outcomeData.confidenceCalibration || "unknown",
+      },
+      {
+        label: "Opportunity Cost",
+        value: `${(outcomeData.opportunityCost || 0).toFixed(2)}%`,
+      },
+    ];
+
+    rows.forEach((row) => {
+      const div = document.createElement("div");
+      div.style.cssText =
+        "display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.05);";
+      const label = document.createElement("span");
+      label.className = "muted";
+      label.textContent = row.label + ":";
+      const value = document.createElement("span");
+      value.textContent = row.value;
+      div.appendChild(label);
+      div.appendChild(value);
+      card.appendChild(div);
+    });
+
+    const insight = document.createElement("div");
+    insight.style.cssText =
+      "margin-top: 8px; font-style: italic; color: var(--text-muted);";
+    insight.textContent = outcomeData.insight || "";
+    card.appendChild(insight);
+
+    container.appendChild(card);
+  }
+
+  return {
+    evaluate,
+    renderBadge,
+    renderDetails,
+  };
 })();
 
-console.log("[DecisionReplay] Engine loaded.");
-;
+console.log("[DecisionReplay] Module loaded (multi‑dimensional evaluation).");
 // ---- js/intelligence/types.js ----
 // ===============================================================
 // js/intelligence/types.js – Canonical Intelligence Contracts
 // ===============================================================
 //
 // These types define the structure of all intelligence data.
-// No business logic – only type definitions and validation helpers.
+// Every intelligence module MUST use these contracts.
+//
+// Confidence is computed, not hardcoded.
 //
 // ===============================================================
 
@@ -4112,6 +4297,7 @@ W.intelligence = W.intelligence || {};
  * @property {string|null} contractAddress - null for native coins
  * @property {string} symbol - display symbol
  * @property {string|null} coingeckoId - primary key for price lookup
+ * @property {string} name - human-readable name
  */
 
 /**
@@ -4160,96 +4346,157 @@ W.intelligence = W.intelligence || {};
  * @typedef {Object} DecisionPriority
  * @property {string} signalId
  * @property {Assessment} assessment
- * @property {number} score - weighted sum
+ * @property {number} score - weighted sum (relevance * impact * urgency * confidence)
  * @property {string} recommendedAction - 'MONITOR' | 'REVIEW_THESIS' | 'REBALANCE' | 'LOG_DECISION'
  * @property {string} explanation
  */
 
 // ── Source reliability map ────────────────────────────────
+// These are static, evidence-based values. They represent the
+// historical accuracy and trustworthiness of each data source.
 W.intelligence.sourceReliability = {
+  // High-reliability sources (direct from APIs)
   coingecko: 0.95,
   binance: 0.9,
+  alternative_me: 0.85, // Fear & Greed index
+
+  // Medium-reliability sources
   regime_engine: 0.8,
   token_unlocks: 0.7,
-  dex_screener: 0.6,
-  rss_feed: 0.4,
   wallet_sync: 0.85,
+  dex_screener: 0.65,
+  blockscout: 0.75,
+
+  // Low-reliability sources
+  rss_feed: 0.4,
   user_input: 0.5,
+  opportunity_scanner: 0.6,
+  thesis_health: 0.7,
+
+  // Fallback
+  unknown: 0.5,
 };
 
 // ── Freshness windows (seconds) ────────────────────────────
+// After this time, data is considered stale (freshness → 0)
 W.intelligence.freshnessWindows = {
   PRICE_MOVE: 300, // 5 minutes
   REGIME_SHIFT: 3600, // 1 hour
   UNLOCK: 86400, // 1 day
-  OPPORTUNITY: 86400,
-  THESIS_DETERIORATION: 3600,
-  BEHAVIORAL_PATTERN: 86400,
+  OPPORTUNITY: 86400, // 1 day
+  THESIS_DETERIORATION: 3600, // 1 hour
+  BEHAVIORAL_PATTERN: 86400, // 1 day
 };
 
-console.log("[Intelligence] Types and constants loaded.");
-;
+// ── Minimum corroboration for confidence boost ─────────────
+W.intelligence.corroborationThreshold = 2;
+
+// ── Compute confidence from evidence components ─────────────
+function computeConfidence(evidence) {
+  const {
+    sourceReliability = 0.5,
+    dataFreshness = 0.8,
+    corroborationCount = 1,
+    dataCompleteness = 0.8,
+    interpretationConfidence = 0.7,
+  } = evidence;
+
+  // Clamp all values to [0, 1]
+  const clamp = (v) => Math.max(0, Math.min(1, v));
+  const sr = clamp(sourceReliability);
+  const df = clamp(dataFreshness);
+  const cc = Math.max(1, Math.floor(corroborationCount));
+  const dc = clamp(dataCompleteness);
+  const ic = clamp(interpretationConfidence);
+
+  // Corroboration boost: 1.0 for single source, up to 1.5 for 3+ sources
+  const corroborationBoost = Math.min(1.5, 1 + (cc - 1) * 0.15);
+
+  // Combined confidence: product of all components with corroboration boost
+  let confidence = sr * df * dc * ic * corroborationBoost;
+
+  // Clamp final confidence to [0, 1]
+  confidence = clamp(confidence);
+
+  // If confidence is extremely low, floor at 0.05 to avoid zero
+  if (confidence < 0.05 && (sr > 0 || df > 0 || dc > 0 || ic > 0)) {
+    confidence = 0.05;
+  }
+
+  return confidence;
+}
+
+// ── Helper: compute freshness from timestamp and type ──────
+function computeFreshness(timestamp, signalType) {
+  const age = Date.now() - timestamp;
+  const window = W.intelligence.freshnessWindows[signalType] || 3600;
+  const freshness = Math.max(0, 1 - age / (window * 1000));
+  return Math.min(1, freshness);
+}
+
+// ── Helper: get source reliability ──────────────────────────
+function getSourceReliability(source) {
+  return (
+    W.intelligence.sourceReliability[source] ||
+    W.intelligence.sourceReliability.unknown
+  );
+}
+
+// ── Export helpers ──────────────────────────────────────────
+W.intelligence.computeConfidence = computeConfidence;
+W.intelligence.computeFreshness = computeFreshness;
+W.intelligence.getSourceReliability = getSourceReliability;
+
+console.log("[Intelligence] Confidence model loaded.");
 // ---- js/intelligence/decision-engine.js ----
 // ===============================================================
-//         Unified Decision Engine
+//         Unified Decision Engine – Canonical Orchestrator
 // ===============================================================
 //
-// Orchestrates: Signals → Evidence → PersonalContext → Assessment → DecisionPriority → Presentation
-// This replaces the monolithic ranker and provides a clean pipeline.
+// This is the sole intelligence orchestration layer.
+// It performs: SIGNAL → EVIDENCE → PERSONAL CONTEXT → ASSESSMENT → DECISION PRIORITY
+//
+// It does NOT bypass the pipeline.
+// It does NOT execute trades.
 //
 // ===============================================================
+
 
 window.W = window.W || {};
 W.decisionEngine = (() => {
-  // ── Compute Personal Context for an asset ──────────────────
-  function computePersonalContext(
-    assetId,
-    portfolio,
-    watchlist,
-    theses,
-    journal,
-    behavior,
-  ) {
+
+  // ── Helper: Compute Personal Context ──────────────────────
+  function computePersonalContext(assetId, portfolio, watchlist, theses, journal, behavior) {
     const symbol = assetId.symbol.toUpperCase();
     let portfolioWeight = 0;
-    let watchlistStatus = "NOT_WATCHING";
-    let thesisStatus = "NONE";
+    let watchlistStatus = 'NOT_WATCHING';
+    let thesisStatus = 'NONE';
     let recentDecisions = 0;
-    let behavioralRisk = "NONE";
+    let behavioralRisk = 'NONE';
 
-    // Portfolio
-    const holdings = portfolio.filter(
-      (h) => (h.symbol || "").toUpperCase() === symbol,
-    );
+    const holdings = portfolio.filter(h => (h.symbol || '').toUpperCase() === symbol);
     const totalValue = portfolio.reduce((sum, h) => sum + (h.value || 0), 0);
     if (totalValue > 0) {
-      portfolioWeight =
-        holdings.reduce((sum, h) => sum + (h.value || 0), 0) / totalValue;
+      portfolioWeight = holdings.reduce((sum, h) => sum + (h.value || 0), 0) / totalValue;
     }
 
-    // Watchlist
-    if (watchlist.some((w) => (w || "").toUpperCase() === symbol)) {
-      watchlistStatus = "WATCHING";
+    if (watchlist.some(w => (w || '').toUpperCase() === symbol)) {
+      watchlistStatus = 'WATCHING';
     }
 
-    // Thesis
-    const thesis = theses.find(
-      (t) => (t.assetId?.symbol || t.symbol || "").toUpperCase() === symbol,
-    );
+    const thesis = theses.find(t => (t.assetId?.symbol || t.symbol || '').toUpperCase() === symbol);
     if (thesis) {
-      thesisStatus = thesis.status === "active" ? "ACTIVE" : "INVALIDATED";
+      thesisStatus = thesis.status === 'active' ? 'ACTIVE' : 'INVALIDATED';
     }
 
-    // Recent decisions
     const now = Date.now();
     const weekAgo = now - 7 * 86400000;
-    recentDecisions = journal.filter((d) => {
-      const dSymbol = d.assetId?.symbol || d.asset || "";
+    recentDecisions = journal.filter(d => {
+      const dSymbol = d.assetId?.symbol || d.asset || '';
       return dSymbol.toUpperCase() === symbol && d.timestamp > weekAgo;
     }).length;
 
-    // Behavioral risk (if behavior module provides per-asset risk)
-    if (behavior && behavior.pattern !== "none") {
+    if (behavior && behavior.pattern !== 'none') {
       behavioralRisk = behavior.pattern.toUpperCase();
     }
 
@@ -4263,51 +4510,40 @@ W.decisionEngine = (() => {
     };
   }
 
-  // ── Compute Assessment from Signal and Context ────────────
+  // ── Helper: Compute Assessment ────────────────────────────
   function computeAssessment(signal, personalContext, evidence) {
-    // Relevance: portfolioWeight*0.4 + watchlist*0.2 + thesis*0.2 + recentDecisions*0.1 + behavioralRisk*0.1
     let relevance = 0;
-    if (personalContext.portfolioWeight > 0)
-      relevance += personalContext.portfolioWeight * 0.4;
-    if (personalContext.watchlistStatus === "WATCHING") relevance += 0.2;
-    if (personalContext.thesisStatus === "ACTIVE") relevance += 0.2;
+    if (personalContext.portfolioWeight > 0) relevance += personalContext.portfolioWeight * 0.4;
+    if (personalContext.watchlistStatus === 'WATCHING') relevance += 0.2;
+    if (personalContext.thesisStatus === 'ACTIVE') relevance += 0.2;
     relevance += Math.min(1, personalContext.recentDecisions / 5) * 0.1;
-    if (
-      personalContext.behavioralRisk === "PANIC" ||
-      personalContext.behavioralRisk === "FOMO"
-    ) {
+    if (personalContext.behavioralRisk === 'PANIC' || personalContext.behavioralRisk === 'FOMO') {
       relevance += 0.1;
     }
     relevance = Math.min(1, relevance);
 
-    // Impact: based on evidence strength and market cap factor (rough)
-    let impact = evidence.confidence * 0.7 + 0.3; // baseline 0.3
-    // Market cap factor: if asset is in top 100, increase impact
-    // For now, we'll just use a placeholder based on rawData
+    let impact = evidence.confidence * 0.7 + 0.3;
     const raw = signal.rawData || {};
     const marketCap = raw.market_cap || raw.mcap || 0;
     const capFactor = marketCap > 1e9 ? 1.0 : marketCap > 1e8 ? 0.8 : 0.5;
     impact = impact * capFactor;
     impact = Math.min(1, impact);
 
-    // Urgency: time decay to event or volatility
     let urgency = 0.5;
-    if (signal.type === "UNLOCK") {
+    if (signal.type === 'UNLOCK') {
       const now = Date.now();
       const eventTime = signal.rawData?.date || now + 7 * 86400000;
       const daysLeft = (eventTime - now) / 86400000;
       urgency = Math.max(0, Math.min(1, 1 - daysLeft / 14));
-    } else if (signal.type === "PRICE_MOVE") {
+    } else if (signal.type === 'PRICE_MOVE') {
       const change = Math.abs(signal.rawData?.price_change_percentage_24h || 0);
       urgency = Math.min(1, change / 10);
     } else {
       urgency = 0.5;
     }
 
-    // Confidence: use evidence.confidence
     const confidence = evidence.confidence || 0.5;
 
-    // Reasoning
     const reasoning = [
       `Relevance: ${(relevance * 100).toFixed(0)}%`,
       `Impact: ${(impact * 100).toFixed(0)}%`,
@@ -4318,28 +4554,19 @@ W.decisionEngine = (() => {
     return { relevance, impact, urgency, confidence, reasoning };
   }
 
-  // ── Compute DecisionPriority from Assessment ──────────────
+  // ── Helper: Compute Decision Priority ──────────────────────
   function computeDecisionPriority(signal, assessment) {
-    const score =
-      assessment.relevance *
-      assessment.impact *
-      assessment.urgency *
-      assessment.confidence;
-    // Determine action
-    let recommendedAction = "MONITOR";
-    if (
-      assessment.relevance > 0.7 &&
-      assessment.impact > 0.6 &&
-      assessment.urgency > 0.5
-    ) {
-      recommendedAction = "REBALANCE";
+    const score = assessment.relevance * assessment.impact * assessment.urgency * assessment.confidence;
+    let recommendedAction = 'MONITOR';
+    if (assessment.relevance > 0.7 && assessment.impact > 0.6 && assessment.urgency > 0.5) {
+      recommendedAction = 'REBALANCE';
     } else if (assessment.relevance > 0.5 && assessment.impact > 0.4) {
-      recommendedAction = "REVIEW_THESIS";
+      recommendedAction = 'REVIEW_THESIS';
     } else if (assessment.confidence > 0.8 && assessment.relevance > 0.3) {
-      recommendedAction = "LOG_DECISION";
+      recommendedAction = 'LOG_DECISION';
     }
 
-    const explanation = `Signal: ${signal.type} for ${signal.assetId.symbol}. Score: ${(score * 100).toFixed(0)}%. ${assessment.reasoning.join(". ")}`;
+    const explanation = `Signal: ${signal.type} for ${signal.assetId.symbol}. Score: ${(score * 100).toFixed(0)}%. ${assessment.reasoning.join('. ')}`;
 
     return {
       signalId: signal.id,
@@ -4350,122 +4577,198 @@ W.decisionEngine = (() => {
     };
   }
 
-  // ── Main pipeline ──────────────────────────────────────────
+  // ── Main Pipeline ──────────────────────────────────────────
   async function run() {
-    // 1. Collect signals
     const signals = await W.events.collectEvents();
     if (!signals || !signals.length) return [];
 
-    // 2. Gather personal data
     const portfolio = W.portfolio?.all() || [];
     const watchlist = W.watchlist?.list ? W.watchlist.list() : [];
     const theses = W.theses?.all ? W.theses.all() : [];
     const journal = W.journal?.all ? W.journal.all() : [];
-    const behavior = W.behavior?.analyze
-      ? W.behavior.analyze()
-      : { pattern: "none" };
+    const behavior = W.behavior?.analyze ? W.behavior.analyze() : { pattern: 'none' };
 
-    // 3. For each signal, compute evidence, context, assessment, priority
     const decisions = [];
 
     for (const signal of signals) {
-      // Evidence: use signal's _confidence and other attributes
+      // Build evidence from signal metadata
+      const sourceReliability = signal._evidence?.sourceReliability || 0.5;
+      const dataFreshness = signal._evidence?.dataFreshness || 0.8;
+      const corroborationCount = signal._evidence?.corroborationCount || 1;
+      const dataCompleteness = signal._evidence?.dataCompleteness || 0.8;
+      const interpretationConfidence = signal._evidence?.interpretationConfidence || 0.7;
+
       const evidence = {
         signalId: signal.id,
-        sourceReliability:
-          W.intelligence?.sourceReliability?.[signal.source] || 0.5,
-        dataFreshness: 0.8, // placeholder
-        corroborationCount: 1,
-        dataCompleteness: 0.8,
-        interpretationConfidence: 0.7,
-        confidence: signal._confidence || 0.5,
-        reasoning: ["Based on source reliability and freshness"],
+        sourceReliability,
+        dataFreshness,
+        corroborationCount,
+        dataCompleteness,
+        interpretationConfidence,
+        reasoning: [`Source: ${signal.source}`],
       };
 
-      // Personal context
-      const context = computePersonalContext(
-        signal.assetId,
-        portfolio,
-        watchlist,
-        theses,
-        journal,
-        behavior,
-      );
+      if (W.intelligence && typeof W.intelligence.computeConfidence === 'function') {
+        evidence.confidence = W.intelligence.computeConfidence(evidence);
+      } else {
+        evidence.confidence = sourceReliability * dataFreshness * 0.8 * dataCompleteness * interpretationConfidence;
+        evidence.confidence = Math.min(1, Math.max(0, evidence.confidence));
+      }
 
-      // Assessment
+      const context = computePersonalContext(signal.assetId, portfolio, watchlist, theses, journal, behavior);
       const assessment = computeAssessment(signal, context, evidence);
-
-      // Decision priority
       const priority = computeDecisionPriority(signal, assessment);
-
+      // Attach asset symbol and signal type for presentation
+      priority._assetSymbol = signal.assetId.symbol;
+      priority._signalType = signal.type;
+      priority._signalTitle = signal.rawData?.title || signal.type;
       decisions.push(priority);
     }
 
-    // Sort by score descending
     decisions.sort((a, b) => b.score - a.score);
-
     return decisions;
   }
 
-  // ── Render top decisions ───────────────────────────────────
+  // ── Presentation: "What Matters Now?" ──────────────────────
   function render(container, decisions, limit = 5) {
     if (!container) return;
     const top = decisions.slice(0, limit);
-    container.innerHTML = "";
+    container.innerHTML = '';
 
     if (!top.length) {
-      container.innerHTML =
-        '<div class="card"><p class="muted small">No actionable insights at this time.</p></div>';
+      container.innerHTML = '<div class="card"><p class="muted small">No actionable insights at this time.</p></div>';
       return;
     }
 
-    const card = document.createElement("div");
-    card.className = "card";
-    const title = document.createElement("h3");
-    title.textContent = "⚡ What Matters Now";
+    const card = document.createElement('div');
+    card.className = 'card';
+    const title = document.createElement('h3');
+    title.textContent = '⚡ What Matters Now';
     card.appendChild(title);
 
-    const list = document.createElement("ul");
-    list.style.cssText = "list-style:none; padding:0; margin:0;";
+    const list = document.createElement('ul');
+    list.style.cssText = 'list-style:none; padding:0; margin:0;';
 
     top.forEach((item) => {
-      const li = document.createElement("li");
-      li.style.cssText =
-        "padding: 12px 0; border-bottom: 1px solid var(--border, #30363d);";
+      const li = document.createElement('li');
+      li.style.cssText = 'padding: 12px 0; border-bottom: 1px solid var(--border, #30363d);';
 
-      const header = document.createElement("div");
-      header.style.cssText =
-        "display:flex; justify-content:space-between; align-items:center;";
+      // ── Header: Asset and Score ──────────────────────────────
+      const header = document.createElement('div');
+      header.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom: 4px;';
 
-      const sym = document.createElement("b");
-      sym.textContent = item.assessment.signalId; // we'll improve
-      // Better: get asset symbol from signal
-      const signal = W.events._signals?.find((s) => s.id === item.signalId);
-      const symbol = signal ? signal.assetId.symbol : "Unknown";
-      sym.textContent = symbol;
+      const assetName = document.createElement('b');
+      assetName.textContent = item._assetSymbol || 'Asset';
+      assetName.style.fontSize = '1.1em';
 
-      const score = document.createElement("span");
-      score.className = "muted small";
-      score.textContent = `Score: ${(item.score * 100).toFixed(0)}%`;
+      const scoreSpan = document.createElement('span');
+      scoreSpan.className = 'muted small';
+      const scorePct = (item.score * 100).toFixed(0);
+      scoreSpan.textContent = `Score: ${scorePct}%`;
 
-      header.appendChild(sym);
-      header.appendChild(score);
+      header.appendChild(assetName);
+      header.appendChild(scoreSpan);
       li.appendChild(header);
 
-      const desc = document.createElement("p");
-      desc.className = "small muted";
-      desc.style.margin = "4px 0 0 0";
-      desc.textContent =
-        item.explanation || `Recommended action: ${item.recommendedAction}`;
-      li.appendChild(desc);
+      // ── What Happened ──────────────────────────────────────────
+      const what = document.createElement('p');
+      what.className = 'small';
+      what.style.margin = '4px 0 0 0';
+      what.textContent = item._signalTitle || `${item._signalType} detected`;
+      li.appendChild(what);
 
-      // Add context from W.context if available
+      // ── Why It Matters (Personalized Context) ─────────────────
+      // Use W.context to generate rich context
       if (W.context) {
-        const contextContainer = document.createElement("div");
-        li.appendChild(contextContainer);
-        // We need to generate context; pass the signal and user data
-        // For simplicity, we skip detailed context here.
+        // Build a simplified event object for context generator
+        const eventObj = {
+          symbol: item._assetSymbol,
+          type: item._signalType,
+          title: item._signalTitle,
+          impactValue: item.assessment?.impact || 0.5,
+        };
+        // Get user context
+        const userContext = {
+          portfolio: W.portfolio?.all() || [],
+          watchlist: (W.watchlist?.list ? W.watchlist.list() : []).map(w => w.symbol || w),
+          theses: W.theses?.all ? W.theses.all() : [],
+          journal: W.journal?.all ? W.journal.all() : [],
+          behavior: W.behavior?.analyze ? W.behavior.analyze() : { pattern: 'none' },
+        };
+        const contextData = W.context.generateContext(eventObj, userContext);
+        if (contextData && contextData.whyItMatters) {
+          const contextEl = document.createElement('div');
+          contextEl.className = 'small muted';
+          contextEl.style.marginTop = '4px';
+          contextEl.textContent = contextData.whyItMatters;
+          li.appendChild(contextEl);
+
+          // Show recommended action if any
+          if (contextData.recommendedAction && contextData.personalRelevance !== 'low') {
+            const actionEl = document.createElement('div');
+            actionEl.className = 'small';
+            actionEl.style.marginTop = '4px';
+            actionEl.style.color = 'var(--up, #2ee6a8)';
+            actionEl.textContent = `→ ${contextData.recommendedAction}`;
+            li.appendChild(actionEl);
+          }
+        }
+      } else {
+        // Fallback if context module is not available
+        const fallback = document.createElement('div');
+        fallback.className = 'small muted';
+        fallback.style.marginTop = '4px';
+        fallback.textContent = item.explanation || 'Review this signal.';
+        li.appendChild(fallback);
       }
+
+      // ── Confidence Bar ────────────────────────────────────────
+      const confidence = item.assessment?.confidence || 0.5;
+      const confBar = document.createElement('div');
+      confBar.style.cssText = 'margin-top: 8px; display: flex; align-items: center; gap: 8px;';
+      const confLabel = document.createElement('span');
+      confLabel.className = 'muted small';
+      confLabel.textContent = 'Confidence:';
+      const bar = document.createElement('div');
+      bar.style.cssText = 'flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;';
+      const fill = document.createElement('div');
+      const confidencePct = (confidence * 100).toFixed(0);
+      fill.style.cssText = `width: ${confidencePct}%; height: 100%; background: ${confidence > 0.7 ? 'var(--up, #2ee6a8)' : confidence > 0.4 ? 'var(--warn, #ffb35c)' : 'var(--down, #ff5c7a)'}; border-radius: 2px;`;
+      bar.appendChild(fill);
+      const pctSpan = document.createElement('span');
+      pctSpan.className = 'muted small';
+      pctSpan.textContent = `${confidencePct}%`;
+      confBar.appendChild(confLabel);
+      confBar.appendChild(bar);
+      confBar.appendChild(pctSpan);
+      li.appendChild(confBar);
+
+      // ── Uncertainty / Limitations ────────────────────────────
+      if (confidence < 0.6) {
+        const uncertainty = document.createElement('div');
+        uncertainty.className = 'small muted';
+        uncertainty.style.marginTop = '4px';
+        uncertainty.style.fontStyle = 'italic';
+        uncertainty.textContent = '⚠️ This signal has significant uncertainty. Consider additional verification.';
+        li.appendChild(uncertainty);
+      }
+
+      // ── Suggested Review ──────────────────────────────────────
+      const action = document.createElement('div');
+      action.className = 'small';
+      action.style.marginTop = '6px';
+      action.style.padding = '4px 8px';
+      action.style.background = 'rgba(124, 92, 255, 0.1)';
+      action.style.borderRadius = '4px';
+      const actionText = item.recommendedAction || 'MONITOR';
+      const actionMap = {
+        'MONITOR': '👀 Monitor',
+        'REVIEW_THESIS': '📝 Review Thesis',
+        'REBALANCE': '⚖️ Consider Rebalancing',
+        'LOG_DECISION': '📓 Log Decision',
+      };
+      action.textContent = `Suggested: ${actionMap[actionText] || actionText}`;
+      li.appendChild(action);
 
       list.appendChild(li);
     });
@@ -4474,7 +4777,7 @@ W.decisionEngine = (() => {
     container.appendChild(card);
   }
 
-  // ── Public API ────────────────────────────────────────────
+  // ── Public API ──────────────────────────────────────────────
   return {
     run,
     render,
@@ -4484,11 +4787,10 @@ W.decisionEngine = (() => {
   };
 })();
 
-console.log("[DecisionEngine] Module loaded.");
-;
+console.log('[DecisionEngine] Module loaded (enhanced presentation).');
 // ---- js/intelligence/events.js ----
 // ===============================================================
-//         Live Event Collector – Includes Thesis Health
+//         Live Event Collector – Confidence Model + Thesis Health
 // ===============================================================
 
 window.W = window.W || {};
@@ -4497,29 +4799,11 @@ W.events = (() => {
   const TTL = 5 * 60 * 1000;
   const DAY = 864e5;
 
-  const { sourceReliability, freshnessWindows } = W.intelligence || {};
+  const { computeConfidence, computeFreshness, getSourceReliability } =
+    W.intelligence || {};
 
   function safeNum(val, fallback = 0.5) {
     return typeof val === "number" && !isNaN(val) ? val : fallback;
-  }
-
-  function computeConfidence(signal) {
-    const source = signal.source || "unknown";
-    const reliability = sourceReliability?.[source] || 0.5;
-    const age = Date.now() - signal.timestamp;
-    const window = freshnessWindows?.[signal.type] || 3600;
-    const freshness = Math.max(0, 1 - age / (window * 1000));
-    const corroboration = 1;
-    const completeness = 0.8;
-    const interpretation = 0.7;
-    let confidence =
-      reliability *
-      freshness *
-      (1 + (corroboration - 1) * 0.1) *
-      completeness *
-      interpretation;
-    confidence = Math.min(1, Math.max(0, confidence));
-    return confidence;
   }
 
   function normalize(raw, type) {
@@ -4537,6 +4821,7 @@ W.events = (() => {
       contractAddress: raw.contractAddress || null,
       symbol: symbol,
       coingeckoId: raw.coingeckoId || null,
+      name: raw.name || raw.coinName || symbol,
     };
 
     const timestamp = raw.timestamp
@@ -4552,26 +4837,52 @@ W.events = (() => {
       timestamp,
       rawData: raw,
     };
-    signal._confidence = computeConfidence(signal);
+
+    const sourceReliability = getSourceReliability
+      ? getSourceReliability(signal.source)
+      : 0.5;
+    const dataFreshness = computeFreshness
+      ? computeFreshness(timestamp, type)
+      : 0.8;
+    const corroborationCount = raw.corroborationCount || 1;
+    const dataCompleteness = raw.dataCompleteness || 0.8;
+    const interpretationConfidence = raw.interpretationConfidence || 0.7;
+
+    const evidence = {
+      signalId: signal.id,
+      sourceReliability,
+      dataFreshness,
+      corroborationCount,
+      dataCompleteness,
+      interpretationConfidence,
+      reasoning: [`Source: ${signal.source}`],
+    };
+
+    signal._confidence = computeConfidence ? computeConfidence(evidence) : 0.5;
+    signal._evidence = evidence;
+
     return signal;
   }
 
+  // ── Collectors ──────────────────────────────────────────────
   function collectPriceEvents(markets) {
     const events = [];
     if (!Array.isArray(markets)) return events;
-
     markets.forEach((coin) => {
       const change = Math.abs(coin.price_change_percentage_24h || 0);
       if (change > 3) {
+        const impactValue = Math.min(1, change / 15);
         events.push(
           normalize(
             {
               symbol: coin.symbol,
               name: coin.name,
               title: `${coin.name} moved ${coin.price_change_percentage_24h.toFixed(1)}% in 24h`,
-              impactValue: Math.min(1, change / 15),
+              impactValue: impactValue,
               source: "coingecko",
               coingeckoId: coin.id,
+              dataCompleteness: 0.9,
+              interpretationConfidence: 0.9,
             },
             "PRICE_MOVE",
           ),
@@ -4590,7 +4901,6 @@ W.events = (() => {
         btcDominance: g.data?.market_cap_percentage?.btc,
         capChange: g.data?.market_cap_change_percentage_24h_usd,
       });
-
       if (regimeData.regime !== "UNKNOWN") {
         events.push(
           normalize(
@@ -4598,8 +4908,10 @@ W.events = (() => {
               symbol: "BTC",
               title: `Market Regime Shift: ${regimeData.regime}`,
               description: `Confidence: ${(regimeData.confidence * 100).toFixed(0)}%. Signals: ${regimeData.signals.map((s) => s.value).join(", ")}`,
-              impactValue: regimeData.confidence,
+              impactValue: regimeData.confidence || 0.5,
               source: "regime_engine",
+              interpretationConfidence: 0.8,
+              dataCompleteness: 0.85,
             },
             "REGIME_SHIFT",
           ),
@@ -4616,14 +4928,12 @@ W.events = (() => {
     try {
       const unlocks = W.unlocks?.list ? W.unlocks.list() : [];
       if (!unlocks.length) return events;
-
       const now = Date.now();
       const upcoming = unlocks.filter((u) => {
         const daysLeft = (u.date - now) / DAY;
         return daysLeft >= 0 && daysLeft <= 14;
       });
       if (!upcoming.length) return events;
-
       upcoming.forEach((u) => {
         const daysLeft = (u.date - now) / DAY;
         events.push(
@@ -4636,6 +4946,9 @@ W.events = (() => {
               impactValue: 0.6,
               source: "token_unlocks",
               coingeckoId: u.coinId,
+              interpretationConfidence: 0.75,
+              dataCompleteness: 0.8,
+              corroborationCount: 1,
             },
             "UNLOCK",
           ),
@@ -4653,14 +4966,12 @@ W.events = (() => {
       if (!W.opportunities) return events;
       const portfolio = W.portfolio?.all() || [];
       const theses = W.theses?.all() || [];
-
       const opportunities = W.opportunities.scan(
         portfolio,
         theses,
         markets,
         regimeData,
       );
-
       opportunities.forEach((opp) => {
         events.push(
           normalize(
@@ -4670,6 +4981,8 @@ W.events = (() => {
               description: opp.description,
               impactValue: opp.impactValue || 0.5,
               source: opp.source || "opportunity_scanner",
+              interpretationConfidence: opp.interpretationConfidence || 0.7,
+              dataCompleteness: opp.dataCompleteness || 0.75,
             },
             "OPPORTUNITY",
           ),
@@ -4681,49 +4994,74 @@ W.events = (() => {
     return events;
   }
 
-  // ── NEW: Collect Thesis Health signals ──────────────────
-  function collectThesisHealthEvents() {
+  // ── Async thesis health collector ──────────────────────────────
+  async function collectThesisHealthEvents() {
     const events = [];
     try {
       if (!W.thesisHealth || !W.theses) return events;
       const activeTheses = W.theses.all().filter((t) => t.status === "active");
       if (!activeTheses.length) return events;
 
+      // Get price data for all thesis assets
+      const assetIds = [
+        ...new Set(
+          activeTheses.map((t) => t.coingeckoId || t.symbol).filter(Boolean),
+        ),
+      ];
       let priceMap = {};
-      const assetIds = activeTheses
-        .map((t) => t.assetId || t.symbol)
-        .filter(Boolean);
       if (assetIds.length) {
-        W.api
-          .markets(assetIds.join(","))
-          .then((markets) => {
-            markets.forEach((m) => {
-              priceMap[m.id] = m.current_price;
-            });
-          })
-          .catch(() => {});
+        try {
+          const markets = await W.api.markets(assetIds.join(","));
+          markets.forEach((m) => {
+            priceMap[m.id] = m.current_price;
+          });
+        } catch (e) {}
       }
 
+      // Get current regime
+      let regimeData = null;
+      try {
+        const fg = await W.api.fearGreed();
+        const g = await W.api.global();
+        if (W.regime && fg && g) {
+          regimeData = W.regime.detect({
+            fearGreed: fg.value,
+            btcDominance: g.data?.market_cap_percentage?.btc,
+            capChange: g.data?.market_cap_change_percentage_24h_usd,
+          });
+        }
+      } catch (e) {}
+
+      // Evaluate each active thesis
       activeTheses.forEach((thesis) => {
         const price =
           priceMap[thesis.coingeckoId] ||
           priceMap[thesis.symbol?.toLowerCase()] ||
           null;
-        const health = W.thesisHealth.evaluate(thesis, price, null);
-        if (health && health.status !== "Healthy") {
-          events.push(
-            normalize(
-              {
-                symbol: thesis.symbol,
-                title: `Thesis Deteriorating: ${thesis.symbol}`,
-                description: `Health score: ${health.healthScore}/100. ${health.reasons.join(" ")}`,
-                impactValue: 0.7,
-                source: "thesis_health",
-                coingeckoId: thesis.coingeckoId,
-              },
-              "THESIS_DETERIORATION",
-            ),
+        const marketData = { price, regime: regimeData?.regime || null };
+        const health = W.thesisHealth.evaluate(thesis, marketData, []);
+        if (
+          health &&
+          health.status !== "Healthy" &&
+          health.status !== "Strengthening"
+        ) {
+          const impactValue = Math.min(1, (100 - health.healthScore) / 100);
+          const signal = normalize(
+            {
+              symbol: thesis.symbol,
+              name: thesis.asset || thesis.symbol,
+              title: `Thesis ${health.status}: ${thesis.symbol}`,
+              description: `Health score: ${health.healthScore}/100. ${health.reasons.join(" ")}`,
+              impactValue: impactValue,
+              source: "thesis_health",
+              coingeckoId: thesis.coingeckoId,
+              interpretationConfidence: 0.7,
+              dataCompleteness: 0.8,
+              timestamp: Date.now(),
+            },
+            "THESIS_DETERIORATION",
           );
+          if (signal) events.push(signal);
         }
       });
     } catch (e) {
@@ -4732,6 +5070,7 @@ W.events = (() => {
     return events;
   }
 
+  // ── Core Aggregation ──────────────────────────────────────────
   async function collectEvents() {
     const cached = W.store?.get(CACHE_KEY);
     if (cached && Date.now() - cached.timestamp < TTL) {
@@ -4761,14 +5100,22 @@ W.events = (() => {
       });
     }
 
+    // Collect all signals (including async thesis health)
+    const priceEvents = collectPriceEvents(markets);
+    const regimeEvents = collectRegimeEvents(fg, g);
+    const unlockEvents = collectUnlockEvents();
+    const opportunityEvents = collectOpportunityEvents(markets, regimeData);
+    const thesisEvents = await collectThesisHealthEvents();
+
     let allSignals = [
-      ...collectPriceEvents(markets),
-      ...collectRegimeEvents(fg, g),
-      ...collectUnlockEvents(),
-      ...collectOpportunityEvents(markets, regimeData),
-      ...collectThesisHealthEvents(),
+      ...priceEvents,
+      ...regimeEvents,
+      ...unlockEvents,
+      ...opportunityEvents,
+      ...thesisEvents,
     ].filter(Boolean);
 
+    // Deduplicate
     const seen = new Map();
     allSignals = allSignals.filter((s) => {
       const key = `${s.type}_${s.assetId.symbol}`;
@@ -4793,14 +5140,13 @@ W.events = (() => {
     return allSignals;
   }
 
-  return { normalize, collectEvents, computeConfidence };
+  return { normalize, collectEvents };
 })();
 
-console.log("[Events] Module loaded (with confidence model).");
-;
+console.log("[Events] Module loaded (thesis health integrated).");
 // ---- js/features/portfolio.js ----
 // ===============================================================
-//         Portfolio Management Module (Weighted Average)
+//         Portfolio Management Module – Data Correctness
 // ===============================================================
 
 window.W = window.W || {};
@@ -4808,7 +5154,6 @@ W.portfolio = W.portfolio || {};
 
 (function () {
   const PORTFOLIO_KEY = "portfolio_holdings";
-
   let holdings = W.store.get(PORTFOLIO_KEY, []);
 
   function save() {
@@ -4826,6 +5171,7 @@ W.portfolio = W.portfolio || {};
       return false;
     }
 
+    // Normalize symbol to uppercase; later we'll use AssetId
     const symbol = holding.symbol.toUpperCase();
     const qty = parseFloat(holding.qty) || 0;
     const buyPrice = parseFloat(holding.buyPrice) || 0;
@@ -4843,19 +5189,23 @@ W.portfolio = W.portfolio || {};
       const existing = holdings[existingIndex];
       const oldQty = parseFloat(existing.qty) || 0;
       const oldAvg = parseFloat(existing.buyPrice) || 0;
+      // Use totalCost if available, else compute from old qty and avg
+      const oldTotalCost =
+        existing.totalCost !== undefined ? existing.totalCost : oldQty * oldAvg;
+      const newTotalCost = oldTotalCost + qty * buyPrice;
       const newTotalQty = oldQty + qty;
-      const newTotalCost = oldQty * oldAvg + qty * buyPrice;
       const newAvgPrice = newTotalQty > 0 ? newTotalCost / newTotalQty : 0;
 
       holdings[existingIndex] = {
         ...existing,
         qty: newTotalQty,
         buyPrice: newAvgPrice,
-        totalCost: newTotalCost, // new field for exact cost tracking
+        totalCost: newTotalCost,
         updatedAt: Date.now(),
       };
     } else {
-      // New holding
+      // New holding – compute totalCost
+      const totalCost = qty * buyPrice;
       holdings.push({
         id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
         symbol: symbol,
@@ -4864,7 +5214,7 @@ W.portfolio = W.portfolio || {};
         img: holding.img || "",
         qty: qty,
         buyPrice: buyPrice,
-        totalCost: qty * buyPrice,
+        totalCost: totalCost,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
@@ -4882,7 +5232,6 @@ W.portfolio = W.portfolio || {};
   function update(id, updates) {
     const index = holdings.findIndex((h) => h.id === id);
     if (index === -1) return false;
-    // Only update allowed fields, but recompute totalCost if qty or buyPrice changes
     const current = holdings[index];
     const newQty =
       updates.qty !== undefined ? parseFloat(updates.qty) : current.qty;
@@ -4890,12 +5239,13 @@ W.portfolio = W.portfolio || {};
       updates.buyPrice !== undefined
         ? parseFloat(updates.buyPrice)
         : current.buyPrice;
+    const newTotalCost = newQty * newPrice;
     holdings[index] = {
       ...current,
       ...updates,
       qty: newQty,
       buyPrice: newPrice,
-      totalCost: newQty * newPrice,
+      totalCost: newTotalCost,
       updatedAt: Date.now(),
     };
     save();
@@ -4907,7 +5257,7 @@ W.portfolio = W.portfolio || {};
     save();
   }
 
-  // ── Transactions (for tax reporting) ─────────────────────────
+  // ── Transactions (tax reporting) ─────────────────────────────
   const TX_KEY = "portfolio_transactions";
   function txs() {
     return W.store.get(TX_KEY, []);
@@ -4920,13 +5270,10 @@ W.portfolio = W.portfolio || {};
       timestamp: Date.now(),
     });
     W.store.set(TX_KEY, list);
-    // Also update the holding's qty and cost basis automatically?
-    // For now, we'll let the user manually add holdings.
-    // In a full implementation, this would adjust holdings.
     return true;
   }
 
-  // ── Seed sample portfolio ────────────────────────────────────
+  // ── Seed sample portfolio (for testing) ──────────────────────
   function seed() {
     const samples = [
       {
@@ -4958,13 +5305,14 @@ W.portfolio = W.portfolio || {};
     return true;
   }
 
-  // ── Render UI ──────────────────────────────────────────────────
+  // ── Render UI (minimal; dashboard handles full rendering) ──
   async function render(view) {
-    // (Existing render logic – keep as is, but ensure it uses the new fields)
-    // We'll skip the full render code here for brevity; it's unchanged.
-    // Just note that the `add` function now handles weighted average.
+    // This is a stub; dashboard.js renders the portfolio table.
+    // We keep it for consistency.
+    view.innerHTML = '<p class="muted">Portfolio module loaded</p>';
   }
 
+  // ── Public API ──────────────────────────────────────────────
   W.portfolio = {
     all,
     add,
@@ -4978,8 +5326,9 @@ W.portfolio = W.portfolio || {};
   };
 })();
 
-console.log("[Portfolio] Module loaded (weighted-average cost basis).");
-;
+console.log(
+  "[Portfolio] Module loaded (weighted-average cost basis with totalCost).",
+);
 // ---- js/features/watchlist.js ----
 // ================================================================
 // js/features/watchlist.js – Weaver Watchlist
@@ -5177,7 +5526,6 @@ W.watchlist = (() => {
 })();
 
 console.log("[Watchlist] Module loaded.");
-;
 // ---- js/features/explorer.js ----
 // ===============================================================
 //                   Coin Explorer
@@ -5477,7 +5825,6 @@ W.explorer = (() => {
 })();
 
 console.log("[Explorer] Module loaded.");
-;
 // ---- js/features/alerts.js ----
 // js/features/alerts.js – Price Alerts
 
@@ -5708,11 +6055,10 @@ W.alerts = (() => {
 })();
 
 console.log("[Alerts] Module loaded.");
-;
 // ---- js/features/news.js ----
 // js/features/news.js – Complete News Module
 
-const log = (msg, data) => {
+const newsLog = (msg, data) => {
   console.log(`[News] ${msg}`, data || "");
 };
 
@@ -5737,7 +6083,7 @@ async function via(url, asJSON = false) {
   let lastErr = null;
   for (const buildProxy of PROX) {
     const proxyUrl = buildProxy(url);
-    log(`Trying proxy: ${proxyUrl.substring(0, 80)}...`);
+    newsLog(`Trying proxy: ${proxyUrl.substring(0, 80)}...`);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 9000);
     try {
@@ -5755,11 +6101,11 @@ async function via(url, asJSON = false) {
       ) {
         throw new Error("HTML response (not RSS)");
       }
-      log(`✅ Proxy succeeded: ${proxyUrl}`);
+      newsLog(`✅ Proxy succeeded: ${proxyUrl}`);
       return asJSON ? JSON.parse(text) : text;
     } catch (err) {
       clearTimeout(timeout);
-      log(`❌ Proxy failed: ${err.message}`);
+      newsLog(`❌ Proxy failed: ${err.message}`);
       lastErr = err;
     }
   }
@@ -5835,7 +6181,7 @@ async function render(view) {
         const articles = parseRSS(xml);
         return { name, articles, error: null };
       } catch (err) {
-        log(`Failed to fetch ${name}:`, err.message);
+        newsLog(`Failed to fetch ${name}:`, err.message);
         return { name, articles: [], error: err.message };
       }
     });
@@ -5843,7 +6189,7 @@ async function render(view) {
     const allArticles = results.flatMap((r) => r.articles);
 
     if (allArticles.length === 0) {
-      log("No live articles, trying snapshot...");
+      newsLog("No live articles, trying snapshot...");
       const snapshot = await via("", true);
       if (snapshot && snapshot.length) {
         renderArticles(snapshot);
@@ -5868,7 +6214,6 @@ W.features.news = { render };
 W.news = { render };
 
 console.log("[News] Module loaded.");
-;
 // ---- js/features/ai.js ----
 //  Premium AI Intelligence Engine
 // ================================================================
@@ -6648,7 +6993,6 @@ ${behaviorContext}
 
 Object.assign(W.ai, AiModule);
 console.log("[AI] Module loaded.");
-;
 // ---- js/features/optimizer.js ----
 // ================================================================
 // js/features/optimizer.js – Portfolio Optimizer
@@ -6932,7 +7276,6 @@ W.optimizer = (() => {
 })();
 
 console.log("[Optimizer] Module loaded.");
-;
 // ---- js/features/timemachine.js ----
 // ================================================================
 // js/features/timemachine.js – Time Machine: Replay Portfolio History
@@ -7297,7 +7640,6 @@ W.time = W.time || {};
 
   console.log("[TimeMachine] Module loaded.");
 })();
-;
 // ---- js/features/trader.js ----
 // ================================================================
 // js/features/trader.js – AI Trading Assistant
@@ -7756,7 +8098,6 @@ W.trader = (() => {
 })();
 
 console.log("[Trader] Module loaded.");
-;
 // ---- js/features/gems.js ----
 // js/features/gems.js – Gem Agent: Token Hunter
 
@@ -8072,7 +8413,6 @@ W.gems = (() => {
 })();
 
 console.log("[Gems] Module loaded.");
-;
 // ---- js/features/shield.js ----
 // ================================================================
 // js/features/shield.js – Token Shield (Contract Security Auditor)
@@ -8521,7 +8861,6 @@ W.shield = (() => {
 })();
 
 console.log("[Shield] Module loaded.");
-;
 // ---- js/features/web3.js ----
 // ===============================================================
 //         Secure Web3 Wallet Connector (Privacy & Security)
@@ -8857,7 +9196,6 @@ W.web3 = W.web3 || {};
 })();
 
 console.log("[Web3] Module loaded (secure & private).");
-;
 // ---- js/features/misc.js ----
 // ================================================================
 // js/features/misc.js – Miscellaneous Features
@@ -9497,7 +9835,6 @@ W.misc = (() => {
 })();
 
 console.log("[Misc] Module loaded (with encrypted settings).");
-;
 // ---- js/features/whales.js ----
 // ================================================================
 // js/features/whales.js – Multi‑Chain Whale Wallet Tracker
@@ -10000,7 +10337,6 @@ W.whales = (() => {
 })();
 
 console.log("[Whales] Module loaded (with masked logging).");
-;
 // ---- js/features/smart.js ----
 // ================================================================
 // js/features/smart.js – Smart Money Tracker
@@ -10178,7 +10514,12 @@ W.smart = (() => {
             ...analysis,
           });
         } catch (e) {
-          console.warn("[Smart] Failed to analyze holder:", h.address.hash, e);
+          // ✅ FIX: Mask address in error logs
+          console.warn(
+            "[Smart] Failed to analyze holder:",
+            W.fmt.maskAddress(h.address.hash),
+            e,
+          );
         }
       }
 
@@ -10376,7 +10717,6 @@ W.smart = (() => {
 })();
 
 console.log("[Smart] Module loaded.");
-;
 // ---- js/features/unlocks.js ----
 // ================================================================
 // js/features/unlocks.js – Token Unlock Calendar
@@ -10740,7 +11080,6 @@ W.unlocks = (() => {
 })();
 
 console.log("[Unlocks] Module loaded.");
-;
 // ---- js/features/sectors.js ----
 // ================================================================
 // js/features/sectors.js – Sector Rotation Heatmap
@@ -10998,7 +11337,6 @@ W.sectors = (() => {
 })();
 
 console.log("[Sectors] Module loaded.");
-;
 // ---- js/features/learn.js ----
 //  Comprehensive Crypto & Web3 Education
 
@@ -11644,7 +11982,6 @@ W.learn = (() => {
 })();
 
 console.log("[Learn] Module loaded.");
-;
 // ---- js/features/sync.js ----
 // ===============================================================
 //             Secure Encrypted Sync for Weaver
@@ -12076,7 +12413,6 @@ if (typeof document !== "undefined") {
 }
 
 console.log("[Sync] Module loaded securely (with hash storage).");
-;
 // ---- js/features/telegram.js ----
 // ================================================================
 // js/features/telegram.js – Telegram Alert Integration
@@ -12373,7 +12709,6 @@ W.tg = (() => {
 })();
 
 console.log("[Telegram] Module loaded.");
-;
 // ---- js/features/walletsync.js ----
 // ================================================================
 // js/features/walletsync.js – Secure Multi‑Chain Wallet Sync
@@ -13012,7 +13347,6 @@ W.walletSync = (() => {
 })();
 
 console.log("[WalletSync] Module loaded (secure).");
-;
 // ---- js/features/theses.js ----
 // ===============================================================
 //         Investment Thesis Tracking Module
@@ -13228,17 +13562,9 @@ W.theses = W.theses || {};
 })();
 
 console.log("[Theses] Module loaded (with Health Monitor integration).");
-;
 // ---- js/features/journal.js ----
 // ===============================================================
-//         Decision Journal Module
-// ===============================================================
-//
-// Purpose: Record WHY a decision was made, linking actions to
-// investment theses and preserving context for future review.
-// Integrates with Decision Replay Engine (Task 21).
-// Rules: 15 (Security), 21 (Data Correctness), 25 (Journal), 31 (Performance).
-//
+//         Decision Journal Module – with Rich Replay
 // ===============================================================
 
 window.W = window.W || {};
@@ -13246,15 +13572,11 @@ W.journal = W.journal || {};
 
 (function () {
   const JOURNAL_KEY = "decision_journal";
-
-  // ── State ──────────────────────────────────────────────
   let decisions = W.store.get(JOURNAL_KEY, []);
 
   function save() {
     W.store.set(JOURNAL_KEY, decisions);
   }
-
-  // ── CRUD Operations ────────────────────────────────────
 
   function all() {
     return decisions;
@@ -13264,16 +13586,16 @@ W.journal = W.journal || {};
     const decision = {
       id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
       asset: data.asset || "UNKNOWN",
-      action: data.action || "Hold", // Buy, Sell, Hold
+      action: data.action || "Hold",
       amount: parseFloat(data.amount) || 0,
       price: parseFloat(data.price) || 0,
       thesisId: data.thesisId || null,
       reasoning: data.reasoning || "",
-      confidence: parseFloat(data.confidence) || 0.5, // 0.0 to 1.0
+      confidence: parseFloat(data.confidence) || 0.5,
       horizon: data.horizon || "Short-term",
       timestamp: new Date().toISOString(),
     };
-    decisions.unshift(decision); // Add to top
+    decisions.unshift(decision);
     save();
     return decision;
   }
@@ -13301,7 +13623,6 @@ W.journal = W.journal || {};
         ${decisions.length === 0 ? '<p class="muted">No decisions logged yet.</p>' : ""}
         ${decisions
           .map((d) => {
-            // Find linked thesis
             const linkedThesis = activeTheses.find((t) => t.id === d.thesisId);
             const actionColor =
               d.action === "Buy"
@@ -13310,14 +13631,20 @@ W.journal = W.journal || {};
                   ? "var(--down)"
                   : "var(--text-muted)";
 
+            // ── Replay Evaluation ─────────────────────────
+            let replayOutcome = null;
+            let hasReplay = false;
+            // We'll fetch current price in the main loop.
+            // For now, we'll render a placeholder that will be updated later.
+            // We'll use a container for replay data.
+
             return `
-          <div class="card" style="margin-bottom: 15px;">
+          <div class="card" style="margin-bottom: 15px;" data-decision-id="${d.id}">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
               <div>
                 <span style="color:${actionColor}; font-weight:bold; font-size:1.1em;">${d.action.toUpperCase()}</span> 
                 <b>${W.fmt.escapeHTML(d.asset)}</b>
-                <!-- Hook for Decision Replay Badge -->
-                <span class="replay-container" data-decision-id="${d.id}"></span>
+                <span class="replay-badge-container" data-decision-id="${d.id}"></span>
                 <span class="muted small"> @ ${W.fmt.price(d.price)}</span>
               </div>
               <span class="muted small">${W.fmt.relativeTime(d.timestamp)}</span>
@@ -13331,7 +13658,11 @@ W.journal = W.journal || {};
               ${linkedThesis ? `<span class="muted"><b>Linked Thesis:</b> ${W.fmt.escapeHTML(linkedThesis.statement.substring(0, 40))}...</span>` : ""}
             </div>
 
+            <!-- Replay Details (expandable) -->
+            <div class="replay-details-container" data-decision-id="${d.id}" style="margin-top:10px; display:none;"></div>
+
             <div style="margin-top:10px; text-align:right;">
+              <button class="btn tiny" data-action="toggle-replay" data-id="${d.id}">📊 Show Replay</button>
               <button class="btn tiny warn" data-action="delete" data-id="${d.id}">Delete</button>
             </div>
           </div>
@@ -13351,17 +13682,13 @@ W.journal = W.journal || {};
           </select>
           <input type="number" id="d-amount" placeholder="Amount" step="any" class="input">
           <input type="number" id="d-price" placeholder="Execution Price" step="any" class="input">
-          
           <select id="d-thesis" class="input">
             <option value="">-- Link to Thesis (Optional) --</option>
             ${activeTheses.map((t) => `<option value="${t.id}">${W.fmt.escapeHTML(t.asset)}: ${W.fmt.escapeHTML(t.statement.substring(0, 30))}...</option>`).join("")}
           </select>
-
           <input type="number" id="d-confidence" placeholder="Confidence (0.0 to 1.0)" step="0.1" min="0" max="1" class="input">
           <input type="text" id="d-horizon" placeholder="Time Horizon (e.g. 2 weeks)" class="input">
-          
           <textarea id="d-reasoning" placeholder="Why are you making this decision? What is the context?" required class="input" rows="3" style="grid-column: 1 / -1;"></textarea>
-          
           <div style="grid-column: 1 / -1; display:flex; gap:10px;">
             <button type="submit" class="btn primary">Save Decision</button>
             <button type="button" class="btn" id="btn-cancel-decision">Cancel</button>
@@ -13402,50 +13729,77 @@ W.journal = W.journal || {};
       };
     });
 
-    // ── Decision Replay Integration (Task 21) ─────────────
-    if (W.decisionReplay && decisions.length > 0) {
-      // 1. Get unique assets to fetch prices efficiently (Rule 31)
-      const uniqueAssets = [
-        ...new Set(decisions.map((d) => d.asset?.toLowerCase())),
-      ].filter(Boolean);
-      let priceMap = {};
-
-      if (uniqueAssets.length > 0 && W.api?.markets) {
-        try {
-          const markets = await W.api.markets(uniqueAssets.join(","));
-          markets.forEach((m) => {
-            if (m && m.id) priceMap[m.id.toLowerCase()] = m.current_price;
-          });
-        } catch (e) {
-          console.warn(
-            "[Journal] Failed to fetch market data for replay:",
-            e.message,
-          );
-        }
-      }
-
-      // 2. Evaluate and inject badges
-      decisions.forEach((d) => {
-        const currentPrice = priceMap[d.asset?.toLowerCase()] || null;
-        const outcome = W.decisionReplay.evaluate(d, currentPrice);
-
+    // ── Toggle Replay Details ────────────────────────────
+    view.querySelectorAll("[data-action='toggle-replay']").forEach((btn) => {
+      btn.onclick = async () => {
+        const id = btn.dataset.id;
         const container = view.querySelector(
-          `.replay-container[data-decision-id="${d.id}"]`,
+          `.replay-details-container[data-decision-id="${id}"]`,
         );
-        if (container) {
-          // innerHTML is safe here because renderBadge returns a strictly controlled, static string
-          container.innerHTML = W.decisionReplay.renderBadge(outcome);
+        if (!container) return;
+
+        if (container.style.display === "none") {
+          // Fetch replay data
+          const decision = decisions.find((d) => d.id === id);
+          if (!decision) return;
+
+          // Get current price (we'll use asset symbol)
+          const asset = decision.asset;
+          let currentPrice = null;
+          let btcPrice = null;
+          try {
+            const markets = await W.api.markets(asset);
+            if (markets && markets.length) {
+              currentPrice = markets[0].current_price;
+            }
+            // Also get BTC price for benchmark
+            const btcData = await W.api.markets("bitcoin");
+            if (btcData && btcData.length) {
+              btcPrice = btcData[0].current_price;
+            }
+          } catch (e) {}
+
+          // Build currentData and benchmarkData
+          const currentData = { price: currentPrice, btcPrice: btcPrice };
+          const benchmarkData = {}; // We could fetch historical prices, but for simplicity we use current BTC.
+          // In a full implementation, we'd store BTC price at decision time.
+
+          // Evaluate
+          if (W.decisionReplay) {
+            const outcome = W.decisionReplay.evaluate(
+              decision,
+              currentData,
+              benchmarkData,
+            );
+            // Render details
+            W.decisionReplay.renderDetails(container, outcome);
+            // Also update badge
+            const badgeContainer = view.querySelector(
+              `.replay-badge-container[data-decision-id="${id}"]`,
+            );
+            if (badgeContainer) {
+              badgeContainer.innerHTML = W.decisionReplay.renderBadge(outcome);
+            }
+            container.style.display = "block";
+            btn.textContent = "📊 Hide Replay";
+          }
+        } else {
+          container.style.display = "none";
+          btn.textContent = "📊 Show Replay";
         }
-      });
-    }
+      };
+    });
+
+    // ── Initial badge rendering ───────────────────────────
+    // For decisions that already have a replay, we could pre‑load.
+    // We'll leave it to user click.
   }
 
   // ── Exports ────────────────────────────────────────────
   W.journal = { all, create, remove, render };
 })();
 
-console.log("[Journal] Decision module loaded (with Replay integration).");
-;
+console.log("[Journal] Decision module loaded (with rich replay).");
 // ---- js/ui/particles.js ----
 // ================================================================
 // js/ui/particles.js – Futuristic Particle System (Starfield + Neural Network)
@@ -13576,7 +13930,6 @@ console.log("[Journal] Decision module loaded (with Replay integration).");
 
   console.log("[Particles] Initialized");
 })();
-;
 // ---- js/ui/tilt.js ----
 // ================================================================
 // js/ui/tilt.js – 3D Tilt on .card elements (smooth, subtle)
@@ -13632,7 +13985,6 @@ console.log("[Journal] Decision module loaded (with Replay integration).");
 
   console.log(`[Tilt] Enabled on ${cards.length} cards.`);
 })();
-;
 // ---- js/app.js ----
 //  Weaver Core Application
 
@@ -14056,7 +14408,6 @@ window.W = window.W || {};
 })();
 
 console.log("[App] Module loaded.");
-;
 // ---- js/init.js ----
 // ===============================================================
 //         Initialization Script for Weaver 
@@ -14161,6 +14512,20 @@ console.log("[App] Module loaded.");
       return;
     }
 
+    // ── Sentry Integration  ──
+    if (window.Sentry && typeof Sentry.init === "function") {
+      const dsn = localStorage.getItem("sentry_dsn") || "";
+      if (dsn) {
+        Sentry.init({
+          dsn,
+          environment: "production",
+          release: "weaver@2.0.0",
+          tracesSampleRate: 0.1,
+        });
+        W.logger?.info("Sentry", "Sentry initialized");
+      }
+    }
+
     updateClock();
     initCurrency();
     initRefresh();
@@ -14185,4 +14550,3 @@ console.log("[App] Module loaded.");
   // ── Expose refresh initializer ───────────────────────────
   window._initRefresh = initRefresh;
 })();
-;

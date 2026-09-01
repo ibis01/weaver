@@ -12,6 +12,8 @@ const files = [
   "js/utils/format.js",
   "js/utils/finance.js",
   "js/utils/debounce.js",
+  "js/utils/logger.js",
+  "js/utils/performance.js",
 
   // ── UI Core ──────────────────────────────────────────────────
   "js/ui/theme.js",
@@ -22,13 +24,15 @@ const files = [
   "js/api/prices.js",
   "js/api/snapshot.js",
 
+  // ── Models ────────────────────────────────────────────────────
+  "js/models/asset.js",
+
   // ── AI ────────────────────────────────────────────────────────
   "js/ai/providers.js",
 
   // ── Intelligence Layer ──────────────────────────────────────
   "js/intelligence/evidence.js",
   "js/intelligence/regime.js",
-  "js/intelligence/ranker.js",
   "js/intelligence/delta.js",
   "js/intelligence/behavior.js",
   "js/intelligence/context.js",
@@ -70,18 +74,15 @@ const files = [
   "js/ui/particles.js",
   "js/ui/tilt.js",
 
-  // ── Core App (MUST LOAD LAST) ──────────────────────────────
+  // ── Core App ──────────────────────────────────────────────────
   "js/app.js",
   "js/init.js",
 ];
 
 const distDir = path.join(__dirname, "dist");
-if (!fs.existsSync(distDir)) {
-  fs.mkdirSync(distDir);
-}
+if (!fs.existsSync(distDir)) fs.mkdirSync(distDir);
 
 let output = "// ====== Weaver Bundle ======\n";
-output += "// Ensure global W object exists\n";
 output += 'if (typeof window.W === "undefined") window.W = {};\n';
 output += "// ==============================\n\n";
 
@@ -90,12 +91,11 @@ for (const file of files) {
   const filePath = path.join(__dirname, file);
   if (fs.existsSync(filePath)) {
     let content = fs.readFileSync(filePath, "utf8");
-    // Remove BOM and shebang if present
     content = content.replace(/^\uFEFF/, "").replace(/^#!.*/, "");
-    // Trim trailing whitespace to avoid stray characters
     content = content.trimEnd();
+    if (!content.endsWith(";")) content += ";";
     output += `// ---- ${file} ----\n`;
-    output += content + "\n;\n"; // Semicolon after each file prevents concatenation errors
+    output += content + "\n";
     fileCount++;
   } else {
     console.warn(`⚠️ Warning: ${file} not found, skipping.`);

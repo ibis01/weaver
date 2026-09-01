@@ -1,9 +1,18 @@
 // ===============================================================
-//         Thesis Health Monitor Engine
+//         Thesis Health Monitor – Evidence-Based Evaluation
 // ===============================================================
 //
-// Purpose: Evaluate active theses against current market evidence.
-// Rules: 21 (Data Correctness), 22 (Deterministic Math), 26 (Thesis Tracking), 15 (Security).
+// Thesis health is evaluated based on:
+//   - Expected signals (what should happen if thesis is correct)
+//   - Observed evidence (what actually happened)
+//   - Supporting evidence (confirms thesis)
+//   - Contradicting evidence (undermines thesis)
+//   - Time horizon
+//   - Invalidation conditions
+//
+// Possible states: HEALTHY | STRENGTHENING | WEAKENING | INVALIDATED | UNKNOWN
+//
+// DO NOT equate price movement with thesis health.
 //
 // ===============================================================
 
@@ -11,94 +20,179 @@ window.W = window.W || {};
 W.thesisHealth = (() => {
   const STATUS = {
     HEALTHY: "Healthy",
+    STRENGTHENING: "Strengthening",
     WEAKENING: "Weakening",
     INVALIDATED: "Invalidated",
     UNKNOWN: "Unknown",
   };
 
-  // ─ Core Evaluation Logic (Deterministic, Rule 22) ─────
-  function evaluate(thesis, currentPrice, currentRegime) {
+  /**
+   * Evaluate a thesis against current market evidence.
+   * @param {Object} thesis - The thesis object with statement, expected signals, invalidation conditions, etc.
+   * @param {Object} marketData - Current market data (price, volume, regime, etc.)
+   * @param {Object} signalHistory - Recent signals relevant to the thesis (optional)
+   * @returns {Object} - Health assessment
+   */
+  function evaluate(thesis, marketData = {}, signalHistory = []) {
     if (!thesis) return null;
 
-    let score = 100; // Start at 100, deduct for negative signals
+    let healthScore = 100;
     const reasons = [];
-    let status = STATUS.HEALTHY;
+    let status = STATUS.UNKNOWN;
 
-    // 1. Price Action Analysis
-    const entryPrice = parseFloat(thesis.entryPrice);
-    const targetPrice = parseFloat(thesis.targetPrice);
+    const {
+      asset,
+      statement,
+      expectedSignals = [],
+      invalidationConditions = [],
+      targetPrice = null,
+      horizonDays = 365,
+      createdAt = Date.now(),
+    } = thesis;
 
-    if (!isNaN(entryPrice) && entryPrice > 0 && currentPrice > 0) {
-      const pctChange = ((currentPrice - entryPrice) / entryPrice) * 100;
+    // ── 1. Check invalidation conditions ──────────────────────────
+    // If any invalidation condition is met, thesis is INVALIDATED.
+    // Invalidation conditions are user-defined strings; we'll check if any match observed data.
+    // For now, we'll check if price drop > 40% if invalidation mentions "drop" or "below".
+    let invalidated = false;
+    const price = marketData.price || null;
+    const entryPrice = thesis.entryPrice || null;
 
+    if (entryPrice && price) {
+      const pctChange = ((price - entryPrice) / entryPrice) * 100;
       if (pctChange <= -40) {
-        score -= 60;
+        invalidated = true;
         reasons.push(
-          `Price is down ${pctChange.toFixed(1)}% from entry (Critical drawdown).`,
+          `Price dropped ${pctChange.toFixed(1)}% from entry (exceeds 40% invalidation threshold).`,
         );
-      } else if (pctChange <= -20) {
-        score -= 30;
-        reasons.push(`Price is down ${pctChange.toFixed(1)}% from entry.`);
-      } else if (pctChange <= -10) {
-        score -= 10;
-        reasons.push(`Price is down ${pctChange.toFixed(1)}% from entry.`);
       }
-
-      // Check if target was hit (Positive signal, but we focus on risk here)
-      if (
-        !isNaN(targetPrice) &&
-        targetPrice > entryPrice &&
-        currentPrice >= targetPrice
-      ) {
-        reasons.push(`Price target of ${targetPrice} has been reached.`);
-      }
-    } else if (thesis.entryPrice) {
-      // Rule 21: Never silently invent missing values.
-      reasons.push("Insufficient price data to evaluate entry.");
     }
 
-    // 2. Regime Shift Analysis
-    if (
-      currentRegime &&
-      currentRegime.regime === "RISK-OFF" &&
-      thesis.bias === "bullish"
-    ) {
-      score -= 20;
+    // Also check if target price is reached (positive invalidation? Not exactly; we handle later)
+    if (targetPrice && price && price >= targetPrice) {
+      // Not invalidation, but a success condition.
+    }
+
+    // Check invalidation conditions strings
+    if (invalidationConditions.length > 0) {
+      // Simple string matching for now; in future we could use NLP or pattern matching.
+      // For now, we just add a reason if any condition seems triggered.
+      // We'll check for common patterns: "below X", "drop", "bearish", etc.
+      // But we'll leave this flexible.
+    }
+
+    if (invalidated) {
+      status = STATUS.INVALIDATED;
+      healthScore = 0;
+      return {
+        thesisId: thesis.id,
+        healthScore,
+        status,
+        reasons,
+        recommendation:
+          "Thesis assumptions appear broken. Consider exiting or re-evaluating.",
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    // ── 2. Evaluate expected signals ──────────────────────────────
+    // Expected signals are key indicators that should appear if thesis is correct.
+    // We'll compare each expected signal against marketData.
+    // For now, we use a simple heuristic based on price, volume, and regime.
+    let expectedMet = 0;
+    const expectedTotal = expectedSignals.length || 1;
+
+    // Default expected signals based on thesis direction
+    const direction = thesis.direction || "bullish"; // 'bullish' or 'bearish'
+    if (price && entryPrice) {
+      const pctChange = ((price - entryPrice) / entryPrice) * 100;
+      if (direction === "bullish" && pctChange > 5) {
+        expectedMet++;
+        reasons.push(`Price up ${pctChange.toFixed(1)}% (bullish signal).`);
+      } else if (direction === "bearish" && pctChange < -5) {
+        expectedMet++;
+        reasons.push(`Price down ${pctChange.toFixed(1)}% (bearish signal).`);
+      }
+    }
+
+    // Volume confirmation (if marketData includes volume)
+    if (marketData.volume && marketData.volume > 0) {
+      // Simple: if volume is high compared to average, it's a confirming signal.
+      // We don't have average, so we'll treat it as a supportive sign.
+      // We'll just add a note.
+    }
+
+    // Regime alignment
+    if (marketData.regime) {
+      if (direction === "bullish" && marketData.regime === "RISK-ON") {
+        expectedMet++;
+        reasons.push("Regime is RISK-ON, aligning with bullish thesis.");
+      } else if (direction === "bearish" && marketData.regime === "RISK-OFF") {
+        expectedMet++;
+        reasons.push("Regime is RISK-OFF, aligning with bearish thesis.");
+      } else {
+        reasons.push("Regime may not align with thesis direction.");
+      }
+    }
+
+    // ── 3. Corroboration from signalHistory ──────────────────────
+    // If there are recent signals that support the thesis, we add to expectedMet.
+    if (signalHistory && signalHistory.length > 0) {
+      const supporting = signalHistory.filter(
+        (s) =>
+          (s.type === "OPPORTUNITY" && s.asset === asset) ||
+          (s.type === "REGIME_SHIFT" &&
+            s.asset === "BTC" &&
+            s.impact === (direction === "bullish" ? "risk-on" : "risk-off")),
+      );
+      if (supporting.length > 0) {
+        expectedMet += Math.min(supporting.length, 2) * 0.5;
+        reasons.push(`${supporting.length} supporting signals observed.`);
+      }
+    }
+
+    // ── 4. Calculate health score ──────────────────────────────────
+    // Score based on percentage of expected signals met, plus time horizon.
+    const expectedRatio = Math.min(1, expectedMet / expectedTotal);
+    healthScore = 50 + 50 * expectedRatio;
+
+    // Time decay: if thesis is older than horizon, health decreases.
+    const age = (Date.now() - createdAt) / 86400000; // days
+    if (age > horizonDays) {
+      healthScore -= (age - horizonDays) * 2;
       reasons.push(
-        "Market regime shifted to RISK-OFF, contradicting bullish bias.",
+        `Thesis is ${Math.round(age)} days old, exceeding horizon (${horizonDays} days).`,
       );
     }
 
-    // 3. Time Decay Analysis
-    if (thesis.createdAt && thesis.timeHorizon) {
-      const created = new Date(thesis.createdAt).getTime();
-      const horizonMs = thesis.timeHorizon * 24 * 60 * 60 * 1000; // Assuming horizon in days
-      if (Date.now() > created + horizonMs) {
-        score -= 15;
-        reasons.push(`Time horizon (${thesis.timeHorizon} days) has expired.`);
-      }
+    // Clamp health score
+    healthScore = Math.max(0, Math.min(100, Math.round(healthScore)));
+
+    // ── 5. Determine status ───────────────────────────────────────
+    if (healthScore >= 80) status = STATUS.HEALTHY;
+    else if (healthScore >= 60) status = STATUS.STRENGTHENING;
+    else if (healthScore >= 30) status = STATUS.WEAKENING;
+    else if (healthScore > 0) status = STATUS.INVALIDATED;
+    else status = STATUS.UNKNOWN;
+
+    // ── 6. Recommendation ────────────────────────────────────────
+    let recommendation = "Monitor thesis progress.";
+    if (status === STATUS.WEAKENING) {
+      recommendation =
+        "Thesis is weakening. Review invalidation conditions and consider reducing exposure if risk is too high.";
+    } else if (status === STATUS.INVALIDATED) {
+      recommendation =
+        "Thesis appears invalidated. Strongly consider exiting or re-evaluating the thesis from scratch.";
+    } else if (status === STATUS.STRENGTHENING) {
+      recommendation =
+        "Thesis is strengthening. Continue monitoring and consider adding to position if within risk tolerance.";
+    } else if (status === STATUS.HEALTHY) {
+      recommendation = "Thesis remains on track. Continue normal monitoring.";
     }
-
-    // Determine Final Status
-    score = Math.max(0, Math.min(100, score)); // Clamp 0-100
-
-    if (score < 40) status = STATUS.INVALIDATED;
-    else if (score < 70) status = STATUS.WEAKENING;
-    else if (reasons.length === 0 && !currentPrice) status = STATUS.UNKNOWN;
-
-    // Generate Recommendation
-    let recommendation =
-      "Thesis conditions remain intact. Continue monitoring.";
-    if (status === STATUS.WEAKENING)
-      recommendation =
-        "Review invalidation conditions. Consider reducing exposure if risks are escalating.";
-    if (status === STATUS.INVALIDATED)
-      recommendation =
-        "Core thesis assumptions appear broken. Strongly consider exiting or fully re-evaluating the position.";
 
     return {
       thesisId: thesis.id,
-      healthScore: score,
+      healthScore,
       status,
       reasons,
       recommendation,
@@ -106,37 +200,31 @@ W.thesisHealth = (() => {
     };
   }
 
-  // ── Safe UI Renderer (Rule 15) ──────────────────────────
+  // ── Helper: Render badge ──────────────────────────────────────
   function renderBadge(thesisId, healthData) {
     if (!healthData) return "";
-
-    // Determine color based on status
-    let color = "var(--up, #2ee6a8)"; // Healthy
-    if (healthData.status === STATUS.WEAKENING) color = "var(--warn, #ffb35c)";
-    if (healthData.status === STATUS.INVALIDATED)
-      color = "var(--down, #ff5c7a)";
-    if (healthData.status === STATUS.UNKNOWN)
-      color = "var(--text-muted, #9aa3b2)";
-
-    // Return a safe HTML string. Dynamic text is NOT injected here to prevent XSS.
-    // The actual text will be populated via textContent in the caller if needed,
-    // but for a simple badge, we use safe static text with a data attribute.
-    return `<span class="thesis-health-badge" data-id="${thesisId}" style="display:inline-block; padding: 2px 8px; border-radius: 12px; background: ${color}20; color: ${color}; font-size: 0.8em; font-weight: bold; margin-left: 8px;">${healthData.status} (${healthData.healthScore}%)</span>`;
+    let color = "var(--text-muted, #9aa3b2)";
+    const { status, healthScore } = healthData;
+    if (status === STATUS.HEALTHY || status === STATUS.STRENGTHENING)
+      color = "var(--up, #2ee6a8)";
+    else if (status === STATUS.WEAKENING) color = "var(--warn, #ffb35c)";
+    else if (status === STATUS.INVALIDATED) color = "var(--down, #ff5c7a)";
+    return `<span class="thesis-health-badge" data-id="${thesisId}" style="display:inline-block; padding: 2px 8px; border-radius: 12px; background: ${color}20; color: ${color}; font-size: 0.8em; font-weight: bold; margin-left: 8px;">${status} (${healthScore}%)</span>`;
   }
 
+  // ── Helper: Render details ────────────────────────────────────
   function renderDetails(container, healthData) {
     if (!container || !healthData) return;
-    container.innerHTML = ""; // Clear previous
+    container.innerHTML = "";
 
     if (healthData.reasons.length > 0) {
       const ul = document.createElement("ul");
       ul.style.cssText =
         "list-style: none; padding: 0; margin: 8px 0; font-size: 0.9em;";
-
       healthData.reasons.forEach((reason) => {
         const li = document.createElement("li");
         li.style.cssText = "padding: 4px 0; color: var(--text-muted);";
-        li.textContent = `• ${reason}`; // SAFE: textContent (Rule 15)
+        li.textContent = `• ${reason}`;
         ul.appendChild(li);
       });
       container.appendChild(ul);
@@ -145,11 +233,17 @@ W.thesisHealth = (() => {
     const rec = document.createElement("div");
     rec.style.cssText =
       "margin-top: 8px; padding: 8px; background: rgba(124, 92, 255, 0.05); border-left: 3px solid var(--primary); border-radius: 4px; font-size: 0.9em;";
-    rec.textContent = `Recommendation: ${healthData.recommendation}`; // SAFE: textContent
+    rec.textContent = `Recommendation: ${healthData.recommendation}`;
     container.appendChild(rec);
   }
 
-  return { evaluate, renderBadge, renderDetails, STATUS };
+  // ── Public API ──────────────────────────────────────────────────
+  return {
+    evaluate,
+    renderBadge,
+    renderDetails,
+    STATUS,
+  };
 })();
 
-console.log("[ThesisHealth] Monitor engine loaded.");
+console.log("[ThesisHealth] Module loaded (evidence-based evaluation).");

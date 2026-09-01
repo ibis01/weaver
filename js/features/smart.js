@@ -174,7 +174,12 @@ W.smart = (() => {
             ...analysis,
           });
         } catch (e) {
-          console.warn("[Smart] Failed to analyze holder:", h.address.hash, e);
+          // ✅ FIX: Mask address in error logs
+          console.warn(
+            "[Smart] Failed to analyze holder:",
+            W.fmt.maskAddress(h.address.hash),
+            e,
+          );
         }
       }
 

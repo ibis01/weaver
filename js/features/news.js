@@ -1,6 +1,6 @@
 // js/features/news.js – Complete News Module
 
-const log = (msg, data) => {
+const newsLog = (msg, data) => {
   console.log(`[News] ${msg}`, data || "");
 };
 
@@ -25,7 +25,7 @@ async function via(url, asJSON = false) {
   let lastErr = null;
   for (const buildProxy of PROX) {
     const proxyUrl = buildProxy(url);
-    log(`Trying proxy: ${proxyUrl.substring(0, 80)}...`);
+    newsLog(`Trying proxy: ${proxyUrl.substring(0, 80)}...`);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 9000);
     try {
@@ -43,11 +43,11 @@ async function via(url, asJSON = false) {
       ) {
         throw new Error("HTML response (not RSS)");
       }
-      log(`✅ Proxy succeeded: ${proxyUrl}`);
+      newsLog(`✅ Proxy succeeded: ${proxyUrl}`);
       return asJSON ? JSON.parse(text) : text;
     } catch (err) {
       clearTimeout(timeout);
-      log(`❌ Proxy failed: ${err.message}`);
+      newsLog(`❌ Proxy failed: ${err.message}`);
       lastErr = err;
     }
   }
@@ -123,7 +123,7 @@ async function render(view) {
         const articles = parseRSS(xml);
         return { name, articles, error: null };
       } catch (err) {
-        log(`Failed to fetch ${name}:`, err.message);
+        newsLog(`Failed to fetch ${name}:`, err.message);
         return { name, articles: [], error: err.message };
       }
     });
@@ -131,7 +131,7 @@ async function render(view) {
     const allArticles = results.flatMap((r) => r.articles);
 
     if (allArticles.length === 0) {
-      log("No live articles, trying snapshot...");
+      newsLog("No live articles, trying snapshot...");
       const snapshot = await via("", true);
       if (snapshot && snapshot.length) {
         renderArticles(snapshot);

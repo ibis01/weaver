@@ -1,25 +1,12 @@
 // ===============================================================
-//         Asset Identity Model
-// ===============================================================
-//
-// Purpose: Canonical asset identity across chains, tokens, and native coins.
-// Resolves user-provided symbols/names to full AssetId using Coingecko.
-//
+// js/models/asset.js – Canonical Asset Identity
 // ===============================================================
 
 window.W = window.W || {};
 W.asset = W.asset || {};
 
 (function () {
-  // ── AssetId structure ────────────────────────────────────────
-  // {
-  //   chainId: 'ethereum' | 'solana' | 'bitcoin' | ...,
-  //   contractAddress: string | null,  // null for native coins
-  //   symbol: string,                 // display symbol
-  //   coingeckoId: string | null,     // primary key for price lookup
-  // }
-
-  // ── Local cache for resolved assets ─────────────────────────
+  // ── Local cache for resolved assets ──────────────────────────
   const RESOLVE_CACHE_KEY = "asset_resolve_cache";
   function getCache() {
     return W.store.get(RESOLVE_CACHE_KEY, {});
@@ -83,8 +70,7 @@ W.asset = W.asset || {};
     if (coin.id === "ethereum") return "ethereum";
     if (coin.id === "solana") return "solana";
     if (coin.id === "binancecoin") return "bsc";
-    // For tokens, we need more info; default to 'ethereum' for now
-    return "ethereum";
+    return "ethereum"; // default
   }
 
   // ── Get price for an AssetId ──────────────────────────────────

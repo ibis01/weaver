@@ -1,11 +1,5 @@
 // ===============================================================
-//         Market Regime Detection Engine
-// ===============================================================
-//
-// Purpose: Evidence-based market regime detection (Section 27).
-// Outputs: RISK-ON, TRANSITION, RISK-OFF, UNKNOWN.
-// Always provides confidence and supporting signals.
-//
+//         Market Regime Detection Engine – Confidence Model
 // ===============================================================
 
 window.W = window.W || {};
@@ -19,17 +13,14 @@ W.regime = (() => {
     UNKNOWN: "UNKNOWN",
   };
 
-  /**
-   * Detect market regime based on multiple evidence signals.
-   * @param {Object} data - { fearGreed, btcDominance, capChange }
-   * @returns {Object} - { regime, confidence, signals, timestamp }
-   */
   function detect({ fearGreed, btcDominance, capChange }) {
-    let score = 0; // Range: -3 to +3
+    let score = 0;
     const signals = [];
+    let signalCount = 0;
 
     // 1. Sentiment (Fear & Greed Index)
     if (fearGreed !== null && fearGreed !== undefined) {
+      signalCount++;
       if (fearGreed >= 75) {
         score += 2;
         signals.push({
@@ -69,6 +60,7 @@ W.regime = (() => {
 
     // 2. Momentum (24h Market Cap Change)
     if (capChange !== null && capChange !== undefined) {
+      signalCount++;
       if (capChange > 5) {
         score += 1;
         signals.push({
@@ -110,25 +102,43 @@ W.regime = (() => {
     let regime = STATES.UNKNOWN;
     let confidence = 0;
 
+    // Confidence is based on the number of confirming signals and their strength
+    // This is a heuristic but defensible: more signals agreeing = higher confidence
+    const totalSignals = signalCount || 1;
+    const maxScore = 3; // maximum possible absolute score
+    const normalizedScore = Math.abs(score) / maxScore;
+
+    // Confidence is the product of:
+    // - signal agreement (how many signals agree on direction)
+    // - signal strength (how strong the signal is)
+    const agreementRatio =
+      totalSignals > 0
+        ? signals.filter((s) => {
+            if (score > 0) return s.impact === "risk-on";
+            if (score < 0) return s.impact === "risk-off";
+            return s.impact === "neutral";
+          }).length / totalSignals
+        : 0;
+
+    // Base confidence: 0.5 + 0.4 * normalizedScore * agreementRatio
+    confidence = 0.5 + 0.4 * normalizedScore * agreementRatio;
+    // Clamp and ensure reasonable range
+    confidence = Math.max(0.1, Math.min(0.95, confidence));
+
+    // Final regime decision
     if (score >= 2) {
       regime = STATES.RISK_ON;
-      confidence = Math.min(0.95, 0.5 + (score - 2) * 0.15);
     } else if (score <= -2) {
       regime = STATES.RISK_OFF;
-      confidence = Math.min(0.95, 0.5 + (Math.abs(score) - 2) * 0.15);
-    } else if (score > 0) {
+    } else if (score > 0 || score < 0) {
       regime = STATES.TRANSITION;
-      confidence = 0.45;
-    } else if (score < 0) {
-      regime = STATES.TRANSITION;
-      confidence = 0.45;
     } else {
       regime = STATES.UNKNOWN;
       confidence = 0.1;
     }
 
-    // Fallback if no data provided
-    if (signals.length === 0) {
+    // If no data provided, fallback
+    if (signalCount === 0) {
       regime = STATES.UNKNOWN;
       confidence = 0;
     }
@@ -144,4 +154,4 @@ W.regime = (() => {
   return { detect, STATES };
 })();
 
-console.log("[Regime] Market regime engine loaded.");
+console.log("[Regime] Market regime engine loaded (confidence model).");

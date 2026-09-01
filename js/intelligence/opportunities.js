@@ -1,11 +1,5 @@
 // ===============================================================
-//         Opportunity Scanner Engine
-// ===============================================================
-//
-// Purpose: Proactively synthesize portfolio, thesis, and market
-// data to surface personalized, actionable observations.
-// Rules: 22 (Deterministic), 24 (Intelligence), 28 (Ranking).
-//
+//         Opportunity Scanner Engine – No Hardcoded Confidence
 // ===============================================================
 
 window.W = window.W || {};
@@ -13,19 +7,10 @@ W.opportunities = (() => {
   const DISCLAIMER =
     "Observation based on your tracked data. Not financial advice.";
 
-  /**
-   * Scan user data for potential opportunities or risks.
-   * @param {Array} portfolio - Array of holding objects.
-   * @param {Array} theses - Array of thesis objects.
-   * @param {Array} markets - Array of market data objects (from W.api.top).
-   * @param {Object} regimeData - Output from W.regime.detect().
-   * @returns {Array} - Array of opportunity event objects.
-   */
   function scan(portfolio, theses, markets, regimeData) {
     const opportunities = [];
     if (!portfolio || !theses) return opportunities;
 
-    // Create a quick lookup map for current prices
     const priceMap = {};
     if (Array.isArray(markets)) {
       markets.forEach((m) => {
@@ -49,9 +34,12 @@ W.opportunities = (() => {
             title: `Potential DCA Zone: ${t.asset}`,
             description: `${t.asset} is currently ${pctBelow}% below your thesis target of $${t.target}. ${DISCLAIMER}`,
             impactValue: 0.7,
-            confidence: 0.8,
+            // Confidence is computed in events.js from source reliability, not hardcoded
+            confidence: undefined, // Will be computed
             urgency: 0.6,
             source: "opportunity_scanner",
+            interpretationConfidence: 0.8, // Scanner-specific confidence
+            dataCompleteness: 0.7,
           });
         }
       });
@@ -76,9 +64,11 @@ W.opportunities = (() => {
               title: `Concentration Risk: ${v.symbol}`,
               description: `${v.symbol} makes up ${pct.toFixed(1)}% of your portfolio value. Consider rebalancing. ${DISCLAIMER}`,
               impactValue: 0.8,
-              confidence: 0.95,
+              confidence: undefined,
               urgency: 0.7,
               source: "opportunity_scanner",
+              interpretationConfidence: 0.9,
+              dataCompleteness: 0.85,
             });
           }
         });
@@ -97,9 +87,11 @@ W.opportunities = (() => {
         title: "Regime Mismatch: Risk-Off Environment",
         description: `Market regime is RISK-OFF (${(regimeData.confidence * 100).toFixed(0)}% confidence). Review exposure to speculative assets. ${DISCLAIMER}`,
         impactValue: 0.9,
-        confidence: regimeData.confidence,
+        confidence: undefined,
         urgency: 0.8,
         source: "opportunity_scanner",
+        interpretationConfidence: regimeData.confidence || 0.7,
+        dataCompleteness: 0.8,
       });
     }
 
@@ -109,4 +101,4 @@ W.opportunities = (() => {
   return { scan };
 })();
 
-console.log("[Opportunities] Scanner engine loaded.");
+console.log("[Opportunities] Scanner engine loaded (no hardcoded confidence).");

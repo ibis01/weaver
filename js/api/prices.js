@@ -11,13 +11,10 @@ W.api = (() => {
   const CACHE_TTL = 60000; // 1 minute
   const LONG_CACHE_TTL = 300000; // 5 minutes
 
-  // ── Proxy chain for CORS bypass ─────────────────────────
+  // ── Proxy chain ─────────────────────────────────────────
   const PROXIES = [
-    // Use your local proxy first (must be running on port 3001)
     (u) => "http://localhost:3001/proxy?url=" + encodeURIComponent(u),
-    // Direct (will fail due to CORS, but kept as fallback)
     (u) => u,
-    // Public proxies
     (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
     (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
   ];
@@ -30,53 +27,42 @@ W.api = (() => {
   function getCurrency() {
     return W.currency ? W.currency() : "usd";
   }
-
   function getCacheKey(url) {
     return "api_cache:" + url;
   }
-
   function getCached(url, ttl = CACHE_TTL) {
     try {
-      const raw = sessionStorage.getItem(getCacheKey(url));
+      const raw = localStorage.getItem(getCacheKey(url));
       if (!raw) return null;
       const data = JSON.parse(raw);
       if (Date.now() - data.timestamp > ttl) {
-        sessionStorage.removeItem(getCacheKey(url));
+        localStorage.removeItem(getCacheKey(url));
         return null;
       }
       return data.value;
-    } catch (e) {
+    } catch {
       return null;
     }
   }
-
   function setCached(url, value) {
     try {
-      sessionStorage.setItem(
+      localStorage.setItem(
         getCacheKey(url),
-        JSON.stringify({
-          timestamp: Date.now(),
-          value: value,
-        }),
+        JSON.stringify({ timestamp: Date.now(), value }),
       );
-    } catch (e) {
-      // sessionStorage full or unavailable
-    }
+    } catch {}
   }
-
   function isCircuitOpen() {
     return Date.now() < circuitBreaker.until;
   }
-
   function recordFailure() {
     circuitBreaker.failures++;
     if (circuitBreaker.failures >= 5) {
-      circuitBreaker.until = Date.now() + 90000; // 90 seconds
+      circuitBreaker.until = Date.now() + 90000;
       circuitBreaker.failures = 0;
       console.warn("[Prices] Circuit breaker open for 90s");
     }
   }
-
   function resetCircuit() {
     circuitBreaker.failures = 0;
     circuitBreaker.until = 0;
@@ -84,38 +70,28 @@ W.api = (() => {
 
   // ── Fetch with proxy fallback ─────────────────────────
   async function fetchWithProxy(url, timeout = 10000, ttl = CACHE_TTL) {
-    // Check cache first
     const cached = getCached(url, ttl);
     if (cached !== null) {
       source = "cache";
       return cached;
     }
-
-    // Check circuit breaker
     if (isCircuitOpen()) {
-      throw new Error("Circuit breaker open (network issues)");
+      throw new Error(
+        "Network is temporarily unavailable. Please try again later.",
+      );
     }
-
     let lastError = null;
     for (const proxy of PROXIES) {
       const proxyUrl = proxy(url);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
-
       try {
         const response = await fetch(proxyUrl, {
           signal: controller.signal,
-          headers: {
-            "User-Agent": "Weaver/1.0 (Crypto Portfolio Tracker)",
-            Accept: "application/json",
-          },
+          headers: { "User-Agent": "Weaver/1.0", Accept: "application/json" },
         });
         clearTimeout(timer);
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         setCached(url, data);
         resetCircuit();
@@ -129,30 +105,22 @@ W.api = (() => {
       } catch (e) {
         lastError = e;
         clearTimeout(timer);
-        console.warn(
-          `[Prices] Proxy ${proxyUrl.substring(0, 60)}... failed:`,
-          e.message,
-        );
+        console.warn(`[Prices] Proxy failed: ${e.message}`);
       }
     }
-
     recordFailure();
-    throw lastError || new Error("All proxies failed");
+    throw new Error("Unable to fetch market data. Please try again later.");
   }
 
   // ── Symbol mapping cache ──────────────────────────────
   const symMap = () => W.store.get("sym-map", {});
-
   function learnSymbols(coins) {
     const map = symMap();
     (coins || []).forEach((c) => {
       if (c.id && c.symbol) map[c.id] = c.symbol;
     });
-    try {
-      W.store.set("sym-map", map);
-    } catch (e) {}
+    W.store.set("sym-map", map);
   }
-
   function getSymbol(id) {
     return (symMap()[id] || id).toUpperCase();
   }
@@ -168,13 +136,11 @@ W.api = (() => {
         source = "coingecko";
         return d;
       }),
-
     chart: (id, days) =>
       fetchWithProxy(
         `${CG_API}/coins/${id}/market_chart?vs_currency=${getCurrency()}&days=${days}`,
         LONG_CACHE_TTL,
       ).then((d) => d.prices || []),
-
     top: (limit) =>
       fetchWithProxy(
         `${CG_API}/coins/markets?vs_currency=${getCurrency()}&order=market_cap_desc&per_page=${limit}&page=1&price_change_percentage=24h,7d,30d&sparkline=true`,
@@ -184,27 +150,23 @@ W.api = (() => {
         source = "coingecko";
         return d;
       }),
-
     global: () =>
       fetchWithProxy(`${CG_API}/global`, LONG_CACHE_TTL).then((d) => d),
-
     search: (query) =>
       fetchWithProxy(
         `${CG_API}/search?query=${encodeURIComponent(query)}`,
         CACHE_TTL,
       ).then((d) => d),
-
     coin: (id) =>
       fetchWithProxy(
         `${CG_API}/coins/${id}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false`,
         LONG_CACHE_TTL,
       ).then((d) => d),
-
     trending: () =>
       fetchWithProxy(`${CG_API}/search/trending`, CACHE_TTL).then((d) => d),
   };
 
-  // ── Binance API (fallback) ────────────────────────────
+  // ── Binance API ─────────────────────────────────────────
   const binance = {
     markets: (ids) => {
       const symbols = ids.map((id) => getSymbol(id) + "USDT");
@@ -232,7 +194,6 @@ W.api = (() => {
         }));
       });
     },
-
     chart: (id, days) => {
       const symbol = getSymbol(id) + "USDT";
       return fetchWithProxy(
@@ -248,35 +209,31 @@ W.api = (() => {
   // ── API with smart failover ────────────────────────────
   async function withFailover(method, ...args) {
     const order = method === "top" ? ["coingecko"] : ["coingecko", "binance"];
-
     for (const providerName of order) {
       const provider = providerName === "coingecko" ? coingecko : binance;
       if (!provider[method]) continue;
-
       try {
         const result = await provider[method](...args);
         source = providerName;
         return result;
       } catch (e) {
         console.warn(`[Prices] ${providerName}.${method} failed:`, e.message);
-        // Continue to next provider
       }
     }
-
-    throw new Error(`All providers failed for ${method}`);
+    throw new Error(
+      `Market data temporarily unavailable. Using cached data if available.`,
+    );
   }
 
-  // ── Top cache (fallback for top data) ─────────────────
-  let topCache = null;
-  let topCacheTime = 0;
-
+  // ── Top cache ──────────────────────────────────────────
+  let topCache = null,
+    topCacheTime = 0;
   async function getTopCached(limit) {
     const now = Date.now();
     if (topCache && now - topCacheTime < 3600000) {
       source = "topcache";
       return topCache.slice(0, limit);
     }
-
     try {
       const data = await withFailover("top", 100);
       topCache = data;
@@ -293,42 +250,26 @@ W.api = (() => {
 
   // ── Public API ──────────────────────────────────────────
   return {
-    // Core methods
     markets: (ids) => {
       if (!ids || !ids.length) return Promise.resolve([]);
       const idArray = typeof ids === "string" ? ids.split(",") : ids;
       return withFailover("markets", idArray);
     },
-
     chart: (id, days = 30) => withFailover("chart", id, days),
-
     top: (limit = 100) => {
-      if (limit <= 50) {
-        // Use cached top data for small requests
-        return getTopCached(limit);
-      }
+      if (limit <= 50) return getTopCached(limit);
       return withFailover("top", limit);
     },
-
     global: () => withFailover("global"),
-
     search: (query) => withFailover("search", query),
-
     coin: (id) => withFailover("coin", id),
-
     trending: () => withFailover("trending"),
-
-    // Fear & Greed (special endpoint)
     fearGreed: () =>
       fetchWithProxy("https://api.alternative.me/fng/?limit=1", CACHE_TTL).then(
         (d) => d.data?.[0] || { value: "50", value_classification: "Neutral" },
       ),
-
-    // Symbol utilities
     getSymbol,
     learnSymbols,
-
-    // Source tracking
     get source() {
       return source;
     },
@@ -338,4 +279,4 @@ W.api = (() => {
   };
 })();
 
-console.log("[Prices] Module loaded.");
+console.log("[Prices] Module loaded (improved error handling).");

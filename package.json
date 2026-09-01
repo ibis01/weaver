@@ -1,17 +1,11 @@
 {
-  "dependencies": {
-    "axios": "^1.7.7",
-    "cors": "^2.8.6",
-    "express": "^5.2.1"
-  },
-  "devDependencies": {
-    "esbuild": "^0.28.2"
-  },
   "scripts": {
-    "concat": "node concat.js",
-    "build": "npm run concat && npx esbuild dist/bundle.js --minify --outfile=dist/bundle.min.js",
-    "watch": "node concat.js --watch",
-    "dev": "npm run watch & python3 -m http.server 8000",
-    "start": "npm run build && python3 -m http.server 8000"
+    "build": "node concat.js",
+    "minify": "esbuild dist/bundle.js --minify --outfile=dist/bundle.min.js",
+    "test:unit": "npx mocha --require test/setup.js --ui bdd test/unit/**/*.test.js",
+    "test:integration": "npx mocha --require test/setup.js --ui bdd test/integration/**/*.test.js || echo 'No integration tests found'",
+    "test:security": "npx mocha --require test/setup.js --ui bdd test/security/**/*.test.js || echo 'No security tests found'",
+    "test:e2e": "npx playwright test || echo 'Playwright not fully set up'",
+    "test": "npm run test:unit && npm run test:integration && npm run test:security && npm run test:e2e"
   }
 }

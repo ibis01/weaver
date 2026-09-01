@@ -101,6 +101,20 @@
       return;
     }
 
+    // ── Sentry Integration  ──
+    if (window.Sentry && typeof Sentry.init === "function") {
+      const dsn = localStorage.getItem("sentry_dsn") || "";
+      if (dsn) {
+        Sentry.init({
+          dsn,
+          environment: "production",
+          release: "weaver@2.0.0",
+          tracesSampleRate: 0.1,
+        });
+        W.logger?.info("Sentry", "Sentry initialized");
+      }
+    }
+
     updateClock();
     initCurrency();
     initRefresh();

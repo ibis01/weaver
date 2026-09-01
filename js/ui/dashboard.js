@@ -519,7 +519,7 @@ W.dashboard = (() => {
         <div class="watch-head">
           <h3>🌐 Markets Terminal</h3>
           <div class="qa">
-            <button class="btn primary tiny" id="qa-add">+ Add</button>
+            <button class="btn primary tiny" id="qa-add" aria-label="Add holding">+ Add</button>
             <button class="btn tiny" id="qa-tx">↔ Buy/Sell</button>
             <button class="btn tiny" id="qa-sample" title="Load sample portfolio">🎲</button>
             <button class="btn tiny" id="qa-sync" title="Sync connected wallets">👛 Sync</button>
@@ -880,4 +880,3 @@ W.dashboard = (() => {
 console.log(
   "[Dashboard] Module loaded (secure & optimized, with Decision Engine).",
 );
-s

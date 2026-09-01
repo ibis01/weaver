@@ -1,18 +1,9 @@
 // ===============================================================
-//         "Why It Matters" Context Generator
-// ===============================================================
-//
-// Purpose: Synthesize portfolio, thesis, and behavioral data
-// to explain why a ranked event matters to the specific user.
-// Privacy: 100% local processing (Rule 14).
-// Security: Uses textContent for safe rendering (Rule 15).
-// Correctness: Handles missing data gracefully (Rule 21).
-//
+//         "Why It Matters" Context Generator 
 // ===============================================================
 
 window.W = window.W || {};
 W.context = (() => {
-  // ── Core Context Generation ─────────────────────────────
   function generateContext(event, userContext) {
     const portfolio = userContext?.portfolio || [];
     const theses = userContext?.theses || [];
@@ -20,7 +11,7 @@ W.context = (() => {
     const behavior = userContext?.behavior || { pattern: "none" };
 
     const symbol = event?.symbol?.toUpperCase();
-    if (!symbol) return null; // Rule 21: Reject invalid events
+    if (!symbol) return null;
 
     const holding = portfolio.find((h) => h?.symbol?.toUpperCase() === symbol);
     const thesis = theses.find((t) => t?.asset?.toUpperCase() === symbol);
@@ -36,7 +27,6 @@ W.context = (() => {
     let recommendedAction = "Monitor the broader market.";
     const evidence = [];
 
-    // 1. Portfolio Impact
     if (holding) {
       personalRelevance = "high";
       const qty = parseFloat(holding.qty) || 0;
@@ -50,10 +40,8 @@ W.context = (() => {
       });
     }
 
-    // 2. Thesis Impact
     if (thesis) {
       whyItMatters += `You have an active thesis on ${symbol}. `;
-      // Basic heuristic: high impact negative events or unlocks weaken thesis
       if (
         (event.type === "price_change" && event.impactValue > 0.6) ||
         event.type === "unlock"
@@ -70,7 +58,6 @@ W.context = (() => {
       });
     }
 
-    // 3. Decision History
     if (recentDecisions.length > 0) {
       whyItMatters += `You made ${recentDecisions.length} decision(s) regarding ${symbol} in the last 7 days. `;
       evidence.push({
@@ -82,14 +69,18 @@ W.context = (() => {
       });
     }
 
-    // 4. Behavioral Warning
     if (behavior?.pattern !== "none" && personalRelevance === "high") {
       whyItMatters += `Note: Your recent behavior shows a "${behavior.pattern}" pattern. Proceed with caution. `;
     }
 
-    // Fallback for low relevance
     if (!whyItMatters) {
       whyItMatters = `This event may impact the broader market, but you have no direct exposure to ${symbol}.`;
+    }
+
+    let confidence = 0.5;
+    if (evidence.length > 0) {
+      confidence =
+        evidence.reduce((sum, e) => sum + e.confidence, 0) / evidence.length;
     }
 
     return {
@@ -99,15 +90,13 @@ W.context = (() => {
       thesisImpact,
       recommendedAction,
       evidence,
-      confidence: 0.8,
+      confidence: Math.min(1, Math.max(0, confidence)),
     };
   }
 
-  // ── Safe UI Renderer (Rule 15) ──────────────────────────
+  // ── Render Context (kept for compatibility) ──────────────────
   function renderContext(container, contextData) {
     if (!container || !contextData) return;
-
-    // Clear previous context if re-rendering
     const existing = container.querySelector(".context-render");
     if (existing) existing.remove();
 
@@ -126,7 +115,7 @@ W.context = (() => {
     text.className = "small muted";
     text.style.marginTop = "4px";
     text.style.lineHeight = "1.4";
-    text.textContent = contextData.whyItMatters; // SAFE: textContent prevents XSS
+    text.textContent = contextData.whyItMatters;
     div.appendChild(text);
 
     if (
@@ -137,8 +126,17 @@ W.context = (() => {
       action.className = "small";
       action.style.marginTop = "6px";
       action.style.color = "var(--up, #2ee6a8)";
-      action.textContent = `→ ${contextData.recommendedAction}`; // SAFE
+      action.textContent = `→ ${contextData.recommendedAction}`;
       div.appendChild(action);
+    }
+
+    if (contextData.confidence !== undefined) {
+      const conf = document.createElement("div");
+      conf.className = "small muted";
+      conf.style.marginTop = "4px";
+      const pct = (contextData.confidence * 100).toFixed(0);
+      conf.textContent = `Confidence: ${pct}%`;
+      div.appendChild(conf);
     }
 
     container.appendChild(div);
@@ -147,4 +145,4 @@ W.context = (() => {
   return { generateContext, renderContext };
 })();
 
-console.log("[Context] Why It Matters generator loaded.");
+console.log("[Context] Why It Matters generator loaded (Phase 6 ready).");
