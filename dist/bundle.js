@@ -4278,7 +4278,7 @@ W.decisionReplay = (() => {
 console.log("[DecisionReplay] Module loaded (multi‑dimensional evaluation).");
 // ---- js/intelligence/types.js ----
 // ===============================================================
-// js/intelligence/types.js – Canonical Intelligence Contracts
+//              Canonical Intelligence Contracts
 // ===============================================================
 //
 // These types define the structure of all intelligence data.
@@ -4302,7 +4302,7 @@ W.intelligence = W.intelligence || {};
 
 /**
  * @typedef {Object} Signal
- * @property {string} id - UUID or hash
+ * @property {string} id - UUID
  * @property {string} type - 'PRICE_MOVE' | 'REGIME_SHIFT' | 'UNLOCK' | 'OPPORTUNITY' | 'THESIS_DETERIORATION' | 'BEHAVIORAL_PATTERN'
  * @property {string} source - e.g., 'coingecko', 'regime_engine'
  * @property {AssetId} assetId
@@ -4318,25 +4318,32 @@ W.intelligence = W.intelligence || {};
  * @property {number} corroborationCount - number of independent sources confirming
  * @property {number} dataCompleteness - 0–1, full/partial data
  * @property {number} interpretationConfidence - 0–1, model-specific confidence
- * @property {number} confidence - 0–1, computed product of above (with corroboration boost)
+ * @property {number} confidence - 0–1, computed product with corroboration boost
  * @property {string[]} reasoning
  */
 
 /**
  * @typedef {Object} PersonalContext
  * @property {AssetId} assetId
- * @property {number} portfolioWeight - 0–1
+ * @property {number} portfolioWeight - 0–1, % of portfolio in this asset
  * @property {string} watchlistStatus - 'WATCHING' | 'NOT_WATCHING'
  * @property {string} thesisStatus - 'ACTIVE' | 'INVALIDATED' | 'NONE'
  * @property {number} recentDecisions - count in last 7 days
  * @property {string} behavioralRisk - 'PANIC' | 'FOMO' | 'NONE'
+ * @property {number} portfolioExposure - alias for portfolioWeight (kept for clarity)
+ * @property {number} riskLimit - user-defined risk limit (from settings, default 0.5)
+ * @property {string} timeHorizon - user's investment horizon: 'short' | 'medium' | 'long'
+ * @property {number} thesisHealth - current health score of active thesis (0–100)
+ * @property {number} decisionConfidence - user's average confidence in recent decisions (0–1)
+ * @property {number} chainExposure - % of portfolio in same chain (0–1)
+ * @property {number} sectorExposure - % of portfolio in same sector (0–1)
  */
 
 /**
  * @typedef {Object} Assessment
  * @property {string} signalId
  * @property {number} relevance - 0–1, from PersonalContext
- * @property {number} impact - 0–1, from Evidence + market cap factor
+ * @property {number} impact - 0–1, from Evidence + user exposure
  * @property {number} urgency - 0–1, time decay or volatility
  * @property {number} confidence - 0–1, from Evidence.confidence
  * @property {string[]} reasoning
@@ -4347,49 +4354,36 @@ W.intelligence = W.intelligence || {};
  * @property {string} signalId
  * @property {Assessment} assessment
  * @property {number} score - weighted sum (relevance * impact * urgency * confidence)
- * @property {string} recommendedAction - 'MONITOR' | 'REVIEW_THESIS' | 'REBALANCE' | 'LOG_DECISION'
+ * @property {string} recommendedAction - 'MONITOR' | 'REVIEW_THESIS' | 'REVIEW_RISK' | 'LOG_DECISION'
  * @property {string} explanation
  */
 
 // ── Source reliability map ────────────────────────────────
-// These are static, evidence-based values. They represent the
-// historical accuracy and trustworthiness of each data source.
 W.intelligence.sourceReliability = {
-  // High-reliability sources (direct from APIs)
   coingecko: 0.95,
   binance: 0.9,
-  alternative_me: 0.85, // Fear & Greed index
-
-  // Medium-reliability sources
+  alternative_me: 0.85,
   regime_engine: 0.8,
   token_unlocks: 0.7,
   wallet_sync: 0.85,
   dex_screener: 0.65,
   blockscout: 0.75,
-
-  // Low-reliability sources
   rss_feed: 0.4,
   user_input: 0.5,
   opportunity_scanner: 0.6,
   thesis_health: 0.7,
-
-  // Fallback
   unknown: 0.5,
 };
 
 // ── Freshness windows (seconds) ────────────────────────────
-// After this time, data is considered stale (freshness → 0)
 W.intelligence.freshnessWindows = {
-  PRICE_MOVE: 300, // 5 minutes
-  REGIME_SHIFT: 3600, // 1 hour
-  UNLOCK: 86400, // 1 day
-  OPPORTUNITY: 86400, // 1 day
-  THESIS_DETERIORATION: 3600, // 1 hour
-  BEHAVIORAL_PATTERN: 86400, // 1 day
+  PRICE_MOVE: 300,
+  REGIME_SHIFT: 3600,
+  UNLOCK: 86400,
+  OPPORTUNITY: 86400,
+  THESIS_DETERIORATION: 3600,
+  BEHAVIORAL_PATTERN: 86400,
 };
-
-// ── Minimum corroboration for confidence boost ─────────────
-W.intelligence.corroborationThreshold = 2;
 
 // ── Compute confidence from evidence components ─────────────
 function computeConfidence(evidence) {
@@ -4401,32 +4395,21 @@ function computeConfidence(evidence) {
     interpretationConfidence = 0.7,
   } = evidence;
 
-  // Clamp all values to [0, 1]
   const clamp = (v) => Math.max(0, Math.min(1, v));
   const sr = clamp(sourceReliability);
   const df = clamp(dataFreshness);
   const cc = Math.max(1, Math.floor(corroborationCount));
   const dc = clamp(dataCompleteness);
   const ic = clamp(interpretationConfidence);
-
-  // Corroboration boost: 1.0 for single source, up to 1.5 for 3+ sources
   const corroborationBoost = Math.min(1.5, 1 + (cc - 1) * 0.15);
-
-  // Combined confidence: product of all components with corroboration boost
   let confidence = sr * df * dc * ic * corroborationBoost;
-
-  // Clamp final confidence to [0, 1]
   confidence = clamp(confidence);
-
-  // If confidence is extremely low, floor at 0.05 to avoid zero
   if (confidence < 0.05 && (sr > 0 || df > 0 || dc > 0 || ic > 0)) {
     confidence = 0.05;
   }
-
   return confidence;
 }
 
-// ── Helper: compute freshness from timestamp and type ──────
 function computeFreshness(timestamp, signalType) {
   const age = Date.now() - timestamp;
   const window = W.intelligence.freshnessWindows[signalType] || 3600;
@@ -4434,7 +4417,6 @@ function computeFreshness(timestamp, signalType) {
   return Math.min(1, freshness);
 }
 
-// ── Helper: get source reliability ──────────────────────────
 function getSourceReliability(source) {
   return (
     W.intelligence.sourceReliability[source] ||
@@ -4442,7 +4424,6 @@ function getSourceReliability(source) {
   );
 }
 
-// ── Export helpers ──────────────────────────────────────────
 W.intelligence.computeConfidence = computeConfidence;
 W.intelligence.computeFreshness = computeFreshness;
 W.intelligence.getSourceReliability = getSourceReliability;
@@ -4450,55 +4431,98 @@ W.intelligence.getSourceReliability = getSourceReliability;
 console.log("[Intelligence] Confidence model loaded.");
 // ---- js/intelligence/decision-engine.js ----
 // ===============================================================
-//         Unified Decision Engine – Canonical Orchestrator
+//         Unified Decision Engine – Hardened
 // ===============================================================
 //
-// This is the sole intelligence orchestration layer.
-// It performs: SIGNAL → EVIDENCE → PERSONAL CONTEXT → ASSESSMENT → DECISION PRIORITY
-//
-// It does NOT bypass the pipeline.
-// It does NOT execute trades.
+// Consumes Evidence objects from the Evidence Builder.
+// No longer reconstructs evidence.
+// Uses user-centric impact, not market-cap buckets.
+// No REBALANCE action.
 //
 // ===============================================================
-
 
 window.W = window.W || {};
 W.decisionEngine = (() => {
-
-  // ── Helper: Compute Personal Context ──────────────────────
-  function computePersonalContext(assetId, portfolio, watchlist, theses, journal, behavior) {
+  // ── Helper: Compute Personal Context (enriched) ─────────────
+  function computePersonalContext(
+    assetId,
+    portfolio,
+    watchlist,
+    theses,
+    journal,
+    behavior,
+    settings = {},
+  ) {
     const symbol = assetId.symbol.toUpperCase();
     let portfolioWeight = 0;
-    let watchlistStatus = 'NOT_WATCHING';
-    let thesisStatus = 'NONE';
+    let watchlistStatus = "NOT_WATCHING";
+    let thesisStatus = "NONE";
     let recentDecisions = 0;
-    let behavioralRisk = 'NONE';
+    let behavioralRisk = "NONE";
+    let riskLimit = settings.riskLimit || 0.5;
+    let timeHorizon = settings.timeHorizon || "medium";
+    let thesisHealth = 0;
+    let decisionConfidence = 0;
+    let chainExposure = 0;
+    let sectorExposure = 0;
 
-    const holdings = portfolio.filter(h => (h.symbol || '').toUpperCase() === symbol);
+    // Portfolio weight
+    const holdings = portfolio.filter(
+      (h) => (h.symbol || "").toUpperCase() === symbol,
+    );
     const totalValue = portfolio.reduce((sum, h) => sum + (h.value || 0), 0);
     if (totalValue > 0) {
-      portfolioWeight = holdings.reduce((sum, h) => sum + (h.value || 0), 0) / totalValue;
+      portfolioWeight =
+        holdings.reduce((sum, h) => sum + (h.value || 0), 0) / totalValue;
     }
 
-    if (watchlist.some(w => (w || '').toUpperCase() === symbol)) {
-      watchlistStatus = 'WATCHING';
+    // Watchlist
+    if (watchlist.some((w) => (w || "").toUpperCase() === symbol)) {
+      watchlistStatus = "WATCHING";
     }
 
-    const thesis = theses.find(t => (t.assetId?.symbol || t.symbol || '').toUpperCase() === symbol);
+    // Thesis status and health
+    const thesis = theses.find(
+      (t) => (t.assetId?.symbol || t.symbol || "").toUpperCase() === symbol,
+    );
     if (thesis) {
-      thesisStatus = thesis.status === 'active' ? 'ACTIVE' : 'INVALIDATED';
+      thesisStatus = thesis.status === "active" ? "ACTIVE" : "INVALIDATED";
+      if (W.thesisHealth && thesis.status === "active") {
+        // Get current price to evaluate health
+        const price = holdings.length > 0 ? holdings[0].price : null;
+        const health = W.thesisHealth.evaluate(thesis, { price }, []);
+        thesisHealth = health ? health.healthScore : 0;
+      }
     }
 
+    // Recent decisions
     const now = Date.now();
     const weekAgo = now - 7 * 86400000;
-    recentDecisions = journal.filter(d => {
-      const dSymbol = d.assetId?.symbol || d.asset || '';
+    const recent = journal.filter((d) => {
+      const dSymbol = d.assetId?.symbol || d.asset || "";
       return dSymbol.toUpperCase() === symbol && d.timestamp > weekAgo;
-    }).length;
+    });
+    recentDecisions = recent.length;
 
-    if (behavior && behavior.pattern !== 'none') {
+    // Decision confidence (average confidence of recent decisions)
+    if (recent.length > 0) {
+      decisionConfidence =
+        recent.reduce((sum, d) => sum + (d.confidence || 0.5), 0) /
+        recent.length;
+    } else {
+      decisionConfidence = 0.5;
+    }
+
+    // Behavioral risk
+    if (behavior && behavior.pattern !== "none") {
       behavioralRisk = behavior.pattern.toUpperCase();
     }
+
+    // Chain and sector exposure (simplified)
+    // For now, we'll use placeholder values.
+    // In a full implementation, we'd resolve chain and sector from assetId.
+    chainExposure = 0;
+    sectorExposure = 0;
 
     return {
       assetId,
@@ -4507,35 +4531,49 @@ W.decisionEngine = (() => {
       thesisStatus,
       recentDecisions,
       behavioralRisk,
+      riskLimit,
+      timeHorizon,
+      thesisHealth,
+      decisionConfidence,
+      chainExposure,
+      sectorExposure,
     };
   }
 
-  // ── Helper: Compute Assessment ────────────────────────────
+  // ── Helper: Compute Assessment ──────────────────────────────
   function computeAssessment(signal, personalContext, evidence) {
+    // 1. Relevance
     let relevance = 0;
-    if (personalContext.portfolioWeight > 0) relevance += personalContext.portfolioWeight * 0.4;
-    if (personalContext.watchlistStatus === 'WATCHING') relevance += 0.2;
-    if (personalContext.thesisStatus === 'ACTIVE') relevance += 0.2;
+    if (personalContext.portfolioWeight > 0)
+      relevance += personalContext.portfolioWeight * 0.4;
+    if (personalContext.watchlistStatus === "WATCHING") relevance += 0.2;
+    if (personalContext.thesisStatus === "ACTIVE") relevance += 0.2;
     relevance += Math.min(1, personalContext.recentDecisions / 5) * 0.1;
-    if (personalContext.behavioralRisk === 'PANIC' || personalContext.behavioralRisk === 'FOMO') {
+    if (
+      personalContext.behavioralRisk === "PANIC" ||
+      personalContext.behavioralRisk === "FOMO"
+    ) {
       relevance += 0.1;
     }
     relevance = Math.min(1, relevance);
 
-    let impact = evidence.confidence * 0.7 + 0.3;
-    const raw = signal.rawData || {};
-    const marketCap = raw.market_cap || raw.mcap || 0;
-    const capFactor = marketCap > 1e9 ? 1.0 : marketCap > 1e8 ? 0.8 : 0.5;
-    impact = impact * capFactor;
+    // 2. Impact – portfolio‑aware, not market‑cap based
+    // impact = evidence.confidence * portfolioWeight * eventSeverity
+    const eventSeverity = signal.rawData?.impactValue || 0.5; // 0–1
+    let impact =
+      evidence.confidence *
+      eventSeverity *
+      (personalContext.portfolioWeight * 2 + 0.2);
     impact = Math.min(1, impact);
 
+    // 3. Urgency
     let urgency = 0.5;
-    if (signal.type === 'UNLOCK') {
+    if (signal.type === "UNLOCK") {
       const now = Date.now();
       const eventTime = signal.rawData?.date || now + 7 * 86400000;
       const daysLeft = (eventTime - now) / 86400000;
       urgency = Math.max(0, Math.min(1, 1 - daysLeft / 14));
-    } else if (signal.type === 'PRICE_MOVE') {
+    } else if (signal.type === "PRICE_MOVE") {
       const change = Math.abs(signal.rawData?.price_change_percentage_24h || 0);
       urgency = Math.min(1, change / 10);
     } else {
@@ -4546,7 +4584,7 @@ W.decisionEngine = (() => {
 
     const reasoning = [
       `Relevance: ${(relevance * 100).toFixed(0)}%`,
-      `Impact: ${(impact * 100).toFixed(0)}%`,
+      `Impact: ${(impact * 100).toFixed(0)}% (event severity ${(eventSeverity * 100).toFixed(0)}%, portfolio weight ${(personalContext.portfolioWeight * 100).toFixed(0)}%)`,
       `Urgency: ${(urgency * 100).toFixed(0)}%`,
       `Confidence: ${(confidence * 100).toFixed(0)}%`,
     ];
@@ -4556,17 +4594,26 @@ W.decisionEngine = (() => {
 
   // ── Helper: Compute Decision Priority ──────────────────────
   function computeDecisionPriority(signal, assessment) {
-    const score = assessment.relevance * assessment.impact * assessment.urgency * assessment.confidence;
-    let recommendedAction = 'MONITOR';
-    if (assessment.relevance > 0.7 && assessment.impact > 0.6 && assessment.urgency > 0.5) {
-      recommendedAction = 'REBALANCE';
+    const score =
+      assessment.relevance *
+      assessment.impact *
+      assessment.urgency *
+      assessment.confidence;
+    let recommendedAction = "MONITOR";
+    if (
+      assessment.relevance > 0.7 &&
+      assessment.impact > 0.6 &&
+      assessment.urgency > 0.5
+    ) {
+      // Previously REBALANCE – now REVIEW_RISK
+      recommendedAction = "REVIEW_RISK";
     } else if (assessment.relevance > 0.5 && assessment.impact > 0.4) {
-      recommendedAction = 'REVIEW_THESIS';
+      recommendedAction = "REVIEW_THESIS";
     } else if (assessment.confidence > 0.8 && assessment.relevance > 0.3) {
-      recommendedAction = 'LOG_DECISION';
+      recommendedAction = "LOG_DECISION";
     }
 
-    const explanation = `Signal: ${signal.type} for ${signal.assetId.symbol}. Score: ${(score * 100).toFixed(0)}%. ${assessment.reasoning.join('. ')}`;
+    const explanation = `Signal: ${signal.type} for ${signal.assetId.symbol}. Score: ${(score * 100).toFixed(0)}%. ${assessment.reasoning.join(". ")}`;
 
     return {
       signalId: signal.id,
@@ -4579,46 +4626,63 @@ W.decisionEngine = (() => {
 
   // ── Main Pipeline ──────────────────────────────────────────
   async function run() {
+    // 1. Collect raw signals
     const signals = await W.events.collectEvents();
     if (!signals || !signals.length) return [];
 
+    // 2. Gather personal data
     const portfolio = W.portfolio?.all() || [];
     const watchlist = W.watchlist?.list ? W.watchlist.list() : [];
     const theses = W.theses?.all ? W.theses.all() : [];
     const journal = W.journal?.all ? W.journal.all() : [];
-    const behavior = W.behavior?.analyze ? W.behavior.analyze() : { pattern: 'none' };
+    const behavior = W.behavior?.analyze
+      ? W.behavior.analyze()
+      : { pattern: "none" };
+    const settings = W.store?.get("settings", {}) || {};
 
     const decisions = [];
 
     for (const signal of signals) {
-      // Build evidence from signal metadata
-      const sourceReliability = signal._evidence?.sourceReliability || 0.5;
-      const dataFreshness = signal._evidence?.dataFreshness || 0.8;
-      const corroborationCount = signal._evidence?.corroborationCount || 1;
-      const dataCompleteness = signal._evidence?.dataCompleteness || 0.8;
-      const interpretationConfidence = signal._evidence?.interpretationConfidence || 0.7;
-
-      const evidence = {
-        signalId: signal.id,
-        sourceReliability,
-        dataFreshness,
-        corroborationCount,
-        dataCompleteness,
-        interpretationConfidence,
-        reasoning: [`Source: ${signal.source}`],
-      };
-
-      if (W.intelligence && typeof W.intelligence.computeConfidence === 'function') {
-        evidence.confidence = W.intelligence.computeConfidence(evidence);
-      } else {
-        evidence.confidence = sourceReliability * dataFreshness * 0.8 * dataCompleteness * interpretationConfidence;
-        evidence.confidence = Math.min(1, Math.max(0, evidence.confidence));
+      // 3. Build evidence using the Evidence Builder
+      let evidence;
+      try {
+        if (W.evidence && typeof W.evidence.build === "function") {
+          evidence = W.evidence.build(signal, signal._metadata || {});
+        } else {
+          // Fallback (should not happen)
+          evidence = {
+            signalId: signal.id,
+            sourceReliability: 0.5,
+            dataFreshness: 0.8,
+            corroborationCount: 1,
+            dataCompleteness: 0.8,
+            interpretationConfidence: 0.7,
+            confidence: 0.5,
+            reasoning: ["Fallback evidence"],
+          };
+        }
+      } catch (e) {
+        console.warn("[DecisionEngine] Evidence build failed:", e);
+        continue;
       }
 
-      const context = computePersonalContext(signal.assetId, portfolio, watchlist, theses, journal, behavior);
+      // 4. Compute Personal Context
+      const context = computePersonalContext(
+        signal.assetId,
+        portfolio,
+        watchlist,
+        theses,
+        journal,
+        behavior,
+        settings,
+      );
+
+      // 5. Compute Assessment
       const assessment = computeAssessment(signal, context, evidence);
+
+      // 6. Compute Decision Priority
       const priority = computeDecisionPriority(signal, assessment);
-      // Attach asset symbol and signal type for presentation
+      // Attach asset symbol for UI
       priority._assetSymbol = signal.assetId.symbol;
       priority._signalType = signal.type;
       priority._signalTitle = signal.rawData?.title || signal.type;
@@ -4629,40 +4693,42 @@ W.decisionEngine = (() => {
     return decisions;
   }
 
-  // ── Presentation: "What Matters Now?" ──────────────────────
+  // ── Presentation (unchanged) ──────────────────────────────────
   function render(container, decisions, limit = 5) {
     if (!container) return;
     const top = decisions.slice(0, limit);
-    container.innerHTML = '';
+    container.innerHTML = "";
 
     if (!top.length) {
-      container.innerHTML = '<div class="card"><p class="muted small">No actionable insights at this time.</p></div>';
+      container.innerHTML =
+        '<div class="card"><p class="muted small">No actionable insights at this time.</p></div>';
       return;
     }
 
-    const card = document.createElement('div');
-    card.className = 'card';
-    const title = document.createElement('h3');
-    title.textContent = '⚡ What Matters Now';
+    const card = document.createElement("div");
+    card.className = "card";
+    const title = document.createElement("h3");
+    title.textContent = "⚡ What Matters Now";
     card.appendChild(title);
 
-    const list = document.createElement('ul');
-    list.style.cssText = 'list-style:none; padding:0; margin:0;';
+    const list = document.createElement("ul");
+    list.style.cssText = "list-style:none; padding:0; margin:0;";
 
     top.forEach((item) => {
-      const li = document.createElement('li');
-      li.style.cssText = 'padding: 12px 0; border-bottom: 1px solid var(--border, #30363d);';
+      const li = document.createElement("li");
+      li.style.cssText =
+        "padding: 12px 0; border-bottom: 1px solid var(--border, #30363d);";
 
-      // ── Header: Asset and Score ──────────────────────────────
-      const header = document.createElement('div');
-      header.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom: 4px;';
+      const header = document.createElement("div");
+      header.style.cssText =
+        "display:flex; justify-content:space-between; align-items:center; margin-bottom: 4px;";
 
-      const assetName = document.createElement('b');
-      assetName.textContent = item._assetSymbol || 'Asset';
-      assetName.style.fontSize = '1.1em';
+      const assetName = document.createElement("b");
+      assetName.textContent = item._assetSymbol || "Asset";
+      assetName.style.fontSize = "1.1em";
 
-      const scoreSpan = document.createElement('span');
-      scoreSpan.className = 'muted small';
+      const scoreSpan = document.createElement("span");
+      scoreSpan.className = "muted small";
       const scorePct = (item.score * 100).toFixed(0);
       scoreSpan.textContent = `Score: ${scorePct}%`;
 
@@ -4670,102 +4736,105 @@ W.decisionEngine = (() => {
       header.appendChild(scoreSpan);
       li.appendChild(header);
 
-      // ── What Happened ──────────────────────────────────────────
-      const what = document.createElement('p');
-      what.className = 'small';
-      what.style.margin = '4px 0 0 0';
+      const what = document.createElement("p");
+      what.className = "small";
+      what.style.margin = "4px 0 0 0";
       what.textContent = item._signalTitle || `${item._signalType} detected`;
       li.appendChild(what);
 
-      // ── Why It Matters (Personalized Context) ─────────────────
-      // Use W.context to generate rich context
+      // Context
       if (W.context) {
-        // Build a simplified event object for context generator
         const eventObj = {
           symbol: item._assetSymbol,
           type: item._signalType,
           title: item._signalTitle,
           impactValue: item.assessment?.impact || 0.5,
         };
-        // Get user context
         const userContext = {
           portfolio: W.portfolio?.all() || [],
-          watchlist: (W.watchlist?.list ? W.watchlist.list() : []).map(w => w.symbol || w),
+          watchlist: (W.watchlist?.list ? W.watchlist.list() : []).map(
+            (w) => w.symbol || w,
+          ),
           theses: W.theses?.all ? W.theses.all() : [],
           journal: W.journal?.all ? W.journal.all() : [],
-          behavior: W.behavior?.analyze ? W.behavior.analyze() : { pattern: 'none' },
+          behavior: W.behavior?.analyze
+            ? W.behavior.analyze()
+            : { pattern: "none" },
         };
         const contextData = W.context.generateContext(eventObj, userContext);
         if (contextData && contextData.whyItMatters) {
-          const contextEl = document.createElement('div');
-          contextEl.className = 'small muted';
-          contextEl.style.marginTop = '4px';
+          const contextEl = document.createElement("div");
+          contextEl.className = "small muted";
+          contextEl.style.marginTop = "4px";
           contextEl.textContent = contextData.whyItMatters;
           li.appendChild(contextEl);
-
-          // Show recommended action if any
-          if (contextData.recommendedAction && contextData.personalRelevance !== 'low') {
-            const actionEl = document.createElement('div');
-            actionEl.className = 'small';
-            actionEl.style.marginTop = '4px';
-            actionEl.style.color = 'var(--up, #2ee6a8)';
+          if (
+            contextData.recommendedAction &&
+            contextData.personalRelevance !== "low"
+          ) {
+            const actionEl = document.createElement("div");
+            actionEl.className = "small";
+            actionEl.style.marginTop = "4px";
+            actionEl.style.color = "var(--up, #2ee6a8)";
             actionEl.textContent = `→ ${contextData.recommendedAction}`;
             li.appendChild(actionEl);
           }
         }
       } else {
-        // Fallback if context module is not available
-        const fallback = document.createElement('div');
-        fallback.className = 'small muted';
-        fallback.style.marginTop = '4px';
-        fallback.textContent = item.explanation || 'Review this signal.';
+        const fallback = document.createElement("div");
+        fallback.className = "small muted";
+        fallback.style.marginTop = "4px";
+        fallback.textContent = item.explanation || "Review this signal.";
         li.appendChild(fallback);
       }
 
-      // ── Confidence Bar ────────────────────────────────────────
+      // Confidence bar
       const confidence = item.assessment?.confidence || 0.5;
-      const confBar = document.createElement('div');
-      confBar.style.cssText = 'margin-top: 8px; display: flex; align-items: center; gap: 8px;';
-      const confLabel = document.createElement('span');
-      confLabel.className = 'muted small';
-      confLabel.textContent = 'Confidence:';
-      const bar = document.createElement('div');
-      bar.style.cssText = 'flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;';
-      const fill = document.createElement('div');
+      const confBar = document.createElement("div");
+      confBar.style.cssText =
+        "margin-top: 8px; display: flex; align-items: center; gap: 8px;";
+      const confLabel = document.createElement("span");
+      confLabel.className = "muted small";
+      confLabel.textContent = "Evidence Strength:";
+      const bar = document.createElement("div");
+      bar.style.cssText =
+        "flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;";
+      const fill = document.createElement("div");
       const confidencePct = (confidence * 100).toFixed(0);
-      fill.style.cssText = `width: ${confidencePct}%; height: 100%; background: ${confidence > 0.7 ? 'var(--up, #2ee6a8)' : confidence > 0.4 ? 'var(--warn, #ffb35c)' : 'var(--down, #ff5c7a)'}; border-radius: 2px;`;
+      fill.style.cssText = `width: ${confidencePct}%; height: 100%; background: ${confidence > 0.7 ? "var(--up, #2ee6a8)" : confidence > 0.4 ? "var(--warn, #ffb35c)" : "var(--down, #ff5c7a)"}; border-radius: 2px;`;
       bar.appendChild(fill);
-      const pctSpan = document.createElement('span');
-      pctSpan.className = 'muted small';
+      const pctSpan = document.createElement("span");
+      pctSpan.className = "muted small";
       pctSpan.textContent = `${confidencePct}%`;
       confBar.appendChild(confLabel);
       confBar.appendChild(bar);
       confBar.appendChild(pctSpan);
       li.appendChild(confBar);
 
-      // ── Uncertainty / Limitations ────────────────────────────
+      // Uncertainty note
       if (confidence < 0.6) {
-        const uncertainty = document.createElement('div');
-        uncertainty.className = 'small muted';
-        uncertainty.style.marginTop = '4px';
-        uncertainty.style.fontStyle = 'italic';
-        uncertainty.textContent = '⚠️ This signal has significant uncertainty. Consider additional verification.';
+        const uncertainty = document.createElement("div");
+        uncertainty.className = "small muted";
+        uncertainty.style.marginTop = "4px";
+        uncertainty.style.fontStyle = "italic";
+        uncertainty.textContent =
+          "⚠️ This signal has significant uncertainty. Consider additional verification.";
         li.appendChild(uncertainty);
       }
 
-      // ── Suggested Review ──────────────────────────────────────
-      const action = document.createElement('div');
-      action.className = 'small';
-      action.style.marginTop = '6px';
-      action.style.padding = '4px 8px';
-      action.style.background = 'rgba(124, 92, 255, 0.1)';
-      action.style.borderRadius = '4px';
-      const actionText = item.recommendedAction || 'MONITOR';
+      // Suggested action (now MONITOR, REVIEW_THESIS, REVIEW_RISK, LOG_DECISION)
+      const action = document.createElement("div");
+      action.className = "small";
+      action.style.marginTop = "6px";
+      action.style.padding = "4px 8px";
+      action.style.background = "rgba(124, 92, 255, 0.1)";
+      action.style.borderRadius = "4px";
+      const actionText = item.recommendedAction || "MONITOR";
       const actionMap = {
-        'MONITOR': '👀 Monitor',
-        'REVIEW_THESIS': '📝 Review Thesis',
-        'REBALANCE': '⚖️ Consider Rebalancing',
-        'LOG_DECISION': '📓 Log Decision',
+        MONITOR: "👀 Monitor",
+        REVIEW_THESIS: "📝 Review Thesis",
+        REVIEW_RISK: "⚖️ Review Risk",
+        LOG_DECISION: "📓 Log Decision",
       };
       action.textContent = `Suggested: ${actionMap[actionText] || actionText}`;
       li.appendChild(action);
@@ -4787,10 +4856,10 @@ W.decisionEngine = (() => {
   };
 })();
 
-console.log('[DecisionEngine] Module loaded (enhanced presentation).');
+console.log("[DecisionEngine] Module loaded (hardened, REBALANCE removed).");
 // ---- js/intelligence/events.js ----
 // ===============================================================
-//         Live Event Collector – Confidence Model + Thesis Health
+//         Live Event Collector – Uses Evidence Builder
 // ===============================================================
 
 window.W = window.W || {};
@@ -4799,9 +4868,7 @@ W.events = (() => {
   const TTL = 5 * 60 * 1000;
   const DAY = 864e5;
 
-  const { computeConfidence, computeFreshness, getSourceReliability } =
-    W.intelligence || {};
-
+  // ── Helpers ──────────────────────────────────────────────
   function safeNum(val, fallback = 0.5) {
     return typeof val === "number" && !isNaN(val) ? val : fallback;
   }
@@ -4827,39 +4894,27 @@ W.events = (() => {
     const timestamp = raw.timestamp
       ? new Date(raw.timestamp).getTime()
       : Date.now();
-    const impactValue = safeNum(raw.impactValue, 0.5);
+
+    // Generate UUID for signal ID
+    const id = crypto.randomUUID
+      ? crypto.randomUUID()
+      : Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
 
     const signal = {
-      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+      id,
       type,
       source: raw.source || "weaver",
       assetId,
       timestamp,
-      rawData: raw,
+      rawData: { ...raw, title }, // keep title for display
     };
 
-    const sourceReliability = getSourceReliability
-      ? getSourceReliability(signal.source)
-      : 0.5;
-    const dataFreshness = computeFreshness
-      ? computeFreshness(timestamp, type)
-      : 0.8;
-    const corroborationCount = raw.corroborationCount || 1;
-    const dataCompleteness = raw.dataCompleteness || 0.8;
-    const interpretationConfidence = raw.interpretationConfidence || 0.7;
-
-    const evidence = {
-      signalId: signal.id,
-      sourceReliability,
-      dataFreshness,
-      corroborationCount,
-      dataCompleteness,
-      interpretationConfidence,
-      reasoning: [`Source: ${signal.source}`],
+    // Attach metadata for evidence builder
+    signal._metadata = {
+      corroborationCount: raw.corroborationCount || 1,
+      dataCompleteness: raw.dataCompleteness,
+      interpretationConfidence: raw.interpretationConfidence,
     };
-
-    signal._confidence = computeConfidence ? computeConfidence(evidence) : 0.5;
-    signal._evidence = evidence;
 
     return signal;
   }
@@ -4994,7 +5049,6 @@ W.events = (() => {
     return events;
   }
 
-  // ── Async thesis health collector ──────────────────────────────
   async function collectThesisHealthEvents() {
     const events = [];
     try {
@@ -5002,7 +5056,6 @@ W.events = (() => {
       const activeTheses = W.theses.all().filter((t) => t.status === "active");
       if (!activeTheses.length) return events;
 
-      // Get price data for all thesis assets
       const assetIds = [
         ...new Set(
           activeTheses.map((t) => t.coingeckoId || t.symbol).filter(Boolean),
@@ -5018,7 +5071,6 @@ W.events = (() => {
         } catch (e) {}
       }
 
-      // Get current regime
       let regimeData = null;
       try {
         const fg = await W.api.fearGreed();
@@ -5032,7 +5084,6 @@ W.events = (() => {
         }
       } catch (e) {}
 
-      // Evaluate each active thesis
       activeTheses.forEach((thesis) => {
         const price =
           priceMap[thesis.coingeckoId] ||
@@ -5100,7 +5151,6 @@ W.events = (() => {
       });
     }
 
-    // Collect all signals (including async thesis health)
     const priceEvents = collectPriceEvents(markets);
     const regimeEvents = collectRegimeEvents(fg, g);
     const unlockEvents = collectUnlockEvents();
@@ -5115,13 +5165,27 @@ W.events = (() => {
       ...thesisEvents,
     ].filter(Boolean);
 
-    // Deduplicate
+    // ── Improved Deduplication ──────────────────────────────
+    // Use a composite key: type + assetId + eventWindow (10-minute bucket)
+    // to avoid collapsing distinct events on the same asset.
     const seen = new Map();
+    const DEDUP_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+
     allSignals = allSignals.filter((s) => {
-      const key = `${s.type}_${s.assetId.symbol}`;
+      const bucket = Math.floor(s.timestamp / DEDUP_WINDOW_MS);
+      const key = `${s.type}_${s.assetId.symbol}_${bucket}`;
       if (seen.has(key)) {
         const existing = seen.get(key);
-        if (s._confidence > existing._confidence) {
+        // Keep the one with higher confidence (will be computed later)
+        // For now, we'll keep the one with higher raw impact or more metadata.
+        // We'll defer the final decision to the evidence builder.
+        // For dedup, we'll just keep the first one.
+        // Actually, we'll keep the one with more complete metadata.
+        const existingMeta = existing._metadata || {};
+        const newMeta = s._metadata || {};
+        const existingCompleteness = existingMeta.dataCompleteness || 0;
+        const newCompleteness = newMeta.dataCompleteness || 0;
+        if (newCompleteness > existingCompleteness) {
           seen.set(key, s);
           return false;
         }
@@ -5131,7 +5195,8 @@ W.events = (() => {
       return true;
     });
 
-    allSignals.sort((a, b) => b._confidence - a._confidence);
+    // Build evidence for each signal (now we have a unique set)
+    // but we'll let the Decision Engine build evidence via the Evidence Builder.
 
     if (W.store) {
       W.store.set(CACHE_KEY, { timestamp: Date.now(), events: allSignals });
@@ -5143,7 +5208,9 @@ W.events = (() => {
   return { normalize, collectEvents };
 })();
 
-console.log("[Events] Module loaded (thesis health integrated).");
+console.log(
+  "[Events] Module loaded (thesis health integrated, improved dedup).",
+);
 // ---- js/features/portfolio.js ----
 // ===============================================================
 //         Portfolio Management Module – Data Correctness

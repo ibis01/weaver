@@ -1,5 +1,5 @@
 // ===============================================================
-//         Live Event Collector – Confidence Model + Thesis Health
+//         Live Event Collector – Uses Evidence Builder
 // ===============================================================
 
 window.W = window.W || {};
@@ -8,9 +8,7 @@ W.events = (() => {
   const TTL = 5 * 60 * 1000;
   const DAY = 864e5;
 
-  const { computeConfidence, computeFreshness, getSourceReliability } =
-    W.intelligence || {};
-
+  // ── Helpers ──────────────────────────────────────────────
   function safeNum(val, fallback = 0.5) {
     return typeof val === "number" && !isNaN(val) ? val : fallback;
   }
@@ -36,39 +34,27 @@ W.events = (() => {
     const timestamp = raw.timestamp
       ? new Date(raw.timestamp).getTime()
       : Date.now();
-    const impactValue = safeNum(raw.impactValue, 0.5);
+
+    // Generate UUID for signal ID
+    const id = crypto.randomUUID
+      ? crypto.randomUUID()
+      : Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
 
     const signal = {
-      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+      id,
       type,
       source: raw.source || "weaver",
       assetId,
       timestamp,
-      rawData: raw,
+      rawData: { ...raw, title }, // keep title for display
     };
 
-    const sourceReliability = getSourceReliability
-      ? getSourceReliability(signal.source)
-      : 0.5;
-    const dataFreshness = computeFreshness
-      ? computeFreshness(timestamp, type)
-      : 0.8;
-    const corroborationCount = raw.corroborationCount || 1;
-    const dataCompleteness = raw.dataCompleteness || 0.8;
-    const interpretationConfidence = raw.interpretationConfidence || 0.7;
-
-    const evidence = {
-      signalId: signal.id,
-      sourceReliability,
-      dataFreshness,
-      corroborationCount,
-      dataCompleteness,
-      interpretationConfidence,
-      reasoning: [`Source: ${signal.source}`],
+    // Attach metadata for evidence builder
+    signal._metadata = {
+      corroborationCount: raw.corroborationCount || 1,
+      dataCompleteness: raw.dataCompleteness,
+      interpretationConfidence: raw.interpretationConfidence,
     };
-
-    signal._confidence = computeConfidence ? computeConfidence(evidence) : 0.5;
-    signal._evidence = evidence;
 
     return signal;
   }
@@ -203,7 +189,6 @@ W.events = (() => {
     return events;
   }
 
-  // ── Async thesis health collector ──────────────────────────────
   async function collectThesisHealthEvents() {
     const events = [];
     try {
@@ -211,7 +196,6 @@ W.events = (() => {
       const activeTheses = W.theses.all().filter((t) => t.status === "active");
       if (!activeTheses.length) return events;
 
-      // Get price data for all thesis assets
       const assetIds = [
         ...new Set(
           activeTheses.map((t) => t.coingeckoId || t.symbol).filter(Boolean),
@@ -227,7 +211,6 @@ W.events = (() => {
         } catch (e) {}
       }
 
-      // Get current regime
       let regimeData = null;
       try {
         const fg = await W.api.fearGreed();
@@ -241,7 +224,6 @@ W.events = (() => {
         }
       } catch (e) {}
 
-      // Evaluate each active thesis
       activeTheses.forEach((thesis) => {
         const price =
           priceMap[thesis.coingeckoId] ||
@@ -309,7 +291,6 @@ W.events = (() => {
       });
     }
 
-    // Collect all signals (including async thesis health)
     const priceEvents = collectPriceEvents(markets);
     const regimeEvents = collectRegimeEvents(fg, g);
     const unlockEvents = collectUnlockEvents();
@@ -324,13 +305,27 @@ W.events = (() => {
       ...thesisEvents,
     ].filter(Boolean);
 
-    // Deduplicate
+    // ── Improved Deduplication ──────────────────────────────
+    // Use a composite key: type + assetId + eventWindow (10-minute bucket)
+    // to avoid collapsing distinct events on the same asset.
     const seen = new Map();
+    const DEDUP_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+
     allSignals = allSignals.filter((s) => {
-      const key = `${s.type}_${s.assetId.symbol}`;
+      const bucket = Math.floor(s.timestamp / DEDUP_WINDOW_MS);
+      const key = `${s.type}_${s.assetId.symbol}_${bucket}`;
       if (seen.has(key)) {
         const existing = seen.get(key);
-        if (s._confidence > existing._confidence) {
+        // Keep the one with higher confidence (will be computed later)
+        // For now, we'll keep the one with higher raw impact or more metadata.
+        // We'll defer the final decision to the evidence builder.
+        // For dedup, we'll just keep the first one.
+        // Actually, we'll keep the one with more complete metadata.
+        const existingMeta = existing._metadata || {};
+        const newMeta = s._metadata || {};
+        const existingCompleteness = existingMeta.dataCompleteness || 0;
+        const newCompleteness = newMeta.dataCompleteness || 0;
+        if (newCompleteness > existingCompleteness) {
           seen.set(key, s);
           return false;
         }
@@ -340,7 +335,8 @@ W.events = (() => {
       return true;
     });
 
-    allSignals.sort((a, b) => b._confidence - a._confidence);
+    // Build evidence for each signal (now we have a unique set)
+    // but we'll let the Decision Engine build evidence via the Evidence Builder.
 
     if (W.store) {
       W.store.set(CACHE_KEY, { timestamp: Date.now(), events: allSignals });
@@ -352,4 +348,6 @@ W.events = (() => {
   return { normalize, collectEvents };
 })();
 
-console.log("[Events] Module loaded (thesis health integrated).");
+console.log(
+  "[Events] Module loaded (thesis health integrated, improved dedup).",
+);
