@@ -1,16 +1,11 @@
 {
   "scripts": {
     "test": "npm run test:unit && npm run test:integration && npm run test:security && npm run test:e2e",
-    "test:unit": "mocha --require test/setup.js --ui bdd test/unit/**/*.test.js --bail",
-    "test:integration": "mocha --require test/setup.js --ui bdd test/integration/**/*.test.js --bail",
-    "test:security": "mocha --require test/setup.js --ui bdd test/security/**/*.test.js --bail",
+    "test:unit": "mocha --require test/setup.js --ui bdd test/unit/**/*.test.js",
+    "test:integration": "mocha --require test/setup.js --ui bdd test/integration/**/*.test.js",
+    "test:security": "mocha --require test/setup.js --ui bdd test/security/**/*.test.js",
     "test:e2e": "playwright test",
     "build": "node concat.js",
     "minify": "esbuild dist/bundle.js --minify --outfile=dist/bundle.min.js"
-  },
-  "dependencies": {
-    "axios": "^1.20.0",
-    "cors": "^2.8.6",
-    "express": "^5.2.1"
   }
 }

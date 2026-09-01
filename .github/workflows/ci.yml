@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install dependencies (client)
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm run test:unit -- --bail
+
+      - name: Run integration tests
+        run: npm run test:integration -- --bail
+
+      - name: Run security tests
+        run: npm run test:security -- --bail
+
+      - name: Run E2E tests
+        run: npm run test:e2e -- --bail
+
+      - name: Build production bundle
+        run: npm run build && npm run minify

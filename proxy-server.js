@@ -5,9 +5,25 @@ const cors = require("cors");
 const dns = require("dns").promises;
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PROXY_PORT || 3001;
 
-// ── Allowed Domains ──────────────────────────────────────
+// ── Allowed Origins (environment variable or fallback) ──
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+// Fallback origins for development if env var is not set
+const DEFAULT_ORIGINS = [
+  "http://localhost:8000",
+  "http://127.0.0.1:8000",
+  "http://localhost:3000",
+];
+const allowedOrigins = ALLOWED_ORIGINS.length
+  ? ALLOWED_ORIGINS
+  : DEFAULT_ORIGINS;
+
+// ── Allowed Domains for outbound requests ──────────────────
 const ALLOWED_DOMAINS = [
   "api.coingecko.com",
   "api.binance.com",
@@ -88,7 +104,22 @@ async function validateUrl(urlString) {
 }
 
 // ── Express setup ──────────────────────────────────────
-app.use(cors({ origin: true }));
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Allow requests with no origin (e.g., health checks, server-to-server)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Origin not allowed by CORS"));
+      }
+    },
+    methods: ["GET"],
+    credentials: false,
+  }),
+);
+
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
@@ -106,7 +137,6 @@ app.get("/proxy", async (req, res) => {
     let redirectCount = 0;
     const MAX_REDIRECTS = 5;
 
-    // ── Fetch with manual redirect handling ──────────
     const fetchUrl = async (currentUrl) => {
       const response = await axios({
         method: "GET",
@@ -116,7 +146,7 @@ app.get("/proxy", async (req, res) => {
           Accept: "application/json, application/xml, text/*;q=0.9",
         },
         timeout: 10000,
-        maxRedirects: 0, // manual redirects
+        maxRedirects: 0,
         validateStatus: (status) =>
           status < 400 ||
           status === 301 ||
@@ -124,10 +154,9 @@ app.get("/proxy", async (req, res) => {
           status === 307 ||
           status === 308,
         responseType: "text",
-        maxContentLength: 1048576, // 1MB
+        maxContentLength: 1048576,
       });
 
-      // ── Handle redirects ────────────────────────────
       if ([301, 302, 307, 308].includes(response.status)) {
         redirectCount++;
         if (redirectCount > MAX_REDIRECTS)
@@ -135,7 +164,6 @@ app.get("/proxy", async (req, res) => {
         const location = response.headers.location;
         if (!location) throw new Error("Redirect without Location header");
         const newUrl = new URL(location, currentUrl);
-        // Validate new URL
         await validateUrl(newUrl.href);
         return await fetchUrl(newUrl);
       }
@@ -173,6 +201,9 @@ app.get("/proxy", async (req, res) => {
     } else if (error.response) {
       statusCode = error.response.status || 502;
       message = "Upstream service error";
+    } else if (error.message.includes("Origin not allowed")) {
+      statusCode = 403;
+      message = "CORS origin not allowed";
     }
     res.set("Content-Type", "text/plain").status(statusCode).send(message);
   }
@@ -183,6 +214,7 @@ app.get("/health", (req, res) => res.send("Proxy running securely"));
 
 app.listen(PORT, () => {
   console.log(`🚀 Secure proxy on http://localhost:${PORT}`);
+  console.log(`   Allowed origins: ${allowedOrigins.join(", ")}`);
   console.log(`   Allowed domains: ${ALLOWED_DOMAINS.join(", ")}`);
   console.log(
     `   Rate limit: 30 req/min per IP, max 1MB response, max 5 redirects`,
