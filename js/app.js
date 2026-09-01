@@ -32,6 +32,8 @@ window.W = window.W || {};
     { id: "journal", icon: "📓", label: "Journal" },
     { id: "sync", icon: "☁️", label: "Sync" },
     { id: "settings", icon: "⚙️", label: "Settings" },
+    // ── NEW: Token Analysis ──────────────────────────────
+    { id: "token", icon: "🔍", label: "Token Analysis" },
   ];
 
   // ── Route Map ──────────────────────────────────────────
@@ -111,6 +113,19 @@ window.W = window.W || {};
     settings: (v) =>
       W.misc?.renderSettings?.(v) ||
       W.ui?.toast?.("Settings module not loaded", "warn"),
+    // ── NEW: Token Analysis route ───────────────────────────
+    token: async (v) => {
+      const param = getPageParam();
+      if (W.tokenAnalysis) {
+        if (param) {
+          await W.tokenAnalysis.render(v, param);
+        } else {
+          await W.tokenAnalysis.render(v);
+        }
+      } else {
+        W.ui?.toast?.("Token Analysis module not loaded", "warn");
+      }
+    },
   };
 
   // ── Helpers ────────────────────────────────────────────
@@ -355,9 +370,6 @@ window.W = window.W || {};
 
     // Hide glow on touch devices
     if ("ontouchstart" in window) glow.style.display = "none";
-
-    // ── Card spotlight (already in CSS via --mx/--my) ──
-    // ── The .card:hover effect is already handled in CSS ──
 
     // ── Toast click handler for Telegram test ────────────
     document.addEventListener("click", (e) => {

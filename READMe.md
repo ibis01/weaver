@@ -1,93 +1,119 @@
-# 🚀 Weaver
+# Weaver
 
-**Privacy-first crypto intelligence terminal with AI insights — no backend required.**
+**Evidence‑Driven Crypto Decision Intelligence**
 
-![version](https://img.shields.io/badge/version-1.0.0-7c5cff)
-![license](https://img.shields.io/badge/license-MIT-2ee6a8)
-![build](https://img.shields.io/badge/build-none%20required-ff5c7a)
-![demo](https://img.shields.io/badge/demo-GitHub%20Pages-5cd6ff)
+Weaver collects on‑chain and market signals, builds verifiable evidence, scores confidence, and explains what matters before you make a trade.
 
-> **Live demo:** https://ibis01.github.io/weaver/
-
-<p align="center">
-  <img src="assets/logo.png" width="96" alt="Weaver logo">
-</p>
+🔗 **Live demo:** [https://ibis01.github.io/weaver/](https://ibis01.github.io/weaver/)
 
 ---
 
-## 📸 Screenshots
+## What is Weaver?
 
-<p align="center">
-  <img src="assets/screenshots/dashboard.png" width="45%" alt="Dashboard">
-  <img src="assets/screenshots/portfolio.png" width="45%" alt="Portfolio">
-</p>
-<p align="center">
-  <img src="assets/screenshots/news.png" width="45%" alt="News">
-  <img src="assets/screenshots/ai.png" width="45%" alt="AI Intelligence">
-</p>
+Weaver is not a dashboard. It is a **decision‑intelligence layer** for crypto traders and investors.
 
----
+Instead of showing raw data, Weaver:
 
-## ✨ Features
-
-### Core
-
-- **📊 Dashboard** — Total balance, 24h/7d/all-time P/L, allocation chart, market tape
-- **💼 Portfolio** — Holdings CRUD, buy/sell transactions, transaction history
-- **⭐ Watchlist** — Track your favorite coins with real-time prices
-- **🔍 Coin Explorer** — Search coins, detailed charts, stats, contract addresses
-- **🚨 Alerts** — Price alerts, % move alerts, volume spikes + browser notifications
-- **📰 News** — RSS feeds with AI sentiment, fallback snapshot
-- **📈 Market** — Fear & Greed, BTC dominance, heatmap, altcoin season index, top gainers/losers
-
-### Intelligence
-
-- **🧠 AI Portfolio Intelligence** — Risk decomposition, pattern detection, proactive insights
-- **🧠 Smart Money Tracker** — Analyze top holders, P/L reconstruction, accumulation detection
-- **🐋 Whale Tracker** — Multi-chain whale wallet tracking (BTC, ETH, BSC, Polygon, Solana, Arbitrum, Avalanche)
-- **🛡️ Token Shield** — Contract security auditor (honeypot, mintable, proxy, tax detection)
-
-### Opportunities
-
-- **💎 Gem Agent** — Autonomous new-token hunter with scoring algorithm
-- **🪂 Airdrop Hunter** — Track and complete airdrop tasks
-- **🏦 DeFi Tracker** — Manual DeFi position tracking
-- **🔓 Token Unlocks** — Vesting cliffs & emissions calendar with sell-pressure scoring
-
-### Tools
-
-- **🧮 Portfolio Optimizer** — Target allocations → exact trade plan with risk analysis
-- **⚡ Trading Assistant** — RSI/SMA/momentum/Fear&Greed signal engine
-- **⏳ Time Machine** — Replay your portfolio's historical performance
-
-### Research
-
-- **📚 Learn** — Comprehensive crypto & Web3 education (16+ lessons with quizzes)
-- **📰 News** — Curated crypto news with AI brief
-
-### Account
-
-- **👤 Profile** — Achievements, learning streak, stats
-- **⚙️ Settings** — Currency, auto-refresh, AI API, Telegram alerts
-- **☁️ Sync** — Zero-knowledge E2E encryption (PBKDF2 + AES-256-GCM)
+1. **Collects signals** (price moves, on‑chain activity, unlocks, sentiment).
+2. **Builds evidence** (source reliability, freshness, corroboration).
+3. **Detects contradictions** (bullish vs. bearish evidence).
+4. **Scores confidence** (calibrated from evidence strength).
+5. **Generates explainable intelligence** (personalized context, risks, and recommended actions).
 
 ---
 
-## 🏁 Quick Start
+## How It Works
+
+```text
+DATA SOURCES
+   ↓
+NORMALIZATION
+   ↓
+SIGNALS
+   ↓
+EVIDENCE BUILDER
+   ↓
+PERSONAL CONTEXT
+   ↓
+ASSESSMENT
+   ↓
+DECISION ENGINE
+   ↓
+WHAT MATTERS NOW?
+```
+
+### Core Modules
+
+| Module | Purpose |
+|--------|---------|
+| **Evidence Builder** | Converts raw signals into structured evidence with source reliability, freshness, and corroboration. |
+| **Decision Engine** | Orchestrates evidence → context → assessment → priority. |
+| **Thesis Health** | Evaluates investment theses against evidence, not just price. |
+| **Decision Replay** | Evaluates past decisions using absolute, benchmark, risk, and calibration metrics. |
+| **Token Risk Intelligence** | Audits contract security, honeypots, liquidity, and concentration risks. |
+
+---
+
+## Features (Tier 1)
+
+- **Portfolio Tracking** – Weighted‑average cost basis, UNKNOWN cost basis, wallet sync.
+- **Watchlist & Alerts** – Price, volume, and move alerts with browser notifications.
+- **Coin Explorer** – Search, charts, on‑chain data, contract addresses.
+- **Token Shield** – Contract security auditor (honeypot, mintable, proxy, tax detection).
+- **Smart Money / Whale Tracker** – Multi‑chain wallet tracking with P/L reconstruction.
+- **Gem Agent** – Autonomous new‑token hunter with evidence‑based scoring.
+- **Unlock Calendar** – Upcoming vesting cliffs and emission schedules.
+- **Decision Journal** – Log decisions, link theses, and replay outcomes.
+- **Encrypted Sync** – Zero‑knowledge end‑to‑end encryption (PBKDF2 + AES‑256‑GCM).
+
+---
+
+## Security Model
+
+- **No backend** – all data stays in your browser.
+- **Credential encryption** – API keys and Telegram tokens are encrypted with a user‑defined passphrase.
+- **Sync codes** – 128‑bit entropy, stored only as salted SHA‑256 hashes.
+- **Hardened proxy** – domain allow‑list, private IP blocking, rate limiting, DNS rebinding prevention.
+
+---
+
+## Getting Started
 
 ```bash
-# Clone the repository
 git clone https://github.com/ibis01/weaver.git
 cd weaver
-
-# Install proxy dependencies (for news and API fallbacks)
 npm install
-
-# Start the local proxy server (for news RSS feeds)
-node proxy-server.js
-
-# Serve the app (choose one)
-python3 -m http.server 8000
-# OR
-npx serve
+node proxy-server.js           # optional, for RSS/news fallback
+python3 -m http.server 8000     # or npx serve
 ```
+
+Open `http://localhost:8000`.
+
+---
+
+## Testing
+
+```bash
+npm test
+```
+
+All 110+ tests pass (unit, integration, security, E2E).
+
+---
+
+## Roadmap
+
+- [ ] Token‑specific decision analysis ("Should I buy this token?")
+- [ ] Calibrated confidence scores with historical performance
+- [ ] Integration with more on‑chain data sources (Etherscan, Solana)
+- [ ] Portfolio stress testing and scenario analysis
+
+---
+
+## License
+
+MIT
+
+---
+
+*Built with ❤️ by ibis01*
