@@ -1349,887 +1349,446 @@ W.ui = {
 console.log("[UI] Module loaded.");
 // ---- js/ui/dashboard.js ----
 // ===============================================================
-//                     Weaver Dashboard UI
+//         Weaver Core Application
 // ===============================================================
-//
-// Purpose: Render the main dashboard, integrating portfolio,
-// market terminal, and the "What Matters Now" intelligence ranker.
-// Security: Strictly escapes all dynamic data
-// Intelligence: Uses W.decisionEngine for signal ranking.
-//
+// Purpose: Handle routing, navigation rendering, and app initialization.
+// Updates: Phase 2 (Grouped Navigation), Phase 15/18 (Removed decorative cursor glow).
 // ===============================================================
 
 window.W = window.W || {};
 
-W.dashboard = (() => {
-  let chartAlloc = null;
+(function () {
+  // ── Navigation Configuration (Phase 2: Grouped Hierarchy) ─
+  const NAV_GROUPS = [
+    {
+      label: "PRIMARY",
+      items: [
+        {
+          id: "dashboard",
+          icon: "📊",
+          label: "Dashboard",
+          route: "#/dashboard",
+        },
+        { id: "explorer", icon: "🔍", label: "Discover", route: "#/explorer" },
+        { id: "token", icon: "📈", label: "Analyze", route: "#/token" },
+        {
+          id: "portfolio",
+          icon: "💼",
+          label: "Portfolio",
+          route: "#/portfolio",
+        },
+      ],
+    },
+    {
+      label: "MONITOR",
+      items: [
+        {
+          id: "watchlist",
+          icon: "⭐",
+          label: "Watchlist",
+          route: "#/watchlist",
+        },
+        { id: "alerts", icon: "🚨", label: "Alerts", route: "#/alerts" },
+        { id: "market", icon: "📡", label: "Signals", route: "#/market" },
+      ],
+    },
+    {
+      label: "INTELLIGENCE",
+      items: [
+        { id: "news", icon: "📰", label: "News", route: "#/news" },
+        { id: "whales", icon: "🐋", label: "Whale Tracker", route: "#/whales" },
+        { id: "smart", icon: "🧠", label: "Smart Money", route: "#/smart" },
+        { id: "theses", icon: "🎯", label: "Theses", route: "#/theses" },
+        { id: "journal", icon: "📓", label: "Journal", route: "#/journal" },
+      ],
+    },
+    {
+      label: "TOOLS",
+      items: [
+        { id: "shield", icon: "🛡️", label: "Token Shield", route: "#/shield" },
+        {
+          id: "optimizer",
+          icon: "🧮",
+          label: "Optimizer",
+          route: "#/optimizer",
+        },
+        {
+          id: "unlocks",
+          icon: "🔓",
+          label: "Token Unlocks",
+          route: "#/unlocks",
+        },
+        { id: "ai", icon: "🧠", label: "AI Insights", route: "#/ai" },
+        { id: "settings", icon: "⚙️", label: "Settings", route: "#/settings" },
+      ],
+    },
+  ];
 
-  // ── Helper: Safe Stat Card HTML ───────────────────────
-  const statCard = (label, big, sub) => `
-    <div class="card stat">
-      <div class="stat-label">${W.fmt.escapeHTML(label)}</div>
-      <div class="stat-big">${big}</div>
-      <div class="stat-sub">${W.fmt.escapeHTML(sub)}</div>
-    </div>`;
+  // Flatten for legacy compatibility lookups
+  const ALL_NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
 
-  // ── Helper: Signed Money ──────────────────────────────
-  const signedMoney = (n) => {
-    if (n == null || isNaN(n)) return "—";
-    const isUp = n >= 0;
-    return `<span class="${isUp ? "up" : "down"}">${isUp ? "+" : "-"}${W.fmt.money(Math.abs(n))}</span>`;
-  };
-
-  // ── Helper: Terminal Tape ─────────────────────────────
-  const tapeHTML = (coins) => {
-    if (!coins || !Array.isArray(coins) || !coins.length) {
-      return '<div class="tape-wrap"><div class="tape"><span class="tape-item muted">📊 Loading market data...</span></div></div>';
-    }
-
-    let tapeItems = "";
-    let validCount = 0;
-
-    for (let i = 0; i < coins.length; i++) {
-      const c = coins[i];
-      if (!c || typeof c !== "object") continue;
-
-      const symbol = c.symbol ? String(c.symbol).toUpperCase() : null;
-      if (!symbol) continue;
-
-      const price =
-        c.current_price !== undefined
-          ? c.current_price
-          : c.price !== undefined
-            ? c.price
-            : null;
-      if (price === null || price === undefined || isNaN(price)) continue;
-
-      const change =
-        c.price_change_percentage_24h_in_currency !== undefined
-          ? c.price_change_percentage_24h_in_currency
-          : 0;
-
-      tapeItems += `
-        <span class="tape-item">
-          <b>${W.fmt.escapeHTML(symbol)}</b>
-          <span class="muted">${W.fmt.price(price)}</span>
-          ${W.fmt.pct(change)}
-        </span>`;
-      validCount++;
-      if (validCount >= 20) break;
-    }
-
-    if (!tapeItems) {
-      return '<div class="tape-wrap"><div class="tape"><span class="tape-item muted">📊 No market data available</span></div></div>';
-    }
-
-    return `<div class="tape-wrap"><div class="tape">${tapeItems + tapeItems}</div></div>`;
-  };
-
-  // ── Helper: Sparkline Canvas ──────────────────────────
-  function drawSpark(c) {
-    const vals = (c.dataset.spark || "")
-      .split(",")
-      .map(Number)
-      .filter((v) => !isNaN(v));
-    if (vals.length < 2) return;
-
-    const w = (c.width = 110);
-    const h = (c.height = 30);
-    const ctx = c.getContext("2d");
-    const min = Math.min(...vals);
-    const max = Math.max(...vals);
-    const up = c.dataset.up === "1";
-
-    ctx.clearRect(0, 0, w, h);
-    ctx.strokeStyle = up ? "#2ee6a8" : "#ff5c7a";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-
-    vals.forEach((v, i) => {
-      const x = (i / (vals.length - 1)) * w;
-      const y = h - 3 - ((v - min) / (max - min || 1)) * (h - 6);
-      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-    });
-
-    ctx.stroke();
-    ctx.lineTo(w, h);
-    ctx.lineTo(0, h);
-    ctx.closePath();
-    ctx.fillStyle = up ? "rgba(46,230,168,.12)" : "rgba(255,92,122,.12)";
-    ctx.fill();
-  }
-
-  const sparkCell = (arr, up) =>
-    arr && arr.length
-      ? `<canvas class="spark" data-up="${up ? 1 : 0}" data-spark="${arr
-          .filter((_, i) => i % 6 === 0)
-          .map((v) => v.toFixed(4))
-          .join(",")}"></canvas>`
-      : '<span class="muted small">—</span>';
-
-  // ── Helper: Terminal Row (Strictly Escaped) ───────────
-  const termRow = (c, i) => {
-    if (!c || typeof c !== "object") return "";
-
-    const id = c.id || "unknown";
-    const image = c.image || "";
-    const name = c.name || "Unknown";
-    const symbol = c.symbol ? String(c.symbol).toUpperCase() : "???";
-    const price =
-      c.current_price !== undefined ? c.current_price : c.price || 0;
-    const p24 =
-      c.price_change_percentage_24h_in_currency !== undefined
-        ? c.price_change_percentage_24h_in_currency
-        : 0;
-    const p7 =
-      c.price_change_percentage_7d_in_currency !== undefined
-        ? c.price_change_percentage_7d_in_currency
-        : 0;
-    const p30 =
-      c.price_change_percentage_30d_in_currency !== undefined
-        ? c.price_change_percentage_30d_in_currency
-        : 0;
-    const marketCap = c.market_cap || 0;
-    const volume = c.total_volume || 0;
-    const sparkline = (c.sparkline_in_7d || {}).price || [];
-
-    return `
-      <tr class="clickable" data-coin="${W.fmt.escapeHTML(id)}">
-        <td class="muted">${i + 1}</td>
-        <td class="coin-cell">
-          <img src="${W.fmt.escapeHTML(image)}" alt="${W.fmt.escapeHTML(name)}" style="width:24px;height:24px;border-radius:50%;">
-          <div>
-            <b>${W.fmt.escapeHTML(symbol)}</b>
-            <br><span class="muted small">${W.fmt.escapeHTML(name)}</span>
-          </div>
-        </td>
-        <td class="num"><b>${W.fmt.price(price)}</b></td>
-        <td class="num">${W.fmt.pct(p24)}</td>
-        <td class="num">${W.fmt.pct(p7)}</td>
-        <td class="num">${W.fmt.pct(p30)}</td>
-        <td class="num">${W.fmt.money(marketCap, { compact: true })}</td>
-        <td class="num">${W.fmt.money(volume, { compact: true })}</td>
-        <td>${sparkCell(sparkline, p24 >= 0)}</td>
-      </tr>
-    `;
-  };
-
-  // ── Enrich Portfolio Data ─────────────────────────────
-  async function enrich() {
-    const manualHoldings = W.portfolio ? W.portfolio.all() : [];
-    let walletHoldings = [];
-
-    if (W.walletSync && typeof W.walletSync.holdings === "function") {
-      walletHoldings = W.walletSync.holdings() || [];
-    }
-
-    const allHoldings = [
-      ...manualHoldings.map((h) => ({ ...h, wallet: false })),
-      ...walletHoldings.map((h) => ({ ...h, wallet: true })),
-    ];
-
-    if (!allHoldings.length) return { rows: [], totals: null };
-
-    const ids = [...new Set(allHoldings.map((h) => h.coinId))]
-      .filter(Boolean)
-      .join(",");
-    let markets = [];
-
-    if (ids.trim()) {
-      try {
-        markets = await W.api.markets(ids);
-      } catch (e) {
-        console.warn("[Dashboard] Market fetch failed:", e.message);
-      }
-    }
-
-    const rows = allHoldings
-      .map((h) => {
-        const m = markets.find((c) => c.id === h.coinId) || {};
-        const price = m.current_price ?? h.buyPrice ?? 0;
-        const qty = parseFloat(h.qty) || 0;
-        const value = price * qty;
-
-        // ── Cost basis logic ────────────────────────────
-        let cost;
-        let costBasisType = "KNOWN";
-
-        if (h.wallet) {
-          // Wallet holdings: default to UNKNOWN cost basis
-          if (
-            h.manualCostBasis &&
-            typeof h.manualCostBasis.totalCost === "number"
-          ) {
-            cost = h.manualCostBasis.totalCost;
-            costBasisType = "MANUAL";
-          } else {
-            cost = undefined;
-            costBasisType = "UNKNOWN";
-          }
-        } else {
-          // Manual holdings: use totalCost if available, else compute from qty*buyPrice
-          cost =
-            h.totalCost !== undefined
-              ? h.totalCost
-              : (parseFloat(h.buyPrice) || 0) * qty;
-          if (cost === undefined || cost === null || isNaN(cost) || cost < 0) {
-            cost = 0;
-          }
-        }
-
-        let pnl, pnlPct;
-        if (cost !== undefined && cost !== null && !isNaN(cost)) {
-          pnl = value - cost;
-          pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
-        } else {
-          pnl = undefined;
-          pnlPct = undefined;
-        }
-
-        return {
-          ...h,
-          price,
-          value,
-          cost,
-          costBasisType,
-          pnl,
-          pnlPct,
-          p24: m.price_change_percentage_24h_in_currency ?? null,
-          p7: m.price_change_percentage_7d_in_currency ?? null,
-          image: m.image || h.img,
-        };
-      })
-      .sort((a, b) => b.value - a.value);
-
-    const totals = { value: 0, cost: 0 };
-    let prev24 = 0,
-      prev7 = 0;
-
-    rows.forEach((r) => {
-      totals.value += r.value;
-      if (r.cost !== undefined && r.cost !== null && !isNaN(r.cost)) {
-        totals.cost += r.cost;
-      }
-      if (r.p24 != null) prev24 += r.value / (1 + r.p24 / 100);
-      if (r.p7 != null) prev7 += r.value / (1 + r.p7 / 100);
-    });
-
-    totals.allTime = totals.value - totals.cost;
-    totals.allTimePct = totals.cost ? (totals.allTime / totals.cost) * 100 : 0;
-    totals.day = totals.value - prev24;
-    totals.dayPct = prev24 ? (totals.day / prev24) * 100 : 0;
-    totals.week = totals.value - prev7;
-    totals.weekPct = prev7 ? (totals.week / prev7) * 100 : 0;
-
-    return { rows, totals };
-  }
-
-  // ── Holdings Table (Strictly Escaped) ─────────────────
-  const holdingsTable = (rows) => `
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Asset</th>
-            <th>Price</th>
-            <th>24h</th>
-            <th>Qty</th>
-            <th>Avg Buy</th>
-            <th>Value</th>
-            <th>P/L</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows
-            .map(
-              (r) => `
-            <tr>
-              <td class="coin-cell">
-                <img src="${W.fmt.escapeHTML(r.image || r.img || "")}" alt="${W.fmt.escapeHTML(r.name)}">
-                <div>
-                  <b>${W.fmt.escapeHTML(r.name)}</b>
-                  <br><span class="muted small">${W.fmt.escapeHTML(String(r.symbol).toUpperCase())}</span>
-                </div>
-              </td>
-              <td>${W.fmt.price(r.price)}</td>
-              <td>${W.fmt.pct(r.p24)}</td>
-              <td>${r.qty}</td>
-              <td>${r.wallet ? (r.costBasisType === "UNKNOWN" ? '<span class="muted small">Unknown</span>' : "—") : W.fmt.price(r.buyPrice)}</td>
-              <td><b>${W.fmt.money(r.value)}</b></td>
-              <td>
-                ${
-                  r.costBasisType === "UNKNOWN"
-                    ? '<span class="muted small">Cost basis unknown</span>'
-                    : r.wallet
-                      ? '<span class="muted">—</span>'
-                      : signedMoney(r.pnl) +
-                        '<div class="small">' +
-                        W.fmt.pct(r.pnlPct) +
-                        "</div>"
-                }
-              </td>
-              <td class="row-actions">
-                ${
-                  r.wallet
-                    ? '<span class="tag rank" title="From connected wallet">👛 wallet</span>'
-                    : `<button class="icon-btn" data-edit="${W.fmt.escapeHTML(r.id)}" title="Edit">✏️</button>
-                     <button class="icon-btn" data-del="${W.fmt.escapeHTML(r.id)}" title="Delete">🗑️</button>`
-                }
-              </td>
-            </tr>
-          `,
-            )
-            .join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-
-  // ── Wire Row Actions ──────────────────────────────────
-  function wireRows(container, rows) {
-    rows.forEach((r) => {
-      if (r.wallet) return;
-      const e = container.querySelector(`[data-edit="${CSS.escape(r.id)}"]`);
-      const d = container.querySelector(`[data-del="${CSS.escape(r.id)}"]`);
-
-      if (e) e.onclick = () => holdingModal(r);
-      if (d) {
-        d.onclick = () =>
-          W.ui.confirm(
-            `Remove <b>${W.fmt.escapeHTML(r.name)}</b> from your portfolio?`,
-            () => {
-              if (W.portfolio && W.portfolio.remove) W.portfolio.remove(r.id);
-              W.ui.toast("Holding removed", "ok");
-              W.refresh();
-            },
-          );
-      }
-    });
-  }
-
-  // ── Holding Modal ─────────────────────────────────────
-  function holdingModal(existing = null, preselect = null) {
-    const coinLine = existing
-      ? `<p class="muted small">Coin: <b>${W.fmt.escapeHTML(existing.name)} (${W.fmt.escapeHTML(existing.symbol.toUpperCase())})</b></p>`
-      : preselect
-        ? `<p class="muted small">Coin: <b>${W.fmt.escapeHTML(preselect.name)} (${W.fmt.escapeHTML(preselect.symbol.toUpperCase())})</b></p>`
-        : `<div id="picker"></div>`;
-
-    const m = W.ui.modal({
-      title: existing
-        ? `Edit ${W.fmt.escapeHTML(existing.name)}`
-        : "Add Holding",
-      body: `
-        <form id="h-form">
-          ${coinLine}
-          <label>Quantity
-            <input type="number" step="any" name="qty" required value="${existing ? existing.qty : ""}" placeholder="0.5">
-          </label>
-          <label>Average buy price
-            <input type="number" step="any" name="buyPrice" required value="${existing ? existing.buyPrice : ""}" placeholder="29500">
-          </label>
-          <label>Date (optional)
-            <input type="date" name="date">
-          </label>
-        </form>
-      `,
-      footer: `
-        <button class="btn ghost" id="h-cancel">Cancel</button>
-        <button class="btn primary" id="h-save">${existing ? "Save" : "Add"}</button>
-      `,
-    });
-
-    let picked = existing
-      ? {
-          id: existing.coinId,
-          symbol: existing.symbol,
-          name: existing.name,
-          img: existing.img,
-        }
-      : preselect
-        ? {
-            id: preselect.id,
-            symbol: preselect.symbol,
-            name: preselect.name,
-            img: preselect.image?.small || "",
-          }
-        : null;
-
-    if (!existing && !preselect && W.ui.coinPicker) {
-      W.ui.coinPicker(m.el.querySelector("#picker"), (p) => (picked = p));
-    }
-
-    m.el.querySelector("#h-cancel").onclick = m.close;
-    m.el.querySelector("#h-save").onclick = () => {
-      const f = m.el.querySelector("#h-form");
-      const qty = parseFloat(f.qty.value);
-      const buyPrice = parseFloat(f.buyPrice.value);
-
-      if (!picked) return W.ui.toast("Pick a coin first", "warn");
-      if (!qty || qty <= 0 || isNaN(buyPrice) || buyPrice < 0) {
-        return W.ui.toast("Enter valid quantity and price", "warn");
-      }
-
-      if (existing && W.portfolio && W.portfolio.update) {
-        W.portfolio.update(existing.id, { qty, buyPrice });
-      } else if (W.portfolio && W.portfolio.add) {
-        W.portfolio.add({
-          coinId: picked.id,
-          symbol: picked.symbol,
-          name: picked.name,
-          img: picked.img,
-          qty,
-          buyPrice,
-          date: f.date.value ? new Date(f.date.value).getTime() : Date.now(),
-        });
-      }
-      m.close();
-      W.ui.toast(existing ? "Holding updated" : "Holding added 🎉", "ok");
-      W.refresh();
-    };
-  }
-
-  // ── Transaction Modal ─────────────────────────────────
-  function txModal() {
-    const m = W.ui.modal({
-      title: "Record Transaction",
-      body: `
-        <form id="t-form">
-          <label>Type
-            <select name="type">
-              <option value="buy">Buy</option>
-              <option value="sell">Sell</option>
-            </select>
-          </label>
-          <div id="picker"></div>
-          <label>Quantity
-            <input type="number" step="any" name="qty" required placeholder="0.25">
-          </label>
-          <label>Price per coin
-            <input type="number" step="any" name="price" required placeholder="Price at time of trade">
-          </label>
-        </form>
-      `,
-      footer: `
-        <button class="btn ghost" id="t-cancel">Cancel</button>
-        <button class="btn primary" id="t-save">Record</button>
-      `,
-    });
-
-    let picked = null;
-    if (W.ui.coinPicker) {
-      W.ui.coinPicker(m.el.querySelector("#picker"), (p) => (picked = p));
-    }
-
-    m.el.querySelector("#t-cancel").onclick = m.close;
-    m.el.querySelector("#t-save").onclick = () => {
-      const f = m.el.querySelector("#t-form");
-      const qty = parseFloat(f.qty.value);
-      const price = parseFloat(f.price.value);
-
-      if (!picked) return W.ui.toast("Pick a coin first", "warn");
-      if (!qty || qty <= 0 || !price || price <= 0) {
-        return W.ui.toast("Enter valid quantity and price", "warn");
-      }
-
-      if (W.portfolio && W.portfolio.recordTx) {
-        const ok = W.portfolio.recordTx({
-          type: f.type.value,
-          coin: {
-            id: picked.id,
-            symbol: picked.symbol,
-            name: picked.name,
-            img: picked.img,
-          },
-          qty,
-          price,
-        });
-        if (ok) {
-          m.close();
-          W.ui.toast("Transaction recorded ✓", "ok");
-          W.refresh();
-        }
+  // ── Route Map ──────────────────────────────────────────
+  const routes = {
+    dashboard: (v) =>
+      W.dashboard?.render?.(v) ||
+      W.ui?.toast?.("Dashboard module not loaded", "warn"),
+    portfolio: (v) =>
+      W.dashboard?.renderPortfolio?.(v) ||
+      W.ui?.toast?.("Portfolio module not loaded", "warn"),
+    watchlist: (v) =>
+      W.watchlist?.render?.(v) ||
+      W.ui?.toast?.("Watchlist module not loaded", "warn"),
+    explorer: (v) =>
+      W.explorer?.render?.(v) ||
+      W.ui?.toast?.("Explorer module not loaded", "warn"),
+    alerts: (v) =>
+      W.alerts?.render?.(v) ||
+      W.ui?.toast?.("Alerts module not loaded", "warn"),
+    news: (v) =>
+      W.news?.render?.(v) || W.ui?.toast?.("News module not loaded", "warn"),
+    ai: (v) =>
+      W.ai?.render?.(v) || W.ui?.toast?.("AI module not loaded", "warn"),
+    optimizer: (v) =>
+      W.optimizer?.render?.(v) ||
+      W.ui?.toast?.("Optimizer module not loaded", "warn"),
+    time: (v) =>
+      W.time?.render?.(v) ||
+      W.ui?.toast?.("Time Machine module not loaded", "warn"),
+    trader: (v) =>
+      W.trader?.render?.(v) ||
+      W.ui?.toast?.("Trader module not loaded", "warn"),
+    gems: (v) =>
+      W.gems?.render?.(v) || W.ui?.toast?.("Gems module not loaded", "warn"),
+    shield: (v) =>
+      W.shield?.render?.(v) ||
+      W.ui?.toast?.("Shield module not loaded", "warn"),
+    web3: (v) =>
+      W.web3?.render?.(v) || W.ui?.toast?.("Web3 module not loaded", "warn"),
+    defi: (v) =>
+      W.misc?.renderDefi?.(v) ||
+      W.ui?.toast?.("DeFi module not loaded", "warn"),
+    airdrops: (v) =>
+      W.misc?.renderAirdrops?.(v) ||
+      W.ui?.toast?.("Airdrops module not loaded", "warn"),
+    market: (v) =>
+      W.market?.render?.(v) ||
+      W.ui?.toast?.("Market module not loaded", "warn"),
+    sectors: (v) =>
+      W.sectors?.render?.(v) ||
+      W.ui?.toast?.("Sectors module not loaded", "warn"),
+    whales: (v) =>
+      W.whales?.render?.(v) ||
+      W.ui?.toast?.("Whales module not loaded", "warn"),
+    smart: (v) =>
+      W.smart?.render?.(v) || W.ui?.toast?.("Smart module not loaded", "warn"),
+    unlocks: (v) =>
+      W.unlocks?.render?.(v) ||
+      W.ui?.toast?.("Unlocks module not loaded", "warn"),
+    learn: (v) =>
+      W.learn?.render?.(v) || W.ui?.toast?.("Learn module not loaded", "warn"),
+    profile: (v) =>
+      W.misc?.renderProfile?.(v) ||
+      W.ui?.toast?.("Profile module not loaded", "warn"),
+    pro: (v) =>
+      W.misc?.renderPro?.(v) || W.ui?.toast?.("Pro module not loaded", "warn"),
+    theses: (v) =>
+      W.theses?.render?.(v) ||
+      W.ui?.toast?.("Theses module not loaded", "warn"),
+    journal: (v) =>
+      W.journal?.render?.(v) ||
+      W.ui?.toast?.("Journal module not loaded", "warn"),
+    sync: (v) => {
+      if (W.sync?.render) W.sync.render(v);
+      else W.ui?.toast?.("Sync module not loaded", "warn");
+    },
+    settings: (v) =>
+      W.misc?.renderSettings?.(v) ||
+      W.ui?.toast?.("Settings module not loaded", "warn"),
+    token: async (v) => {
+      const param = getPageParam();
+      if (W.tokenAnalysis) {
+        if (param) await W.tokenAnalysis.render(v, param);
+        else await W.tokenAnalysis.render(v);
       } else {
-        W.ui.toast("Portfolio module not available", "warn");
+        W.ui?.toast?.("Token Analysis module not loaded", "warn");
       }
-    };
+    },
+  };
+
+  // ── Helpers ────────────────────────────────────────────
+  function getCurrentPage() {
+    return location.hash.slice(2).split("/")[0] || "dashboard";
   }
 
-  // ── MAIN RENDER ───────────────────────────────────────
-  async function render(view) {
-    view.innerHTML = `
-      <!-- Intelligence Layer: What Matters Now (Powered by Decision Engine) -->
-      <div id="what-matters-now-container"></div>
-      <div id="what-changed-container"></div>
-      <div id="d-tape"></div>
-      <div class="cards" id="d-stats"></div>
-      
-      <div class="card">
-        <div class="watch-head">
-          <h3>🌐 Markets Terminal</h3>
-          <div class="qa">
-            <button class="btn primary tiny" id="qa-add" aria-label="Add holding">+ Add</button>
-            <button class="btn tiny" id="qa-tx">↔ Buy/Sell</button>
-            <button class="btn tiny" id="qa-sample" title="Load sample portfolio">🎲</button>
-            <button class="btn tiny" id="qa-sync" title="Sync connected wallets">👛 Sync</button>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table class="term-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Token</th>
-                <th class="num">Price</th>
-                <th class="num">24H</th>
-                <th class="num">7D</th>
-                <th class="num">30D</th>
-                <th class="num">Market Cap</th>
-                <th class="num">Volume</th>
-                <th>7d Chart</th>
-              </tr>
-            </thead>
-            <tbody id="d-rows">
-              <tr><td colspan="9">${W.ui.spinner()}</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-      
-      <div class="grid-2">
-        <div class="card">
-          <div class="watch-head">
-            <h3>💼 Your Portfolio</h3>
-            <div class="qa">
-              <button class="btn primary tiny" id="qa-add2">+ Add</button>
-              <button class="btn tiny" id="qa-tx2">↔ Buy/Sell</button>
-              <button class="btn tiny" id="qa-sample2" title="Load sample portfolio">🎲</button>
-            </div>
-          </div>
-          <div id="d-port"></div>
-        </div>
-        <div class="card">
-          <h3>🍩 Allocation</h3>
-          <div class="chart-box"><canvas id="alloc"></canvas></div>
-        </div>
-      </div>
-    `;
+  function getPageParam() {
+    const parts = location.hash.slice(2).split("/");
+    return parts.length > 1 ? parts[1] : null;
+  }
 
-    // ── Wire Buttons ────────────────────────────────────
-    view
-      .querySelectorAll("#qa-add, #qa-add2")
-      .forEach((b) => (b.onclick = () => holdingModal()));
-    view
-      .querySelectorAll("#qa-tx, #qa-tx2")
-      .forEach((b) => (b.onclick = () => txModal()));
+  // ── Route Handler ──────────────────────────────────────
+  function route() {
+    const hash = location.hash.slice(2) || "dashboard";
+    const [page, param] = hash.split("/");
+    const activeId = page === "coin" ? "explorer" : page;
 
-    view.querySelectorAll("#qa-sample, #qa-sample2").forEach((b) => {
-      b.onclick = () => {
-        if (W.portfolio && W.portfolio.seed) {
-          W.portfolio.seed();
-          W.ui.toast("Sample portfolio loaded 🎉", "ok");
-          W.refresh();
-        }
-      };
+    // Update navigation active state
+    document.querySelectorAll("#nav a").forEach((a) => {
+      a.classList.toggle("active", a.dataset.id === activeId);
     });
 
-    const syncBtn = view.querySelector("#qa-sync");
-    if (syncBtn) {
-      syncBtn.onclick = async () => {
-        W.ui.toast("👛 Syncing wallets…", "info");
-        if (W.walletSync && W.walletSync.refresh) {
-          await W.walletSync.refresh();
-          W.refresh();
-        } else {
-          W.ui.toast("Wallet sync module not available", "warn");
-        }
-      };
+    // Update page title
+    const navItem = ALL_NAV_ITEMS.find((n) => n.id === activeId);
+    const titleEl = document.getElementById("page-title");
+    if (titleEl) titleEl.textContent = navItem ? navItem.label : "Weaver";
+
+    // Render view
+    const view = document.getElementById("view");
+    if (!view) {
+      console.warn("[App] View element not found");
+      return;
     }
 
-    // ── Fetch Data (Parallelized for Performance, Rule 31) ─
-    const [topR, globR, fgR, pf] = await Promise.allSettled([
-      W.api.top(100),
-      W.api.global(),
-      W.api.fearGreed(),
-      enrich(),
-    ]);
-
-    const TOP =
-      topR.status === "fulfilled" && Array.isArray(topR.value)
-        ? topR.value
-        : [];
-    const rows = pf.status === "fulfilled" ? pf.value.rows : [];
-    const totals = pf.status === "fulfilled" ? pf.value.totals : null;
-    const g = globR.status === "fulfilled" ? globR.value.data : null;
-    const fg = fgR.status === "fulfilled" ? fgR.value : null;
-
-    let trendR;
     try {
-      const trendData = await W.api.trending();
-      trendR = { status: "fulfilled", value: trendData };
+      if (page === "coin" && param) {
+        if (W.explorer?.renderCoin) {
+          W.explorer.renderCoin(view, param);
+        } else {
+          view.innerHTML =
+            '<p class="muted">Explorer module not available.</p>';
+        }
+      } else if (routes[page]) {
+        routes[page](view);
+      } else {
+        view.innerHTML =
+          '<div class="card"><h3>404</h3><p class="muted">Page not found.</p></div>';
+      }
     } catch (e) {
-      trendR = { status: "rejected", reason: e };
-    }
-
-    // ── Render Tape ─────────────────────────────────────
-    const tapeContainer = view.querySelector("#d-tape");
-    if (tapeContainer)
-      tapeContainer.innerHTML = TOP.length
-        ? tapeHTML(TOP.slice(0, 20))
-        : tapeHTML([]);
-
-    // ── Render Stats ────────────────────────────────────
-    const fgColor = fg
-      ? fg.value < 25
-        ? "#ff5c7a"
-        : fg.value < 45
-          ? "#ffb35c"
-          : fg.value < 75
-            ? "#f5d76e"
-            : "#2ee6a8"
-      : "#9aa3b2";
-    const statsEl = view.querySelector("#d-stats");
-
-    if (statsEl) {
-      statsEl.innerHTML = `
-        ${totals ? statCard("Total Balance", W.fmt.money(totals.value), rows.length + " assets") : statCard("Total Balance", "—", "add holdings below")}
-        ${totals ? statCard("P/L · 24h", signedMoney(totals.day), W.fmt.pct(totals.dayPct)) : ""}
-        ${g ? statCard("Global Market Cap", W.fmt.money(g.total_market_cap[W.currency()], { compact: true }), W.fmt.pct(g.market_cap_change_percentage_24h_usd)) : ""}
-        ${g ? statCard("BTC Dominance", g.market_cap_percentage.btc.toFixed(1) + "%", "ETH " + g.market_cap_percentage.eth.toFixed(1) + "%") : ""}
-        ${fg ? statCard("Fear & Greed", `<span style="color:${fgColor}">${fg.value}</span>`, fg.value_classification) : ""}
+      console.error("[App] Route error:", e);
+      view.innerHTML = `
+        <div class="card">
+          <h3>⚠️ Something went wrong</h3>
+          <p class="muted">${W.fmt?.escapeHTML?.(e.message) || e.message}</p>
+          <p class="muted small">Check the console (F12) for details.</p>
+        </div>
       `;
     }
 
-    // ── Render Terminal Rows ────────────────────────────
-    let tab = "trending";
-    const drawRows = () => {
-      let list = TOP;
-      if (tab === "trending" && trendR && trendR.status === "fulfilled") {
-        list = trendR.value.coins
-          .map((x) => x.item.id)
-          .map((id) => TOP.find((c) => c.id === id))
-          .filter(Boolean);
-        if (!list.length) list = TOP.slice(0, 20);
-      }
-      if (tab === "top") list = TOP.slice(0, 50);
-      if (tab === "gain") {
-        list = [...TOP]
-          .sort(
-            (a, b) =>
-              (b.price_change_percentage_24h_in_currency ?? 0) -
-              (a.price_change_percentage_24h_in_currency ?? 0),
-          )
-          .slice(0, 20);
-      }
-      if (tab === "lose") {
-        list = [...TOP]
-          .sort(
-            (a, b) =>
-              (a.price_change_percentage_24h_in_currency ?? 0) -
-              (b.price_change_percentage_24h_in_currency ?? 0),
-          )
-          .slice(0, 20);
-      }
-
-      const rowsEl = view.querySelector("#d-rows");
-      if (rowsEl) {
-        const rowsHtml = list.length
-          ? list
-              .map(termRow)
-              .filter((r) => r !== "")
-              .join("")
-          : '<tr><td colspan="9" class="muted center">All live sources unreachable — data appears when a pipe (or your cache) is available.</td></tr>';
-
-        rowsEl.innerHTML = rowsHtml;
-        rowsEl.querySelectorAll("tr[data-coin]").forEach((tr) => {
-          tr.onclick = () => (location.hash = "#/coin/" + tr.dataset.coin);
-        });
-        rowsEl.querySelectorAll("canvas.spark").forEach(drawSpark);
-      }
-    };
-
-    // ── Tab Switchers ───────────────────────────────────
-    const tabContainer = view.querySelector(".watch-head .qa");
-    if (tabContainer) {
-      const tabs = ["trending", "top", "gain", "lose"];
-      const labels = ["🔥 Trending", "🏆 Top", "📈 Gainers", "📉 Losers"];
-      tabs.forEach((t, i) => {
-        const btn = document.createElement("button");
-        btn.className = `chip ${i === 0 ? "active" : ""}`;
-        btn.dataset.tab = t;
-        btn.textContent = labels[i];
-        btn.onclick = () => {
-          tabContainer
-            .querySelectorAll("[data-tab]")
-            .forEach((x) => x.classList.remove("active"));
-          btn.classList.add("active");
-          tab = t;
-          drawRows();
-        };
-        tabContainer.appendChild(btn);
-      });
+    // Update last updated timestamp
+    const updated = document.getElementById("last-updated");
+    if (updated) {
+      updated.textContent = `updated ${new Date().toLocaleTimeString()} · via ${W.api?.source || "…"}`;
     }
 
-    drawRows();
+    // Check alerts
+    if (W.alerts?.check) W.alerts.check();
+  }
 
-    // ── Render Portfolio ────────────────────────────────
-    const port = view.querySelector("#d-port");
-    if (port) {
-      if (!rows.length) {
-        port.innerHTML = W.ui.empty(
-          "💼",
-          "Portfolio is empty",
-          "Hit + Add, or 🎲 to load the sample portfolio",
-        );
-      } else {
-        port.innerHTML = holdingsTable(rows);
-        wireRows(port, rows);
-      }
-    }
-
-    // ── Render Allocation Chart ─────────────────────────
-    if (window.Chart) {
-      const allocCanvas = view.querySelector("#alloc");
-      if (allocCanvas) {
-        if (chartAlloc) chartAlloc.destroy();
-
-        if (rows.length) {
-          chartAlloc = new Chart(allocCanvas, {
-            type: "doughnut",
-            data: {
-              labels: rows.map((r) => String(r.symbol).toUpperCase()),
-              datasets: [
-                {
-                  data: rows.map((r) => +r.value.toFixed(2)),
-                  backgroundColor: W.PALETTE || [
-                    "#7c5cff",
-                    "#2ee6a8",
-                    "#5cd6ff",
-                    "#ffb35c",
-                    "#ff5c7a",
-                    "#c792ea",
-                    "#f78c6c",
-                    "#8bd450",
-                    "#ff8bd0",
-                    "#9aa3b2",
-                  ],
-                  borderColor: "#0b0d14",
-                  borderWidth: 3,
-                  hoverOffset: 14,
-                  borderRadius: 8,
-                  spacing: 2,
-                },
-              ],
-            },
-            options: {
-              maintainAspectRatio: false,
-              cutout: "62%",
-              plugins: {
-                legend: {
-                  position: "right",
-                  labels: {
-                    color: "#eef1f9",
-                    font: { size: 11 },
-                    usePointStyle: true,
-                    pointStyle: "circle",
-                  },
-                },
-              },
-            },
-          });
-        } else if (g) {
-          const others =
-            100 - g.market_cap_percentage.btc - g.market_cap_percentage.eth;
-          chartAlloc = new Chart(allocCanvas, {
-            type: "doughnut",
-            data: {
-              labels: ["BTC", "ETH", "Others"],
-              datasets: [
-                {
-                  data: [
-                    +g.market_cap_percentage.btc.toFixed(1),
-                    +g.market_cap_percentage.eth.toFixed(1),
-                    +others.toFixed(1),
-                  ],
-                  backgroundColor: ["#f7931a", "#627eea", "#7c5cff"],
-                  borderColor: "#0b0d14",
-                  borderWidth: 3,
-                  hoverOffset: 14,
-                  borderRadius: 8,
-                },
-              ],
-            },
-            options: {
-              maintainAspectRatio: false,
-              cutout: "62%",
-              plugins: {
-                legend: {
-                  position: "right",
-                  labels: {
-                    color: "#eef1f9",
-                    font: { size: 11 },
-                    usePointStyle: true,
-                    pointStyle: "circle",
-                  },
-                },
-              },
-            },
-          });
-        }
-      }
-    }
-
-    // ── Render "What Matters Now" (Power by Decision Engine) ──
-    const rankerContainer = view.querySelector("#what-matters-now-container");
-    if (rankerContainer && W.decisionEngine) {
-      try {
-        const decisions = await W.decisionEngine.run();
-        W.decisionEngine.render(rankerContainer, decisions);
-      } catch (err) {
-        console.warn("[Dashboard] Decision Engine failed:", err);
-        rankerContainer.innerHTML =
-          '<div class="card"><p class="muted small">Intelligence feed unavailable.</p></div>';
-      }
-    }
-
-    // ── Render "What Changed" (Section 24 Integration) ────
-    const changedContainer = view.querySelector("#what-changed-container");
-    if (changedContainer && W.delta) {
-      if (totals) {
-        const deltas = W.delta.computePortfolioDeltas(totals);
-        W.delta.renderCard(changedContainer, deltas);
-
-        const currentSnapshot = W.delta.getSnapshot();
-        if (
-          !currentSnapshot ||
-          Date.now() - currentSnapshot.timestamp > 3600000
-        ) {
-          W.delta.saveSnapshot(totals);
-        }
-      } else {
-        changedContainer.innerHTML = `
-          <div class="card">
-            <h3>📊 What Changed</h3>
-            <p class="muted small">Add holdings to your portfolio to start tracking value changes over time.</p>
-          </div>
-        `;
-      }
+  // ── Streak Tracking ────────────────────────────────────
+  function updateStreak() {
+    const today = new Date().toDateString();
+    const streak = W.store?.get?.("streak", null);
+    if (!streak || streak.last !== today) {
+      const yesterday = new Date(Date.now() - 864e5).toDateString();
+      const count = streak && streak.last === yesterday ? streak.count + 1 : 1;
+      W.store?.set?.("streak", { last: today, count });
     }
   }
 
-  // ── Exports ───────────────────────────────────────────
-  return {
-    render,
-    holdingModal,
-    txModal,
-    enrich,
+  // ── Auto-Refresh Loop ──────────────────────────────────
+  let refreshLoop = null;
+
+  function startLoop() {
+    clearInterval(refreshLoop);
+    const settings = W.store?.get?.("settings", {});
+    const seconds = settings?.refresh ?? 60;
+    if (seconds > 0) {
+      refreshLoop = setInterval(() => {
+        const current = getCurrentPage();
+        if (
+          !document.querySelector("#modal-root .modal") &&
+          ["dashboard", "watchlist", "market", "alerts"].includes(current)
+        ) {
+          route();
+        }
+      }, seconds * 1000);
+    }
+  }
+
+  // ── Settings Application ──────────────────────────────
+  W.applySettings = function () {
+    const cur = W.currency?.() || "usd";
+    const el = document.getElementById("currency");
+    if (el) el.value = cur;
+    startLoop();
   };
+
+  W.currency = function () {
+    return W.store?.get?.("settings", {})?.currency || "usd";
+  };
+
+  W.refresh = function () {
+    route();
+  };
+
+  // ── Init ───────────────────────────────────────────────
+  function init() {
+    console.log("[App] Initializing Weaver...");
+
+    // ── Build grouped navigation (Phase 2) ───────────────
+    const navEl = document.getElementById("nav");
+    if (navEl) {
+      navEl.innerHTML = NAV_GROUPS.map((group) => {
+        const groupHtml = `<div class="nav-group-label">${group.label}</div>`;
+        const itemsHtml = group.items
+          .map(
+            (n) => `
+          <a href="${n.route}" data-id="${n.id}">
+            <span class="nav-ico">${n.icon}</span>
+            <span>${n.label}</span>
+            ${n.id === "alerts" ? '<span class="nav-badge" id="alert-badge"></span>' : ""}
+          </a>
+        `,
+          )
+          .join("");
+        return groupHtml + itemsHtml;
+      }).join("");
+    }
+
+    // ── Setup currency dropdown ──────────────────────────
+    const curEl = document.getElementById("currency");
+    if (curEl) {
+      const currencies = [
+        "usd",
+        "ngn",
+        "eur",
+        "gbp",
+        "inr",
+        "jpy",
+        "aud",
+        "cad",
+      ];
+      curEl.innerHTML = currencies
+        .map((c) => `<option value="${c}">${c.toUpperCase()}</option>`)
+        .join("");
+      curEl.value = W.currency();
+      curEl.onchange = () => {
+        const settings = W.store?.get?.("settings", {}) || {};
+        settings.currency = curEl.value;
+        W.store?.set?.("settings", settings);
+        route();
+      };
+    }
+
+    // ── Refresh button ────────────────────────────────────
+    const refreshBtn = document.getElementById("btn-refresh");
+    if (refreshBtn) refreshBtn.onclick = route;
+
+    // ── Pro button ────────────────────────────────────────
+    const proBtn = document.getElementById("btn-pro");
+    if (proBtn) proBtn.onclick = () => (location.hash = "#/pro");
+
+    // ── Sync button ──────────────────────────────────────
+    const syncBtn = document.getElementById("sync-btn");
+    if (syncBtn) {
+      syncBtn.onclick = () => {
+        if (W.sync?.syncVault) W.sync.syncVault();
+        else W.ui?.toast?.("Sync module not available", "warn");
+      };
+    }
+
+    // ── Unhandled rejections ─────────────────────────────
+    window.addEventListener("unhandledrejection", (e) => {
+      console.warn("[App] Unhandled rejection:", e.reason);
+      const msg = e.reason?.message || "Request failed";
+      const view = document.getElementById("view");
+      const spinner = view?.querySelector(".spinner");
+      if (spinner) {
+        spinner.outerHTML = `<p class="muted small mt">⚠️ ${W.fmt?.escapeHTML?.(msg) || msg} — some live data is unavailable (showing cache where possible). Try ⟳ or another network.</p>`;
+      }
+    });
+
+    // ── Achievements ─────────────────────────────────────
+    if (W.achievements?.check) W.achievements.check();
+
+    // ── Streak ────────────────────────────────────────────
+    updateStreak();
+
+    // ── Sync boot ────────────────────────────────────────
+    if (W.sync?.boot) W.sync.boot();
+
+    // ── Route and start loop ─────────────────────────────
+    window.addEventListener("hashchange", route);
+    route();
+    startLoop();
+
+    // ── Alert checker (every 60s) ────────────────────────
+    setInterval(() => {
+      if (W.alerts?.check) W.alerts.check();
+    }, 60000);
+
+    // NOTE: Decorative cursor glow removed (Phase 15/18: Reduce visual noise)
+
+    // ── Toast click handler for Telegram test ────────────
+    document.addEventListener("click", (e) => {
+      const target = e.target;
+      const id = target?.id;
+
+      if (id === "set-tgtest") {
+        const token =
+          document.querySelector("#set-tgtoken")?.value?.trim?.() || "";
+        const chat =
+          document.querySelector("#set-tgchat")?.value?.trim?.() || "";
+        if (!token || !chat) {
+          W.ui?.toast?.("Enter token and Chat ID first", "warn");
+          return;
+        }
+        if (!W.tg) {
+          W.ui?.toast?.("Telegram module not loaded", "warn");
+          return;
+        }
+        W.tg
+          .send(`✅ Weaver connected! Alerts will arrive here.`, {
+            on: true,
+            token,
+            chat,
+          })
+          .then((ok) => {
+            W.ui?.toast?.(
+              ok ? "Test sent 📨" : "Failed — check token/Chat ID",
+              ok ? "ok" : "warn",
+            );
+          });
+      }
+
+      if (id === "set-save") {
+        setTimeout(() => {
+          const token = document.querySelector("#set-tgtoken");
+          const chat = document.querySelector("#set-tgchat");
+          const on = document.querySelector("#set-tgon");
+          if (!token || !chat) return;
+          const settings = W.store?.get?.("settings", {}) || {};
+          settings.telegram = {
+            on: on?.checked || false,
+            token: token.value.trim(),
+            chat: chat.value.trim(),
+          };
+          W.store?.set?.("settings", settings);
+        }, 0);
+      }
+    });
+
+    console.log("[App] ✅ Weaver initialized.");
+  }
+
+  // ── Start on DOM ready ─────────────────────────────────
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
 })();
 
-console.log(
-  "[Dashboard] Module loaded (secure & optimized, with Decision Engine).",
-);
+console.log("[App] Module loaded.");
 // ---- js/api/prices.js ----
 // ===============================================================
 //                  Market Data API
@@ -5213,7 +4772,11 @@ console.log(
 );
 // ---- js/features/portfolio.js ----
 // ===============================================================
-//         Portfolio Management Module – Data Correctness
+//         Portfolio Management Module
+// ===============================================================
+// Purpose: Track holdings, calculate cost basis, and manage transactions.
+// P1 Data Correctness Task 2: Implement weighted-average cost basis.
+// Rule 21: Safely handles NaN, zero quantities, and missing fields.
 // ===============================================================
 
 window.W = window.W || {};
@@ -5221,71 +4784,77 @@ W.portfolio = W.portfolio || {};
 
 (function () {
   const PORTFOLIO_KEY = "portfolio_holdings";
+  const TX_KEY = "portfolio_transactions";
+
   let holdings = W.store.get(PORTFOLIO_KEY, []);
+  let transactions = W.store.get(TX_KEY, []);
 
   function save() {
     W.store.set(PORTFOLIO_KEY, holdings);
+    W.store.set(TX_KEY, transactions);
   }
 
   function all() {
     return holdings;
   }
+  function txs() {
+    return transactions;
+  }
 
-  // ── Add/Update with weighted-average cost basis ─────────────
+  // ── Core Logic: Weighted Average Cost Basis (P1 Task 2) ──
   function add(holding) {
-    if (!holding || !holding.symbol) {
-      console.warn("[Portfolio] Invalid holding data");
-      return false;
-    }
+    if (!holding || !holding.symbol) return false;
 
-    // Normalize symbol to uppercase; later we'll use AssetId
-    const symbol = holding.symbol.toUpperCase();
-    const qty = parseFloat(holding.qty) || 0;
-    const buyPrice = parseFloat(holding.buyPrice) || 0;
-    if (qty <= 0 || buyPrice < 0) {
-      console.warn("[Portfolio] Invalid quantity or price");
-      return false;
-    }
+    const symbol = holding.symbol.toUpperCase().trim();
+    const newQty = parseFloat(holding.qty) || 0;
+    const newPrice = parseFloat(holding.buyPrice) || 0;
 
-    // Find existing holding by symbol (temporary, later we'll use AssetId)
+    // Rule 21: Prevent invalid state (zero or negative quantity)
+    if (newQty <= 0) return false;
+
     const existingIndex = holdings.findIndex(
       (h) => h.symbol.toUpperCase() === symbol,
     );
 
     if (existingIndex !== -1) {
+      // MERGE: Calculate weighted average price
       const existing = holdings[existingIndex];
       const oldQty = parseFloat(existing.qty) || 0;
-      const oldAvg = parseFloat(existing.buyPrice) || 0;
-      // Use totalCost if available, else compute from old qty and avg
-      const oldTotalCost =
-        existing.totalCost !== undefined ? existing.totalCost : oldQty * oldAvg;
-      const newTotalCost = oldTotalCost + qty * buyPrice;
-      const newTotalQty = oldQty + qty;
-      const newAvgPrice = newTotalQty > 0 ? newTotalCost / newTotalQty : 0;
+      const oldPrice = parseFloat(existing.buyPrice) || 0;
+
+      const totalQty = oldQty + newQty;
+
+      // Avoid division by zero (totalQty is guaranteed > 0 here)
+      const avgPrice =
+        totalQty > 0
+          ? (oldQty * oldPrice + newQty * newPrice) / totalQty
+          : newPrice;
 
       holdings[existingIndex] = {
         ...existing,
-        qty: newTotalQty,
-        buyPrice: newAvgPrice,
-        totalCost: newTotalCost,
-        updatedAt: Date.now(),
+        symbol: symbol,
+        name: holding.name || existing.name,
+        coinId: holding.coinId || existing.coinId,
+        img: holding.img || existing.img,
+        qty: totalQty,
+        buyPrice: avgPrice,
+        updatedAt: new Date().toISOString(),
       };
     } else {
-      // New holding – compute totalCost
-      const totalCost = qty * buyPrice;
+      // NEW HOLDING
       holdings.push({
         id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
         symbol: symbol,
         name: holding.name || symbol,
-        coinId: holding.coinId || null,
+        coinId: holding.coinId || symbol.toLowerCase(),
         img: holding.img || "",
-        qty: qty,
-        buyPrice: buyPrice,
-        totalCost: totalCost,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+        qty: newQty,
+        buyPrice: newPrice,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       });
     }
+
     save();
     return true;
   }
@@ -5293,109 +4862,82 @@ W.portfolio = W.portfolio || {};
   function remove(id) {
     holdings = holdings.filter((h) => h.id !== id);
     save();
-    return true;
   }
 
-  function update(id, updates) {
+  function update(id, data) {
     const index = holdings.findIndex((h) => h.id === id);
-    if (index === -1) return false;
-    const current = holdings[index];
-    const newQty =
-      updates.qty !== undefined ? parseFloat(updates.qty) : current.qty;
-    const newPrice =
-      updates.buyPrice !== undefined
-        ? parseFloat(updates.buyPrice)
-        : current.buyPrice;
-    const newTotalCost = newQty * newPrice;
-    holdings[index] = {
-      ...current,
-      ...updates,
-      qty: newQty,
-      buyPrice: newPrice,
-      totalCost: newTotalCost,
-      updatedAt: Date.now(),
-    };
-    save();
-    return true;
+    if (index !== -1) {
+      holdings[index] = {
+        ...holdings[index],
+        ...data,
+        updatedAt: new Date().toISOString(),
+      };
+      save();
+    }
   }
 
-  function clear() {
-    holdings = [];
-    save();
-  }
-
-  // ── Transactions (tax reporting) ─────────────────────────────
-  const TX_KEY = "portfolio_transactions";
-  function txs() {
-    return W.store.get(TX_KEY, []);
-  }
   function recordTx(tx) {
-    const list = W.store.get(TX_KEY, []);
-    list.push({
-      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
-      ...tx,
-      timestamp: Date.now(),
-    });
-    W.store.set(TX_KEY, list);
+    if (!tx || !tx.coin) return false;
+
+    const newTx = {
+      id: Date.now().toString(36),
+      type: tx.type, // 'buy' or 'sell'
+      coinId: tx.coin.id,
+      symbol: tx.coin.symbol.toUpperCase(),
+      name: tx.coin.name,
+      qty: parseFloat(tx.qty),
+      price: parseFloat(tx.price),
+      date: new Date().toISOString(),
+    };
+
+    transactions.push(newTx);
+
+    // Auto-update holding if it's a buy
+    if (tx.type === "buy") {
+      add({
+        symbol: tx.coin.symbol,
+        name: tx.coin.name,
+        coinId: tx.coin.id,
+        img: tx.coin.img,
+        qty: tx.qty,
+        buyPrice: tx.price,
+      });
+    }
+
+    save();
     return true;
   }
 
-  // ── Seed sample portfolio (for testing) ──────────────────────
   function seed() {
-    const samples = [
+    holdings = [
       {
+        id: "s1",
         symbol: "BTC",
         name: "Bitcoin",
         coinId: "bitcoin",
         qty: 0.5,
-        buyPrice: 60000,
-        img: "https://assets.coingecko.com/coins/images/1/small/bitcoin.png",
+        buyPrice: 42000,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       },
       {
+        id: "s2",
         symbol: "ETH",
         name: "Ethereum",
         coinId: "ethereum",
-        qty: 5,
-        buyPrice: 3000,
-        img: "https://assets.coingecko.com/coins/images/279/small/ethereum.png",
-      },
-      {
-        symbol: "SOL",
-        name: "Solana",
-        coinId: "solana",
-        qty: 20,
-        buyPrice: 150,
-        img: "https://assets.coingecko.com/coins/images/4128/small/solana.png",
+        qty: 4.2,
+        buyPrice: 2200,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       },
     ];
-    samples.forEach((h) => add(h));
-    return true;
+    save();
   }
 
-  // ── Render UI (minimal; dashboard handles full rendering) ──
-  async function render(view) {
-    // This is a stub; dashboard.js renders the portfolio table.
-    // We keep it for consistency.
-    view.innerHTML = '<p class="muted">Portfolio module loaded</p>';
-  }
-
-  // ── Public API ──────────────────────────────────────────────
-  W.portfolio = {
-    all,
-    add,
-    remove,
-    update,
-    clear,
-    txs,
-    recordTx,
-    seed,
-    render,
-  };
+  W.portfolio = { all, add, remove, update, recordTx, txs, seed };
 })();
 
-console.log(
-  "[Portfolio] Module loaded (weighted-average cost basis with totalCost).",
-);
+console.log("[Portfolio] Module loaded (weighted-average cost basis enabled).");
 // ---- js/features/watchlist.js ----
 // ================================================================
 // js/features/watchlist.js – Weaver Watchlist
@@ -9265,7 +8807,10 @@ W.web3 = W.web3 || {};
 console.log("[Web3] Module loaded (secure & private).");
 // ---- js/features/misc.js ----
 // ================================================================
-// js/features/misc.js – Miscellaneous Features
+// js/features/misc.js – Miscellaneous Features & Secure Settings
+// ================================================================
+// P0 Security Task 1: Encrypt AI & Telegram credentials using
+// W.store.setSecureSettings with a migration path for existing users.
 // ================================================================
 
 window.W = window.W || {};
@@ -9367,15 +8912,126 @@ W.achievements = (() => {
   return { DEFS, earned, save, check };
 })();
 
-// ── Misc UI ──────────────────────────────────────────────
+// ── Misc UI & Secure Settings ─────────────────────────────
 W.misc = (() => {
-  // ── Helpers ──────────────────────────────────────────────
   function escapeHTML(str) {
     if (!str) return "";
     const div = document.createElement("div");
     div.textContent = str;
     return div.innerHTML;
   }
+
+  // ── P0 Security: Secure Settings Implementation ─────────
+  if (!W.store.setSecureSettings) {
+    const SALT = "weaver-v1-salt";
+
+    async function deriveKey(password) {
+      const enc = new TextEncoder();
+      const keyMaterial = await crypto.subtle.importKey(
+        "raw",
+        enc.encode(password),
+        { name: "PBKDF2" },
+        false,
+        ["deriveKey"],
+      );
+      return crypto.subtle.deriveKey(
+        {
+          name: "PBKDF2",
+          salt: enc.encode(SALT),
+          iterations: 100000,
+          hash: "SHA-256",
+        },
+        keyMaterial,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"],
+      );
+    }
+
+    W.store.setSecureSettings = async function (sensitiveData, password) {
+      if (!password || password.length < 12)
+        throw new Error("Passphrase must be >= 12 chars");
+      const enc = new TextEncoder();
+      const key = await deriveKey(password);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const encrypted = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        key,
+        enc.encode(JSON.stringify(sensitiveData)),
+      );
+      const combined = new Uint8Array(iv.length + encrypted.byteLength);
+      combined.set(iv);
+      combined.set(new Uint8Array(encrypted), iv.length);
+      this.set("encrypted_settings", btoa(String.fromCharCode(...combined)));
+    };
+
+    W.store.getSecureSettings = async function (password) {
+      const blob = this.get("encrypted_settings", null);
+      if (!blob || !password) return null;
+      try {
+        const dec = new TextDecoder();
+        const combined = Uint8Array.from(atob(blob), (c) => c.charCodeAt(0));
+        const iv = combined.slice(0, 12);
+        const ciphertext = combined.slice(12);
+        const key = await deriveKey(password);
+        const decrypted = await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv },
+          key,
+          ciphertext,
+        );
+        return JSON.parse(dec.decode(decrypted));
+      } catch (e) {
+        console.warn("[Store] Decryption failed.");
+        return null;
+      }
+    };
+  }
+
+  // ── P0 Security: Migration Path for Existing Users ──────
+  async function migratePlaintextSecrets() {
+    const settings = W.store.get("settings", {});
+    const hasPlaintext = settings.ai?.key || settings.telegram?.token;
+    const alreadyEncrypted = !!W.store.get("encrypted_settings", null);
+
+    if (hasPlaintext && !alreadyEncrypted) {
+      const migrate = confirm(
+        "Weaver has detected unencrypted API keys in your settings.\n\n" +
+          "For your security, we strongly recommend encrypting them with a passphrase.\n" +
+          "Would you like to secure your keys now?",
+      );
+
+      if (migrate) {
+        const passphrase = prompt(
+          "Create a passphrase (min 12 characters) to encrypt your keys:",
+        );
+        if (passphrase && passphrase.length >= 12) {
+          try {
+            const sensitive = {
+              ai: settings.ai || {},
+              telegram: settings.telegram || {},
+            };
+            await W.store.setSecureSettings(sensitive, passphrase);
+
+            // Purge plaintext secrets
+            delete settings.ai;
+            delete settings.telegram;
+            W.store.set("settings", settings);
+
+            W.ui.toast("Credentials securely encrypted! 🔒", "ok");
+            return true;
+          } catch (e) {
+            W.ui.toast("Encryption failed. Keys remain unencrypted.", "warn");
+            console.error(e);
+          }
+        } else if (passphrase !== null) {
+          W.ui.toast("Passphrase must be at least 12 characters.", "warn");
+        }
+      }
+    }
+    return false;
+  }
+
+  let _sessionPassphrase = null;
 
   // ── Profile ─────────────────────────────────────────────
   function renderProfile(view) {
@@ -9387,30 +9043,12 @@ W.misc = (() => {
 
     view.innerHTML = `
       <div class="cards">
-        <div class="card stat">
-          <div class="stat-label">Learning Streak</div>
-          <div class="stat-big">🔥 ${streak.count || 1} day${streak.count > 1 ? "s" : ""}</div>
-        </div>
-        <div class="card stat">
-          <div class="stat-label">Assets Held</div>
-          <div class="stat-big">${holdings.length}</div>
-        </div>
-        <div class="card stat">
-          <div class="stat-label">Transactions</div>
-          <div class="stat-big">${txs.length}</div>
-        </div>
-        <div class="card stat">
-          <div class="stat-label">Badges</div>
-          <div class="stat-big">${Object.keys(e).length}/${W.achievements.DEFS.length}</div>
-        </div>
-        <div class="card stat">
-          <div class="stat-label">Alerts</div>
-          <div class="stat-big">${alerts.length}</div>
-        </div>
-        <div class="card stat">
-          <div class="stat-label">Articles Read</div>
-          <div class="stat-big">📖 ${W.store.get("news-read", []).length}</div>
-        </div>
+        <div class="card stat"><div class="stat-label">Learning Streak</div><div class="stat-big">🔥 ${streak.count || 1} day${streak.count > 1 ? "s" : ""}</div></div>
+        <div class="card stat"><div class="stat-label">Assets Held</div><div class="stat-big">${holdings.length}</div></div>
+        <div class="card stat"><div class="stat-label">Transactions</div><div class="stat-big">${txs.length}</div></div>
+        <div class="card stat"><div class="stat-label">Badges</div><div class="stat-big">${Object.keys(e).length}/${W.achievements.DEFS.length}</div></div>
+        <div class="card stat"><div class="stat-label">Alerts</div><div class="stat-big">${alerts.length}</div></div>
+        <div class="card stat"><div class="stat-label">Articles Read</div><div class="stat-big">📖 ${W.store.get("news-read", []).length}</div></div>
       </div>
       <div class="card">
         <h3>🏅 Achievements</h3>
@@ -9430,259 +9068,30 @@ W.misc = (() => {
     `;
   }
 
-  // ── DeFi Tracker ────────────────────────────────────────
-  function renderDefi(view) {
-    const KEY = "defi";
-    const positions = W.store.get(KEY, []);
-
-    view.innerHTML = `
-      <div class="card">
-        <h3>💰 DeFi Tracker</h3>
-        <p class="muted small">Track staking, yield, farming and LP positions. Automatic on-chain detection ships with Pro — meanwhile log positions manually (stored locally).</p>
-      </div>
-      <div class="card">
-        <h3>Manual Positions</h3>
-        <div id="defi-list"></div>
-        <form id="defi-form" class="alert-form">
-          <input name="proto" placeholder="Protocol (e.g. Lido)" required>
-          <select name="type">
-            <option value="Staking">Staking</option>
-            <option value="Yield">Yield</option>
-            <option value="Farming">Farming</option>
-            <option value="LP">LP</option>
-          </select>
-          <input name="amount" type="number" step="any" placeholder="Amount" required>
-          <input name="apy" type="number" step="any" placeholder="APY %">
-          <button class="btn primary">Add</button>
-        </form>
-      </div>
-    `;
-
-    const draw = () => {
-      const list = W.store.get(KEY, []);
-      const container = view.querySelector("#defi-list");
-      if (!container) return;
-      if (!list.length) {
-        container.innerHTML = '<p class="muted small">No positions yet.</p>';
-        return;
-      }
-      container.innerHTML = `
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Protocol</th><th>Type</th><th>Amount</th><th>APY</th><th></th></tr></thead>
-            <tbody>
-              ${list
-                .map(
-                  (d, i) => `
-                <tr>
-                  <td>${escapeHTML(d.proto)}</td>
-                  <td><span class="tag">${escapeHTML(d.type)}</span></td>
-                  <td>${d.amount}</td>
-                  <td>${d.apy || "—"}%</td>
-                  <td><button class="icon-btn" data-i="${i}">🗑️</button></td>
-                </tr>
-              `,
-                )
-                .join("")}
-            </tbody>
-          </table>
-        </div>
-      `;
-      container.querySelectorAll("[data-i]").forEach((btn) => {
-        btn.onclick = () => {
-          const list = W.store.get(KEY, []);
-          list.splice(+btn.dataset.i, 1);
-          W.store.set(KEY, list);
-          draw();
-        };
-      });
-    };
-    draw();
-
-    view.querySelector("#defi-form").onsubmit = (e) => {
-      e.preventDefault();
-      const f = e.target;
-      const list = W.store.get(KEY, []);
-      list.push({
-        proto: f.proto.value,
-        type: f.type.value,
-        amount: f.amount.value,
-        apy: f.apy.value,
-      });
-      W.store.set(KEY, list);
-      draw();
-      f.reset();
-    };
-  }
-
-  // ── Airdrop Hunter ──────────────────────────────────────
-  const DROPS = [
-    {
-      id: "testnet-1",
-      name: "Layer-2 Testnet Season",
-      kind: "Testnet",
-      tasks: ["Bridge test tokens", "Swap on testnet DEX", "Mint a test NFT"],
-    },
-    {
-      id: "points-1",
-      name: "Points Program Grind",
-      kind: "Points",
-      tasks: ["Daily check-in", "Provide liquidity", "Refer a friend"],
-    },
-    {
-      id: "retro-1",
-      name: "Retroactive Hunt",
-      kind: "Potential",
-      tasks: [
-        "Use mainnet dApps",
-        "Keep positions active",
-        "Vote in governance",
-      ],
-    },
-  ];
-
-  function renderAirdrops(view) {
-    const KEY = "airdrops";
-    const done = W.store.get(KEY, {});
-
-    view.innerHTML = `
-      <div class="card">
-        <h3>🎯 Airdrop Hunter</h3>
-        <p class="muted small">Campaign checklists saved locally. Eligibility checker + rewards tracker ship with Pro. 🔒</p>
-      </div>
-      <div class="grid-2">
-        ${DROPS.map((d) => {
-          const dk = done[d.id] || [];
-          return `
-            <div class="card">
-              <div class="drop-head">
-                <h3>${escapeHTML(d.name)}</h3>
-                <span class="tag live">${escapeHTML(d.kind)}</span>
-              </div>
-              <ul class="task-list">
-                ${d.tasks
-                  .map(
-                    (t, i) => `
-                  <li>
-                    <label>
-                      <input type="checkbox" data-drop="${d.id}" data-task="${i}" ${dk.includes(i) ? "checked" : ""}>
-                      ${escapeHTML(t)}
-                    </label>
-                  </li>
-                `,
-                  )
-                  .join("")}
-              </ul>
-              <div class="meter-bar">
-                <div style="width: ${(dk.length / d.tasks.length) * 100}%"></div>
-              </div>
-            </div>
-          `;
-        }).join("")}
-      </div>
-    `;
-
-    view.querySelectorAll('input[type="checkbox"][data-drop]').forEach((cb) => {
-      cb.onchange = () => {
-        const done = W.store.get(KEY, {});
-        const arr = new Set(done[cb.dataset.drop] || []);
-        if (cb.checked) arr.add(+cb.dataset.task);
-        else arr.delete(+cb.dataset.task);
-        done[cb.dataset.drop] = [...arr];
-        W.store.set(KEY, done);
-        renderAirdrops(view);
-      };
-    });
-  }
-
-  // ── Pro ─────────────────────────────────────────────────
-  const PRO_FEATURES = [
-    ["🐋", "Whale Wallet Tracker"],
-    ["💸", "Smart Money Tracker"],
-    ["⛓️", "On-chain Analytics"],
-    ["🔓", "Token Unlock Calendar"],
-    ["🧮", "Portfolio Optimizer"],
-    ["🤖", "AI Trading Assistant"],
-    ["🧾", "Tax Reports"],
-    ["🔄", "Multi-device Sync"],
-  ];
-
-  function renderPro(view) {
-    view.innerHTML = `
-      <div class="card pro-hero">
-        <h2>🔮 Weaver Pro</h2>
-        <p class="muted">Institutional-grade tools for serious traders.</p>
-        <div class="pro-price">
-          <b>$9</b>
-          <span class="muted">/month (planned)</span>
-          <button class="btn primary" onclick="W.ui.toast('Pro launches soon — you are on the list! ✨','ok')">Join Waitlist</button>
-        </div>
-      </div>
-      <div class="grid-2">
-        ${PRO_FEATURES.map(
-          ([icon, name]) => `
-          <div class="card pro-card">
-            <span class="pro-ico">${icon}</span>
-            <b>${escapeHTML(name)}</b>
-            <span class="tag lock">🔒 Pro</span>
-          </div>
-        `,
-        ).join("")}
-      </div>
-    `;
-  }
-
-  // ── Passphrase Helpers ─────────────────────────────────
-  let _passphrase = null;
-
-  function getPassphrase(forcePrompt = false) {
-    if (!forcePrompt && _passphrase) return _passphrase;
-    const pwd = prompt(
-      "Enter your passphrase to access API keys (leave blank to skip encryption):",
-    );
-    if (pwd === null) return null; // user cancelled
-    if (pwd && pwd.length < 12) {
-      W.ui.toast("Passphrase must be at least 12 characters.", "warn");
-      return getPassphrase(true);
-    }
-    if (pwd) _passphrase = pwd;
-    return pwd;
-  }
-
-  function clearPassphrase() {
-    _passphrase = null;
-  }
-
   // ── Settings ────────────────────────────────────────────
   async function renderSettings(view) {
-    // Load existing settings
+    await migratePlaintextSecrets();
+
     let settings = W.store.get("settings", {});
     let sensitive = null;
-
-    // Check if encrypted settings exist
     const encryptedBlob = W.store.get("encrypted_settings", null);
+
     if (encryptedBlob) {
-      const passphrase = getPassphrase();
-      if (passphrase) {
-        try {
-          sensitive = await W.crypto.secure.decryptSettings(
-            encryptedBlob,
-            passphrase,
-          );
-          // Merge sensitive into settings for display
+      const pwd =
+        _sessionPassphrase ||
+        prompt("Enter your passphrase to view/edit API keys:");
+      if (pwd) {
+        sensitive = await W.store.getSecureSettings(pwd);
+        if (sensitive) {
+          _sessionPassphrase = pwd;
           settings.ai = sensitive.ai || {};
           settings.telegram = sensitive.telegram || {};
-        } catch (e) {
-          W.ui.toast(
-            "Incorrect passphrase or corrupted data. API keys will not be shown.",
-            "warn",
-          );
-          // Clear sensitive fields from settings
+        } else {
+          W.ui.toast("Incorrect passphrase. Keys are hidden.", "warn");
           settings.ai = { url: "", key: "", model: "" };
           settings.telegram = { on: false, token: "", chat: "" };
         }
       } else {
-        // User cancelled or no passphrase
         settings.ai = { url: "", key: "", model: "" };
         settings.telegram = { on: false, token: "", chat: "" };
       }
@@ -9694,53 +9103,51 @@ W.misc = (() => {
     view.innerHTML = `
       <div class="card">
         <h3>⚙️ Settings</h3>
-        <label>
-          Currency
+        <label>Currency
           <select id="set-cur">
-            ${["usd", "eur", "gbp", "inr", "jpy", "aud", "cad"].map((c) => `<option ${settings.currency === c ? "selected" : ""}>${c}</option>`).join("")}
+            ${["usd", "eur", "gbp", "inr", "jpy", "aud", "cad"].map((c) => `<option ${settings.currency === c ? "selected" : ""}>${c.toUpperCase()}</option>`).join("")}
           </select>
         </label>
-        <label>
-          Auto-refresh seconds (0 = off)
+        <label>Auto-refresh seconds (0 = off)
           <input id="set-refresh" type="number" min="0" value="${settings.refresh ?? 60}">
         </label>
+        
         <h3 class="mt">🤖 AI Assistant (optional)</h3>
-        <p class="muted small">Plug in any OpenAI-compatible endpoint to power "Ask Weaver". Without a key, Weaver answers with live on-chain data.</p>
-        <label>
-          API URL
+        <p class="muted small">Plug in any OpenAI-compatible endpoint. Without a key, Weaver answers with live on-chain data.</p>
+        <label>API URL
           <input id="set-aiurl" placeholder="https://api.openai.com/v1/chat/completions" value="${escapeHTML(ai.url || "")}">
         </label>
-        <label>
-          API Key
-          <input id="set-aikey" type="password" value="${escapeHTML(ai.key || "")}">
+        <label>API Key
+          <input id="set-aikey" type="password" value="${escapeHTML(ai.key || "")}" ${encryptedBlob && !_sessionPassphrase ? "disabled" : ""}>
         </label>
-        <label>
-          Model
+        <label>Model
           <input id="set-aimodel" placeholder="gpt-4o-mini" value="${escapeHTML(ai.model || "")}">
         </label>
-        <button class="btn primary mt" id="set-save">Save Settings</button>
-        <button class="btn ghost mt" id="set-unlock" style="display:${encryptedBlob ? "inline-block" : "none"};">🔓 Unlock Keys</button>
-        <button class="btn ghost mt" id="set-lock" style="display:${_passphrase ? "inline-block" : "none"};">🔒 Lock Keys</button>
+        
+        <div class="qa mt">
+          <button class="btn primary" id="set-save">Save Settings</button>
+          ${encryptedBlob && !_sessionPassphrase ? `<button class="btn ghost" id="set-unlock">🔓 Unlock Keys</button>` : ""}
+          ${_sessionPassphrase ? `<button class="btn ghost" id="set-lock">🔒 Lock Keys</button>` : ""}
+        </div>
       </div>
+
       <div class="card">
         <h3>📨 Telegram Alerts (optional)</h3>
-        <p class="muted small">Bot created via <b>@BotFather</b>, Chat ID from <b>@userinfobot</b>, and you've sent the bot one message. Alerts, triggers and new gems will ping your phone.</p>
-        <label>
-          Bot Token
-          <input id="set-tgtoken" type="password" placeholder="123456789:AAF..." value="${escapeHTML(tg.token || "")}">
+        <p class="muted small">Bot created via <b>@BotFather</b>, Chat ID from <b>@userinfobot</b>.</p>
+        <label>Bot Token
+          <input id="set-tgtoken" type="password" placeholder="123456789:AAF..." value="${escapeHTML(tg.token || "")}" ${encryptedBlob && !_sessionPassphrase ? "disabled" : ""}>
         </label>
-        <label>
-          Chat ID
-          <input id="set-tgchat" placeholder="e.g. 7099096813" value="${escapeHTML(tg.chat || "")}">
+        <label>Chat ID
+          <input id="set-tgchat" placeholder="e.g. 7099096813" value="${escapeHTML(tg.chat || "")}" ${encryptedBlob && !_sessionPassphrase ? "disabled" : ""}>
         </label>
         <label class="small">
-          <input type="checkbox" id="set-tgon" ${tg.on ? "checked" : ""} style="width:auto">
-          Enable Telegram alerts
+          <input type="checkbox" id="set-tgon" ${tg.on ? "checked" : ""} style="width:auto"> Enable Telegram alerts
         </label>
         <div class="qa mt">
           <button class="btn" id="set-tgtest">📨 Send Test Message</button>
         </div>
       </div>
+
       <div class="card">
         <h3>Your Data</h3>
         <div class="qa">
@@ -9765,64 +9172,68 @@ W.misc = (() => {
       };
 
       const hasSensitive = aiSettings.key || tgSettings.token;
-
-      // Non-sensitive settings
       const nonSensitive = {
         currency: view.querySelector("#set-cur").value,
         refresh: +view.querySelector("#set-refresh").value,
       };
 
       if (hasSensitive) {
-        let passphrase = _passphrase;
-        if (!passphrase) {
-          passphrase = getPassphrase(true);
-          if (!passphrase) {
-            W.ui.toast("Passphrase required to save API keys.", "warn");
+        let pwd = _sessionPassphrase;
+        if (!pwd) {
+          pwd = prompt(
+            "Create or enter passphrase (min 12 chars) to encrypt keys:",
+          );
+          if (!pwd || pwd.length < 12) {
+            W.ui.toast("Passphrase must be at least 12 characters.", "warn");
             return;
           }
-          _passphrase = passphrase;
+          _sessionPassphrase = pwd;
         }
         try {
           const sensitive = { ai: aiSettings, telegram: tgSettings };
-          const encrypted = await W.crypto.secure.encryptSettings(
-            sensitive,
-            passphrase,
-          );
-          W.store.set("encrypted_settings", encrypted);
-          // Store non-sensitive separately
-          W.store.set("settings", nonSensitive);
-          W.ui.toast("Settings saved (sensitive data encrypted) ✓", "ok");
+          await W.store.setSecureSettings(sensitive, pwd);
+
+          // Ensure no plaintext leaks
+          const currentSettings = W.store.get("settings", {});
+          delete currentSettings.ai;
+          delete currentSettings.telegram;
+          currentSettings.currency = nonSensitive.currency;
+          currentSettings.refresh = nonSensitive.refresh;
+          W.store.set("settings", currentSettings);
+
+          W.ui.toast("Settings saved (sensitive data encrypted) 🔒", "ok");
         } catch (e) {
           W.ui.toast(`Encryption failed: ${e.message}`, "warn");
         }
       } else {
-        // No sensitive data; remove encrypted blob
-        W.store.delete("encrypted_settings");
-        W.store.set("settings", nonSensitive);
+        // No sensitive data; ensure clean state (Fixed: use set instead of delete)
+        W.store.set("encrypted_settings", null);
+        const currentSettings = W.store.get("settings", {});
+        delete currentSettings.ai;
+        delete currentSettings.telegram;
+        currentSettings.currency = nonSensitive.currency;
+        currentSettings.refresh = nonSensitive.refresh;
+        W.store.set("settings", currentSettings);
         W.ui.toast("Settings saved ✓", "ok");
       }
-      // Refresh UI to reflect changes
       renderSettings(view);
     };
 
-    // ── Unlock handler ─────────────────────────────────────
-    view.querySelector("#set-unlock").onclick = async () => {
-      const pwd = getPassphrase(true);
+    view.querySelector("#set-unlock")?.addEventListener("click", () => {
+      const pwd = prompt("Enter your passphrase:");
       if (pwd) {
-        _passphrase = pwd;
+        _sessionPassphrase = pwd;
         renderSettings(view);
-        W.ui.toast("Passphrase stored for this session.", "ok");
+        W.ui.toast("Keys unlocked for this session.", "ok");
       }
-    };
+    });
 
-    // ── Lock handler ─────────────────────────────────────
-    view.querySelector("#set-lock").onclick = () => {
-      clearPassphrase();
+    view.querySelector("#set-lock")?.addEventListener("click", () => {
+      _sessionPassphrase = null;
       renderSettings(view);
       W.ui.toast("Keys locked.", "info");
-    };
+    });
 
-    // ── Telegram test ─────────────────────────────────────
     view.querySelector("#set-tgtest").onclick = async () => {
       const token = view.querySelector("#set-tgtoken").value.trim();
       const chat = view.querySelector("#set-tgchat").value.trim();
@@ -9839,7 +9250,6 @@ W.misc = (() => {
       );
     };
 
-    // ── Export Tax ────────────────────────────────────────
     view.querySelector("#set-tax").onclick = () => {
       const txs = W.portfolio?.txs() || [];
       if (!txs.length) return W.ui.toast("No transactions to export.", "warn");
@@ -9857,7 +9267,6 @@ W.misc = (() => {
       W.ui.toast("Tax report downloaded 🧾", "ok");
     };
 
-    // ── Export Backup ──────────────────────────────────────
     view.querySelector("#set-export").onclick = () => {
       const data = {};
       [
@@ -9879,7 +9288,6 @@ W.misc = (() => {
       a.click();
     };
 
-    // ── Wipe Data ──────────────────────────────────────────
     view.querySelector("#set-wipe").onclick = () => {
       W.ui.confirm(
         "This deletes ALL Weaver data from this browser. Continue?",
@@ -9891,519 +9299,89 @@ W.misc = (() => {
     };
   }
 
-  // ── Exports ─────────────────────────────────────────────
-  return {
-    renderProfile,
-    renderSettings,
-    renderPro,
-    renderDefi,
-    renderAirdrops,
-  };
+  return { renderProfile, renderSettings };
 })();
 
-console.log("[Misc] Module loaded (with encrypted settings).");
+console.log("[Misc] Module loaded (P0 Secure Settings compliant).");
 // ---- js/features/whales.js ----
-// ================================================================
-// js/features/whales.js – Multi‑Chain Whale Wallet Tracker
-// ================================================================
+// ===============================================================
+//         Whale Tracker Module
+// ===============================================================
+// Purpose: Track significant on-chain movements.
+// P0 Security Task 3: Mask wallet addresses in console logs.
+// ===============================================================
 
 window.W = window.W || {};
+W.whales = W.whales || {};
 
-W.whales = (() => {
-  // ── Chain Registry ──────────────────────────────────
-  const CHAINS = {
-    btc: {
-      label: "Bitcoin",
-      symbol: "BTC",
-      icon: "₿",
-      explorer: "https://mempool.space/address/",
-      balance: async (addr) => {
-        const data = await fetch(
-          `https://mempool.space/api/address/${addr}`,
-        ).then((r) => r.json());
-        return (
-          (data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum) /
-          1e8
-        );
-      },
-      txs: async (addr, minValue = 0) => {
-        const data = await fetch(
-          `https://mempool.space/api/address/${addr}/txs`,
-        ).then((r) => r.json());
-        return data
-          .map((t) => {
-            let out = 0,
-              inn = 0;
-            (t.vout || []).forEach((o) => {
-              if (o.scriptpubkey_address === addr) out += o.value;
-            });
-            (t.vin || []).forEach((i) => {
-              if (i.prevout?.scriptpubkey_address === addr)
-                inn += i.prevout.value;
-            });
-            const net = (out - inn) / 1e8;
-            return {
-              hash: t.txid,
-              time: t.status?.block_time * 1000 || Date.now(),
-              net,
-            };
-          })
-          .filter((t) => Math.abs(t.net) >= minValue);
-      },
-    },
-    eth: {
-      label: "Ethereum",
-      symbol: "ETH",
-      icon: "⟠",
-      explorer: "https://etherscan.io/address/",
-      balance: async (addr) => {
-        const data = await fetch(`https://cloudflare-eth.com/`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "eth_getBalance",
-            params: [addr, "latest"],
-          }),
-        }).then((r) => r.json());
-        return parseInt(data.result || "0x0", 16) / 1e18;
-      },
-      txs: async (addr, minValue = 0) => {
-        const data = await fetch(
-          `https://eth.blockscout.com/api/v2/addresses/${addr}/transactions`,
-        ).then((r) => r.json());
-        return (data.items || [])
-          .map((t) => {
-            const net =
-              t.from.hash.toLowerCase() === addr.toLowerCase() ? -1 : 1;
-            const value = parseFloat(t.value || "0") / 1e18;
-            return {
-              hash: t.hash,
-              time: new Date(t.timestamp).getTime(),
-              net: net * value,
-            };
-          })
-          .filter((t) => Math.abs(t.net) >= minValue);
-      },
-    },
-    bsc: {
-      label: "BSC",
-      symbol: "BNB",
-      icon: "🟡",
-      explorer: "https://bscscan.com/address/",
-      balance: async (addr) => {
-        const data = await fetch(
-          `https://api.bscscan.com/api?module=account&action=balance&address=${addr}&tag=latest`,
-        ).then((r) => r.json());
-        return parseInt(data.result || "0") / 1e18;
-      },
-      txs: async (addr, minValue = 0) => {
-        const data = await fetch(
-          `https://api.bscscan.com/api?module=account&action=txlist&address=${addr}&sort=desc`,
-        ).then((r) => r.json());
-        return (data.result || [])
-          .map((t) => {
-            const net = t.from.toLowerCase() === addr.toLowerCase() ? -1 : 1;
-            const value = parseFloat(t.value) / 1e18;
-            return {
-              hash: t.hash,
-              time: new Date(t.timeStamp * 1000).getTime(),
-              net: net * value,
-            };
-          })
-          .filter((t) => Math.abs(t.net) >= minValue);
-      },
-    },
-    polygon: {
-      label: "Polygon",
-      symbol: "MATIC",
-      icon: "🟣",
-      explorer: "https://polygonscan.com/address/",
-      balance: async (addr) => {
-        const data = await fetch(
-          `https://api.polygonscan.com/api?module=account&action=balance&address=${addr}&tag=latest`,
-        ).then((r) => r.json());
-        return parseInt(data.result || "0") / 1e18;
-      },
-      txs: async (addr, minValue = 0) => {
-        const data = await fetch(
-          `https://api.polygonscan.com/api?module=account&action=txlist&address=${addr}&sort=desc`,
-        ).then((r) => r.json());
-        return (data.result || [])
-          .map((t) => {
-            const net = t.from.toLowerCase() === addr.toLowerCase() ? -1 : 1;
-            const value = parseFloat(t.value) / 1e18;
-            return {
-              hash: t.hash,
-              time: new Date(t.timeStamp * 1000).getTime(),
-              net: net * value,
-            };
-          })
-          .filter((t) => Math.abs(t.net) >= minValue);
-      },
-    },
-    arbitrum: {
-      label: "Arbitrum",
-      symbol: "ARB",
-      icon: "🔷",
-      explorer: "https://arbiscan.io/address/",
-      balance: async (addr) => {
-        const data = await fetch(
-          `https://api.arbiscan.io/api?module=account&action=balance&address=${addr}&tag=latest`,
-        ).then((r) => r.json());
-        return parseInt(data.result || "0") / 1e18;
-      },
-      txs: async (addr, minValue = 0) => {
-        const data = await fetch(
-          `https://api.arbiscan.io/api?module=account&action=txlist&address=${addr}&sort=desc`,
-        ).then((r) => r.json());
-        return (data.result || [])
-          .map((t) => {
-            const net = t.from.toLowerCase() === addr.toLowerCase() ? -1 : 1;
-            const value = parseFloat(t.value) / 1e18;
-            return {
-              hash: t.hash,
-              time: new Date(t.timeStamp * 1000).getTime(),
-              net: net * value,
-            };
-          })
-          .filter((t) => Math.abs(t.net) >= minValue);
-      },
-    },
-    avalanche: {
-      label: "Avalanche",
-      symbol: "AVAX",
-      icon: "❄️",
-      explorer: "https://snowtrace.io/address/",
-      balance: async (addr) => {
-        const data = await fetch(
-          `https://api.snowtrace.io/api?module=account&action=balance&address=${addr}&tag=latest`,
-        ).then((r) => r.json());
-        return parseInt(data.result || "0") / 1e18;
-      },
-      txs: async (addr, minValue = 0) => {
-        const data = await fetch(
-          `https://api.snowtrace.io/api?module=account&action=txlist&address=${addr}&sort=desc`,
-        ).then((r) => r.json());
-        return (data.result || [])
-          .map((t) => {
-            const net = t.from.toLowerCase() === addr.toLowerCase() ? -1 : 1;
-            const value = parseFloat(t.value) / 1e18;
-            return {
-              hash: t.hash,
-              time: new Date(t.timeStamp * 1000).getTime(),
-              net: net * value,
-            };
-          })
-          .filter((t) => Math.abs(t.net) >= minValue);
-      },
-    },
-    solana: {
-      label: "Solana",
-      symbol: "SOL",
-      icon: "🟣",
-      explorer: "https://solscan.io/account/",
-      balance: async (addr) => {
-        const data = await fetch("https://api.mainnet-beta.solana.com", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "getBalance",
-            params: [addr],
-          }),
-        }).then((r) => r.json());
-        return (data.result?.value || 0) / 1e9;
-      },
-      txs: async (addr, minValue = 0) => {
-        const data = await fetch(`https://api.solscan.io/account/${addr}`)
-          .then((r) => r.json())
-          .catch(() => ({ txs: [] }));
-        if (!data.txs) return [];
-        return data.txs
-          .slice(0, 20)
-          .map((t) => ({
-            hash: t.txHash,
-            time: new Date(t.blockTime * 1000).getTime(),
-            net:
-              t.tokenTransfers?.reduce((sum, transfer) => {
-                if (transfer.to === addr)
-                  sum += transfer.amount / Math.pow(10, transfer.decimals);
-                if (transfer.from === addr)
-                  sum -= transfer.amount / Math.pow(10, transfer.decimals);
-                return sum;
-              }, 0) || 0,
-          }))
-          .filter((t) => Math.abs(t.net) >= minValue);
-      },
-    },
-  };
+(function () {
+  const WHALES_KEY = "whale_alerts";
+  let alerts = W.store.get(WHALES_KEY, []);
 
-  // ── Helpers ──────────────────────────────────────────
-  const KEY = "whale-wallets";
-  const DEFAULTS = [
-    {
-      chain: "btc",
-      label: "Binance Cold Wallet (reported)",
-      addr: "34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo",
-    },
-    {
-      chain: "eth",
-      label: "Vitalik Buterin (vitalik.eth)",
-      addr: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
-    },
-    {
-      chain: "eth",
-      label: "Binance Cold Wallet (reported)",
-      addr: "0xF977814e90dA44bFA03b6295A0616a897441aceC",
-    },
-    {
-      chain: "sol",
-      label: "Solana Foundation (reported)",
-      addr: "GxqGWmRkRqT8Ff5DzsYtXkDd7U8V3d8g1y7q5gX9a2b",
-    },
-  ];
-
-  const wallets = () => W.store.get(KEY, DEFAULTS);
-  const save = (list) => W.store.set(KEY, list);
-
-  const timeAgo = (ts) => {
-    const s = (Date.now() - ts) / 1000;
-    if (s < 60) return "just now";
-    if (s < 3600) return Math.floor(s / 60) + "m ago";
-    if (s < 86400) return Math.floor(s / 3600) + "h ago";
-    return Math.floor(s / 86400) + "d ago";
-  };
-
-  const shortAddr = (a) =>
-    a.length > 12 ? a.slice(0, 6) + "…" + a.slice(-4) : a;
-
-  // ── Fetch price for a symbol ────────────────────────
-  async function getPrice(symbol) {
-    try {
-      const data = await W.api.markets(symbol);
-      return (
-        data.find((c) => c.symbol.toLowerCase() === symbol.toLowerCase())
-          ?.current_price || 0
-      );
-    } catch {
-      return 0;
-    }
+  function save() {
+    W.store.set(WHALES_KEY, alerts);
+  }
+  function all() {
+    return alerts;
   }
 
-  // ── Render one wallet card ──────────────────────────
-  async function renderCard(w, minValue) {
-    const chain = CHAINS[w.chain];
-    if (!chain)
-      return `<div class="card"><p class="muted">Unsupported chain: ${w.chain}</p></div>`;
-
-    try {
-      const [balance, txs, price] = await Promise.all([
-        chain.balance(w.addr).catch(() => 0),
-        chain.txs(w.addr, minValue).catch(() => []),
-        getPrice(chain.symbol),
-      ]);
-
-      const valueUSD = balance * price;
-      const txsHTML = txs.length
-        ? `<ul class="tx-list">${txs
-            .slice(0, 6)
-            .map(
-              (tx) => `
-          <li>
-            <span class="tag ${tx.net > 0 ? "buy" : "sell"}">${tx.net > 0 ? "⬇ IN" : "⬆ OUT"}</span>
-            <b>${Math.abs(tx.net).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${chain.symbol}</b>
-            <span class="muted">(${W.fmt.money(Math.abs(tx.net) * price, { compact: true })})</span>
-            <span class="muted small">${timeAgo(tx.time)}</span>
-            <a class="link small ml" target="_blank" href="${chain.explorer}${w.addr}#transactions">view ↗</a>
-          </li>
-        `,
-            )
-            .join("")}</ul>`
-        : '<p class="muted small">No moves above threshold recently.</p>';
-
-      return `
-        <div class="card">
-          <div class="watch-head">
-            <div>
-              <b>${w.label}</b>
-              <span class="tag rank">${chain.icon} ${chain.symbol}</span>
-              <br><code>${shortAddr(w.addr)}</code>
-            </div>
-            <div style="text-align:right;">
-              <b>${balance.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${chain.symbol}</b>
-              <div class="muted small">${W.fmt.money(valueUSD, { compact: true })}</div>
-            </div>
-          </div>
-          ${txsHTML}
-          <div class="mt">
-            <button class="icon-btn" data-untrack="${w.addr}">🗑️ Stop tracking</button>
-          </div>
-        </div>
-      `;
-    } catch (e) {
-      // ✅ FIX: Mask address in error logs
-      console.warn(
-        `[Whales] Error for ${w.chain}:${W.fmt.maskAddress(w.addr)}`,
-        e,
-      );
-      return `
-        <div class="card">
-          <div class="watch-head">
-            <div><b>${w.label}</b> <span class="tag rank">${chain.icon} ${chain.symbol}</span></div>
-            <div><span class="tag warn">⚠️ Offline</span></div>
-          </div>
-          <p class="muted small">Could not fetch data right now.</p>
-          <button class="icon-btn" data-untrack="${w.addr}">🗑️ Stop tracking</button>
-        </div>
-      `;
-    }
-  }
-
-  // ── Load and render all cards ──────────────────────
-  async function load(view) {
-    const body = view.querySelector("#whale-body");
-    const min = parseFloat(view.querySelector("#whale-min").value) || 1;
-    const minValue = min * 1e6;
-
-    const list = wallets();
-    if (!list.length) {
-      body.innerHTML = W.ui.empty(
-        "🐋",
-        "No wallets tracked",
-        "Add one with + Track Wallet",
-      );
-      return;
-    }
-
-    body.innerHTML = W.ui.spinner();
-    const cards = await Promise.all(list.map((w) => renderCard(w, minValue)));
-    body.innerHTML = cards.join("");
-    body.querySelectorAll("[data-untrack]").forEach((btn) => {
-      btn.onclick = () => {
-        const addr = btn.dataset.untrack;
-        save(wallets().filter((w) => w.addr !== addr));
-        load(view);
-      };
-    });
-  }
-
-  // ── Add Wallet Modal ─────────────────────────────────
-  function addModal() {
-    const m = W.ui.modal({
-      title: "Track a Whale Wallet",
-      body: `
-        <label>
-          Chain
-          <select id="w-chain">
-            ${Object.keys(CHAINS)
-              .map(
-                (c) =>
-                  `<option value="${c}">${CHAINS[c].label} (${CHAINS[c].symbol})</option>`,
-              )
-              .join("")}
-          </select>
-        </label>
-        <label>
-          Label
-          <input id="w-label" placeholder="e.g. Smart money wallet">
-        </label>
-        <label>
-          Address
-          <input id="w-addr" placeholder="Enter wallet address">
-        </label>
-        <p class="muted small mt">Paste any address on the selected chain.</p>
-      `,
-      footer: `
-        <button class="btn ghost" id="w-cancel">Cancel</button>
-        <button class="btn primary" id="w-save">Track 🐋</button>
-      `,
-    });
-
-    m.el.querySelector("#w-cancel").onclick = m.close;
-    m.el.querySelector("#w-save").onclick = () => {
-      const chain = m.el.querySelector("#w-chain").value;
-      const addr = m.el.querySelector("#w-addr").value.trim();
-      const label =
-        m.el.querySelector("#w-label").value.trim() ||
-        `${CHAINS[chain].symbol} Whale`;
-      if (!addr) return W.ui.toast("Please enter an address.", "warn");
-      if (
-        chain === "btc" &&
-        !/^[13][a-zA-Z0-9]{25,34}$/.test(addr) &&
-        !/^bc1[a-zA-Z0-9]{25,90}$/.test(addr)
-      ) {
-        return W.ui.toast("Invalid Bitcoin address.", "warn");
-      }
-      if (
-        chain !== "btc" &&
-        chain !== "sol" &&
-        !/^0x[a-fA-F0-9]{40}$/.test(addr)
-      ) {
-        return W.ui.toast("Invalid EVM address (must start with 0x).", "warn");
-      }
-      if (chain === "sol" && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr)) {
-        return W.ui.toast("Invalid Solana address.", "warn");
-      }
-      const list = wallets();
-      if (list.some((w) => w.addr.toLowerCase() === addr.toLowerCase())) {
-        return W.ui.toast("Already tracking this address.", "warn");
-      }
-      save([...list, { chain, label, addr }]);
-      m.close();
-      W.ui.toast("Now tracking 🐋", "ok");
-      W.refresh();
-    };
-  }
-
-  // ── Public render function ──────────────────────────
+  // ── Render UI ────────────────────────────────────────────
   async function render(view) {
     view.innerHTML = `
       <div class="card">
-        <div class="watch-head">
-          <h3>🐋 Multi‑Chain Whale Tracker</h3>
-          <div class="qa">
-            <label style="margin:0;">Min move ($M)
-              <select id="whale-min" style="width:auto;">
-                <option value="0.1">0.1</option>
-                <option value="0.5">0.5</option>
-                <option value="1" selected>1</option>
-                <option value="5">5</option>
-                <option value="10">10</option>
-                <option value="50">50</option>
-              </select>
-            </label>
-            <button class="btn primary" id="whale-add">+ Track Wallet</button>
-            <button class="btn ghost" id="whale-refresh">⟳</button>
-          </div>
-        </div>
-        <p class="muted small">Live on‑chain feed for BTC, ETH, BSC, Polygon, Arbitrum, Avalanche, Solana, and more. Labels are user‑provided — always verify on‑chain. Not financial advice.</p>
+        <h3>🐋 Whale Tracker</h3>
+        <p class="muted small">Monitor large on-chain movements. Privacy-first: addresses are masked in logs and UI.</p>
       </div>
-      <div id="whale-body">${W.ui.spinner()}</div>
+      <div id="whale-list" class="grid-2">
+        ${alerts.length === 0 ? '<p class="muted">No whale alerts tracked yet.</p>' : ""}
+        ${alerts
+          .map(
+            (w) => `
+          <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <h4>${W.fmt.escapeHTML(w.chain)}</h4>
+              <span class="tag ${w.type === "inflow" ? "sell" : "buy"}">${w.type}</span>
+            </div>
+            <p class="small muted">Wallet: <code>${W.fmt.maskAddress(w.addr)}</code></p>
+            <p class="small"><b>Amount:</b> ${w.amount} ${W.fmt.escapeHTML(w.symbol)}</p>
+            <p class="small muted">${W.fmt.relativeTime(w.timestamp)}</p>
+            <button class="btn tiny warn" data-del="${w.id}" style="margin-top:10px;">Remove</button>
+          </div>
+        `,
+          )
+          .join("")}
+      </div>
     `;
 
-    view.querySelector("#whale-add").onclick = addModal;
-    view.querySelector("#whale-refresh").onclick = () => render(view);
-    view.querySelector("#whale-min").onchange = () => load(view);
+    // ─ Event Listeners ──────────────────────────────────
+    view.querySelectorAll("[data-del]").forEach((btn) => {
+      btn.onclick = () => {
+        alerts = alerts.filter((a) => a.id !== btn.dataset.del);
+        save();
+        render(view);
+      };
+    });
 
-    await load(view);
+    // ── Privacy Check: Mask logs (P0 Task 3) ─────────────
+    try {
+      if (alerts.length > 0) {
+        // SAFE: Never log raw wallet data
+        const maskedSample = alerts
+          .map((a) => `${a.chain}: ${W.fmt.maskAddress(a.addr)}`)
+          .join(", ");
+        console.log(
+          `[Whales] Loaded ${alerts.length} alerts. Sample: ${maskedSample}`,
+        );
+      }
+    } catch (e) {
+      console.warn("[Whales] Error processing alerts.");
+    }
   }
 
-  // ── Public track function ──────────────────────────
-  function track(addr, label, chain = "eth") {
-    const list = wallets();
-    if (list.some((w) => w.addr.toLowerCase() === addr.toLowerCase()))
-      return false;
-    save([...list, { chain, label, addr }]);
-    return true;
-  }
-
-  return { render, track };
+  W.whales = { all, render };
 })();
 
-console.log("[Whales] Module loaded (with masked logging).");
+console.log("[Whales] Module loaded (privacy-safe logging).");
 // ---- js/features/smart.js ----
 // ================================================================
 // js/features/smart.js – Smart Money Tracker

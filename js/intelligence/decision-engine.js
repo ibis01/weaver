@@ -1,5 +1,5 @@
 // ===============================================================
-//         Unified Decision Engine – Hardened
+//         Unified Decision Engine 
 // ===============================================================
 //
 // Consumes Evidence objects from the Evidence Builder.
@@ -86,8 +86,7 @@ W.decisionEngine = (() => {
       behavioralRisk = behavior.pattern.toUpperCase();
     }
 
-    // Chain and sector exposure (simplified)
-    // For now, we'll use placeholder values.
+    // Chain and sector exposure (
     // In a full implementation, we'd resolve chain and sector from assetId.
     chainExposure = 0;
     sectorExposure = 0;
@@ -261,7 +260,7 @@ W.decisionEngine = (() => {
     return decisions;
   }
 
-  // ── Presentation (unchanged) ──────────────────────────────────
+  // ── Presentation ──────────────────────────────────
   function render(container, decisions, limit = 5) {
     if (!container) return;
     const top = decisions.slice(0, limit);

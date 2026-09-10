@@ -9,44 +9,27 @@ W.tg = (() => {
   const TELEGRAM_API_BASE = "https://api.telegram.org/bot";
   const MAX_MESSAGE_LENGTH = 4096;
   const RATE_LIMIT_WINDOW = 5000; // 5 seconds between messages
-  const STORAGE_KEY = "telegram_settings";
 
   // ── State ─────────────────────────────────────────────
   let lastSent = 0;
-  let settingsCache = null;
 
   // ── Settings ──────────────────────────────────────────
+  // Credentials live only in W.secureSession's in-memory cache, populated
+  // by unlocking the encrypted settings (see js/features/misc.js Settings
+  // page). Weaver never writes the bot token to localStorage in plaintext —
+  // if the session is locked, Telegram sends are simply unavailable until
+  // the user unlocks their keys again.
   function getSettings() {
-    if (settingsCache) return settingsCache;
-    const stored = W.store.get(STORAGE_KEY, null);
-    if (stored) {
-      settingsCache = stored;
-      return stored;
+    const tg = W.secureSession?.get("telegram");
+    if (!tg) {
+      return { enabled: false, token: "", chatId: "", locked: true };
     }
-    // Fallback: read from legacy settings
-    const legacy = W.store.get("settings", {});
-    const tg = legacy.telegram || {};
-    const settings = {
+    return {
       enabled: !!tg.on,
       token: tg.token || "",
       chatId: tg.chat || "",
+      locked: false,
     };
-    settingsCache = settings;
-    W.store.set(STORAGE_KEY, settings);
-    return settings;
-  }
-
-  function saveSettings(settings) {
-    settingsCache = settings;
-    W.store.set(STORAGE_KEY, settings);
-    // Also update legacy settings for backward compatibility
-    const legacy = W.store.get("settings", {});
-    legacy.telegram = {
-      on: settings.enabled,
-      token: settings.token,
-      chat: settings.chatId,
-    };
-    W.store.set("settings", legacy);
   }
 
   // ── Validation ────────────────────────────────────────
@@ -71,21 +54,32 @@ W.tg = (() => {
   }
 
   // ── Send Message ──────────────────────────────────────
-  async function sendMessage(text, options = {}) {
+  // overrides.token / overrides.chatId let a caller (e.g. a "test before
+  // saving" button) send with draft credentials that haven't been
+  // persisted yet, without ever writing them to disk first.
+  async function sendMessage(text, overrides = {}) {
     const settings = getSettings();
-    if (!settings.enabled) {
-      console.warn("[Telegram] Not enabled.");
+    const token = overrides.token || settings.token;
+    const chatId = overrides.chatId || settings.chatId;
+    const enabled = overrides.token ? true : settings.enabled;
+
+    if (!enabled) {
+      console.warn(
+        settings.locked
+          ? "[Telegram] Keys are locked — unlock in Settings to send."
+          : "[Telegram] Not enabled.",
+      );
       return false;
     }
-    if (!settings.token || !settings.chatId) {
+    if (!token || !chatId) {
       console.warn("[Telegram] Missing token or chat ID.");
       return false;
     }
-    if (!isValidToken(settings.token)) {
+    if (!isValidToken(token)) {
       console.warn("[Telegram] Invalid token format.");
       return false;
     }
-    if (!isValidChatId(settings.chatId)) {
+    if (!isValidChatId(chatId)) {
       console.warn("[Telegram] Invalid chat ID format.");
       return false;
     }
@@ -97,13 +91,12 @@ W.tg = (() => {
       truncated = text.slice(0, MAX_MESSAGE_LENGTH - 3) + "…";
     }
 
-    const url = `${TELEGRAM_API_BASE}${settings.token}/sendMessage`;
+    const url = `${TELEGRAM_API_BASE}${token}/sendMessage`;
     const payload = {
-      chat_id: settings.chatId,
+      chat_id: chatId,
       text: truncated,
       parse_mode: "HTML",
       disable_web_page_preview: true,
-      ...options,
     };
 
     try {
@@ -177,101 +170,11 @@ W.tg = (() => {
     }
   }
 
-  // ── UI Render (integration with settings page) ──────
-  function renderSettings(container) {
-    const settings = getSettings();
-    container.innerHTML = `
-      <div class="card">
-        <h3>📨 Telegram Alerts</h3>
-        <p class="muted small">
-          Configure your Telegram bot to receive alerts, price triggers, and gem discoveries.
-          <br>
-          Create a bot via <b>@BotFather</b>, get your Chat ID from <b>@userinfobot</b>, and send a message to the bot first.
-        </p>
-        <label>
-          Bot Token
-          <input type="password" id="tg-token" placeholder="123456789:AAF..." value="${settings.token}">
-        </label>
-        <label>
-          Chat ID
-          <input type="text" id="tg-chat" placeholder="e.g. 7099096813 or @channel" value="${settings.chatId}">
-        </label>
-        <label class="small">
-          <input type="checkbox" id="tg-enabled" ${settings.enabled ? "checked" : ""} style="width:auto;">
-          Enable Telegram alerts
-        </label>
-        <div class="qa mt">
-          <button class="btn" id="tg-test">📨 Send Test Message</button>
-          <button class="btn primary" id="tg-save">Save Settings</button>
-        </div>
-        <div id="tg-status" class="mt"></div>
-      </div>
-    `;
-
-    const tokenInput = container.querySelector("#tg-token");
-    const chatInput = container.querySelector("#tg-chat");
-    const enabledCheck = container.querySelector("#tg-enabled");
-    const testBtn = container.querySelector("#tg-test");
-    const saveBtn = container.querySelector("#tg-save");
-    const status = container.querySelector("#tg-status");
-
-    testBtn.onclick = async () => {
-      // Temporarily save settings to test
-      const tempSettings = {
-        enabled: enabledCheck.checked,
-        token: tokenInput.value.trim(),
-        chatId: chatInput.value.trim(),
-      };
-      // Validate
-      if (!tempSettings.token || !tempSettings.chatId) {
-        status.innerHTML =
-          '<p class="down">❌ Please fill in both token and chat ID.</p>';
-        return;
-      }
-      if (!isValidToken(tempSettings.token)) {
-        status.innerHTML = '<p class="down">❌ Invalid bot token format.</p>';
-        return;
-      }
-      if (!isValidChatId(tempSettings.chatId)) {
-        status.innerHTML = '<p class="down">❌ Invalid chat ID format.</p>';
-        return;
-      }
-      // Temporarily save to test
-      const originalSettings = { ...settings };
-      saveSettings(tempSettings);
-      try {
-        const result = await testConnection();
-        if (result.success) {
-          status.innerHTML =
-            '<p class="up">✅ Test message sent! Check your Telegram.</p>';
-        } else {
-          status.innerHTML = `<p class="down">❌ ${result.error}</p>`;
-        }
-      } catch (e) {
-        status.innerHTML = `<p class="down">❌ ${e.message}</p>`;
-      }
-      // Restore original settings
-      saveSettings(originalSettings);
-    };
-
-    saveBtn.onclick = () => {
-      const newSettings = {
-        enabled: enabledCheck.checked,
-        token: tokenInput.value.trim(),
-        chatId: chatInput.value.trim(),
-      };
-      if (newSettings.token && !isValidToken(newSettings.token)) {
-        status.innerHTML = '<p class="down">❌ Invalid bot token format.</p>';
-        return;
-      }
-      if (newSettings.chatId && !isValidChatId(newSettings.chatId)) {
-        status.innerHTML = '<p class="down">❌ Invalid chat ID format.</p>';
-        return;
-      }
-      saveSettings(newSettings);
-      status.innerHTML = '<p class="up">✅ Settings saved.</p>';
-    };
-  }
+  // Note: Telegram token/chat ID are configured on the main Settings page
+  // (js/features/misc.js), which owns the encrypted_settings blob via
+  // W.secureSession. This module intentionally has no settings UI or
+  // save path of its own — a second, parallel place to edit the same
+  // credential is exactly how the old plaintext-storage bug happened.
 
   // ── Public API ─────────────────────────────────────────
   return {
@@ -280,10 +183,8 @@ W.tg = (() => {
     notify,
     test: testConnection,
 
-    // Settings
+    // Settings (read-only from this module's perspective)
     getSettings,
-    saveSettings,
-    renderSettings,
 
     // Utility
     isEnabled: () => getSettings().enabled,

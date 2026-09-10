@@ -224,13 +224,14 @@ async function syncVault() {
     version: "1.0",
   };
 
-  const password = prompt("Enter your sync password (min 8 characters):");
+  const password = await W.ui.promptPassword({
+    title: "Sync Vault",
+    message: "Enter your sync password (min 8 characters).",
+    confirmLabel: "Sync",
+    minLength: 8,
+  });
   if (!password) {
     W.ui.toast("Sync cancelled.", "info");
-    return;
-  }
-  if (password.length < 8) {
-    W.ui.toast("Password must be at least 8 characters.", "warn");
     return;
   }
 
@@ -280,7 +281,11 @@ async function restoreVault() {
     return;
   }
 
-  const password = prompt("Enter your sync password:");
+  const password = await W.ui.promptPassword({
+    title: "Restore Vault",
+    message: "Enter your sync password.",
+    confirmLabel: "Restore",
+  });
   if (!password) return;
 
   try {

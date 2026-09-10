@@ -1,5 +1,9 @@
 // ===============================================================
-//         Portfolio Management Module – Data Correctness
+//         Portfolio Management Module
+// ===============================================================
+// Purpose: Track holdings, calculate cost basis, and manage transactions.
+// P1 Data Correctness Task 2: Implement weighted-average cost basis.
+// Rule 21: Safely handles NaN, zero quantities, and missing fields.
 // ===============================================================
 
 window.W = window.W || {};
@@ -7,71 +11,77 @@ W.portfolio = W.portfolio || {};
 
 (function () {
   const PORTFOLIO_KEY = "portfolio_holdings";
+  const TX_KEY = "portfolio_transactions";
+
   let holdings = W.store.get(PORTFOLIO_KEY, []);
+  let transactions = W.store.get(TX_KEY, []);
 
   function save() {
     W.store.set(PORTFOLIO_KEY, holdings);
+    W.store.set(TX_KEY, transactions);
   }
 
   function all() {
     return holdings;
   }
+  function txs() {
+    return transactions;
+  }
 
-  // ── Add/Update with weighted-average cost basis ─────────────
+  // ── Core Logic: Weighted Average Cost Basis (P1 Task 2) ──
   function add(holding) {
-    if (!holding || !holding.symbol) {
-      console.warn("[Portfolio] Invalid holding data");
-      return false;
-    }
+    if (!holding || !holding.symbol) return false;
 
-    // Normalize symbol to uppercase; later we'll use AssetId
-    const symbol = holding.symbol.toUpperCase();
-    const qty = parseFloat(holding.qty) || 0;
-    const buyPrice = parseFloat(holding.buyPrice) || 0;
-    if (qty <= 0 || buyPrice < 0) {
-      console.warn("[Portfolio] Invalid quantity or price");
-      return false;
-    }
+    const symbol = holding.symbol.toUpperCase().trim();
+    const newQty = parseFloat(holding.qty) || 0;
+    const newPrice = parseFloat(holding.buyPrice) || 0;
 
-    // Find existing holding by symbol (temporary, later we'll use AssetId)
+    // Rule 21: Prevent invalid state (zero or negative quantity)
+    if (newQty <= 0) return false;
+
     const existingIndex = holdings.findIndex(
       (h) => h.symbol.toUpperCase() === symbol,
     );
 
     if (existingIndex !== -1) {
+      // MERGE: Calculate weighted average price
       const existing = holdings[existingIndex];
       const oldQty = parseFloat(existing.qty) || 0;
-      const oldAvg = parseFloat(existing.buyPrice) || 0;
-      // Use totalCost if available, else compute from old qty and avg
-      const oldTotalCost =
-        existing.totalCost !== undefined ? existing.totalCost : oldQty * oldAvg;
-      const newTotalCost = oldTotalCost + qty * buyPrice;
-      const newTotalQty = oldQty + qty;
-      const newAvgPrice = newTotalQty > 0 ? newTotalCost / newTotalQty : 0;
+      const oldPrice = parseFloat(existing.buyPrice) || 0;
+
+      const totalQty = oldQty + newQty;
+
+      // Avoid division by zero (totalQty is guaranteed > 0 here)
+      const avgPrice =
+        totalQty > 0
+          ? (oldQty * oldPrice + newQty * newPrice) / totalQty
+          : newPrice;
 
       holdings[existingIndex] = {
         ...existing,
-        qty: newTotalQty,
-        buyPrice: newAvgPrice,
-        totalCost: newTotalCost,
-        updatedAt: Date.now(),
+        symbol: symbol,
+        name: holding.name || existing.name,
+        coinId: holding.coinId || existing.coinId,
+        img: holding.img || existing.img,
+        qty: totalQty,
+        buyPrice: avgPrice,
+        updatedAt: new Date().toISOString(),
       };
     } else {
-      // New holding – compute totalCost
-      const totalCost = qty * buyPrice;
+      // NEW HOLDING
       holdings.push({
         id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
         symbol: symbol,
         name: holding.name || symbol,
-        coinId: holding.coinId || null,
+        coinId: holding.coinId || symbol.toLowerCase(),
         img: holding.img || "",
-        qty: qty,
-        buyPrice: buyPrice,
-        totalCost: totalCost,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+        qty: newQty,
+        buyPrice: newPrice,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       });
     }
+
     save();
     return true;
   }
@@ -79,106 +89,79 @@ W.portfolio = W.portfolio || {};
   function remove(id) {
     holdings = holdings.filter((h) => h.id !== id);
     save();
-    return true;
   }
 
-  function update(id, updates) {
+  function update(id, data) {
     const index = holdings.findIndex((h) => h.id === id);
-    if (index === -1) return false;
-    const current = holdings[index];
-    const newQty =
-      updates.qty !== undefined ? parseFloat(updates.qty) : current.qty;
-    const newPrice =
-      updates.buyPrice !== undefined
-        ? parseFloat(updates.buyPrice)
-        : current.buyPrice;
-    const newTotalCost = newQty * newPrice;
-    holdings[index] = {
-      ...current,
-      ...updates,
-      qty: newQty,
-      buyPrice: newPrice,
-      totalCost: newTotalCost,
-      updatedAt: Date.now(),
-    };
-    save();
-    return true;
+    if (index !== -1) {
+      holdings[index] = {
+        ...holdings[index],
+        ...data,
+        updatedAt: new Date().toISOString(),
+      };
+      save();
+    }
   }
 
-  function clear() {
-    holdings = [];
-    save();
-  }
-
-  // ── Transactions (tax reporting) ─────────────────────────────
-  const TX_KEY = "portfolio_transactions";
-  function txs() {
-    return W.store.get(TX_KEY, []);
-  }
   function recordTx(tx) {
-    const list = W.store.get(TX_KEY, []);
-    list.push({
-      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
-      ...tx,
-      timestamp: Date.now(),
-    });
-    W.store.set(TX_KEY, list);
+    if (!tx || !tx.coin) return false;
+
+    const newTx = {
+      id: Date.now().toString(36),
+      type: tx.type, // 'buy' or 'sell'
+      coinId: tx.coin.id,
+      symbol: tx.coin.symbol.toUpperCase(),
+      name: tx.coin.name,
+      qty: parseFloat(tx.qty),
+      price: parseFloat(tx.price),
+      date: new Date().toISOString(),
+    };
+
+    transactions.push(newTx);
+
+    // Auto-update holding if it's a buy
+    if (tx.type === "buy") {
+      add({
+        symbol: tx.coin.symbol,
+        name: tx.coin.name,
+        coinId: tx.coin.id,
+        img: tx.coin.img,
+        qty: tx.qty,
+        buyPrice: tx.price,
+      });
+    }
+
+    save();
     return true;
   }
 
-  // ── Seed sample portfolio (for testing) ──────────────────────
   function seed() {
-    const samples = [
+    holdings = [
       {
+        id: "s1",
         symbol: "BTC",
         name: "Bitcoin",
         coinId: "bitcoin",
         qty: 0.5,
-        buyPrice: 60000,
-        img: "https://assets.coingecko.com/coins/images/1/small/bitcoin.png",
+        buyPrice: 42000,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       },
       {
+        id: "s2",
         symbol: "ETH",
         name: "Ethereum",
         coinId: "ethereum",
-        qty: 5,
-        buyPrice: 3000,
-        img: "https://assets.coingecko.com/coins/images/279/small/ethereum.png",
-      },
-      {
-        symbol: "SOL",
-        name: "Solana",
-        coinId: "solana",
-        qty: 20,
-        buyPrice: 150,
-        img: "https://assets.coingecko.com/coins/images/4128/small/solana.png",
+        qty: 4.2,
+        buyPrice: 2200,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       },
     ];
-    samples.forEach((h) => add(h));
-    return true;
+    save();
   }
 
-  // ── Render UI (minimal; dashboard handles full rendering) ──
-  async function render(view) {
-    // This is a stub; dashboard.js renders the portfolio table.
-    // We keep it for consistency.
-    view.innerHTML = '<p class="muted">Portfolio module loaded</p>';
-  }
-
-  // ── Public API ──────────────────────────────────────────────
-  W.portfolio = {
-    all,
-    add,
-    remove,
-    update,
-    clear,
-    txs,
-    recordTx,
-    seed,
-    render,
-  };
+  W.portfolio = { all, add, remove, update, recordTx, txs, seed };
 })();
 
-console.log(
-  "[Portfolio] Module loaded (weighted-average cost basis with totalCost).",
-);
+console.log("[Portfolio] Module loaded (weighted-average cost basis enabled).");

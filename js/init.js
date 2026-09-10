@@ -1,10 +1,41 @@
 // ===============================================================
-//         Initialization Script for Weaver 
+//         Initialization Script for Weaver
 // ===============================================================
 
 (function () {
   // Ensure W is defined
   window.W = window.W || {};
+
+  // ── One-time cleanup: purge legacy plaintext Telegram credentials ──
+  // Older versions stored the Telegram bot token in plaintext under
+  // "telegram_settings" and inside settings.telegram.token. Both paths
+  // are now removed in favor of the encrypted_settings store (see
+  // js/lib/crypto/secure-session.js). This runs once per device to
+  // scrub any plaintext token left over from before the fix, without
+  // requiring a passphrase prompt at boot.
+  (function purgeLegacyPlaintextTelegramToken() {
+    let purged = false;
+
+    if (W.store?.get?.("telegram_settings", null)) {
+      W.store.delete("telegram_settings");
+      purged = true;
+    }
+
+    const settings = W.store?.get?.("settings", {}) || {};
+    if (settings.telegram && settings.telegram.token) {
+      delete settings.telegram.token;
+      W.store.set("settings", settings);
+      purged = true;
+    }
+
+    if (purged) {
+      console.warn(
+        "[Init] Removed legacy plaintext Telegram token from storage. " +
+          "Re-enter your bot token in Settings to re-enable alerts.",
+      );
+      W.store?.set?.("telegram_migration_notice_pending", true);
+    }
+  })();
 
   // ── Clock Updates ────────────────────────────────────────
   function updateClock() {
@@ -120,6 +151,15 @@
     initRefresh();
     initSyncButton();
     initTheme();
+
+    if (W.store?.get?.("telegram_migration_notice_pending", false)) {
+      W.store.delete("telegram_migration_notice_pending");
+      W.ui?.toast?.(
+        "Telegram alerts were reset for security — please re-enter your bot token in Settings.",
+        "info",
+        8000,
+      );
+    }
 
     console.log("✅ Weaver initialization complete.");
   }

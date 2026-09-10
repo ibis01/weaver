@@ -367,24 +367,25 @@ W.misc = (() => {
   }
 
   // ── Passphrase Helpers ─────────────────────────────────
-  let _passphrase = null;
-
-  function getPassphrase(forcePrompt = false) {
-    if (!forcePrompt && _passphrase) return _passphrase;
-    const pwd = prompt(
-      "Enter your passphrase to access API keys (leave blank to skip encryption):",
-    );
-    if (pwd === null) return null; // user cancelled
-    if (pwd && pwd.length < 12) {
-      W.ui.toast("Passphrase must be at least 12 characters.", "warn");
-      return getPassphrase(true);
+  // The passphrase and decrypted keys themselves now live in
+  // W.secureSession, shared with js/features/telegram.js — see that
+  // module for why this used to be a problem.
+  async function getPassphrase(forcePrompt = false) {
+    if (!forcePrompt && W.secureSession.getPassphrase()) {
+      return W.secureSession.getPassphrase();
     }
-    if (pwd) _passphrase = pwd;
-    return pwd;
+    const pwd = await W.ui.promptPassword({
+      title: "Unlock API Keys",
+      message:
+        "Enter your passphrase to access API keys (leave blank to skip encryption).",
+      confirmLabel: "Unlock",
+      minLength: 12,
+    });
+    return pwd; // null if cancelled, "" if left blank, string otherwise
   }
 
   function clearPassphrase() {
-    _passphrase = null;
+    W.secureSession.lock();
   }
 
   // ── Settings ────────────────────────────────────────────
@@ -396,29 +397,33 @@ W.misc = (() => {
     // Check if encrypted settings exist
     const encryptedBlob = W.store.get("encrypted_settings", null);
     if (encryptedBlob) {
-      const passphrase = getPassphrase();
-      if (passphrase) {
-        try {
-          sensitive = await W.crypto.secure.decryptSettings(
-            encryptedBlob,
-            passphrase,
-          );
-          // Merge sensitive into settings for display
-          settings.ai = sensitive.ai || {};
-          settings.telegram = sensitive.telegram || {};
-        } catch (e) {
-          W.ui.toast(
-            "Incorrect passphrase or corrupted data. API keys will not be shown.",
-            "warn",
-          );
-          // Clear sensitive fields from settings
+      if (W.secureSession.isUnlocked()) {
+        sensitive = {
+          ai: W.secureSession.get("ai"),
+          telegram: W.secureSession.get("telegram"),
+        };
+        settings.ai = sensitive.ai || {};
+        settings.telegram = sensitive.telegram || {};
+      } else {
+        const passphrase = await getPassphrase();
+        if (passphrase) {
+          try {
+            sensitive = await W.secureSession.unlock(passphrase);
+            settings.ai = sensitive.ai || {};
+            settings.telegram = sensitive.telegram || {};
+          } catch (e) {
+            W.ui.toast(
+              "Incorrect passphrase or corrupted data. API keys will not be shown.",
+              "warn",
+            );
+            settings.ai = { url: "", key: "", model: "" };
+            settings.telegram = { on: false, token: "", chat: "" };
+          }
+        } else {
+          // User cancelled or no passphrase
           settings.ai = { url: "", key: "", model: "" };
           settings.telegram = { on: false, token: "", chat: "" };
         }
-      } else {
-        // User cancelled or no passphrase
-        settings.ai = { url: "", key: "", model: "" };
-        settings.telegram = { on: false, token: "", chat: "" };
       }
     }
 
@@ -454,7 +459,7 @@ W.misc = (() => {
         </label>
         <button class="btn primary mt" id="set-save">Save Settings</button>
         <button class="btn ghost mt" id="set-unlock" style="display:${encryptedBlob ? "inline-block" : "none"};">🔓 Unlock Keys</button>
-        <button class="btn ghost mt" id="set-lock" style="display:${_passphrase ? "inline-block" : "none"};">🔒 Lock Keys</button>
+        <button class="btn ghost mt" id="set-lock" style="display:${W.secureSession.isUnlocked() ? "inline-block" : "none"};">🔒 Lock Keys</button>
       </div>
       <div class="card">
         <h3>📨 Telegram Alerts (optional)</h3>
@@ -507,22 +512,17 @@ W.misc = (() => {
       };
 
       if (hasSensitive) {
-        let passphrase = _passphrase;
+        let passphrase = W.secureSession.getPassphrase();
         if (!passphrase) {
-          passphrase = getPassphrase(true);
+          passphrase = await getPassphrase(true);
           if (!passphrase) {
             W.ui.toast("Passphrase required to save API keys.", "warn");
             return;
           }
-          _passphrase = passphrase;
         }
         try {
           const sensitive = { ai: aiSettings, telegram: tgSettings };
-          const encrypted = await W.crypto.secure.encryptSettings(
-            sensitive,
-            passphrase,
-          );
-          W.store.set("encrypted_settings", encrypted);
+          await W.secureSession.save(sensitive, passphrase);
           // Store non-sensitive separately
           W.store.set("settings", nonSensitive);
           W.ui.toast("Settings saved (sensitive data encrypted) ✓", "ok");
@@ -541,11 +541,15 @@ W.misc = (() => {
 
     // ── Unlock handler ─────────────────────────────────────
     view.querySelector("#set-unlock").onclick = async () => {
-      const pwd = getPassphrase(true);
+      const pwd = await getPassphrase(true);
       if (pwd) {
-        _passphrase = pwd;
-        renderSettings(view);
-        W.ui.toast("Passphrase stored for this session.", "ok");
+        try {
+          await W.secureSession.unlock(pwd);
+          renderSettings(view);
+          W.ui.toast("Passphrase stored for this session.", "ok");
+        } catch (e) {
+          W.ui.toast(`Unlock failed: ${e.message}`, "warn");
+        }
       }
     };
 
@@ -563,9 +567,11 @@ W.misc = (() => {
       if (!token || !chat)
         return W.ui.toast("Enter token and Chat ID first", "warn");
       if (!W.tg) return W.ui.toast("Telegram module not loaded", "warn");
+      // Pass the draft token/chatId as overrides so this tests what's
+      // actually typed in the form, not whatever was previously saved.
       const ok = await W.tg.send(
         `✅ Weaver connected! Alerts will arrive here.`,
-        { on: true, token, chat },
+        { token, chatId: chat },
       );
       W.ui.toast(
         ok ? "Test sent 📨" : "Failed — check token/Chat ID",

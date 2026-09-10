@@ -1,5 +1,5 @@
 // ================================================================
-// concat.js – Concatenate all Weaver scripts with safety prelude
+//  Concatenate all Weaver scripts with safety prelude
 // ================================================================
 
 const fs = require("fs");
@@ -9,6 +9,7 @@ const files = [
   // ── Core ──────────────────────────────────────────────────────
   "js/storage/storage.js",
   "js/lib/crypto/secure.js",
+  "js/lib/crypto/secure-session.js",
   "js/utils/format.js",
   "js/utils/finance.js",
   "js/utils/debounce.js",

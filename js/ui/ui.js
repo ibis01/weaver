@@ -1,5 +1,5 @@
 // ================================================================
-// js/ui/ui.js – Weaver UI Utilities
+//  Weaver UI Utilities
 // ================================================================
 
 window.W = window.W || {};
@@ -81,6 +81,96 @@ W.ui = {
       close,
       el: root.querySelector(".modal"),
     };
+  },
+
+  /**
+   * Show a masked password-entry modal. Replaces native prompt() for
+   * anything sensitive — no plaintext visible on screen, no reliance
+   * on a browser dialog that some extensions can read.
+   * @param {Object} opts - { title, message, confirmLabel, minLength, placeholder }
+   * @returns {Promise<string|null>} the entered value, or null if cancelled
+   */
+  promptPassword({
+    title = "Enter Password",
+    message = "",
+    confirmLabel = "Continue",
+    minLength = 0,
+    placeholder = "Password",
+  } = {}) {
+    return new Promise((resolve) => {
+      const esc = W.fmt?.escapeHTML || ((s) => s);
+      const body = `
+        ${message ? `<p class="muted small">${esc(message)}</p>` : ""}
+        <label>
+          <input type="password" id="pw-modal-input" placeholder="${esc(placeholder)}" autocomplete="off" style="width:100%;">
+        </label>
+        <p id="pw-modal-error" class="down small" style="display:none;"></p>
+      `;
+      const footer = `
+        <button class="btn ghost" data-a="cancel">Cancel</button>
+        <button class="btn primary" data-a="ok">${esc(confirmLabel)}</button>
+      `;
+
+      const m = this.modal({ title, body, footer });
+      if (!m.el) {
+        resolve(null);
+        return;
+      }
+
+      const input = m.el.querySelector("#pw-modal-input");
+      const errorEl = m.el.querySelector("#pw-modal-error");
+      const cancelBtn = m.el.querySelector('[data-a="cancel"]');
+      const okBtn = m.el.querySelector('[data-a="ok"]');
+      const backdrop = document.getElementById("modal-backdrop");
+      const closeBtn = m.el.querySelector(".modal-x");
+
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        m.close();
+        resolve(value);
+      };
+
+      const submit = () => {
+        const val = input.value;
+        // Blank is allowed through as an explicit "skip" — only enforce
+        // minLength once the user has actually started typing something.
+        if (minLength && val.length > 0 && val.length < minLength) {
+          errorEl.textContent = `Must be at least ${minLength} characters.`;
+          errorEl.style.display = "block";
+          return;
+        }
+        finish(val);
+      };
+
+      cancelBtn.onclick = () => finish(null);
+      okBtn.onclick = submit;
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          submit();
+        }
+      });
+
+      // The base modal() closes itself on X / backdrop click / Escape,
+      // but doesn't tell us — without these, the promise would hang
+      // forever if the user dismisses the modal that way.
+      if (closeBtn) closeBtn.addEventListener("click", () => finish(null));
+      if (backdrop) {
+        backdrop.addEventListener("click", (e) => {
+          if (e.target.id === "modal-backdrop") finish(null);
+        });
+      }
+      document.addEventListener("keydown", function escHandler(e) {
+        if (e.key === "Escape") {
+          document.removeEventListener("keydown", escHandler);
+          finish(null);
+        }
+      });
+
+      setTimeout(() => input?.focus(), 30);
+    });
   },
 
   /**

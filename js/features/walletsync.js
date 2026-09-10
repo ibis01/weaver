@@ -1,5 +1,5 @@
 // ================================================================
-// js/features/walletsync.js – Secure Multi‑Chain Wallet Sync
+//  Secure Multi‑Chain Wallet Sync
 // ================================================================
 
 window.W = window.W || {};
@@ -477,7 +477,11 @@ W.walletSync = (() => {
       W.ui.confirm(
         "This will permanently delete all synced wallet data. Continue?",
         async () => {
-          const pwd = prompt("Enter your sync password:");
+          const pwd = await W.ui.promptPassword({
+            title: "Clear Wallet Data",
+            message: "Enter your sync password to confirm.",
+            confirmLabel: "Clear",
+          });
           if (!pwd) return;
           try {
             await clearAll(pwd);
@@ -501,7 +505,11 @@ W.walletSync = (() => {
   }
 
   async function syncAndDisplay(view) {
-    const pwd = prompt("Enter your sync password:");
+    const pwd = await W.ui.promptPassword({
+      title: "Sync Wallets",
+      message: "Enter your sync password.",
+      confirmLabel: "Sync",
+    });
     if (!pwd) return;
     try {
       view.querySelector("#ws-status").innerHTML = W.ui.spinner();
@@ -555,7 +563,11 @@ W.walletSync = (() => {
     `;
     container.querySelectorAll("[data-remove]").forEach((btn) => {
       btn.onclick = async () => {
-        const pwd = prompt("Enter sync password to remove:");
+        const pwd = await W.ui.promptPassword({
+          title: "Remove Wallet",
+          message: "Enter your sync password to confirm removal.",
+          confirmLabel: "Remove",
+        });
         if (!pwd) return;
         try {
           await removeWallet(btn.dataset.remove, pwd);

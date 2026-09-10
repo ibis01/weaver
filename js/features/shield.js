@@ -1,5 +1,5 @@
 // ================================================================
-// js/features/shield.js – Token Shield (Contract Security Auditor)
+//  Token Shield (Contract Security Auditor)
 // ================================================================
 
 window.W = window.W || {};
@@ -7,6 +7,8 @@ window.W = window.W || {};
 W.shield = (() => {
   // ── Constants ─────────────────────────────────────────
   const GOPLUS_API = "https://api.gopluslabs.io/api/v1/token_security";
+  const GOPLUS_SOLANA_API =
+    "https://api.gopluslabs.io/api/v1/solana/token_security";
   const CACHE_TTL = 300000; // 5 minutes
 
   const CHAINS = {
@@ -20,6 +22,7 @@ W.shield = (() => {
     fantom: { id: "250", name: "Fantom", icon: "🔷" },
     cronos: { id: "25", name: "Cronos", icon: "🟢" },
     gnosis: { id: "100", name: "Gnosis", icon: "🟣" },
+    solana: { id: "solana", name: "Solana", icon: "🟣" },
   };
 
   // ── Helpers ────────────────────────────────────────────
@@ -43,9 +46,12 @@ W.shield = (() => {
   }
 
   // ── Cache ──────────────────────────────────────────────
+  // Solana addresses are case-sensitive base58 — never lowercase them.
+  // EVM addresses are case-insensitive hex, so normalizing is safe there.
 
   function getCacheKey(chainId, address) {
-    return `shield_${chainId}_${address.toLowerCase()}`;
+    const norm = chainId === "solana" ? address : address.toLowerCase();
+    return `shield_${chainId}_${norm}`;
   }
 
   function getCached(chainId, address) {
@@ -114,6 +120,50 @@ W.shield = (() => {
       } catch (e) {
         lastError = e;
         console.warn("[Shield] Proxy failed:", e.message);
+      }
+    }
+    throw lastError || new Error("All proxies failed");
+  }
+
+  // ── Fetch from GoPlus (Solana) ─────────────────────────
+  // Solana uses a separate GoPlus endpoint with a different response
+  // schema (mint/freeze/close authorities instead of honeypot/proxy/tax
+  // fields) — see renderSolanaResults below.
+
+  async function fetchSolanaTokenSecurity(address) {
+    const cached = getCached("solana", address);
+    if (cached) return cached;
+
+    // Address case matters for Solana — never lowercase it.
+    const url = `${GOPLUS_SOLANA_API}?contract_addresses=${address}`;
+
+    const proxies = [
+      (u) => u,
+      (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
+      (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u),
+      (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
+    ];
+
+    let lastError = null;
+    for (const proxy of proxies) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        const response = await fetch(proxy(url), {
+          signal: controller.signal,
+          headers: { "User-Agent": "WeaverBot/1.0" },
+        });
+        clearTimeout(timeout);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        if (data.code !== 1) {
+          throw new Error(data.message || "API error");
+        }
+        setCache("solana", address, data);
+        return data;
+      } catch (e) {
+        lastError = e;
+        console.warn("[Shield] Solana proxy failed:", e.message);
       }
     }
     throw lastError || new Error("All proxies failed");
@@ -296,6 +346,153 @@ W.shield = (() => {
     `;
   }
 
+  // ── Parse and Render Results (Solana) ──────────────────
+  // GoPlus's Solana schema is different from EVM: authority-based flags
+  // (mint/freeze/close/metadata) instead of honeypot/proxy/tax fields.
+  // This is a beta API on GoPlus's side, so field shapes are read
+  // defensively — an unexpected shape degrades to "unknown", never to
+  // a false "safe".
+
+  function readSolanaFlag(field) {
+    if (field == null) return { active: null, authority: null };
+    if (typeof field === "object") {
+      const status = field.status;
+      const active =
+        status === "1" || status === 1 || status === true
+          ? true
+          : status === "0" || status === 0 || status === false
+            ? false
+            : null;
+      const authority =
+        field.authority?.address ||
+        field.metadata_upgrade_authority?.address ||
+        null;
+      return { active, authority };
+    }
+    const active =
+      field === "1" || field === 1 || field === true
+        ? true
+        : field === "0" || field === 0 || field === false
+          ? false
+          : null;
+    return { active, authority: null };
+  }
+
+  function renderSolanaResults(data, address) {
+    const chain = CHAINS.solana;
+    const result = data.result && data.result[address];
+    if (!result) {
+      return `
+        <div class="card">
+          ${W.ui.empty("🛡️", "No data found", "Token might be too new or not indexed yet.")}
+        </div>
+      `;
+    }
+
+    const mintable = readSolanaFlag(result.mintable);
+    const freezable = readSolanaFlag(result.freezable);
+    const closable = readSolanaFlag(result.closable);
+    const metadataMutable = readSolanaFlag(result.metadata_mutable);
+    const balanceMutable = readSolanaFlag(result.balance_mutable_authority);
+    const transferFeePct =
+      parseFloat(result.transfer_fee?.pct ?? result.transfer_fee ?? 0) || 0;
+    const isTrusted =
+      result.trusted_token === "1" || result.trusted_token === 1;
+
+    const holderCount = result.holder_count || 0;
+    const totalSupply = result.total_supply
+      ? parseFloat(result.total_supply).toLocaleString(undefined, {
+          maximumFractionDigits: 0,
+        })
+      : "Unknown";
+
+    // ── Risk scoring ──────────────────────────────────
+    let riskScore = 0;
+    const risks = [];
+
+    if (freezable.active) {
+      riskScore += 30;
+      risks.push(
+        "🚨 Freeze authority active (holders can be blocked from trading)",
+      );
+    }
+    if (balanceMutable.active) {
+      riskScore += 25;
+      risks.push("🚨 Balance can be modified by an authority");
+    }
+    if (mintable.active) {
+      riskScore += 20;
+      risks.push("⚠️ Mint authority active (supply can be inflated)");
+    }
+    if (closable.active) {
+      riskScore += 15;
+      risks.push("⚠️ Mint account can be closed by an authority");
+    }
+    if (metadataMutable.active) {
+      riskScore += 10;
+      risks.push("⚠️ Token metadata can still be changed");
+    }
+    if (transferFeePct > 0) {
+      riskScore += transferFeePct > 5 ? 15 : 5;
+      risks.push(`⚠️ Transfer fee: ${transferFeePct}%`);
+    }
+
+    const riskLevel =
+      riskScore >= 40
+        ? ["🚨 EXTREME RUG RISK", "sell"]
+        : riskScore >= 20
+          ? ["⚠️ CAUTION", "triggered"]
+          : ["✅ LOOKS SAFE", "buy"];
+
+    const flagBadge = (flag, activeLabel, safeLabel) => {
+      if (flag.active === null) return `<b class="muted">UNKNOWN</b>`;
+      return flag.active
+        ? `<b class="down">${activeLabel}</b>`
+        : `<b class="up">${safeLabel}</b>`;
+    };
+
+    return `
+      <div class="card" style="border-color: ${riskScore >= 40 ? "var(--down)" : riskScore >= 20 ? "var(--warn)" : "var(--up)"}; box-shadow: 0 0 40px ${riskScore >= 40 ? "rgba(255,92,122,.2)" : "transparent"};">
+        <div class="watch-head">
+          <div>
+            <h2>${escapeHTML(result.token_name || "Unknown")} <span class="muted">${escapeHTML(result.token_symbol || "")}</span></h2>
+            <p class="muted small">${chain.icon} ${chain.name} · ${holderCount} Holders · Supply: ${totalSupply}${isTrusted ? ' · <span class="tag buy">✓ Trusted</span>' : ""}</p>
+          </div>
+          <div style="text-align:right;">
+            <span class="tag ${riskLevel[1]}" style="font-size:14px;padding:8px 16px;">${riskLevel[0]}</span>
+            <div class="muted small">Risk Score: ${riskScore}/100</div>
+          </div>
+        </div>
+        ${
+          risks.length
+            ? `
+          <div class="mt">
+            ${risks.map((r) => `<span class="tag ${r.includes("🚨") ? "sell" : "triggered"}">${r}</span>`).join(" ")}
+          </div>
+        `
+            : ""
+        }
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <h3>🚨 Authority Flags</h3>
+          <div class="kv-row"><span>Mint Authority Active</span> ${flagBadge(mintable, "YES ⚠️", "NO ✅")}</div>
+          <div class="kv-row"><span>Freeze Authority Active</span> ${flagBadge(freezable, "YES 🚨", "NO ✅")}</div>
+          <div class="kv-row"><span>Balance Mutable</span> ${flagBadge(balanceMutable, "YES 🚨", "NO ✅")}</div>
+          <div class="kv-row"><span>Closable</span> ${flagBadge(closable, "YES ⚠️", "NO ✅")}</div>
+          <div class="kv-row"><span>Metadata Mutable</span> ${flagBadge(metadataMutable, "YES ⚠️", "NO ✅")}</div>
+        </div>
+        <div class="card">
+          <h3>💰 Transfer Fee</h3>
+          <div class="kv-row"><span>Current Fee</span> <b style="color: ${transferFeePct > 5 ? "var(--down)" : "var(--up)"};">${transferFeePct}%</b></div>
+          <p class="muted small mt">Solana Token-2022 tokens can charge a fee on every transfer. 0% is ideal.</p>
+          <p class="muted small mt">⚠️ This audit uses GoPlus's Solana Token Security API, which is in beta — cross-check important findings on <a href="https://solscan.io/token/${escapeHTML(address)}" target="_blank" rel="noopener noreferrer">Solscan</a> or RugCheck before trading.</p>
+        </div>
+      </div>
+    `;
+  }
+
   // ── Scan Function ─────────────────────────────────────
 
   async function scan(addr, chainKey, view) {
@@ -320,6 +517,23 @@ W.shield = (() => {
     }
 
     try {
+      if (chainKey === "solana") {
+        const data = await fetchSolanaTokenSecurity(addr);
+        const result = data.result && data.result[addr];
+
+        if (!result) {
+          body.innerHTML = W.ui.empty(
+            "🛡️",
+            "No security data found",
+            "Token might be too new or not indexed by GoPlus yet.",
+          );
+          return;
+        }
+
+        body.innerHTML = renderSolanaResults(data, addr);
+        return;
+      }
+
       const data = await fetchTokenSecurity(chain.id, addr);
       const result = data.result && data.result[addr.toLowerCase()];
 
@@ -354,7 +568,7 @@ W.shield = (() => {
     view.innerHTML = `
       <div class="card">
         <h3>🛡️ Token Shield — Contract Security Auditor</h3>
-        <p class="muted small">Paste any EVM contract address to instantly check for honeypots, hidden mints, proxy contracts, and malicious taxes. Powered by GoPlus Security.</p>
+        <p class="muted small">Paste any EVM or Solana token address to instantly check for honeypots, hidden mints, freeze authorities, and malicious taxes. Powered by GoPlus Security.</p>
         <div class="alert-form mt">
           <label>
             Chain
@@ -370,7 +584,7 @@ W.shield = (() => {
           </label>
           <label>
             Contract Address
-            <input id="sh-addr" placeholder="0x..." value="">
+            <input id="sh-addr" placeholder="0x... or a Solana mint address" value="">
           </label>
           <button class="btn primary" id="sh-go">Audit Token</button>
         </div>
@@ -383,17 +597,33 @@ W.shield = (() => {
 
     // ── Examples ──────────────────────────────────────
     const examples = {
-      "0xdac17f958d2ee523a2206206994597c13d831ec7": "USDT",
-      "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": "USDC",
-      "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984": "UNI",
-      "0x514910771af9ca656af840dff83e8264ecf986ca": "LINK",
+      "0xdac17f958d2ee523a2206206994597c13d831ec7": {
+        name: "USDT",
+        chain: "ethereum",
+      },
+      "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": {
+        name: "USDC",
+        chain: "ethereum",
+      },
+      "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984": {
+        name: "UNI",
+        chain: "ethereum",
+      },
+      "0x514910771af9ca656af840dff83e8264ecf986ca": {
+        name: "LINK",
+        chain: "ethereum",
+      },
+      DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263: {
+        name: "BONK",
+        chain: "solana",
+      },
     };
 
     view.querySelector("#sh-examples").onclick = () => {
       const list = Object.entries(examples)
         .map(
-          ([addr, name]) =>
-            `<div class="chip" data-addr="${addr}">${name}</div>`,
+          ([addr, info]) =>
+            `<div class="chip" data-addr="${addr}" data-chain="${info.chain}">${info.name}</div>`,
         )
         .join("");
       const m = W.ui.modal({
@@ -404,7 +634,9 @@ W.shield = (() => {
       m.el.querySelectorAll("[data-addr]").forEach((chip) => {
         chip.onclick = () => {
           const input = view.querySelector("#sh-addr");
+          const chainSelect = view.querySelector("#sh-chain");
           if (input) input.value = chip.dataset.addr;
+          if (chainSelect) chainSelect.value = chip.dataset.chain;
           m.close();
           view.querySelector("#sh-go").click();
         };
