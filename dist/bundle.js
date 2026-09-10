@@ -298,6 +298,86 @@ W.crypto = W.crypto || {};
 W.crypto.secure = SecureCrypto;
 
 console.log("[SecureCrypto] Module loaded.");
+// ---- js/lib/crypto/secure-session.js ----
+// ================================================================
+// Shared decrypted-settings cache
+// ================================================================
+// Problem this solves: encrypted_settings (AI key, Telegram token) is
+// encrypted at rest via SecureCrypto, but more than one module needs to
+// read the decrypted values during a session (the Settings page, and
+// the Telegram sender for background alerts). Without a shared cache,
+// each module either re-prompts for the passphrase constantly, or
+// (as telegram.js used to) keeps its own plaintext copy on disk.
+//
+// This module holds the decrypted sensitive settings ONLY in memory,
+// for the current page session. It is never written to localStorage.
+// Reloading the page clears it — same as clicking "Lock Keys".
+
+window.W = window.W || {};
+
+W.secureSession = (() => {
+  let _passphrase = null;
+  let _cache = null; // { ai: {...}, telegram: {...} } — decrypted, memory-only
+
+  function isUnlocked() {
+    return !!_cache;
+  }
+
+  /** Decrypts encrypted_settings with the given passphrase and caches the result in memory. */
+  async function unlock(passphrase) {
+    const blob = W.store.get("encrypted_settings", null);
+    if (!blob) {
+      throw new Error("No encrypted settings found");
+    }
+    const data = await W.crypto.secure.decryptSettings(blob, passphrase);
+    _passphrase = passphrase;
+    _cache = data;
+    return data;
+  }
+
+  /** Clears the in-memory cache. Does not touch anything on disk. */
+  function lock() {
+    _passphrase = null;
+    _cache = null;
+  }
+
+  /** Encrypts + persists sensitiveObj, and updates the in-memory cache to match. */
+  async function save(sensitiveObj, passphrase) {
+    const encrypted = await W.crypto.secure.encryptSettings(
+      sensitiveObj,
+      passphrase,
+    );
+    W.store.set("encrypted_settings", encrypted);
+    _passphrase = passphrase;
+    _cache = sensitiveObj;
+  }
+
+  /** Returns the decrypted sub-object (e.g. "telegram", "ai"), or null if locked. */
+  function get(key) {
+    if (!_cache) return null;
+    return _cache[key] || null;
+  }
+
+  function getPassphrase() {
+    return _passphrase;
+  }
+
+  function hasStoredSecrets() {
+    return !!W.store.get("encrypted_settings", null);
+  }
+
+  return {
+    isUnlocked,
+    unlock,
+    lock,
+    save,
+    get,
+    getPassphrase,
+    hasStoredSecrets,
+  };
+})();
+
+console.log("[SecureSession] Module loaded.");
 // ---- js/utils/format.js ----
 // ===============================================================
 //         Formatting Utilities for Weaver
@@ -1101,7 +1181,7 @@ if (typeof document !== "undefined") {
 console.log("[Theme] Module loaded.");
 // ---- js/ui/ui.js ----
 // ================================================================
-// js/ui/ui.js – Weaver UI Utilities
+//  Weaver UI Utilities
 // ================================================================
 
 window.W = window.W || {};
@@ -1183,6 +1263,96 @@ W.ui = {
       close,
       el: root.querySelector(".modal"),
     };
+  },
+
+  /**
+   * Show a masked password-entry modal. Replaces native prompt() for
+   * anything sensitive — no plaintext visible on screen, no reliance
+   * on a browser dialog that some extensions can read.
+   * @param {Object} opts - { title, message, confirmLabel, minLength, placeholder }
+   * @returns {Promise<string|null>} the entered value, or null if cancelled
+   */
+  promptPassword({
+    title = "Enter Password",
+    message = "",
+    confirmLabel = "Continue",
+    minLength = 0,
+    placeholder = "Password",
+  } = {}) {
+    return new Promise((resolve) => {
+      const esc = W.fmt?.escapeHTML || ((s) => s);
+      const body = `
+        ${message ? `<p class="muted small">${esc(message)}</p>` : ""}
+        <label>
+          <input type="password" id="pw-modal-input" placeholder="${esc(placeholder)}" autocomplete="off" style="width:100%;">
+        </label>
+        <p id="pw-modal-error" class="down small" style="display:none;"></p>
+      `;
+      const footer = `
+        <button class="btn ghost" data-a="cancel">Cancel</button>
+        <button class="btn primary" data-a="ok">${esc(confirmLabel)}</button>
+      `;
+
+      const m = this.modal({ title, body, footer });
+      if (!m.el) {
+        resolve(null);
+        return;
+      }
+
+      const input = m.el.querySelector("#pw-modal-input");
+      const errorEl = m.el.querySelector("#pw-modal-error");
+      const cancelBtn = m.el.querySelector('[data-a="cancel"]');
+      const okBtn = m.el.querySelector('[data-a="ok"]');
+      const backdrop = document.getElementById("modal-backdrop");
+      const closeBtn = m.el.querySelector(".modal-x");
+
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        m.close();
+        resolve(value);
+      };
+
+      const submit = () => {
+        const val = input.value;
+        // Blank is allowed through as an explicit "skip" — only enforce
+        // minLength once the user has actually started typing something.
+        if (minLength && val.length > 0 && val.length < minLength) {
+          errorEl.textContent = `Must be at least ${minLength} characters.`;
+          errorEl.style.display = "block";
+          return;
+        }
+        finish(val);
+      };
+
+      cancelBtn.onclick = () => finish(null);
+      okBtn.onclick = submit;
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          submit();
+        }
+      });
+
+      // The base modal() closes itself on X / backdrop click / Escape,
+      // but doesn't tell us — without these, the promise would hang
+      // forever if the user dismisses the modal that way.
+      if (closeBtn) closeBtn.addEventListener("click", () => finish(null));
+      if (backdrop) {
+        backdrop.addEventListener("click", (e) => {
+          if (e.target.id === "modal-backdrop") finish(null);
+        });
+      }
+      document.addEventListener("keydown", function escHandler(e) {
+        if (e.key === "Escape") {
+          document.removeEventListener("keydown", escHandler);
+          finish(null);
+        }
+      });
+
+      setTimeout(() => input?.focus(), 30);
+    });
   },
 
   /**
@@ -3990,7 +4160,7 @@ W.intelligence.getSourceReliability = getSourceReliability;
 console.log("[Intelligence] Confidence model loaded.");
 // ---- js/intelligence/decision-engine.js ----
 // ===============================================================
-//         Unified Decision Engine – Hardened
+//         Unified Decision Engine 
 // ===============================================================
 //
 // Consumes Evidence objects from the Evidence Builder.
@@ -4077,8 +4247,7 @@ W.decisionEngine = (() => {
       behavioralRisk = behavior.pattern.toUpperCase();
     }
 
-    // Chain and sector exposure (simplified)
-    // For now, we'll use placeholder values.
+    // Chain and sector exposure (
     // In a full implementation, we'd resolve chain and sector from assetId.
     chainExposure = 0;
     sectorExposure = 0;
@@ -4252,7 +4421,7 @@ W.decisionEngine = (() => {
     return decisions;
   }
 
-  // ── Presentation (unchanged) ──────────────────────────────────
+  // ── Presentation ──────────────────────────────────
   function render(container, decisions, limit = 5) {
     if (!container) return;
     const top = decisions.slice(0, limit);
@@ -8024,7 +8193,7 @@ W.gems = (() => {
 console.log("[Gems] Module loaded.");
 // ---- js/features/shield.js ----
 // ================================================================
-// js/features/shield.js – Token Shield (Contract Security Auditor)
+//  Token Shield (Contract Security Auditor)
 // ================================================================
 
 window.W = window.W || {};
@@ -8032,6 +8201,8 @@ window.W = window.W || {};
 W.shield = (() => {
   // ── Constants ─────────────────────────────────────────
   const GOPLUS_API = "https://api.gopluslabs.io/api/v1/token_security";
+  const GOPLUS_SOLANA_API =
+    "https://api.gopluslabs.io/api/v1/solana/token_security";
   const CACHE_TTL = 300000; // 5 minutes
 
   const CHAINS = {
@@ -8045,6 +8216,7 @@ W.shield = (() => {
     fantom: { id: "250", name: "Fantom", icon: "🔷" },
     cronos: { id: "25", name: "Cronos", icon: "🟢" },
     gnosis: { id: "100", name: "Gnosis", icon: "🟣" },
+    solana: { id: "solana", name: "Solana", icon: "🟣" },
   };
 
   // ── Helpers ────────────────────────────────────────────
@@ -8068,9 +8240,12 @@ W.shield = (() => {
   }
 
   // ── Cache ──────────────────────────────────────────────
+  // Solana addresses are case-sensitive base58 — never lowercase them.
+  // EVM addresses are case-insensitive hex, so normalizing is safe there.
 
   function getCacheKey(chainId, address) {
-    return `shield_${chainId}_${address.toLowerCase()}`;
+    const norm = chainId === "solana" ? address : address.toLowerCase();
+    return `shield_${chainId}_${norm}`;
   }
 
   function getCached(chainId, address) {
@@ -8139,6 +8314,50 @@ W.shield = (() => {
       } catch (e) {
         lastError = e;
         console.warn("[Shield] Proxy failed:", e.message);
+      }
+    }
+    throw lastError || new Error("All proxies failed");
+  }
+
+  // ── Fetch from GoPlus (Solana) ─────────────────────────
+  // Solana uses a separate GoPlus endpoint with a different response
+  // schema (mint/freeze/close authorities instead of honeypot/proxy/tax
+  // fields) — see renderSolanaResults below.
+
+  async function fetchSolanaTokenSecurity(address) {
+    const cached = getCached("solana", address);
+    if (cached) return cached;
+
+    // Address case matters for Solana — never lowercase it.
+    const url = `${GOPLUS_SOLANA_API}?contract_addresses=${address}`;
+
+    const proxies = [
+      (u) => u,
+      (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
+      (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u),
+      (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
+    ];
+
+    let lastError = null;
+    for (const proxy of proxies) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        const response = await fetch(proxy(url), {
+          signal: controller.signal,
+          headers: { "User-Agent": "WeaverBot/1.0" },
+        });
+        clearTimeout(timeout);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        if (data.code !== 1) {
+          throw new Error(data.message || "API error");
+        }
+        setCache("solana", address, data);
+        return data;
+      } catch (e) {
+        lastError = e;
+        console.warn("[Shield] Solana proxy failed:", e.message);
       }
     }
     throw lastError || new Error("All proxies failed");
@@ -8321,6 +8540,153 @@ W.shield = (() => {
     `;
   }
 
+  // ── Parse and Render Results (Solana) ──────────────────
+  // GoPlus's Solana schema is different from EVM: authority-based flags
+  // (mint/freeze/close/metadata) instead of honeypot/proxy/tax fields.
+  // This is a beta API on GoPlus's side, so field shapes are read
+  // defensively — an unexpected shape degrades to "unknown", never to
+  // a false "safe".
+
+  function readSolanaFlag(field) {
+    if (field == null) return { active: null, authority: null };
+    if (typeof field === "object") {
+      const status = field.status;
+      const active =
+        status === "1" || status === 1 || status === true
+          ? true
+          : status === "0" || status === 0 || status === false
+            ? false
+            : null;
+      const authority =
+        field.authority?.address ||
+        field.metadata_upgrade_authority?.address ||
+        null;
+      return { active, authority };
+    }
+    const active =
+      field === "1" || field === 1 || field === true
+        ? true
+        : field === "0" || field === 0 || field === false
+          ? false
+          : null;
+    return { active, authority: null };
+  }
+
+  function renderSolanaResults(data, address) {
+    const chain = CHAINS.solana;
+    const result = data.result && data.result[address];
+    if (!result) {
+      return `
+        <div class="card">
+          ${W.ui.empty("🛡️", "No data found", "Token might be too new or not indexed yet.")}
+        </div>
+      `;
+    }
+
+    const mintable = readSolanaFlag(result.mintable);
+    const freezable = readSolanaFlag(result.freezable);
+    const closable = readSolanaFlag(result.closable);
+    const metadataMutable = readSolanaFlag(result.metadata_mutable);
+    const balanceMutable = readSolanaFlag(result.balance_mutable_authority);
+    const transferFeePct =
+      parseFloat(result.transfer_fee?.pct ?? result.transfer_fee ?? 0) || 0;
+    const isTrusted =
+      result.trusted_token === "1" || result.trusted_token === 1;
+
+    const holderCount = result.holder_count || 0;
+    const totalSupply = result.total_supply
+      ? parseFloat(result.total_supply).toLocaleString(undefined, {
+          maximumFractionDigits: 0,
+        })
+      : "Unknown";
+
+    // ── Risk scoring ──────────────────────────────────
+    let riskScore = 0;
+    const risks = [];
+
+    if (freezable.active) {
+      riskScore += 30;
+      risks.push(
+        "🚨 Freeze authority active (holders can be blocked from trading)",
+      );
+    }
+    if (balanceMutable.active) {
+      riskScore += 25;
+      risks.push("🚨 Balance can be modified by an authority");
+    }
+    if (mintable.active) {
+      riskScore += 20;
+      risks.push("⚠️ Mint authority active (supply can be inflated)");
+    }
+    if (closable.active) {
+      riskScore += 15;
+      risks.push("⚠️ Mint account can be closed by an authority");
+    }
+    if (metadataMutable.active) {
+      riskScore += 10;
+      risks.push("⚠️ Token metadata can still be changed");
+    }
+    if (transferFeePct > 0) {
+      riskScore += transferFeePct > 5 ? 15 : 5;
+      risks.push(`⚠️ Transfer fee: ${transferFeePct}%`);
+    }
+
+    const riskLevel =
+      riskScore >= 40
+        ? ["🚨 EXTREME RUG RISK", "sell"]
+        : riskScore >= 20
+          ? ["⚠️ CAUTION", "triggered"]
+          : ["✅ LOOKS SAFE", "buy"];
+
+    const flagBadge = (flag, activeLabel, safeLabel) => {
+      if (flag.active === null) return `<b class="muted">UNKNOWN</b>`;
+      return flag.active
+        ? `<b class="down">${activeLabel}</b>`
+        : `<b class="up">${safeLabel}</b>`;
+    };
+
+    return `
+      <div class="card" style="border-color: ${riskScore >= 40 ? "var(--down)" : riskScore >= 20 ? "var(--warn)" : "var(--up)"}; box-shadow: 0 0 40px ${riskScore >= 40 ? "rgba(255,92,122,.2)" : "transparent"};">
+        <div class="watch-head">
+          <div>
+            <h2>${escapeHTML(result.token_name || "Unknown")} <span class="muted">${escapeHTML(result.token_symbol || "")}</span></h2>
+            <p class="muted small">${chain.icon} ${chain.name} · ${holderCount} Holders · Supply: ${totalSupply}${isTrusted ? ' · <span class="tag buy">✓ Trusted</span>' : ""}</p>
+          </div>
+          <div style="text-align:right;">
+            <span class="tag ${riskLevel[1]}" style="font-size:14px;padding:8px 16px;">${riskLevel[0]}</span>
+            <div class="muted small">Risk Score: ${riskScore}/100</div>
+          </div>
+        </div>
+        ${
+          risks.length
+            ? `
+          <div class="mt">
+            ${risks.map((r) => `<span class="tag ${r.includes("🚨") ? "sell" : "triggered"}">${r}</span>`).join(" ")}
+          </div>
+        `
+            : ""
+        }
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <h3>🚨 Authority Flags</h3>
+          <div class="kv-row"><span>Mint Authority Active</span> ${flagBadge(mintable, "YES ⚠️", "NO ✅")}</div>
+          <div class="kv-row"><span>Freeze Authority Active</span> ${flagBadge(freezable, "YES 🚨", "NO ✅")}</div>
+          <div class="kv-row"><span>Balance Mutable</span> ${flagBadge(balanceMutable, "YES 🚨", "NO ✅")}</div>
+          <div class="kv-row"><span>Closable</span> ${flagBadge(closable, "YES ⚠️", "NO ✅")}</div>
+          <div class="kv-row"><span>Metadata Mutable</span> ${flagBadge(metadataMutable, "YES ⚠️", "NO ✅")}</div>
+        </div>
+        <div class="card">
+          <h3>💰 Transfer Fee</h3>
+          <div class="kv-row"><span>Current Fee</span> <b style="color: ${transferFeePct > 5 ? "var(--down)" : "var(--up)"};">${transferFeePct}%</b></div>
+          <p class="muted small mt">Solana Token-2022 tokens can charge a fee on every transfer. 0% is ideal.</p>
+          <p class="muted small mt">⚠️ This audit uses GoPlus's Solana Token Security API, which is in beta — cross-check important findings on <a href="https://solscan.io/token/${escapeHTML(address)}" target="_blank" rel="noopener noreferrer">Solscan</a> or RugCheck before trading.</p>
+        </div>
+      </div>
+    `;
+  }
+
   // ── Scan Function ─────────────────────────────────────
 
   async function scan(addr, chainKey, view) {
@@ -8345,6 +8711,23 @@ W.shield = (() => {
     }
 
     try {
+      if (chainKey === "solana") {
+        const data = await fetchSolanaTokenSecurity(addr);
+        const result = data.result && data.result[addr];
+
+        if (!result) {
+          body.innerHTML = W.ui.empty(
+            "🛡️",
+            "No security data found",
+            "Token might be too new or not indexed by GoPlus yet.",
+          );
+          return;
+        }
+
+        body.innerHTML = renderSolanaResults(data, addr);
+        return;
+      }
+
       const data = await fetchTokenSecurity(chain.id, addr);
       const result = data.result && data.result[addr.toLowerCase()];
 
@@ -8379,7 +8762,7 @@ W.shield = (() => {
     view.innerHTML = `
       <div class="card">
         <h3>🛡️ Token Shield — Contract Security Auditor</h3>
-        <p class="muted small">Paste any EVM contract address to instantly check for honeypots, hidden mints, proxy contracts, and malicious taxes. Powered by GoPlus Security.</p>
+        <p class="muted small">Paste any EVM or Solana token address to instantly check for honeypots, hidden mints, freeze authorities, and malicious taxes. Powered by GoPlus Security.</p>
         <div class="alert-form mt">
           <label>
             Chain
@@ -8395,7 +8778,7 @@ W.shield = (() => {
           </label>
           <label>
             Contract Address
-            <input id="sh-addr" placeholder="0x..." value="">
+            <input id="sh-addr" placeholder="0x... or a Solana mint address" value="">
           </label>
           <button class="btn primary" id="sh-go">Audit Token</button>
         </div>
@@ -8408,17 +8791,33 @@ W.shield = (() => {
 
     // ── Examples ──────────────────────────────────────
     const examples = {
-      "0xdac17f958d2ee523a2206206994597c13d831ec7": "USDT",
-      "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": "USDC",
-      "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984": "UNI",
-      "0x514910771af9ca656af840dff83e8264ecf986ca": "LINK",
+      "0xdac17f958d2ee523a2206206994597c13d831ec7": {
+        name: "USDT",
+        chain: "ethereum",
+      },
+      "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": {
+        name: "USDC",
+        chain: "ethereum",
+      },
+      "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984": {
+        name: "UNI",
+        chain: "ethereum",
+      },
+      "0x514910771af9ca656af840dff83e8264ecf986ca": {
+        name: "LINK",
+        chain: "ethereum",
+      },
+      DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263: {
+        name: "BONK",
+        chain: "solana",
+      },
     };
 
     view.querySelector("#sh-examples").onclick = () => {
       const list = Object.entries(examples)
         .map(
-          ([addr, name]) =>
-            `<div class="chip" data-addr="${addr}">${name}</div>`,
+          ([addr, info]) =>
+            `<div class="chip" data-addr="${addr}" data-chain="${info.chain}">${info.name}</div>`,
         )
         .join("");
       const m = W.ui.modal({
@@ -8429,7 +8828,9 @@ W.shield = (() => {
       m.el.querySelectorAll("[data-addr]").forEach((chip) => {
         chip.onclick = () => {
           const input = view.querySelector("#sh-addr");
+          const chainSelect = view.querySelector("#sh-chain");
           if (input) input.value = chip.dataset.addr;
+          if (chainSelect) chainSelect.value = chip.dataset.chain;
           m.close();
           view.querySelector("#sh-go").click();
         };
@@ -8807,10 +9208,7 @@ W.web3 = W.web3 || {};
 console.log("[Web3] Module loaded (secure & private).");
 // ---- js/features/misc.js ----
 // ================================================================
-// js/features/misc.js – Miscellaneous Features & Secure Settings
-// ================================================================
-// P0 Security Task 1: Encrypt AI & Telegram credentials using
-// W.store.setSecureSettings with a migration path for existing users.
+// js/features/misc.js – Miscellaneous Features
 // ================================================================
 
 window.W = window.W || {};
@@ -8912,126 +9310,15 @@ W.achievements = (() => {
   return { DEFS, earned, save, check };
 })();
 
-// ── Misc UI & Secure Settings ─────────────────────────────
+// ── Misc UI ──────────────────────────────────────────────
 W.misc = (() => {
+  // ── Helpers ──────────────────────────────────────────────
   function escapeHTML(str) {
     if (!str) return "";
     const div = document.createElement("div");
     div.textContent = str;
     return div.innerHTML;
   }
-
-  // ── P0 Security: Secure Settings Implementation ─────────
-  if (!W.store.setSecureSettings) {
-    const SALT = "weaver-v1-salt";
-
-    async function deriveKey(password) {
-      const enc = new TextEncoder();
-      const keyMaterial = await crypto.subtle.importKey(
-        "raw",
-        enc.encode(password),
-        { name: "PBKDF2" },
-        false,
-        ["deriveKey"],
-      );
-      return crypto.subtle.deriveKey(
-        {
-          name: "PBKDF2",
-          salt: enc.encode(SALT),
-          iterations: 100000,
-          hash: "SHA-256",
-        },
-        keyMaterial,
-        { name: "AES-GCM", length: 256 },
-        false,
-        ["encrypt", "decrypt"],
-      );
-    }
-
-    W.store.setSecureSettings = async function (sensitiveData, password) {
-      if (!password || password.length < 12)
-        throw new Error("Passphrase must be >= 12 chars");
-      const enc = new TextEncoder();
-      const key = await deriveKey(password);
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const encrypted = await crypto.subtle.encrypt(
-        { name: "AES-GCM", iv },
-        key,
-        enc.encode(JSON.stringify(sensitiveData)),
-      );
-      const combined = new Uint8Array(iv.length + encrypted.byteLength);
-      combined.set(iv);
-      combined.set(new Uint8Array(encrypted), iv.length);
-      this.set("encrypted_settings", btoa(String.fromCharCode(...combined)));
-    };
-
-    W.store.getSecureSettings = async function (password) {
-      const blob = this.get("encrypted_settings", null);
-      if (!blob || !password) return null;
-      try {
-        const dec = new TextDecoder();
-        const combined = Uint8Array.from(atob(blob), (c) => c.charCodeAt(0));
-        const iv = combined.slice(0, 12);
-        const ciphertext = combined.slice(12);
-        const key = await deriveKey(password);
-        const decrypted = await crypto.subtle.decrypt(
-          { name: "AES-GCM", iv },
-          key,
-          ciphertext,
-        );
-        return JSON.parse(dec.decode(decrypted));
-      } catch (e) {
-        console.warn("[Store] Decryption failed.");
-        return null;
-      }
-    };
-  }
-
-  // ── P0 Security: Migration Path for Existing Users ──────
-  async function migratePlaintextSecrets() {
-    const settings = W.store.get("settings", {});
-    const hasPlaintext = settings.ai?.key || settings.telegram?.token;
-    const alreadyEncrypted = !!W.store.get("encrypted_settings", null);
-
-    if (hasPlaintext && !alreadyEncrypted) {
-      const migrate = confirm(
-        "Weaver has detected unencrypted API keys in your settings.\n\n" +
-          "For your security, we strongly recommend encrypting them with a passphrase.\n" +
-          "Would you like to secure your keys now?",
-      );
-
-      if (migrate) {
-        const passphrase = prompt(
-          "Create a passphrase (min 12 characters) to encrypt your keys:",
-        );
-        if (passphrase && passphrase.length >= 12) {
-          try {
-            const sensitive = {
-              ai: settings.ai || {},
-              telegram: settings.telegram || {},
-            };
-            await W.store.setSecureSettings(sensitive, passphrase);
-
-            // Purge plaintext secrets
-            delete settings.ai;
-            delete settings.telegram;
-            W.store.set("settings", settings);
-
-            W.ui.toast("Credentials securely encrypted! 🔒", "ok");
-            return true;
-          } catch (e) {
-            W.ui.toast("Encryption failed. Keys remain unencrypted.", "warn");
-            console.error(e);
-          }
-        } else if (passphrase !== null) {
-          W.ui.toast("Passphrase must be at least 12 characters.", "warn");
-        }
-      }
-    }
-    return false;
-  }
-
-  let _sessionPassphrase = null;
 
   // ── Profile ─────────────────────────────────────────────
   function renderProfile(view) {
@@ -9043,12 +9330,30 @@ W.misc = (() => {
 
     view.innerHTML = `
       <div class="cards">
-        <div class="card stat"><div class="stat-label">Learning Streak</div><div class="stat-big">🔥 ${streak.count || 1} day${streak.count > 1 ? "s" : ""}</div></div>
-        <div class="card stat"><div class="stat-label">Assets Held</div><div class="stat-big">${holdings.length}</div></div>
-        <div class="card stat"><div class="stat-label">Transactions</div><div class="stat-big">${txs.length}</div></div>
-        <div class="card stat"><div class="stat-label">Badges</div><div class="stat-big">${Object.keys(e).length}/${W.achievements.DEFS.length}</div></div>
-        <div class="card stat"><div class="stat-label">Alerts</div><div class="stat-big">${alerts.length}</div></div>
-        <div class="card stat"><div class="stat-label">Articles Read</div><div class="stat-big">📖 ${W.store.get("news-read", []).length}</div></div>
+        <div class="card stat">
+          <div class="stat-label">Learning Streak</div>
+          <div class="stat-big">🔥 ${streak.count || 1} day${streak.count > 1 ? "s" : ""}</div>
+        </div>
+        <div class="card stat">
+          <div class="stat-label">Assets Held</div>
+          <div class="stat-big">${holdings.length}</div>
+        </div>
+        <div class="card stat">
+          <div class="stat-label">Transactions</div>
+          <div class="stat-big">${txs.length}</div>
+        </div>
+        <div class="card stat">
+          <div class="stat-label">Badges</div>
+          <div class="stat-big">${Object.keys(e).length}/${W.achievements.DEFS.length}</div>
+        </div>
+        <div class="card stat">
+          <div class="stat-label">Alerts</div>
+          <div class="stat-big">${alerts.length}</div>
+        </div>
+        <div class="card stat">
+          <div class="stat-label">Articles Read</div>
+          <div class="stat-big">📖 ${W.store.get("news-read", []).length}</div>
+        </div>
       </div>
       <div class="card">
         <h3>🏅 Achievements</h3>
@@ -9068,32 +9373,266 @@ W.misc = (() => {
     `;
   }
 
+  // ── DeFi Tracker ────────────────────────────────────────
+  function renderDefi(view) {
+    const KEY = "defi";
+    const positions = W.store.get(KEY, []);
+
+    view.innerHTML = `
+      <div class="card">
+        <h3>💰 DeFi Tracker</h3>
+        <p class="muted small">Track staking, yield, farming and LP positions. Automatic on-chain detection ships with Pro — meanwhile log positions manually (stored locally).</p>
+      </div>
+      <div class="card">
+        <h3>Manual Positions</h3>
+        <div id="defi-list"></div>
+        <form id="defi-form" class="alert-form">
+          <input name="proto" placeholder="Protocol (e.g. Lido)" required>
+          <select name="type">
+            <option value="Staking">Staking</option>
+            <option value="Yield">Yield</option>
+            <option value="Farming">Farming</option>
+            <option value="LP">LP</option>
+          </select>
+          <input name="amount" type="number" step="any" placeholder="Amount" required>
+          <input name="apy" type="number" step="any" placeholder="APY %">
+          <button class="btn primary">Add</button>
+        </form>
+      </div>
+    `;
+
+    const draw = () => {
+      const list = W.store.get(KEY, []);
+      const container = view.querySelector("#defi-list");
+      if (!container) return;
+      if (!list.length) {
+        container.innerHTML = '<p class="muted small">No positions yet.</p>';
+        return;
+      }
+      container.innerHTML = `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Protocol</th><th>Type</th><th>Amount</th><th>APY</th><th></th></tr></thead>
+            <tbody>
+              ${list
+                .map(
+                  (d, i) => `
+                <tr>
+                  <td>${escapeHTML(d.proto)}</td>
+                  <td><span class="tag">${escapeHTML(d.type)}</span></td>
+                  <td>${d.amount}</td>
+                  <td>${d.apy || "—"}%</td>
+                  <td><button class="icon-btn" data-i="${i}">🗑️</button></td>
+                </tr>
+              `,
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+      container.querySelectorAll("[data-i]").forEach((btn) => {
+        btn.onclick = () => {
+          const list = W.store.get(KEY, []);
+          list.splice(+btn.dataset.i, 1);
+          W.store.set(KEY, list);
+          draw();
+        };
+      });
+    };
+    draw();
+
+    view.querySelector("#defi-form").onsubmit = (e) => {
+      e.preventDefault();
+      const f = e.target;
+      const list = W.store.get(KEY, []);
+      list.push({
+        proto: f.proto.value,
+        type: f.type.value,
+        amount: f.amount.value,
+        apy: f.apy.value,
+      });
+      W.store.set(KEY, list);
+      draw();
+      f.reset();
+    };
+  }
+
+  // ── Airdrop Hunter ──────────────────────────────────────
+  const DROPS = [
+    {
+      id: "testnet-1",
+      name: "Layer-2 Testnet Season",
+      kind: "Testnet",
+      tasks: ["Bridge test tokens", "Swap on testnet DEX", "Mint a test NFT"],
+    },
+    {
+      id: "points-1",
+      name: "Points Program Grind",
+      kind: "Points",
+      tasks: ["Daily check-in", "Provide liquidity", "Refer a friend"],
+    },
+    {
+      id: "retro-1",
+      name: "Retroactive Hunt",
+      kind: "Potential",
+      tasks: [
+        "Use mainnet dApps",
+        "Keep positions active",
+        "Vote in governance",
+      ],
+    },
+  ];
+
+  function renderAirdrops(view) {
+    const KEY = "airdrops";
+    const done = W.store.get(KEY, {});
+
+    view.innerHTML = `
+      <div class="card">
+        <h3>🎯 Airdrop Hunter</h3>
+        <p class="muted small">Campaign checklists saved locally. Eligibility checker + rewards tracker ship with Pro. 🔒</p>
+      </div>
+      <div class="grid-2">
+        ${DROPS.map((d) => {
+          const dk = done[d.id] || [];
+          return `
+            <div class="card">
+              <div class="drop-head">
+                <h3>${escapeHTML(d.name)}</h3>
+                <span class="tag live">${escapeHTML(d.kind)}</span>
+              </div>
+              <ul class="task-list">
+                ${d.tasks
+                  .map(
+                    (t, i) => `
+                  <li>
+                    <label>
+                      <input type="checkbox" data-drop="${d.id}" data-task="${i}" ${dk.includes(i) ? "checked" : ""}>
+                      ${escapeHTML(t)}
+                    </label>
+                  </li>
+                `,
+                  )
+                  .join("")}
+              </ul>
+              <div class="meter-bar">
+                <div style="width: ${(dk.length / d.tasks.length) * 100}%"></div>
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+
+    view.querySelectorAll('input[type="checkbox"][data-drop]').forEach((cb) => {
+      cb.onchange = () => {
+        const done = W.store.get(KEY, {});
+        const arr = new Set(done[cb.dataset.drop] || []);
+        if (cb.checked) arr.add(+cb.dataset.task);
+        else arr.delete(+cb.dataset.task);
+        done[cb.dataset.drop] = [...arr];
+        W.store.set(KEY, done);
+        renderAirdrops(view);
+      };
+    });
+  }
+
+  // ── Pro ─────────────────────────────────────────────────
+  const PRO_FEATURES = [
+    ["🐋", "Whale Wallet Tracker"],
+    ["💸", "Smart Money Tracker"],
+    ["⛓️", "On-chain Analytics"],
+    ["🔓", "Token Unlock Calendar"],
+    ["🧮", "Portfolio Optimizer"],
+    ["🤖", "AI Trading Assistant"],
+    ["🧾", "Tax Reports"],
+    ["🔄", "Multi-device Sync"],
+  ];
+
+  function renderPro(view) {
+    view.innerHTML = `
+      <div class="card pro-hero">
+        <h2>🔮 Weaver Pro</h2>
+        <p class="muted">Institutional-grade tools for serious traders.</p>
+        <div class="pro-price">
+          <b>$9</b>
+          <span class="muted">/month (planned)</span>
+          <button class="btn primary" onclick="W.ui.toast('Pro launches soon — you are on the list! ✨','ok')">Join Waitlist</button>
+        </div>
+      </div>
+      <div class="grid-2">
+        ${PRO_FEATURES.map(
+          ([icon, name]) => `
+          <div class="card pro-card">
+            <span class="pro-ico">${icon}</span>
+            <b>${escapeHTML(name)}</b>
+            <span class="tag lock">🔒 Pro</span>
+          </div>
+        `,
+        ).join("")}
+      </div>
+    `;
+  }
+
+  // ── Passphrase Helpers ─────────────────────────────────
+  // The passphrase and decrypted keys themselves now live in
+  // W.secureSession, shared with js/features/telegram.js — see that
+  // module for why this used to be a problem.
+  async function getPassphrase(forcePrompt = false) {
+    if (!forcePrompt && W.secureSession.getPassphrase()) {
+      return W.secureSession.getPassphrase();
+    }
+    const pwd = await W.ui.promptPassword({
+      title: "Unlock API Keys",
+      message:
+        "Enter your passphrase to access API keys (leave blank to skip encryption).",
+      confirmLabel: "Unlock",
+      minLength: 12,
+    });
+    return pwd; // null if cancelled, "" if left blank, string otherwise
+  }
+
+  function clearPassphrase() {
+    W.secureSession.lock();
+  }
+
   // ── Settings ────────────────────────────────────────────
   async function renderSettings(view) {
-    await migratePlaintextSecrets();
-
+    // Load existing settings
     let settings = W.store.get("settings", {});
     let sensitive = null;
-    const encryptedBlob = W.store.get("encrypted_settings", null);
 
+    // Check if encrypted settings exist
+    const encryptedBlob = W.store.get("encrypted_settings", null);
     if (encryptedBlob) {
-      const pwd =
-        _sessionPassphrase ||
-        prompt("Enter your passphrase to view/edit API keys:");
-      if (pwd) {
-        sensitive = await W.store.getSecureSettings(pwd);
-        if (sensitive) {
-          _sessionPassphrase = pwd;
-          settings.ai = sensitive.ai || {};
-          settings.telegram = sensitive.telegram || {};
+      if (W.secureSession.isUnlocked()) {
+        sensitive = {
+          ai: W.secureSession.get("ai"),
+          telegram: W.secureSession.get("telegram"),
+        };
+        settings.ai = sensitive.ai || {};
+        settings.telegram = sensitive.telegram || {};
+      } else {
+        const passphrase = await getPassphrase();
+        if (passphrase) {
+          try {
+            sensitive = await W.secureSession.unlock(passphrase);
+            settings.ai = sensitive.ai || {};
+            settings.telegram = sensitive.telegram || {};
+          } catch (e) {
+            W.ui.toast(
+              "Incorrect passphrase or corrupted data. API keys will not be shown.",
+              "warn",
+            );
+            settings.ai = { url: "", key: "", model: "" };
+            settings.telegram = { on: false, token: "", chat: "" };
+          }
         } else {
-          W.ui.toast("Incorrect passphrase. Keys are hidden.", "warn");
+          // User cancelled or no passphrase
           settings.ai = { url: "", key: "", model: "" };
           settings.telegram = { on: false, token: "", chat: "" };
         }
-      } else {
-        settings.ai = { url: "", key: "", model: "" };
-        settings.telegram = { on: false, token: "", chat: "" };
       }
     }
 
@@ -9103,51 +9642,53 @@ W.misc = (() => {
     view.innerHTML = `
       <div class="card">
         <h3>⚙️ Settings</h3>
-        <label>Currency
+        <label>
+          Currency
           <select id="set-cur">
-            ${["usd", "eur", "gbp", "inr", "jpy", "aud", "cad"].map((c) => `<option ${settings.currency === c ? "selected" : ""}>${c.toUpperCase()}</option>`).join("")}
+            ${["usd", "eur", "gbp", "inr", "jpy", "aud", "cad"].map((c) => `<option ${settings.currency === c ? "selected" : ""}>${c}</option>`).join("")}
           </select>
         </label>
-        <label>Auto-refresh seconds (0 = off)
+        <label>
+          Auto-refresh seconds (0 = off)
           <input id="set-refresh" type="number" min="0" value="${settings.refresh ?? 60}">
         </label>
-        
         <h3 class="mt">🤖 AI Assistant (optional)</h3>
-        <p class="muted small">Plug in any OpenAI-compatible endpoint. Without a key, Weaver answers with live on-chain data.</p>
-        <label>API URL
+        <p class="muted small">Plug in any OpenAI-compatible endpoint to power "Ask Weaver". Without a key, Weaver answers with live on-chain data.</p>
+        <label>
+          API URL
           <input id="set-aiurl" placeholder="https://api.openai.com/v1/chat/completions" value="${escapeHTML(ai.url || "")}">
         </label>
-        <label>API Key
-          <input id="set-aikey" type="password" value="${escapeHTML(ai.key || "")}" ${encryptedBlob && !_sessionPassphrase ? "disabled" : ""}>
+        <label>
+          API Key
+          <input id="set-aikey" type="password" value="${escapeHTML(ai.key || "")}">
         </label>
-        <label>Model
+        <label>
+          Model
           <input id="set-aimodel" placeholder="gpt-4o-mini" value="${escapeHTML(ai.model || "")}">
         </label>
-        
-        <div class="qa mt">
-          <button class="btn primary" id="set-save">Save Settings</button>
-          ${encryptedBlob && !_sessionPassphrase ? `<button class="btn ghost" id="set-unlock">🔓 Unlock Keys</button>` : ""}
-          ${_sessionPassphrase ? `<button class="btn ghost" id="set-lock">🔒 Lock Keys</button>` : ""}
-        </div>
+        <button class="btn primary mt" id="set-save">Save Settings</button>
+        <button class="btn ghost mt" id="set-unlock" style="display:${encryptedBlob ? "inline-block" : "none"};">🔓 Unlock Keys</button>
+        <button class="btn ghost mt" id="set-lock" style="display:${W.secureSession.isUnlocked() ? "inline-block" : "none"};">🔒 Lock Keys</button>
       </div>
-
       <div class="card">
         <h3>📨 Telegram Alerts (optional)</h3>
-        <p class="muted small">Bot created via <b>@BotFather</b>, Chat ID from <b>@userinfobot</b>.</p>
-        <label>Bot Token
-          <input id="set-tgtoken" type="password" placeholder="123456789:AAF..." value="${escapeHTML(tg.token || "")}" ${encryptedBlob && !_sessionPassphrase ? "disabled" : ""}>
+        <p class="muted small">Bot created via <b>@BotFather</b>, Chat ID from <b>@userinfobot</b>, and you've sent the bot one message. Alerts, triggers and new gems will ping your phone.</p>
+        <label>
+          Bot Token
+          <input id="set-tgtoken" type="password" placeholder="123456789:AAF..." value="${escapeHTML(tg.token || "")}">
         </label>
-        <label>Chat ID
-          <input id="set-tgchat" placeholder="e.g. 7099096813" value="${escapeHTML(tg.chat || "")}" ${encryptedBlob && !_sessionPassphrase ? "disabled" : ""}>
+        <label>
+          Chat ID
+          <input id="set-tgchat" placeholder="e.g. 7099096813" value="${escapeHTML(tg.chat || "")}">
         </label>
         <label class="small">
-          <input type="checkbox" id="set-tgon" ${tg.on ? "checked" : ""} style="width:auto"> Enable Telegram alerts
+          <input type="checkbox" id="set-tgon" ${tg.on ? "checked" : ""} style="width:auto">
+          Enable Telegram alerts
         </label>
         <div class="qa mt">
           <button class="btn" id="set-tgtest">📨 Send Test Message</button>
         </div>
       </div>
-
       <div class="card">
         <h3>Your Data</h3>
         <div class="qa">
@@ -9172,77 +9713,74 @@ W.misc = (() => {
       };
 
       const hasSensitive = aiSettings.key || tgSettings.token;
+
+      // Non-sensitive settings
       const nonSensitive = {
         currency: view.querySelector("#set-cur").value,
         refresh: +view.querySelector("#set-refresh").value,
       };
 
       if (hasSensitive) {
-        let pwd = _sessionPassphrase;
-        if (!pwd) {
-          pwd = prompt(
-            "Create or enter passphrase (min 12 chars) to encrypt keys:",
-          );
-          if (!pwd || pwd.length < 12) {
-            W.ui.toast("Passphrase must be at least 12 characters.", "warn");
+        let passphrase = W.secureSession.getPassphrase();
+        if (!passphrase) {
+          passphrase = await getPassphrase(true);
+          if (!passphrase) {
+            W.ui.toast("Passphrase required to save API keys.", "warn");
             return;
           }
-          _sessionPassphrase = pwd;
         }
         try {
           const sensitive = { ai: aiSettings, telegram: tgSettings };
-          await W.store.setSecureSettings(sensitive, pwd);
-
-          // Ensure no plaintext leaks
-          const currentSettings = W.store.get("settings", {});
-          delete currentSettings.ai;
-          delete currentSettings.telegram;
-          currentSettings.currency = nonSensitive.currency;
-          currentSettings.refresh = nonSensitive.refresh;
-          W.store.set("settings", currentSettings);
-
-          W.ui.toast("Settings saved (sensitive data encrypted) 🔒", "ok");
+          await W.secureSession.save(sensitive, passphrase);
+          // Store non-sensitive separately
+          W.store.set("settings", nonSensitive);
+          W.ui.toast("Settings saved (sensitive data encrypted) ✓", "ok");
         } catch (e) {
           W.ui.toast(`Encryption failed: ${e.message}`, "warn");
         }
       } else {
-        // No sensitive data; ensure clean state (Fixed: use set instead of delete)
-        W.store.set("encrypted_settings", null);
-        const currentSettings = W.store.get("settings", {});
-        delete currentSettings.ai;
-        delete currentSettings.telegram;
-        currentSettings.currency = nonSensitive.currency;
-        currentSettings.refresh = nonSensitive.refresh;
-        W.store.set("settings", currentSettings);
+        // No sensitive data; remove encrypted blob
+        W.store.delete("encrypted_settings");
+        W.store.set("settings", nonSensitive);
         W.ui.toast("Settings saved ✓", "ok");
       }
+      // Refresh UI to reflect changes
       renderSettings(view);
     };
 
-    view.querySelector("#set-unlock")?.addEventListener("click", () => {
-      const pwd = prompt("Enter your passphrase:");
+    // ── Unlock handler ─────────────────────────────────────
+    view.querySelector("#set-unlock").onclick = async () => {
+      const pwd = await getPassphrase(true);
       if (pwd) {
-        _sessionPassphrase = pwd;
-        renderSettings(view);
-        W.ui.toast("Keys unlocked for this session.", "ok");
+        try {
+          await W.secureSession.unlock(pwd);
+          renderSettings(view);
+          W.ui.toast("Passphrase stored for this session.", "ok");
+        } catch (e) {
+          W.ui.toast(`Unlock failed: ${e.message}`, "warn");
+        }
       }
-    });
+    };
 
-    view.querySelector("#set-lock")?.addEventListener("click", () => {
-      _sessionPassphrase = null;
+    // ── Lock handler ─────────────────────────────────────
+    view.querySelector("#set-lock").onclick = () => {
+      clearPassphrase();
       renderSettings(view);
       W.ui.toast("Keys locked.", "info");
-    });
+    };
 
+    // ── Telegram test ─────────────────────────────────────
     view.querySelector("#set-tgtest").onclick = async () => {
       const token = view.querySelector("#set-tgtoken").value.trim();
       const chat = view.querySelector("#set-tgchat").value.trim();
       if (!token || !chat)
         return W.ui.toast("Enter token and Chat ID first", "warn");
       if (!W.tg) return W.ui.toast("Telegram module not loaded", "warn");
+      // Pass the draft token/chatId as overrides so this tests what's
+      // actually typed in the form, not whatever was previously saved.
       const ok = await W.tg.send(
         `✅ Weaver connected! Alerts will arrive here.`,
-        { on: true, token, chat },
+        { token, chatId: chat },
       );
       W.ui.toast(
         ok ? "Test sent 📨" : "Failed — check token/Chat ID",
@@ -9250,6 +9788,7 @@ W.misc = (() => {
       );
     };
 
+    // ── Export Tax ────────────────────────────────────────
     view.querySelector("#set-tax").onclick = () => {
       const txs = W.portfolio?.txs() || [];
       if (!txs.length) return W.ui.toast("No transactions to export.", "warn");
@@ -9267,6 +9806,7 @@ W.misc = (() => {
       W.ui.toast("Tax report downloaded 🧾", "ok");
     };
 
+    // ── Export Backup ──────────────────────────────────────
     view.querySelector("#set-export").onclick = () => {
       const data = {};
       [
@@ -9288,6 +9828,7 @@ W.misc = (() => {
       a.click();
     };
 
+    // ── Wipe Data ──────────────────────────────────────────
     view.querySelector("#set-wipe").onclick = () => {
       W.ui.confirm(
         "This deletes ALL Weaver data from this browser. Continue?",
@@ -9299,10 +9840,17 @@ W.misc = (() => {
     };
   }
 
-  return { renderProfile, renderSettings };
+  // ── Exports ─────────────────────────────────────────────
+  return {
+    renderProfile,
+    renderSettings,
+    renderPro,
+    renderDefi,
+    renderAirdrops,
+  };
 })();
 
-console.log("[Misc] Module loaded (P0 Secure Settings compliant).");
+console.log("[Misc] Module loaded (with encrypted settings).");
 // ---- js/features/whales.js ----
 // ===============================================================
 //         Whale Tracker Module
@@ -11254,13 +11802,14 @@ async function syncVault() {
     version: "1.0",
   };
 
-  const password = prompt("Enter your sync password (min 8 characters):");
+  const password = await W.ui.promptPassword({
+    title: "Sync Vault",
+    message: "Enter your sync password (min 8 characters).",
+    confirmLabel: "Sync",
+    minLength: 8,
+  });
   if (!password) {
     W.ui.toast("Sync cancelled.", "info");
-    return;
-  }
-  if (password.length < 8) {
-    W.ui.toast("Password must be at least 8 characters.", "warn");
     return;
   }
 
@@ -11310,7 +11859,11 @@ async function restoreVault() {
     return;
   }
 
-  const password = prompt("Enter your sync password:");
+  const password = await W.ui.promptPassword({
+    title: "Restore Vault",
+    message: "Enter your sync password.",
+    confirmLabel: "Restore",
+  });
   if (!password) return;
 
   try {
@@ -11470,44 +12023,27 @@ W.tg = (() => {
   const TELEGRAM_API_BASE = "https://api.telegram.org/bot";
   const MAX_MESSAGE_LENGTH = 4096;
   const RATE_LIMIT_WINDOW = 5000; // 5 seconds between messages
-  const STORAGE_KEY = "telegram_settings";
 
   // ── State ─────────────────────────────────────────────
   let lastSent = 0;
-  let settingsCache = null;
 
   // ── Settings ──────────────────────────────────────────
+  // Credentials live only in W.secureSession's in-memory cache, populated
+  // by unlocking the encrypted settings (see js/features/misc.js Settings
+  // page). Weaver never writes the bot token to localStorage in plaintext —
+  // if the session is locked, Telegram sends are simply unavailable until
+  // the user unlocks their keys again.
   function getSettings() {
-    if (settingsCache) return settingsCache;
-    const stored = W.store.get(STORAGE_KEY, null);
-    if (stored) {
-      settingsCache = stored;
-      return stored;
+    const tg = W.secureSession?.get("telegram");
+    if (!tg) {
+      return { enabled: false, token: "", chatId: "", locked: true };
     }
-    // Fallback: read from legacy settings
-    const legacy = W.store.get("settings", {});
-    const tg = legacy.telegram || {};
-    const settings = {
+    return {
       enabled: !!tg.on,
       token: tg.token || "",
       chatId: tg.chat || "",
+      locked: false,
     };
-    settingsCache = settings;
-    W.store.set(STORAGE_KEY, settings);
-    return settings;
-  }
-
-  function saveSettings(settings) {
-    settingsCache = settings;
-    W.store.set(STORAGE_KEY, settings);
-    // Also update legacy settings for backward compatibility
-    const legacy = W.store.get("settings", {});
-    legacy.telegram = {
-      on: settings.enabled,
-      token: settings.token,
-      chat: settings.chatId,
-    };
-    W.store.set("settings", legacy);
   }
 
   // ── Validation ────────────────────────────────────────
@@ -11532,21 +12068,32 @@ W.tg = (() => {
   }
 
   // ── Send Message ──────────────────────────────────────
-  async function sendMessage(text, options = {}) {
+  // overrides.token / overrides.chatId let a caller (e.g. a "test before
+  // saving" button) send with draft credentials that haven't been
+  // persisted yet, without ever writing them to disk first.
+  async function sendMessage(text, overrides = {}) {
     const settings = getSettings();
-    if (!settings.enabled) {
-      console.warn("[Telegram] Not enabled.");
+    const token = overrides.token || settings.token;
+    const chatId = overrides.chatId || settings.chatId;
+    const enabled = overrides.token ? true : settings.enabled;
+
+    if (!enabled) {
+      console.warn(
+        settings.locked
+          ? "[Telegram] Keys are locked — unlock in Settings to send."
+          : "[Telegram] Not enabled.",
+      );
       return false;
     }
-    if (!settings.token || !settings.chatId) {
+    if (!token || !chatId) {
       console.warn("[Telegram] Missing token or chat ID.");
       return false;
     }
-    if (!isValidToken(settings.token)) {
+    if (!isValidToken(token)) {
       console.warn("[Telegram] Invalid token format.");
       return false;
     }
-    if (!isValidChatId(settings.chatId)) {
+    if (!isValidChatId(chatId)) {
       console.warn("[Telegram] Invalid chat ID format.");
       return false;
     }
@@ -11558,13 +12105,12 @@ W.tg = (() => {
       truncated = text.slice(0, MAX_MESSAGE_LENGTH - 3) + "…";
     }
 
-    const url = `${TELEGRAM_API_BASE}${settings.token}/sendMessage`;
+    const url = `${TELEGRAM_API_BASE}${token}/sendMessage`;
     const payload = {
-      chat_id: settings.chatId,
+      chat_id: chatId,
       text: truncated,
       parse_mode: "HTML",
       disable_web_page_preview: true,
-      ...options,
     };
 
     try {
@@ -11638,101 +12184,11 @@ W.tg = (() => {
     }
   }
 
-  // ── UI Render (integration with settings page) ──────
-  function renderSettings(container) {
-    const settings = getSettings();
-    container.innerHTML = `
-      <div class="card">
-        <h3>📨 Telegram Alerts</h3>
-        <p class="muted small">
-          Configure your Telegram bot to receive alerts, price triggers, and gem discoveries.
-          <br>
-          Create a bot via <b>@BotFather</b>, get your Chat ID from <b>@userinfobot</b>, and send a message to the bot first.
-        </p>
-        <label>
-          Bot Token
-          <input type="password" id="tg-token" placeholder="123456789:AAF..." value="${settings.token}">
-        </label>
-        <label>
-          Chat ID
-          <input type="text" id="tg-chat" placeholder="e.g. 7099096813 or @channel" value="${settings.chatId}">
-        </label>
-        <label class="small">
-          <input type="checkbox" id="tg-enabled" ${settings.enabled ? "checked" : ""} style="width:auto;">
-          Enable Telegram alerts
-        </label>
-        <div class="qa mt">
-          <button class="btn" id="tg-test">📨 Send Test Message</button>
-          <button class="btn primary" id="tg-save">Save Settings</button>
-        </div>
-        <div id="tg-status" class="mt"></div>
-      </div>
-    `;
-
-    const tokenInput = container.querySelector("#tg-token");
-    const chatInput = container.querySelector("#tg-chat");
-    const enabledCheck = container.querySelector("#tg-enabled");
-    const testBtn = container.querySelector("#tg-test");
-    const saveBtn = container.querySelector("#tg-save");
-    const status = container.querySelector("#tg-status");
-
-    testBtn.onclick = async () => {
-      // Temporarily save settings to test
-      const tempSettings = {
-        enabled: enabledCheck.checked,
-        token: tokenInput.value.trim(),
-        chatId: chatInput.value.trim(),
-      };
-      // Validate
-      if (!tempSettings.token || !tempSettings.chatId) {
-        status.innerHTML =
-          '<p class="down">❌ Please fill in both token and chat ID.</p>';
-        return;
-      }
-      if (!isValidToken(tempSettings.token)) {
-        status.innerHTML = '<p class="down">❌ Invalid bot token format.</p>';
-        return;
-      }
-      if (!isValidChatId(tempSettings.chatId)) {
-        status.innerHTML = '<p class="down">❌ Invalid chat ID format.</p>';
-        return;
-      }
-      // Temporarily save to test
-      const originalSettings = { ...settings };
-      saveSettings(tempSettings);
-      try {
-        const result = await testConnection();
-        if (result.success) {
-          status.innerHTML =
-            '<p class="up">✅ Test message sent! Check your Telegram.</p>';
-        } else {
-          status.innerHTML = `<p class="down">❌ ${result.error}</p>`;
-        }
-      } catch (e) {
-        status.innerHTML = `<p class="down">❌ ${e.message}</p>`;
-      }
-      // Restore original settings
-      saveSettings(originalSettings);
-    };
-
-    saveBtn.onclick = () => {
-      const newSettings = {
-        enabled: enabledCheck.checked,
-        token: tokenInput.value.trim(),
-        chatId: chatInput.value.trim(),
-      };
-      if (newSettings.token && !isValidToken(newSettings.token)) {
-        status.innerHTML = '<p class="down">❌ Invalid bot token format.</p>';
-        return;
-      }
-      if (newSettings.chatId && !isValidChatId(newSettings.chatId)) {
-        status.innerHTML = '<p class="down">❌ Invalid chat ID format.</p>';
-        return;
-      }
-      saveSettings(newSettings);
-      status.innerHTML = '<p class="up">✅ Settings saved.</p>';
-    };
-  }
+  // Note: Telegram token/chat ID are configured on the main Settings page
+  // (js/features/misc.js), which owns the encrypted_settings blob via
+  // W.secureSession. This module intentionally has no settings UI or
+  // save path of its own — a second, parallel place to edit the same
+  // credential is exactly how the old plaintext-storage bug happened.
 
   // ── Public API ─────────────────────────────────────────
   return {
@@ -11741,10 +12197,8 @@ W.tg = (() => {
     notify,
     test: testConnection,
 
-    // Settings
+    // Settings (read-only from this module's perspective)
     getSettings,
-    saveSettings,
-    renderSettings,
 
     // Utility
     isEnabled: () => getSettings().enabled,
@@ -11756,7 +12210,7 @@ W.tg = (() => {
 console.log("[Telegram] Module loaded.");
 // ---- js/features/walletsync.js ----
 // ================================================================
-// js/features/walletsync.js – Secure Multi‑Chain Wallet Sync
+//  Secure Multi‑Chain Wallet Sync
 // ================================================================
 
 window.W = window.W || {};
@@ -12234,7 +12688,11 @@ W.walletSync = (() => {
       W.ui.confirm(
         "This will permanently delete all synced wallet data. Continue?",
         async () => {
-          const pwd = prompt("Enter your sync password:");
+          const pwd = await W.ui.promptPassword({
+            title: "Clear Wallet Data",
+            message: "Enter your sync password to confirm.",
+            confirmLabel: "Clear",
+          });
           if (!pwd) return;
           try {
             await clearAll(pwd);
@@ -12258,7 +12716,11 @@ W.walletSync = (() => {
   }
 
   async function syncAndDisplay(view) {
-    const pwd = prompt("Enter your sync password:");
+    const pwd = await W.ui.promptPassword({
+      title: "Sync Wallets",
+      message: "Enter your sync password.",
+      confirmLabel: "Sync",
+    });
     if (!pwd) return;
     try {
       view.querySelector("#ws-status").innerHTML = W.ui.spinner();
@@ -12312,7 +12774,11 @@ W.walletSync = (() => {
     `;
     container.querySelectorAll("[data-remove]").forEach((btn) => {
       btn.onclick = async () => {
-        const pwd = prompt("Enter sync password to remove:");
+        const pwd = await W.ui.promptPassword({
+          title: "Remove Wallet",
+          message: "Enter your sync password to confirm removal.",
+          confirmLabel: "Remove",
+        });
         if (!pwd) return;
         try {
           await removeWallet(btn.dataset.remove, pwd);
@@ -13746,12 +14212,43 @@ window.W = window.W || {};
 console.log("[App] Module loaded.");
 // ---- js/init.js ----
 // ===============================================================
-//         Initialization Script for Weaver 
+//         Initialization Script for Weaver
 // ===============================================================
 
 (function () {
   // Ensure W is defined
   window.W = window.W || {};
+
+  // ── One-time cleanup: purge legacy plaintext Telegram credentials ──
+  // Older versions stored the Telegram bot token in plaintext under
+  // "telegram_settings" and inside settings.telegram.token. Both paths
+  // are now removed in favor of the encrypted_settings store (see
+  // js/lib/crypto/secure-session.js). This runs once per device to
+  // scrub any plaintext token left over from before the fix, without
+  // requiring a passphrase prompt at boot.
+  (function purgeLegacyPlaintextTelegramToken() {
+    let purged = false;
+
+    if (W.store?.get?.("telegram_settings", null)) {
+      W.store.delete("telegram_settings");
+      purged = true;
+    }
+
+    const settings = W.store?.get?.("settings", {}) || {};
+    if (settings.telegram && settings.telegram.token) {
+      delete settings.telegram.token;
+      W.store.set("settings", settings);
+      purged = true;
+    }
+
+    if (purged) {
+      console.warn(
+        "[Init] Removed legacy plaintext Telegram token from storage. " +
+          "Re-enter your bot token in Settings to re-enable alerts.",
+      );
+      W.store?.set?.("telegram_migration_notice_pending", true);
+    }
+  })();
 
   // ── Clock Updates ────────────────────────────────────────
   function updateClock() {
@@ -13867,6 +14364,15 @@ console.log("[App] Module loaded.");
     initRefresh();
     initSyncButton();
     initTheme();
+
+    if (W.store?.get?.("telegram_migration_notice_pending", false)) {
+      W.store.delete("telegram_migration_notice_pending");
+      W.ui?.toast?.(
+        "Telegram alerts were reset for security — please re-enter your bot token in Settings.",
+        "info",
+        8000,
+      );
+    }
 
     console.log("✅ Weaver initialization complete.");
   }
