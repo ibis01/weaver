@@ -13357,22 +13357,21 @@ W.journal = W.journal || {};
       view.querySelector("#decision-form-container").classList.add("hidden");
     };
 
-    view.querySelector("#decision-form").onsubmit = (e) => {
-      e.preventDefault();
-      create({
-        asset: view.querySelector("#d-asset").value.trim().toUpperCase(),
-        action: view.querySelector("#d-action").value,
-        amount: view.querySelector("#d-amount").value,
-        price: view.querySelector("#d-price").value,
-        thesisId: view.querySelector("#d-thesis").value || null,
-        confidence: view.querySelector("#d-confidence").value,
-        horizon: view.querySelector("#d-horizon").value.trim(),
-        reasoning: view.querySelector("#d-reasoning").value.trim(),
-      });
-      render(view);
-      W.ui.toast("Decision logged", "ok");
-    };
-
+         view.querySelector("#decision-form").onsubmit = async (e) => {
+           e.preventDefault();
+           create({
+             asset: view.querySelector("#d-asset").value.trim().toUpperCase(),
+             action: view.querySelector("#d-action").value,
+             amount: view.querySelector("#d-amount").value,
+             price: view.querySelector("#d-price").value,
+             thesisId: view.querySelector("#d-thesis").value || null,
+             confidence: view.querySelector("#d-confidence").value,
+             horizon: view.querySelector("#d-horizon").value.trim(),
+             reasoning: view.querySelector("#d-reasoning").value.trim(),
+           });
+           await render(view); // <-- This await is critical for the E2E test to find the badge
+           W.ui.toast("Decision logged", "ok");
+         };
     view.querySelectorAll("[data-action='delete']").forEach((btn) => {
       btn.onclick = () => {
         remove(btn.dataset.id);
