@@ -13587,6 +13587,9 @@ W.tokenAnalysis = (async () => {
 
   // Render function (unchanged from previous version, but improved UI)
   async function render(view, assetId) {
+<<<<<<< HEAD
+    // ... (same as before, but now uses the enhanced analyze)
+=======
     // If no assetId, show the search input
     if (!assetId) {
       view.innerHTML = `
@@ -13690,6 +13693,7 @@ W.tokenAnalysis = (async () => {
     } catch (e) {
       view.innerHTML = `<div class="card"><p class="muted">Analysis failed: ${e.message}</p></div>`;
     }
+>>>>>>> 82406e29bdc8b212413ee40df5fc02e64f4e0e8e
   }
   console.log("[TokenAnalysis] Module loaded.");
 
