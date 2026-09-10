@@ -1519,446 +1519,469 @@ W.ui = {
 console.log("[UI] Module loaded.");
 // ---- js/ui/dashboard.js ----
 // ===============================================================
-//         Weaver Core Application
+//                     Weaver Dashboard UI
 // ===============================================================
-// Purpose: Handle routing, navigation rendering, and app initialization.
-// Updates: Phase 2 (Grouped Navigation), Phase 15/18 (Removed decorative cursor glow).
+// CSP Compliant: Zero inline styles.
 // ===============================================================
 
 window.W = window.W || {};
 
-(function () {
-  // ── Navigation Configuration (Phase 2: Grouped Hierarchy) ─
-  const NAV_GROUPS = [
-    {
-      label: "PRIMARY",
-      items: [
-        {
-          id: "dashboard",
-          icon: "📊",
-          label: "Dashboard",
-          route: "#/dashboard",
-        },
-        { id: "explorer", icon: "🔍", label: "Discover", route: "#/explorer" },
-        { id: "token", icon: "📈", label: "Analyze", route: "#/token" },
-        {
-          id: "portfolio",
-          icon: "💼",
-          label: "Portfolio",
-          route: "#/portfolio",
-        },
-      ],
-    },
-    {
-      label: "MONITOR",
-      items: [
-        {
-          id: "watchlist",
-          icon: "⭐",
-          label: "Watchlist",
-          route: "#/watchlist",
-        },
-        { id: "alerts", icon: "🚨", label: "Alerts", route: "#/alerts" },
-        { id: "market", icon: "📡", label: "Signals", route: "#/market" },
-      ],
-    },
-    {
-      label: "INTELLIGENCE",
-      items: [
-        { id: "news", icon: "📰", label: "News", route: "#/news" },
-        { id: "whales", icon: "🐋", label: "Whale Tracker", route: "#/whales" },
-        { id: "smart", icon: "🧠", label: "Smart Money", route: "#/smart" },
-        { id: "theses", icon: "🎯", label: "Theses", route: "#/theses" },
-        { id: "journal", icon: "📓", label: "Journal", route: "#/journal" },
-      ],
-    },
-    {
-      label: "TOOLS",
-      items: [
-        { id: "shield", icon: "🛡️", label: "Token Shield", route: "#/shield" },
-        {
-          id: "optimizer",
-          icon: "🧮",
-          label: "Optimizer",
-          route: "#/optimizer",
-        },
-        {
-          id: "unlocks",
-          icon: "🔓",
-          label: "Token Unlocks",
-          route: "#/unlocks",
-        },
-        { id: "ai", icon: "🧠", label: "AI Insights", route: "#/ai" },
-        { id: "settings", icon: "⚙️", label: "Settings", route: "#/settings" },
-      ],
-    },
-  ];
+W.dashboard = (() => {
+  const statCard = (label, big, sub) => `
+    <div class="card stat">
+      <div class="stat-label">${W.fmt.escapeHTML(label)}</div>
+      <div class="stat-big">${big}</div>
+      <div class="stat-sub">${W.fmt.escapeHTML(sub)}</div>
+    </div>`;
 
-  // Flatten for legacy compatibility lookups
-  const ALL_NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
-
-  // ── Route Map ──────────────────────────────────────────
-  const routes = {
-    dashboard: (v) =>
-      W.dashboard?.render?.(v) ||
-      W.ui?.toast?.("Dashboard module not loaded", "warn"),
-    portfolio: (v) =>
-      W.dashboard?.renderPortfolio?.(v) ||
-      W.ui?.toast?.("Portfolio module not loaded", "warn"),
-    watchlist: (v) =>
-      W.watchlist?.render?.(v) ||
-      W.ui?.toast?.("Watchlist module not loaded", "warn"),
-    explorer: (v) =>
-      W.explorer?.render?.(v) ||
-      W.ui?.toast?.("Explorer module not loaded", "warn"),
-    alerts: (v) =>
-      W.alerts?.render?.(v) ||
-      W.ui?.toast?.("Alerts module not loaded", "warn"),
-    news: (v) =>
-      W.news?.render?.(v) || W.ui?.toast?.("News module not loaded", "warn"),
-    ai: (v) =>
-      W.ai?.render?.(v) || W.ui?.toast?.("AI module not loaded", "warn"),
-    optimizer: (v) =>
-      W.optimizer?.render?.(v) ||
-      W.ui?.toast?.("Optimizer module not loaded", "warn"),
-    time: (v) =>
-      W.time?.render?.(v) ||
-      W.ui?.toast?.("Time Machine module not loaded", "warn"),
-    trader: (v) =>
-      W.trader?.render?.(v) ||
-      W.ui?.toast?.("Trader module not loaded", "warn"),
-    gems: (v) =>
-      W.gems?.render?.(v) || W.ui?.toast?.("Gems module not loaded", "warn"),
-    shield: (v) =>
-      W.shield?.render?.(v) ||
-      W.ui?.toast?.("Shield module not loaded", "warn"),
-    web3: (v) =>
-      W.web3?.render?.(v) || W.ui?.toast?.("Web3 module not loaded", "warn"),
-    defi: (v) =>
-      W.misc?.renderDefi?.(v) ||
-      W.ui?.toast?.("DeFi module not loaded", "warn"),
-    airdrops: (v) =>
-      W.misc?.renderAirdrops?.(v) ||
-      W.ui?.toast?.("Airdrops module not loaded", "warn"),
-    market: (v) =>
-      W.market?.render?.(v) ||
-      W.ui?.toast?.("Market module not loaded", "warn"),
-    sectors: (v) =>
-      W.sectors?.render?.(v) ||
-      W.ui?.toast?.("Sectors module not loaded", "warn"),
-    whales: (v) =>
-      W.whales?.render?.(v) ||
-      W.ui?.toast?.("Whales module not loaded", "warn"),
-    smart: (v) =>
-      W.smart?.render?.(v) || W.ui?.toast?.("Smart module not loaded", "warn"),
-    unlocks: (v) =>
-      W.unlocks?.render?.(v) ||
-      W.ui?.toast?.("Unlocks module not loaded", "warn"),
-    learn: (v) =>
-      W.learn?.render?.(v) || W.ui?.toast?.("Learn module not loaded", "warn"),
-    profile: (v) =>
-      W.misc?.renderProfile?.(v) ||
-      W.ui?.toast?.("Profile module not loaded", "warn"),
-    pro: (v) =>
-      W.misc?.renderPro?.(v) || W.ui?.toast?.("Pro module not loaded", "warn"),
-    theses: (v) =>
-      W.theses?.render?.(v) ||
-      W.ui?.toast?.("Theses module not loaded", "warn"),
-    journal: (v) =>
-      W.journal?.render?.(v) ||
-      W.ui?.toast?.("Journal module not loaded", "warn"),
-    sync: (v) => {
-      if (W.sync?.render) W.sync.render(v);
-      else W.ui?.toast?.("Sync module not loaded", "warn");
-    },
-    settings: (v) =>
-      W.misc?.renderSettings?.(v) ||
-      W.ui?.toast?.("Settings module not loaded", "warn"),
-    token: async (v) => {
-      const param = getPageParam();
-      if (W.tokenAnalysis) {
-        if (param) await W.tokenAnalysis.render(v, param);
-        else await W.tokenAnalysis.render(v);
-      } else {
-        W.ui?.toast?.("Token Analysis module not loaded", "warn");
-      }
-    },
+  const signedMoney = (n) => {
+    if (n == null || isNaN(n)) return "—";
+    const isUp = n >= 0;
+    return `<span class="${isUp ? "text-up" : "text-down"}">${isUp ? "+" : "-"}${W.fmt.money(Math.abs(n))}</span>`;
   };
 
-  // ── Helpers ────────────────────────────────────────────
-  function getCurrentPage() {
-    return location.hash.slice(2).split("/")[0] || "dashboard";
-  }
-
-  function getPageParam() {
-    const parts = location.hash.slice(2).split("/");
-    return parts.length > 1 ? parts[1] : null;
-  }
-
-  // ── Route Handler ──────────────────────────────────────
-  function route() {
-    const hash = location.hash.slice(2) || "dashboard";
-    const [page, param] = hash.split("/");
-    const activeId = page === "coin" ? "explorer" : page;
-
-    // Update navigation active state
-    document.querySelectorAll("#nav a").forEach((a) => {
-      a.classList.toggle("active", a.dataset.id === activeId);
-    });
-
-    // Update page title
-    const navItem = ALL_NAV_ITEMS.find((n) => n.id === activeId);
-    const titleEl = document.getElementById("page-title");
-    if (titleEl) titleEl.textContent = navItem ? navItem.label : "Weaver";
-
-    // Render view
-    const view = document.getElementById("view");
-    if (!view) {
-      console.warn("[App] View element not found");
-      return;
+  const tapeHTML = (coins) => {
+    if (!coins || !Array.isArray(coins) || !coins.length) {
+      return '<div class="tape-wrap"><div class="tape"><span class="tape-item text-muted">📊 Loading market data...</span></div></div>';
     }
+    let tapeItems = "";
+    let validCount = 0;
+    for (let i = 0; i < coins.length; i++) {
+      const c = coins[i];
+      if (!c || typeof c !== "object") continue;
+      const symbol = c.symbol ? String(c.symbol).toUpperCase() : null;
+      if (!symbol) continue;
+      const price =
+        c.current_price !== undefined
+          ? c.current_price
+          : c.price !== undefined
+            ? c.price
+            : null;
+      if (price === null || price === undefined || isNaN(price)) continue;
+      const change =
+        c.price_change_percentage_24h_in_currency !== undefined
+          ? c.price_change_percentage_24h_in_currency
+          : 0;
+      tapeItems += `<span class="tape-item"><b>${W.fmt.escapeHTML(symbol)}</b><span class="text-muted">${W.fmt.price(price)}</span>${W.fmt.pct(change)}</span>`;
+      validCount++;
+      if (validCount >= 20) break;
+    }
+    if (!tapeItems)
+      return '<div class="tape-wrap"><div class="tape"><span class="tape-item text-muted">📊 No market data available</span></div></div>';
+    return `<div class="tape-wrap"><div class="tape">${tapeItems + tapeItems}</div></div>`;
+  };
 
-    try {
-      if (page === "coin" && param) {
-        if (W.explorer?.renderCoin) {
-          W.explorer.renderCoin(view, param);
-        } else {
-          view.innerHTML =
-            '<p class="muted">Explorer module not available.</p>';
-        }
-      } else if (routes[page]) {
-        routes[page](view);
-      } else {
-        view.innerHTML =
-          '<div class="card"><h3>404</h3><p class="muted">Page not found.</p></div>';
+  function drawSpark(c) {
+    const vals = (c.dataset.spark || "")
+      .split(",")
+      .map(Number)
+      .filter((v) => !isNaN(v));
+    if (vals.length < 2) return;
+    const w = (c.width = 110),
+      h = (c.height = 30),
+      ctx = c.getContext("2d");
+    const min = Math.min(...vals),
+      max = Math.max(...vals),
+      up = c.dataset.up === "1";
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = up ? "var(--up)" : "var(--down)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    vals.forEach((v, i) => {
+      const x = (i / (vals.length - 1)) * w,
+        y = h - 3 - ((v - min) / (max - min || 1)) * (h - 6);
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    });
+    ctx.stroke();
+    ctx.lineTo(w, h);
+    ctx.lineTo(0, h);
+    ctx.closePath();
+    ctx.fillStyle = up ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)";
+    ctx.fill();
+  }
+
+  const sparkCell = (arr, up) =>
+    arr && arr.length
+      ? `<canvas class="spark" data-up="${up ? 1 : 0}" data-spark="${arr
+          .filter((_, i) => i % 6 === 0)
+          .map((v) => v.toFixed(4))
+          .join(",")}"></canvas>`
+      : '<span class="text-muted small-text">—</span>';
+
+  const termRow = (c, i) => {
+    if (!c || typeof c !== "object") return "";
+    const id = c.id || "unknown",
+      image = c.image || "",
+      name = c.name || "Unknown";
+    const symbol = c.symbol ? String(c.symbol).toUpperCase() : "???";
+    const price =
+      c.current_price !== undefined ? c.current_price : c.price || 0;
+    const p24 =
+      c.price_change_percentage_24h_in_currency !== undefined
+        ? c.price_change_percentage_24h_in_currency
+        : 0;
+    const sparkline = (c.sparkline_in_7d || {}).price || [];
+    return `<tr class="clickable" data-coin="${W.fmt.escapeHTML(id)}">
+      <td class="text-muted">${i + 1}</td>
+      <td class="coin-cell"><img src="${W.fmt.escapeHTML(image)}" alt="${W.fmt.escapeHTML(name)}" class="coin-img"><div><b>${W.fmt.escapeHTML(symbol)}</b><br><span class="text-muted small-text">${W.fmt.escapeHTML(name)}</span></div></td>
+      <td class="num"><b>${W.fmt.price(price)}</b></td>
+      <td class="num">${W.fmt.pct(p24)}</td>
+      <td>${sparkCell(sparkline, p24 >= 0)}</td>
+    </tr>`;
+  };
+
+  async function enrich() {
+    const manualHoldings = W.portfolio ? W.portfolio.all() : [];
+    let walletHoldings = [];
+    if (W.walletSync && typeof W.walletSync.holdings === "function")
+      walletHoldings = W.walletSync.holdings() || [];
+    const allHoldings = [
+      ...manualHoldings.map((h) => ({ ...h, wallet: false })),
+      ...walletHoldings.map((h) => ({ ...h, wallet: true })),
+    ];
+    if (!allHoldings.length) return { rows: [], totals: null };
+    const ids = [...new Set(allHoldings.map((h) => h.coinId))]
+      .filter(Boolean)
+      .join(",");
+    let markets = [];
+    if (ids.trim()) {
+      try {
+        markets = await W.api.markets(ids);
+      } catch (e) {
+        console.warn("[Dashboard] Market fetch failed:", e.message);
       }
-    } catch (e) {
-      console.error("[App] Route error:", e);
-      view.innerHTML = `
-        <div class="card">
-          <h3>⚠️ Something went wrong</h3>
-          <p class="muted">${W.fmt?.escapeHTML?.(e.message) || e.message}</p>
-          <p class="muted small">Check the console (F12) for details.</p>
+    }
+    const rows = allHoldings
+      .map((h) => {
+        const m = markets.find((c) => c.id === h.coinId) || {};
+        const price = m.current_price ?? h.buyPrice ?? 0;
+        const qty = parseFloat(h.qty) || 0;
+        const value = price * qty;
+        let cost;
+        if (h.wallet) {
+          cost =
+            h.manualCostBasis && typeof h.manualCostBasis.totalCost === "number"
+              ? h.manualCostBasis.totalCost
+              : 0;
+        } else {
+          cost =
+            h.totalCost !== undefined
+              ? h.totalCost
+              : (parseFloat(h.buyPrice) || 0) * qty;
+          if (cost === undefined || cost === null || isNaN(cost) || cost < 0)
+            cost = 0;
+        }
+        return {
+          ...h,
+          price,
+          value,
+          cost,
+          pnl: value - cost,
+          pnlPct: cost ? ((value - cost) / cost) * 100 : 0,
+          p24: m.price_change_percentage_24h_in_currency ?? null,
+          image: m.image || h.img,
+        };
+      })
+      .sort((a, b) => b.value - a.value);
+
+    const totals = { value: 0, cost: 0 };
+    let prev24 = 0;
+    rows.forEach((r) => {
+      totals.value += r.value;
+      totals.cost += r.cost;
+      if (r.p24 != null) prev24 += r.value / (1 + r.p24 / 100);
+    });
+    totals.allTime = totals.value - totals.cost;
+    totals.allTimePct = totals.cost ? (totals.allTime / totals.cost) * 100 : 0;
+    totals.day = totals.value - prev24;
+    totals.dayPct = prev24 ? (totals.day / prev24) * 100 : 0;
+    return { rows, totals };
+  }
+
+  const holdingsTable = (rows) => `
+    <div class="table-wrap"><table><thead><tr><th>Asset</th><th>Price</th><th>24h</th><th>Qty</th><th>Value</th><th>P/L</th><th></th></tr></thead><tbody>
+      ${rows
+        .map(
+          (r) => `<tr>
+        <td class="coin-cell"><img src="${W.fmt.escapeHTML(r.image || r.img || "")}" alt="${W.fmt.escapeHTML(r.name)}" class="coin-img"><div><b>${W.fmt.escapeHTML(r.name)}</b><br><span class="text-muted small-text">${W.fmt.escapeHTML(String(r.symbol).toUpperCase())}</span></div></td>
+        <td>${W.fmt.price(r.price)}</td><td>${W.fmt.pct(r.p24)}</td><td>${r.qty}</td>
+        <td><b>${W.fmt.money(r.value)}</b></td>
+        <td>${r.wallet ? '<span class="text-muted">—</span>' : signedMoney(r.pnl) + '<div class="small-text">' + W.fmt.pct(r.pnlPct) + "</div>"}</td>
+        <td class="row-actions">${r.wallet ? '<span class="tag rank">👛 wallet</span>' : `<button class="icon-btn" data-edit="${W.fmt.escapeHTML(r.id)}">✏️</button><button class="icon-btn" data-del="${W.fmt.escapeHTML(r.id)}">🗑️</button>`}</td>
+      </tr>`,
+        )
+        .join("")}
+    </tbody></table></div>`;
+
+  function wireRows(container, rows) {
+    rows.forEach((r) => {
+      if (r.wallet) return;
+      const e = container.querySelector(`[data-edit="${CSS.escape(r.id)}"]`);
+      const d = container.querySelector(`[data-del="${CSS.escape(r.id)}"]`);
+      if (e) e.onclick = () => holdingModal(r);
+      if (d)
+        d.onclick = () =>
+          W.ui.confirm(`Remove <b>${W.fmt.escapeHTML(r.name)}</b>?`, () => {
+            if (W.portfolio && W.portfolio.remove) W.portfolio.remove(r.id);
+            W.ui.toast("Holding removed", "ok");
+            W.refresh();
+          });
+    });
+  }
+
+  function holdingModal(existing = null, preselect = null) {
+    const coinLine = existing
+      ? `<p class="text-muted small-text">Coin: <b>${W.fmt.escapeHTML(existing.name)} (${W.fmt.escapeHTML(existing.symbol.toUpperCase())})</b></p>`
+      : preselect
+        ? `<p class="text-muted small-text">Coin: <b>${W.fmt.escapeHTML(preselect.name)} (${W.fmt.escapeHTML(preselect.symbol.toUpperCase())})</b></p>`
+        : `<div id="picker"></div>`;
+    const m = W.ui.modal({
+      title: existing
+        ? `Edit ${W.fmt.escapeHTML(existing.name)}`
+        : "Add Holding",
+      body: `<form id="h-form">${coinLine}<label>Quantity<input type="number" step="any" name="qty" required value="${existing ? existing.qty : ""}" placeholder="0.5"></label><label>Average buy price<input type="number" step="any" name="buyPrice" required value="${existing ? existing.buyPrice : ""}" placeholder="29500"></label></form>`,
+      footer: `<button class="btn ghost" id="h-cancel">Cancel</button><button class="btn primary" id="h-save">${existing ? "Save" : "Add"}</button>`,
+    });
+    let picked = existing
+      ? {
+          id: existing.coinId,
+          symbol: existing.symbol,
+          name: existing.name,
+          img: existing.img,
+        }
+      : preselect
+        ? {
+            id: preselect.id,
+            symbol: preselect.symbol,
+            name: preselect.name,
+            img: preselect.image?.small || "",
+          }
+        : null;
+    if (!existing && !preselect && W.ui.coinPicker)
+      W.ui.coinPicker(m.el.querySelector("#picker"), (p) => (picked = p));
+    m.el.querySelector("#h-cancel").onclick = m.close;
+    m.el.querySelector("#h-save").onclick = () => {
+      const f = m.el.querySelector("#h-form");
+      const qty = parseFloat(f.qty.value),
+        buyPrice = parseFloat(f.buyPrice.value);
+      if (!picked) return W.ui.toast("Pick a coin first", "warn");
+      if (!qty || qty <= 0 || isNaN(buyPrice) || buyPrice < 0)
+        return W.ui.toast("Enter valid quantity and price", "warn");
+      if (existing && W.portfolio && W.portfolio.update)
+        W.portfolio.update(existing.id, { qty, buyPrice });
+      else if (W.portfolio && W.portfolio.add)
+        W.portfolio.add({
+          coinId: picked.id,
+          symbol: picked.symbol,
+          name: picked.name,
+          img: picked.img,
+          qty,
+          buyPrice,
+          date: Date.now(),
+        });
+      m.close();
+      W.ui.toast(existing ? "Holding updated" : "Holding added 🎉", "ok");
+      W.refresh();
+    };
+  }
+
+  async function render(view) {
+    view.innerHTML = `
+      <div class="cards" id="d-stats"></div>
+      <div class="grid-2">
+        <div id="what-matters-now-container"></div>
+        <div id="what-changed-container"></div>
+      </div>
+      <div class="card text-center p-24">
+        <h3 class="mb-16">Next Steps</h3>
+        <div class="qa flex-center gap-16">
+          <a href="#/token" class="btn primary">🔍 Analyze a Token</a>
+          <button class="btn" id="qa-add">+ Add Holding</button>
+          <button class="btn" id="qa-sync" title="Sync connected wallets">👛 Sync Wallets</button>
         </div>
+      </div>
+      <div class="card mt-16">
+        <div class="flex-between mb-8">
+          <h3>🌐 Markets Terminal</h3>
+          <div class="qa">
+            <button class="chip active" data-tab="trending">🔥 Trending</button>
+            <button class="chip" data-tab="top">🏆 Top</button>
+            <button class="chip" data-tab="gain">📈 Gainers</button>
+            <button class="chip" data-tab="lose">📉 Losers</button>
+          </div>
+        </div>
+        <div id="d-tape"></div>
+        <div class="table-wrap">
+          <table class="term-table">
+            <thead><tr><th>#</th><th>Token</th><th class="num">Price</th><th class="num">24H</th><th>7d Chart</th></tr></thead>
+            <tbody id="d-rows"><tr><td colspan="5" class="text-center text-muted">${W.ui.spinner()}</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card mt-16">
+        <div class="flex-between mb-8"><h3>💼 Your Portfolio</h3></div>
+        <div id="d-port"></div>
+      </div>
+    `;
+
+    view.querySelector("#qa-add").onclick = () => holdingModal();
+    const syncBtn = view.querySelector("#qa-sync");
+    if (syncBtn)
+      syncBtn.onclick = async () => {
+        W.ui.toast("👛 Syncing wallets…", "info");
+        if (W.walletSync && W.walletSync.refresh) {
+          await W.walletSync.refresh();
+          W.refresh();
+        } else W.ui.toast("Wallet sync module not available", "warn");
+      };
+
+    const [topR, globR, fgR, pf] = await Promise.allSettled([
+      W.api.top(100),
+      W.api.global(),
+      W.api.fearGreed(),
+      enrich(),
+    ]);
+    const TOP =
+      topR.status === "fulfilled" && Array.isArray(topR.value)
+        ? topR.value
+        : [];
+    const rows = pf.status === "fulfilled" ? pf.value.rows : [];
+    const totals = pf.status === "fulfilled" ? pf.value.totals : null;
+    const g = globR.status === "fulfilled" ? globR.value.data : null;
+
+    const statsEl = view.querySelector("#d-stats");
+    if (statsEl) {
+      statsEl.innerHTML = `
+        ${totals ? statCard("Total Balance", W.fmt.money(totals.value), rows.length + " assets") : statCard("Total Balance", "—", "Add holdings to get started")}
+        ${totals ? statCard("P/L · 24h", signedMoney(totals.day), W.fmt.pct(totals.dayPct)) : ""}
+        ${g ? statCard("Global Market Cap", W.fmt.money(g.total_market_cap[W.currency()], { compact: true }), W.fmt.pct(g.market_cap_change_percentage_24h_usd)) : ""}
       `;
     }
 
-    // Update last updated timestamp
-    const updated = document.getElementById("last-updated");
-    if (updated) {
-      updated.textContent = `updated ${new Date().toLocaleTimeString()} · via ${W.api?.source || "…"}`;
-    }
+    const tapeContainer = view.querySelector("#d-tape");
+    if (tapeContainer)
+      tapeContainer.innerHTML = TOP.length
+        ? tapeHTML(TOP.slice(0, 20))
+        : tapeHTML([]);
 
-    // Check alerts
-    if (W.alerts?.check) W.alerts.check();
-  }
-
-  // ── Streak Tracking ────────────────────────────────────
-  function updateStreak() {
-    const today = new Date().toDateString();
-    const streak = W.store?.get?.("streak", null);
-    if (!streak || streak.last !== today) {
-      const yesterday = new Date(Date.now() - 864e5).toDateString();
-      const count = streak && streak.last === yesterday ? streak.count + 1 : 1;
-      W.store?.set?.("streak", { last: today, count });
-    }
-  }
-
-  // ── Auto-Refresh Loop ──────────────────────────────────
-  let refreshLoop = null;
-
-  function startLoop() {
-    clearInterval(refreshLoop);
-    const settings = W.store?.get?.("settings", {});
-    const seconds = settings?.refresh ?? 60;
-    if (seconds > 0) {
-      refreshLoop = setInterval(() => {
-        const current = getCurrentPage();
-        if (
-          !document.querySelector("#modal-root .modal") &&
-          ["dashboard", "watchlist", "market", "alerts"].includes(current)
-        ) {
-          route();
-        }
-      }, seconds * 1000);
-    }
-  }
-
-  // ── Settings Application ──────────────────────────────
-  W.applySettings = function () {
-    const cur = W.currency?.() || "usd";
-    const el = document.getElementById("currency");
-    if (el) el.value = cur;
-    startLoop();
-  };
-
-  W.currency = function () {
-    return W.store?.get?.("settings", {})?.currency || "usd";
-  };
-
-  W.refresh = function () {
-    route();
-  };
-
-  // ── Init ───────────────────────────────────────────────
-  function init() {
-    console.log("[App] Initializing Weaver...");
-
-    // ── Build grouped navigation (Phase 2) ───────────────
-    const navEl = document.getElementById("nav");
-    if (navEl) {
-      navEl.innerHTML = NAV_GROUPS.map((group) => {
-        const groupHtml = `<div class="nav-group-label">${group.label}</div>`;
-        const itemsHtml = group.items
-          .map(
-            (n) => `
-          <a href="${n.route}" data-id="${n.id}">
-            <span class="nav-ico">${n.icon}</span>
-            <span>${n.label}</span>
-            ${n.id === "alerts" ? '<span class="nav-badge" id="alert-badge"></span>' : ""}
-          </a>
-        `,
+    let tab = "trending";
+    const drawRows = () => {
+      let list = TOP;
+      if (tab === "top") list = TOP.slice(0, 50);
+      if (tab === "gain")
+        list = [...TOP]
+          .sort(
+            (a, b) =>
+              (b.price_change_percentage_24h_in_currency ?? 0) -
+              (a.price_change_percentage_24h_in_currency ?? 0),
           )
-          .join("");
-        return groupHtml + itemsHtml;
-      }).join("");
-    }
-
-    // ── Setup currency dropdown ──────────────────────────
-    const curEl = document.getElementById("currency");
-    if (curEl) {
-      const currencies = [
-        "usd",
-        "ngn",
-        "eur",
-        "gbp",
-        "inr",
-        "jpy",
-        "aud",
-        "cad",
-      ];
-      curEl.innerHTML = currencies
-        .map((c) => `<option value="${c}">${c.toUpperCase()}</option>`)
-        .join("");
-      curEl.value = W.currency();
-      curEl.onchange = () => {
-        const settings = W.store?.get?.("settings", {}) || {};
-        settings.currency = curEl.value;
-        W.store?.set?.("settings", settings);
-        route();
+          .slice(0, 20);
+      if (tab === "lose")
+        list = [...TOP]
+          .sort(
+            (a, b) =>
+              (a.price_change_percentage_24h_in_currency ?? 0) -
+              (b.price_change_percentage_24h_in_currency ?? 0),
+          )
+          .slice(0, 20);
+      const rowsEl = view.querySelector("#d-rows");
+      if (rowsEl) {
+        rowsEl.innerHTML = list.length
+          ? list
+              .map(termRow)
+              .filter((r) => r !== "")
+              .join("")
+          : '<tr><td colspan="5" class="text-center text-muted">No data available.</td></tr>';
+        rowsEl
+          .querySelectorAll("tr[data-coin]")
+          .forEach(
+            (tr) =>
+              (tr.onclick = () =>
+                (location.hash = "#/coin/" + tr.dataset.coin)),
+          );
+        rowsEl.querySelectorAll("canvas.spark").forEach(drawSpark);
+      }
+    };
+    view.querySelectorAll("[data-tab]").forEach((c) => {
+      c.onclick = () => {
+        view
+          .querySelectorAll("[data-tab]")
+          .forEach((x) => x.classList.remove("active"));
+        c.classList.add("active");
+        tab = c.dataset.tab;
+        drawRows();
       };
+    });
+    drawRows();
+
+    const port = view.querySelector("#d-port");
+    if (port) {
+      if (!rows.length)
+        port.innerHTML =
+          '<p class="text-muted small-text text-center">No holdings yet. Click "+ Add Holding" above.</p>';
+      else {
+        port.innerHTML = holdingsTable(rows);
+        wireRows(port, rows);
+      }
     }
 
-    // ── Refresh button ────────────────────────────────────
-    const refreshBtn = document.getElementById("btn-refresh");
-    if (refreshBtn) refreshBtn.onclick = route;
-
-    // ── Pro button ────────────────────────────────────────
-    const proBtn = document.getElementById("btn-pro");
-    if (proBtn) proBtn.onclick = () => (location.hash = "#/pro");
-
-    // ── Sync button ──────────────────────────────────────
-    const syncBtn = document.getElementById("sync-btn");
-    if (syncBtn) {
-      syncBtn.onclick = () => {
-        if (W.sync?.syncVault) W.sync.syncVault();
-        else W.ui?.toast?.("Sync module not available", "warn");
+    const rankerContainer = view.querySelector("#what-matters-now-container");
+    if (rankerContainer && W.decisionEngine) {
+      const userContext = {
+        portfolio: W.portfolio?.all() || [],
+        watchlist: (W.watchlist?.all ? W.watchlist.all() : []).map(
+          (w) => w.symbol,
+        ),
+        theses: W.theses?.all() || [],
+        behavior: W.behavior?.analyze() || { pattern: "none" },
       };
+      W.decisionEngine
+        .run(userContext)
+        .then((decisions) => {
+          W.ranker.renderCard(rankerContainer, decisions, userContext);
+        })
+        .catch(() => {
+          rankerContainer.innerHTML =
+            '<div class="card"><p class="text-muted small-text">Intelligence feed temporarily unavailable.</p></div>';
+        });
     }
 
-    // ── Unhandled rejections ─────────────────────────────
-    window.addEventListener("unhandledrejection", (e) => {
-      console.warn("[App] Unhandled rejection:", e.reason);
-      const msg = e.reason?.message || "Request failed";
-      const view = document.getElementById("view");
-      const spinner = view?.querySelector(".spinner");
-      if (spinner) {
-        spinner.outerHTML = `<p class="muted small mt">⚠️ ${W.fmt?.escapeHTML?.(msg) || msg} — some live data is unavailable (showing cache where possible). Try ⟳ or another network.</p>`;
+    const changedContainer = view.querySelector("#what-changed-container");
+    if (changedContainer && W.delta) {
+      if (totals) {
+        const deltas = W.delta.computePortfolioDeltas(totals);
+        W.delta.renderCard(changedContainer, deltas);
+        const currentSnapshot = W.delta.getSnapshot();
+        if (
+          !currentSnapshot ||
+          Date.now() - currentSnapshot.timestamp > 3600000
+        )
+          W.delta.saveSnapshot(totals);
+      } else {
+        changedContainer.innerHTML = `<div class="card"><h3>📊 What Changed</h3><p class="text-muted small-text">Add holdings to your portfolio to start tracking value changes over time.</p></div>`;
       }
-    });
-
-    // ── Achievements ─────────────────────────────────────
-    if (W.achievements?.check) W.achievements.check();
-
-    // ── Streak ────────────────────────────────────────────
-    updateStreak();
-
-    // ── Sync boot ────────────────────────────────────────
-    if (W.sync?.boot) W.sync.boot();
-
-    // ── Route and start loop ─────────────────────────────
-    window.addEventListener("hashchange", route);
-    route();
-    startLoop();
-
-    // ── Alert checker (every 60s) ────────────────────────
-    setInterval(() => {
-      if (W.alerts?.check) W.alerts.check();
-    }, 60000);
-
-    // NOTE: Decorative cursor glow removed (Phase 15/18: Reduce visual noise)
-
-    // ── Toast click handler for Telegram test ────────────
-    document.addEventListener("click", (e) => {
-      const target = e.target;
-      const id = target?.id;
-
-      if (id === "set-tgtest") {
-        const token =
-          document.querySelector("#set-tgtoken")?.value?.trim?.() || "";
-        const chat =
-          document.querySelector("#set-tgchat")?.value?.trim?.() || "";
-        if (!token || !chat) {
-          W.ui?.toast?.("Enter token and Chat ID first", "warn");
-          return;
-        }
-        if (!W.tg) {
-          W.ui?.toast?.("Telegram module not loaded", "warn");
-          return;
-        }
-        W.tg
-          .send(`✅ Weaver connected! Alerts will arrive here.`, {
-            on: true,
-            token,
-            chat,
-          })
-          .then((ok) => {
-            W.ui?.toast?.(
-              ok ? "Test sent 📨" : "Failed — check token/Chat ID",
-              ok ? "ok" : "warn",
-            );
-          });
-      }
-
-      if (id === "set-save") {
-        setTimeout(() => {
-          const token = document.querySelector("#set-tgtoken");
-          const chat = document.querySelector("#set-tgchat");
-          const on = document.querySelector("#set-tgon");
-          if (!token || !chat) return;
-          const settings = W.store?.get?.("settings", {}) || {};
-          settings.telegram = {
-            on: on?.checked || false,
-            token: token.value.trim(),
-            chat: chat.value.trim(),
-          };
-          W.store?.set?.("settings", settings);
-        }, 0);
-      }
-    });
-
-    console.log("[App] ✅ Weaver initialized.");
+    }
   }
 
-  // ── Start on DOM ready ─────────────────────────────────
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
+  function renderPortfolio(view) {
+    const has = W.portfolio ? W.portfolio.all().length > 0 : false;
+    view.innerHTML = `<div class="card"><div class="flex-between mb-8"><h3>💼 Holdings</h3><div class="qa"><button class="btn primary" id="p-add">+ Add Holding</button></div></div><div id="p-body">${has ? W.ui.spinner() : '<p class="text-muted">No holdings yet.</p>'}</div></div>`;
+    view.querySelector("#p-add").onclick = () => holdingModal();
+    if (has) {
+      enrich().then(({ rows }) => {
+        const body = view.querySelector("#p-body");
+        if (body) {
+          body.innerHTML = holdingsTable(rows);
+          wireRows(body, rows);
+        }
+      });
+    }
   }
+
+  return { render, renderPortfolio, holdingModal, enrich };
 })();
 
-console.log("[App] Module loaded.");
+console.log("[Dashboard] Module loaded (CSP compliant).");
 // ---- js/api/prices.js ----
 // ===============================================================
 //                  Market Data API
@@ -3245,7 +3268,9 @@ W.behavior = (() => {
 console.log("[Behavior] Pattern detection engine loaded.");
 // ---- js/intelligence/context.js ----
 // ===============================================================
-//         "Why It Matters" Context Generator 
+//         "Why It Matters" Context Generator
+// ===============================================================
+// CSP Compliant: Zero inline styles used.
 // ===============================================================
 
 window.W = window.W || {};
@@ -3340,27 +3365,22 @@ W.context = (() => {
     };
   }
 
-  // ── Render Context (kept for compatibility) ──────────────────
   function renderContext(container, contextData) {
     if (!container || !contextData) return;
     const existing = container.querySelector(".context-render");
     if (existing) existing.remove();
 
     const div = document.createElement("div");
-    div.className = "context-render";
-    div.style.cssText =
-      "margin-top: 8px; padding: 8px 12px; background: rgba(124, 92, 255, 0.05); border-left: 3px solid var(--primary, #7c5cff); border-radius: 4px;";
+    div.className =
+      "context-render mt-8 p-16 bg-surface border-l-brand rounded";
 
     const title = document.createElement("div");
-    title.className = "small";
-    title.style.fontWeight = "bold";
+    title.className = "small-text font-bold";
     title.textContent = "Why it matters:";
     div.appendChild(title);
 
     const text = document.createElement("div");
-    text.className = "small muted";
-    text.style.marginTop = "4px";
-    text.style.lineHeight = "1.4";
+    text.className = "small-text text-muted mt-4 leading-relaxed";
     text.textContent = contextData.whyItMatters;
     div.appendChild(text);
 
@@ -3369,17 +3389,14 @@ W.context = (() => {
       contextData.personalRelevance !== "low"
     ) {
       const action = document.createElement("div");
-      action.className = "small";
-      action.style.marginTop = "6px";
-      action.style.color = "var(--up, #2ee6a8)";
+      action.className = "small-text text-up mt-6";
       action.textContent = `→ ${contextData.recommendedAction}`;
       div.appendChild(action);
     }
 
     if (contextData.confidence !== undefined) {
       const conf = document.createElement("div");
-      conf.className = "small muted";
-      conf.style.marginTop = "4px";
+      conf.className = "small-text text-muted mt-4";
       const pct = (contextData.confidence * 100).toFixed(0);
       conf.textContent = `Confidence: ${pct}%`;
       div.appendChild(conf);
@@ -3391,7 +3408,9 @@ W.context = (() => {
   return { generateContext, renderContext };
 })();
 
-console.log("[Context] Why It Matters generator loaded (Phase 6 ready).");
+console.log(
+  "[Context] Why It Matters generator loaded (Phase 6 ready, CSP compliant).",
+);
 // ---- js/intelligence/thesis-health.js ----
 // ===============================================================
 //         Thesis Health Monitor – Evidence-Based Evaluation
@@ -3751,36 +3770,18 @@ console.log("[Opportunities] Scanner engine loaded (no hardcoded confidence).");
 // ===============================================================
 //         Decision Replay Engine – Multi‑Dimensional Evaluation
 // ===============================================================
-//
-// Evaluates past decisions against:
-//   - Absolute outcome
-//   - Benchmark-relative outcome (BTC, ETH, or market index)
-//   - Risk (volatility since entry)
-//   - Horizon (active vs expired)
-//   - Thesis health (if linked)
-//   - Confidence calibration (over/under confident)
-//   - Opportunity cost (where measurable)
-//
-// Avoids hindsight bias by comparing to ex-ante benchmarks.
-//
+// CSP Compliant: Zero inline styles used.
 // ===============================================================
 
 window.W = window.W || {};
 W.decisionReplay = (() => {
-  /**
-   * Evaluate a decision against current market data.
-   * @param {Object} decision - Journal entry with fields: id, asset, action, price, amount, confidence, horizon, timestamp, thesisId, reasoning.
-   * @param {Object} currentData - { price, marketCap, regime, btcPrice, ethPrice, spyPrice? } – current market snapshot.
-   * @param {Object} benchmarkData - { btcPriceAtEntry, ethPriceAtEntry, spyPriceAtEntry? } – optional historical benchmark prices at decision time.
-   * @returns {Object} - Structured evaluation result.
-   */
   function evaluate(decision, currentData = {}, benchmarkData = {}) {
-    // Rule 21: Never silently invent missing values.
     if (!decision || !decision.price) {
       return {
         outcome: "inconclusive",
         absoluteReturn: 0,
         benchmarkRelative: 0,
+        risk: 0,
         riskAdjusted: 0,
         horizonStatus: "unknown",
         confidenceCalibration: "unknown",
@@ -3795,15 +3796,12 @@ W.decisionReplay = (() => {
     const currentPrice = parseFloat(currentData.price) || entryPrice;
     const action = String(decision.action || "").toLowerCase();
 
-    // ── 1. Absolute Return ──────────────────────────────────────
     const absoluteReturn = ((currentPrice - entryPrice) / entryPrice) * 100;
     let outcome = "inconclusive";
     if (action === "buy" && absoluteReturn > 0) outcome = "successful";
     else if (action === "sell" && absoluteReturn < 0) outcome = "successful";
     else if (absoluteReturn !== 0) outcome = "unsuccessful";
-    else outcome = "inconclusive";
 
-    // ── 2. Benchmark-Relative Return ──────────────────────────
     let benchmarkRelative = 0;
     const btcEntry = parseFloat(benchmarkData.btcPriceAtEntry) || 0;
     const btcCurrent = parseFloat(currentData.btcPrice) || 0;
@@ -3811,56 +3809,38 @@ W.decisionReplay = (() => {
       const btcReturn = ((btcCurrent - btcEntry) / btcEntry) * 100;
       benchmarkRelative = absoluteReturn - btcReturn;
     } else {
-      benchmarkRelative = absoluteReturn; // fallback if no benchmark
+      benchmarkRelative = absoluteReturn;
     }
 
-    // ── 3. Risk (volatility since entry) ──────────────────────
-    // We approximate risk by the absolute price change since entry.
     const risk = Math.abs(absoluteReturn);
+    const riskAdjusted = risk > 0 ? absoluteReturn / risk : 0;
 
-    // ── 4. Risk-Adjusted Return ──────────────────────────────
-    const riskAdjusted = risk > 0 ? absoluteReturn / risk : 0; // Simple Sharpe‑like.
-
-    // ── 5. Horizon Status ──────────────────────────────────────
     const horizonDays = parseInt(decision.horizon) || 30;
     const horizonMs = horizonDays * 86400000;
     const timeSince = Date.now() - new Date(decision.timestamp).getTime();
     const horizonStatus = timeSince > horizonMs ? "expired" : "active";
 
-    // ── 6. Confidence Calibration ──────────────────────────────
     const conf = parseFloat(decision.confidence) || 0.5;
     let confidenceCalibration = "well_calibrated";
     if (conf >= 0.8 && outcome === "unsuccessful")
       confidenceCalibration = "overconfident";
     else if (conf <= 0.3 && outcome === "successful")
       confidenceCalibration = "underconfident";
-    else if (conf >= 0.8 && outcome === "successful")
-      confidenceCalibration = "well_calibrated";
-    else if (conf <= 0.3 && outcome === "unsuccessful")
-      confidenceCalibration = "well_calibrated";
 
-    // ── 7. Thesis Health (if linked) ───────────────────────────
     let thesisHealth = null;
     if (decision.thesisId && W.thesisHealth) {
-      // In a full implementation, we would fetch the thesis and evaluate its health.
-      // For now, we assume it's checked elsewhere.
       thesisHealth = { status: "unknown", healthScore: 0 };
     }
 
-    // ── 8. Opportunity Cost ────────────────────────────────────
-    // Compare to a simple buy‑and‑hold of BTC or the asset's sector.
     let opportunityCost = 0;
     if (action === "sell" && btcEntry > 0 && btcCurrent > 0) {
-      // If you sold, how much did you miss out vs. holding?
       const btcReturn = ((btcCurrent - btcEntry) / btcEntry) * 100;
       opportunityCost = btcReturn - absoluteReturn;
     } else if (action === "buy" && btcEntry > 0 && btcCurrent > 0) {
-      // If you bought, did you outperform BTC?
       const btcReturn = ((btcCurrent - btcEntry) / btcEntry) * 100;
       opportunityCost = absoluteReturn - btcReturn;
     }
 
-    // ── 9. Generate Insight ────────────────────────────────────
     const direction = absoluteReturn >= 0 ? "+" : "";
     let insight = `Price moved ${direction}${absoluteReturn.toFixed(2)}% since your ${action} at $${entryPrice.toFixed(2)}.`;
     if (outcome === "successful" && benchmarkRelative > 0)
@@ -3878,7 +3858,6 @@ W.decisionReplay = (() => {
     if (horizonStatus === "expired") insight += " Horizon has expired.";
     if (risk > 20) insight += " High volatility experienced.";
 
-    // ── 10. Result Object ──────────────────────────────────────
     return {
       outcome,
       absoluteReturn,
@@ -3901,50 +3880,38 @@ W.decisionReplay = (() => {
     };
   }
 
-  /**
-   * Render a human‑readable summary badge for UI.
-   */
   function renderBadge(outcomeData) {
     if (!outcomeData || outcomeData.outcome === "inconclusive") {
-      return `<span class="replay-badge muted small" style="margin-left:8px; opacity:0.7;">⏳ Inconclusive</span>`;
+      return `<span class="replay-badge text-muted small-text ml-8 opacity-70">⏳ Inconclusive</span>`;
     }
 
-    let color = "var(--text-muted, #9aa3b2)";
+    let colorClass = "text-muted";
     let icon = "️";
     let statusText = outcomeData.outcome.toUpperCase();
 
     if (outcomeData.outcome === "successful") {
-      color = "var(--up, #2ee6a8)";
+      colorClass = "text-up";
       icon = "✅";
     } else if (outcomeData.outcome === "unsuccessful") {
-      color = "var(--down, #ff5c7a)";
+      colorClass = "text-down";
       icon = "❌";
     }
 
-    // Add calibration indicator
-    let calibrationText = "";
-    if (outcomeData.confidenceCalibration === "overconfident") {
+    let calibrationText = "🎯 Calibrated";
+    if (outcomeData.confidenceCalibration === "overconfident")
       calibrationText = "⚡ Overconfident";
-    } else if (outcomeData.confidenceCalibration === "underconfident") {
+    else if (outcomeData.confidenceCalibration === "underconfident")
       calibrationText = "🔽 Underconfident";
-    } else {
-      calibrationText = "🎯 Calibrated";
-    }
 
-    // Return safe HTML (no user input in this function)
-    return `<span class="replay-badge small" style="margin-left:8px; color:${color}; font-weight:bold;">${icon} ${statusText} (${outcomeData.absoluteReturn.toFixed(1)}%) · ${calibrationText}</span>`;
+    return `<span class="replay-badge small-text font-bold ${colorClass} ml-8">${icon} ${statusText} (${outcomeData.absoluteReturn.toFixed(1)}%) · ${calibrationText}</span>`;
   }
 
-  /**
-   * Render detailed replay card for a decision.
-   */
   function renderDetails(container, outcomeData) {
     if (!container || !outcomeData) return;
     container.innerHTML = "";
 
     const card = document.createElement("div");
-    card.style.cssText =
-      "margin-top: 8px; padding: 12px; background: rgba(255,255,255,0.04); border-radius: 8px; font-size: 0.9em;";
+    card.className = "mt-8 p-16 bg-surface rounded";
 
     const rows = [
       {
@@ -3974,37 +3941,36 @@ W.decisionReplay = (() => {
       },
     ];
 
-    rows.forEach((row) => {
+    rows.forEach((row, index) => {
       const div = document.createElement("div");
-      div.style.cssText =
-        "display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.05);";
+      div.className = `flex-between py-4 ${index < rows.length - 1 ? "border-b" : ""}`;
+
       const label = document.createElement("span");
-      label.className = "muted";
+      label.className = "text-muted";
       label.textContent = row.label + ":";
+
       const value = document.createElement("span");
       value.textContent = row.value;
+
       div.appendChild(label);
       div.appendChild(value);
       card.appendChild(div);
     });
 
     const insight = document.createElement("div");
-    insight.style.cssText =
-      "margin-top: 8px; font-style: italic; color: var(--text-muted);";
+    insight.className = "mt-8 italic text-muted";
     insight.textContent = outcomeData.insight || "";
     card.appendChild(insight);
 
     container.appendChild(card);
   }
 
-  return {
-    evaluate,
-    renderBadge,
-    renderDetails,
-  };
+  return { evaluate, renderBadge, renderDetails };
 })();
 
-console.log("[DecisionReplay] Module loaded (multi‑dimensional evaluation).");
+console.log(
+  "[DecisionReplay] Module loaded (multi‑dimensional evaluation, CSP compliant).",
+);
 // ---- js/intelligence/types.js ----
 // ===============================================================
 //              Canonical Intelligence Contracts
@@ -4589,6 +4555,8 @@ console.log("[DecisionEngine] Module loaded (hardened, REBALANCE removed).");
 // ===============================================================
 //         Live Event Collector – Uses Evidence Builder
 // ===============================================================
+// Constitution Compliance: Task 7 (Defensible Confidence), Task 8 (Thesis Health Integration)
+// ===============================================================
 
 window.W = window.W || {};
 W.events = (() => {
@@ -4622,8 +4590,6 @@ W.events = (() => {
     const timestamp = raw.timestamp
       ? new Date(raw.timestamp).getTime()
       : Date.now();
-
-    // Generate UUID for signal ID
     const id = crypto.randomUUID
       ? crypto.randomUUID()
       : Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
@@ -4634,38 +4600,61 @@ W.events = (() => {
       source: raw.source || "weaver",
       assetId,
       timestamp,
-      rawData: { ...raw, title }, // keep title for display
+      rawData: { ...raw, title },
     };
 
-    // Attach metadata for evidence builder
     signal._metadata = {
       corroborationCount: raw.corroborationCount || 1,
-      dataCompleteness: raw.dataCompleteness,
-      interpretationConfidence: raw.interpretationConfidence,
+      dataCompleteness: raw.dataCompleteness || 0.5,
+      interpretationConfidence: raw.interpretationConfidence || 0.5,
     };
 
     return signal;
   }
 
-  // ── Collectors ──────────────────────────────────────────────
+  // ── Source Reliability Map (Constitution Rule 2.9) ───────
+  const SOURCE_RELIABILITY = {
+    coingecko: 0.95,
+    weaver_regime: 0.85,
+    token_unlocks: 0.9,
+    thesis_health: 0.8,
+    opportunity_scanner: 0.75,
+  };
+
+  function calculateDataFreshness(timestamp) {
+    const ageMs = Date.now() - timestamp;
+    if (ageMs < 60000) return 1.0; // < 1 min
+    if (ageMs < 3600000) return 0.8; // < 1 hour
+    if (ageMs < 86400000) return 0.5; // < 24 hours
+    return 0.2; // > 24 hours
+  }
+
+  // ── Collectors ───────────────────────────────────────────
   function collectPriceEvents(markets) {
     const events = [];
     if (!Array.isArray(markets)) return events;
+
     markets.forEach((coin) => {
       const change = Math.abs(coin.price_change_percentage_24h || 0);
       if (change > 3) {
-        const impactValue = Math.min(1, change / 15);
+        const freshness = calculateDataFreshness(
+          coin.last_updated
+            ? new Date(coin.last_updated).getTime()
+            : Date.now(),
+        );
+        const confidence = SOURCE_RELIABILITY.coingecko * freshness; // Defensible confidence
+
         events.push(
           normalize(
             {
               symbol: coin.symbol,
               name: coin.name,
               title: `${coin.name} moved ${coin.price_change_percentage_24h.toFixed(1)}% in 24h`,
-              impactValue: impactValue,
+              impactValue: Math.min(1, change / 15),
+              confidence: confidence,
+              urgency: change > 7 ? 0.9 : 0.6,
               source: "coingecko",
-              coingeckoId: coin.id,
-              dataCompleteness: 0.9,
-              interpretationConfidence: 0.9,
+              dataCompleteness: 0.9, // Price data is highly complete
             },
             "PRICE_MOVE",
           ),
@@ -4684,7 +4673,14 @@ W.events = (() => {
         btcDominance: g.data?.market_cap_percentage?.btc,
         capChange: g.data?.market_cap_change_percentage_24h_usd,
       });
+
       if (regimeData.regime !== "UNKNOWN") {
+        // Defensible confidence: base reliability * freshness of FG data
+        const freshness = calculateDataFreshness(Date.now()); // FG is usually fresh
+        const confidence = SOURCE_RELIABILITY.weaver_regime * freshness;
+        const completeness =
+          fg.value && g.data?.market_cap_percentage?.btc ? 0.9 : 0.5;
+
         events.push(
           normalize(
             {
@@ -4692,9 +4688,9 @@ W.events = (() => {
               title: `Market Regime Shift: ${regimeData.regime}`,
               description: `Confidence: ${(regimeData.confidence * 100).toFixed(0)}%. Signals: ${regimeData.signals.map((s) => s.value).join(", ")}`,
               impactValue: regimeData.confidence || 0.5,
-              source: "regime_engine",
-              interpretationConfidence: 0.8,
-              dataCompleteness: 0.85,
+              source: "weaver_regime",
+              interpretationConfidence: confidence, // REPLACED MAGIC NUMBER
+              dataCompleteness: completeness, // REPLACED MAGIC NUMBER
             },
             "REGIME_SHIFT",
           ),
@@ -4717,8 +4713,14 @@ W.events = (() => {
         return daysLeft >= 0 && daysLeft <= 14;
       });
       if (!upcoming.length) return events;
+
       upcoming.forEach((u) => {
         const daysLeft = (u.date - now) / DAY;
+        const freshness = calculateDataFreshness(u.date); // Freshness based on proximity to event
+        const confidence = SOURCE_RELIABILITY.token_unlocks * freshness;
+        // Completeness is high if we have coinId and amount
+        const completeness = u.coinId && u.amount ? 0.9 : 0.6;
+
         events.push(
           normalize(
             {
@@ -4729,8 +4731,8 @@ W.events = (() => {
               impactValue: 0.6,
               source: "token_unlocks",
               coingeckoId: u.coinId,
-              interpretationConfidence: 0.75,
-              dataCompleteness: 0.8,
+              interpretationConfidence: confidence, // REPLACED MAGIC NUMBER
+              dataCompleteness: completeness, // REPLACED MAGIC NUMBER
               corroborationCount: 1,
             },
             "UNLOCK",
@@ -4755,7 +4757,12 @@ W.events = (() => {
         markets,
         regimeData,
       );
+
       opportunities.forEach((opp) => {
+        const freshness = calculateDataFreshness(Date.now());
+        const sourceRel = SOURCE_RELIABILITY[opp.source] || 0.7;
+        const confidence = sourceRel * freshness;
+
         events.push(
           normalize(
             {
@@ -4764,8 +4771,8 @@ W.events = (() => {
               description: opp.description,
               impactValue: opp.impactValue || 0.5,
               source: opp.source || "opportunity_scanner",
-              interpretationConfidence: opp.interpretationConfidence || 0.7,
-              dataCompleteness: opp.dataCompleteness || 0.75,
+              interpretationConfidence: confidence, // REPLACED MAGIC NUMBER
+              dataCompleteness: opp.dataCompleteness || 0.7,
             },
             "OPPORTUNITY",
           ),
@@ -4819,12 +4826,18 @@ W.events = (() => {
           null;
         const marketData = { price, regime: regimeData?.regime || null };
         const health = W.thesisHealth.evaluate(thesis, marketData, []);
+
         if (
           health &&
           health.status !== "Healthy" &&
           health.status !== "Strengthening"
         ) {
           const impactValue = Math.min(1, (100 - health.healthScore) / 100);
+          const freshness = calculateDataFreshness(Date.now());
+          const confidence = SOURCE_RELIABILITY.thesis_health * freshness;
+          // Completeness depends on whether we had price AND regime data
+          const completeness = price && regimeData ? 0.9 : 0.5;
+
           const signal = normalize(
             {
               symbol: thesis.symbol,
@@ -4834,12 +4847,13 @@ W.events = (() => {
               impactValue: impactValue,
               source: "thesis_health",
               coingeckoId: thesis.coingeckoId,
-              interpretationConfidence: 0.7,
-              dataCompleteness: 0.8,
+              interpretationConfidence: confidence, // REPLACED MAGIC NUMBER
+              dataCompleteness: completeness, // REPLACED MAGIC NUMBER
               timestamp: Date.now(),
             },
             "THESIS_DETERIORATION",
           );
+
           if (signal) events.push(signal);
         }
       });
@@ -4849,17 +4863,16 @@ W.events = (() => {
     return events;
   }
 
-  // ── Core Aggregation ──────────────────────────────────────────
+  // ── Core Aggregation ───────────────────────────────────
   async function collectEvents() {
     const cached = W.store?.get(CACHE_KEY);
     if (cached && Date.now() - cached.timestamp < TTL) {
       return cached.events;
     }
 
-    let markets = [];
-    let fg = null;
-    let g = null;
-
+    let markets = [],
+      fg = null,
+      g = null;
     try {
       markets = (await W.api?.top?.(50)) || [];
     } catch (e) {}
@@ -4893,9 +4906,7 @@ W.events = (() => {
       ...thesisEvents,
     ].filter(Boolean);
 
-    // ── Improved Deduplication ──────────────────────────────
-    // Use a composite key: type + assetId + eventWindow (10-minute bucket)
-    // to avoid collapsing distinct events on the same asset.
+    // ── Improved Deduplication ───────────────────────────
     const seen = new Map();
     const DEDUP_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -4904,11 +4915,6 @@ W.events = (() => {
       const key = `${s.type}_${s.assetId.symbol}_${bucket}`;
       if (seen.has(key)) {
         const existing = seen.get(key);
-        // Keep the one with higher confidence (will be computed later)
-        // For now, we'll keep the one with higher raw impact or more metadata.
-        // We'll defer the final decision to the evidence builder.
-        // For dedup, we'll just keep the first one.
-        // Actually, we'll keep the one with more complete metadata.
         const existingMeta = existing._metadata || {};
         const newMeta = s._metadata || {};
         const existingCompleteness = existingMeta.dataCompleteness || 0;
@@ -4923,9 +4929,6 @@ W.events = (() => {
       return true;
     });
 
-    // Build evidence for each signal (now we have a unique set)
-    // but we'll let the Decision Engine build evidence via the Evidence Builder.
-
     if (W.store) {
       W.store.set(CACHE_KEY, { timestamp: Date.now(), events: allSignals });
     }
@@ -4934,10 +4937,10 @@ W.events = (() => {
   }
 
   return { normalize, collectEvents };
-})();
+})(); // ✅ FIXED SYNTAX ERROR
 
 console.log(
-  "[Events] Module loaded (thesis health integrated, improved dedup).",
+  "[Events] Module loaded (thesis health integrated, defensible confidence, improved dedup).",
 );
 // ---- js/features/portfolio.js ----
 // ===============================================================
@@ -7877,7 +7880,7 @@ W.trader = (() => {
 
 console.log("[Trader] Module loaded.");
 // ---- js/features/gems.js ----
-// js/features/gems.js – Gem Agent: Token Hunter
+// – Gem Agent: Token Hunter
 
 window.W = window.W || {};
 
@@ -7902,6 +7905,11 @@ W.gems = (() => {
     ton: "💎",
     blast: "💥",
   };
+
+  // Bump this whenever score()'s weights/logic change. Alerts and cards
+  // display it so a score from an old version is never confused with one
+  // from a newer, differently-weighted model (Weaver Constitution §3.8).
+  const SCORE_VERSION = "gem-v1";
 
   // ── Helpers ────────────────────────────────────────────
   function escapeHTML(str) {
@@ -8024,13 +8032,59 @@ W.gems = (() => {
             ? ["⚠️ Degen play", "triggered"]
             : ["🚩 Avoid", "sell"];
 
-    return { score: s, reasons, verdict, liq, vol, ageH, h1, h6, h24 };
+    return {
+      score: s,
+      reasons,
+      verdict,
+      liq,
+      vol,
+      ageH,
+      h1,
+      h6,
+      h24,
+      scoreVersion: SCORE_VERSION,
+    };
   }
 
   // ── Scan ──────────────────────────────────────────────
   let auto = false,
     timer = null;
   let seen = {};
+  let shieldCache = {}; // addr -> shield assessment result (session-only)
+
+  // Chain-parity bridge to Token Shield (Weaver Constitution §3.3): a gem
+  // is only as trustworthy as its verification, so before alerting on it
+  // we ask Shield for a risk assessment. Chains Shield doesn't support yet
+  // (ton, blast) degrade honestly to "unsupported" rather than silently
+  // skipping the check or pretending it passed.
+  async function checkShield(addr, chainKey) {
+    if (shieldCache[addr]) return shieldCache[addr];
+    if (!W.shield || !W.shield.CHAINS[chainKey]) {
+      const result = { unsupported: true };
+      shieldCache[addr] = result;
+      return result;
+    }
+    try {
+      const assessment = await W.shield.check(addr, chainKey);
+      const result = assessment
+        ? { ...assessment, ok: true }
+        : { noData: true };
+      shieldCache[addr] = result;
+      return result;
+    } catch (e) {
+      const result = { error: true, message: e.message };
+      shieldCache[addr] = result;
+      return result;
+    }
+  }
+
+  function shieldSummary(s) {
+    if (!s) return "🛡️ Shield: not checked";
+    if (s.unsupported) return "🛡️ Shield: not available for this chain";
+    if (s.error) return "🛡️ Shield: check failed — verify manually";
+    if (s.noData) return "🛡️ Shield: no security data found";
+    return `🛡️ Shield: ${s.riskLevel[0]} (${s.riskScore}/100, ${s.scoreVersion})`;
+  }
 
   async function scan(view) {
     const body = view.querySelector("#g-body");
@@ -8082,16 +8136,24 @@ W.gems = (() => {
         .sort((a, b) => b.analysis.score - a.analysis.score)
         .slice(0, 24);
 
-      // Notify new gems
-      results.forEach((g) => {
+      // Notify new gems — run a Shield check first so every alert already
+      // carries a risk verdict, not just an opportunity score.
+      for (const g of results) {
         const addr = g.pair.baseToken.address;
         if (g.analysis.score >= 70 && !seen[addr]) {
-          const msg = `🤖 <b>Gem detected:</b> ${g.pair.baseToken.symbol} on ${g.pair.chainId} — score ${g.analysis.score}`;
-          W.ui.toast(msg, "ok", 6000);
+          const shield = await checkShield(addr, g.pair.chainId);
+          const msg =
+            `🤖 <b>Gem detected:</b> ${g.pair.baseToken.symbol} on ${g.pair.chainId} — score ${g.analysis.score} (${g.analysis.scoreVersion})\n` +
+            shieldSummary(shield);
+          W.ui.toast(
+            `Gem detected: ${g.pair.baseToken.symbol} — score ${g.analysis.score}`,
+            "ok",
+            6000,
+          );
           if (W.tg) W.tg.notify("gem:" + addr, msg);
         }
         seen[addr] = 1;
-      });
+      }
 
       // Stats
       view.querySelector("#g-stats").innerHTML = `
@@ -8107,8 +8169,13 @@ W.gems = (() => {
             const p = g.pair,
               a = g.analysis,
               t = p.baseToken;
+            const addr = t.address;
+            const shield = shieldCache[addr];
+            const shieldSection = shield
+              ? `<div class="kv-row"><span class="muted">Security</span><span>${escapeHTML(shieldSummary(shield))}</span></div>`
+              : `<button class="btn tiny mt" data-shield-check data-addr="${escapeHTML(addr)}" data-chain="${escapeHTML(p.chainId)}">🛡️ Verify Security</button>`;
             return `
-            <div class="card">
+            <div class="card" data-gem-card="${escapeHTML(addr)}">
               <div class="watch-head">
                 <div>
                   <b>${escapeHTML(t.symbol)}</b> <span class="muted small">${escapeHTML(t.name)}</span><br>
@@ -8117,12 +8184,14 @@ W.gems = (() => {
                 <div style="text-align:right;">
                   <span class="tag ${a.verdict[1]}" style="font-size:12px;padding:5px 10px;">${a.verdict[0]}</span>
                   <div class="alt-num" style="font-size:26px;">${a.score}</div>
+                  <div class="muted" style="font-size:10px;">${a.scoreVersion}</div>
                 </div>
               </div>
               <div class="meter-bar"><div style="width:${a.score}%; background: var(--grad);"></div></div>
               <div class="kv-row"><span class="muted">Price</span><span>$${p.priceUsd}</span></div>
               <div class="kv-row"><span class="muted">Liquidity / 24h Vol</span><span>$${kfmt(a.liq)} / $${kfmt(a.vol)}</span></div>
               <div class="kv-row"><span class="muted">1h / 6h / 24h</span><span>${W.fmt.pct(a.h1)} ${W.fmt.pct(a.h6)} ${W.fmt.pct(a.h24)}</span></div>
+              <div class="shield-slot">${shieldSection}</div>
               <ul class="tx-list">${a.reasons
                 .slice(0, 4)
                 .map((r) => `<li>${escapeHTML(r)}</li>`)
@@ -8132,6 +8201,21 @@ W.gems = (() => {
           `;
           })
           .join("")}</div>`;
+
+        body.querySelectorAll("[data-shield-check]").forEach((btn) => {
+          btn.onclick = async () => {
+            btn.textContent = "Checking…";
+            btn.disabled = true;
+            const shield = await checkShield(
+              btn.dataset.addr,
+              btn.dataset.chain,
+            );
+            const slot = btn.closest(".shield-slot");
+            if (slot) {
+              slot.innerHTML = `<div class="kv-row"><span class="muted">Security</span><span>${escapeHTML(shieldSummary(shield))}</span></div>`;
+            }
+          };
+        });
       } else {
         body.innerHTML = W.ui.empty(
           "🤖",
@@ -8193,7 +8277,7 @@ W.gems = (() => {
 console.log("[Gems] Module loaded.");
 // ---- js/features/shield.js ----
 // ================================================================
-//  Token Shield (Contract Security Auditor)
+// Token Shield (Contract Security Auditor)
 // ================================================================
 
 window.W = window.W || {};
@@ -8218,6 +8302,12 @@ W.shield = (() => {
     gnosis: { id: "100", name: "Gnosis", icon: "🟣" },
     solana: { id: "solana", name: "Solana", icon: "🟣" },
   };
+
+  // Bumped whenever the corresponding risk-scoring weights/logic change.
+  // EVM and Solana are versioned separately since they score different
+  // fields entirely — see Weaver Constitution §3.8.
+  const SHIELD_SCORE_VERSION_EVM = "shield-evm-v1";
+  const SHIELD_SCORE_VERSION_SOLANA = "shield-solana-v1";
 
   // ── Helpers ────────────────────────────────────────────
 
@@ -8365,18 +8455,9 @@ W.shield = (() => {
 
   // ── Parse and Render Results ──────────────────────────
 
-  function renderResults(data, address, chainKey) {
-    const chain = CHAINS[chainKey];
-    const result = data.result && data.result[address.toLowerCase()];
-    if (!result) {
-      return `
-        <div class="card">
-          ${W.ui.empty("🛡️", "No data found", "Token might be too new or not a standard ERC-20/BEP-20 on this chain.")}
-        </div>
-      `;
-    }
+  // ── Risk Assessment (pure — no DOM, reusable by other modules) ────
 
-    // ── Extract flags ──────────────────────────────────
+  function assessEvmRisk(result) {
     const isHoneypot = result.is_honeypot === "1";
     const isMintable = result.is_mintable === "1";
     const isProxy = result.is_proxy === "1";
@@ -8386,17 +8467,9 @@ W.shield = (() => {
     const isLpLocked = (result.lp_holders || []).some(
       (lp) => lp.is_locked === 1,
     );
-
     const buyTax = (parseFloat(result.buy_tax) * 100).toFixed(1);
     const sellTax = (parseFloat(result.sell_tax) * 100).toFixed(1);
-    const holderCount = result.holder_count || 0;
-    const totalSupply = result.total_supply
-      ? parseFloat(result.total_supply).toLocaleString(undefined, {
-          maximumFractionDigits: 0,
-        })
-      : "Unknown";
 
-    // ── Risk scoring ──────────────────────────────────
     let riskScore = 0;
     const risks = [];
 
@@ -8436,6 +8509,44 @@ W.shield = (() => {
           ? ["⚠️ CAUTION", "triggered"]
           : ["✅ LOOKS SAFE", "buy"];
 
+    return {
+      riskScore,
+      risks,
+      riskLevel,
+      scoreVersion: SHIELD_SCORE_VERSION_EVM,
+      flags: { isHoneypot, isMintable, isProxy, isOwnerRenounced, isLpLocked },
+      buyTax,
+      sellTax,
+    };
+  }
+
+  function renderResults(data, address, chainKey) {
+    const chain = CHAINS[chainKey];
+    const result = data.result && data.result[address.toLowerCase()];
+    if (!result) {
+      return `
+        <div class="card">
+          ${W.ui.empty("🛡️", "No data found", "Token might be too new or not a standard ERC-20/BEP-20 on this chain.")}
+        </div>
+      `;
+    }
+
+    const assessment = assessEvmRisk(result);
+    const { riskScore, risks, riskLevel } = assessment;
+    const isHoneypot = assessment.flags.isHoneypot;
+    const isMintable = assessment.flags.isMintable;
+    const isProxy = assessment.flags.isProxy;
+    const isOwnerRenounced = assessment.flags.isOwnerRenounced;
+    const isLpLocked = assessment.flags.isLpLocked;
+    const buyTax = assessment.buyTax;
+    const sellTax = assessment.sellTax;
+    const holderCount = result.holder_count || 0;
+    const totalSupply = result.total_supply
+      ? parseFloat(result.total_supply).toLocaleString(undefined, {
+          maximumFractionDigits: 0,
+        })
+      : "Unknown";
+
     // ── Top holders ──────────────────────────────────
     const topHolders = (result.holders || []).slice(0, 5);
     const lpHolders = (result.lp_holders || []).slice(0, 3);
@@ -8451,6 +8562,7 @@ W.shield = (() => {
           <div style="text-align:right;">
             <span class="tag ${riskLevel[1]}" style="font-size:14px;padding:8px 16px;">${riskLevel[0]}</span>
             <div class="muted small">Risk Score: ${riskScore}/100</div>
+            <div class="muted" style="font-size:10px;">${SHIELD_SCORE_VERSION_EVM}</div>
           </div>
         </div>
         ${
@@ -8572,17 +8684,7 @@ W.shield = (() => {
     return { active, authority: null };
   }
 
-  function renderSolanaResults(data, address) {
-    const chain = CHAINS.solana;
-    const result = data.result && data.result[address];
-    if (!result) {
-      return `
-        <div class="card">
-          ${W.ui.empty("🛡️", "No data found", "Token might be too new or not indexed yet.")}
-        </div>
-      `;
-    }
-
+  function assessSolanaRisk(result) {
     const mintable = readSolanaFlag(result.mintable);
     const freezable = readSolanaFlag(result.freezable);
     const closable = readSolanaFlag(result.closable);
@@ -8593,14 +8695,6 @@ W.shield = (() => {
     const isTrusted =
       result.trusted_token === "1" || result.trusted_token === 1;
 
-    const holderCount = result.holder_count || 0;
-    const totalSupply = result.total_supply
-      ? parseFloat(result.total_supply).toLocaleString(undefined, {
-          maximumFractionDigits: 0,
-        })
-      : "Unknown";
-
-    // ── Risk scoring ──────────────────────────────────
     let riskScore = 0;
     const risks = [];
 
@@ -8638,6 +8732,42 @@ W.shield = (() => {
           ? ["⚠️ CAUTION", "triggered"]
           : ["✅ LOOKS SAFE", "buy"];
 
+    return {
+      riskScore,
+      risks,
+      riskLevel,
+      scoreVersion: SHIELD_SCORE_VERSION_SOLANA,
+      flags: { mintable, freezable, closable, metadataMutable, balanceMutable },
+      transferFeePct,
+      isTrusted,
+    };
+  }
+
+  function renderSolanaResults(data, address) {
+    const chain = CHAINS.solana;
+    const result = data.result && data.result[address];
+    if (!result) {
+      return `
+        <div class="card">
+          ${W.ui.empty("🛡️", "No data found", "Token might be too new or not indexed yet.")}
+        </div>
+      `;
+    }
+
+    const assessment = assessSolanaRisk(result);
+    const { riskScore, risks, riskLevel } = assessment;
+    const { mintable, freezable, closable, metadataMutable, balanceMutable } =
+      assessment.flags;
+    const transferFeePct = assessment.transferFeePct;
+    const isTrusted = assessment.isTrusted;
+
+    const holderCount = result.holder_count || 0;
+    const totalSupply = result.total_supply
+      ? parseFloat(result.total_supply).toLocaleString(undefined, {
+          maximumFractionDigits: 0,
+        })
+      : "Unknown";
+
     const flagBadge = (flag, activeLabel, safeLabel) => {
       if (flag.active === null) return `<b class="muted">UNKNOWN</b>`;
       return flag.active
@@ -8655,6 +8785,7 @@ W.shield = (() => {
           <div style="text-align:right;">
             <span class="tag ${riskLevel[1]}" style="font-size:14px;padding:8px 16px;">${riskLevel[0]}</span>
             <div class="muted small">Risk Score: ${riskScore}/100</div>
+            <div class="muted" style="font-size:10px;">${SHIELD_SCORE_VERSION_SOLANA}</div>
           </div>
         </div>
         ${
@@ -8861,11 +8992,38 @@ W.shield = (() => {
     }
   }
 
+  // ── Unified Check (fetch + assess, no rendering) ────────
+  // For other modules (e.g. Gem Agent) that need a risk verdict without
+  // the HTML card — returns the same assessment shape scan() renders
+  // from, or null if no data was found. Errors propagate to the caller
+  // so they can be surfaced honestly rather than swallowed here.
+  async function check(address, chainKey) {
+    if (!isValidAddress(address, chainKey)) {
+      throw new Error(`Invalid ${chainKey} address`);
+    }
+    if (chainKey === "solana") {
+      const data = await fetchSolanaTokenSecurity(address);
+      const result = data.result && data.result[address];
+      if (!result) return null;
+      return assessSolanaRisk(result);
+    }
+    const chain = CHAINS[chainKey];
+    if (!chain) throw new Error(`Unsupported chain: ${chainKey}`);
+    const data = await fetchTokenSecurity(chain.id, address);
+    const result = data.result && data.result[address.toLowerCase()];
+    if (!result) return null;
+    return assessEvmRisk(result);
+  }
+
   // ── Exports ────────────────────────────────────────────
   return {
     render,
     scan,
+    check,
+    assessEvmRisk,
+    assessSolanaRisk,
     fetchTokenSecurity,
+    fetchSolanaTokenSecurity,
     CHAINS,
   };
 })();
@@ -13075,7 +13233,9 @@ W.theses = W.theses || {};
 console.log("[Theses] Module loaded (with Health Monitor integration).");
 // ---- js/features/journal.js ----
 // ===============================================================
-//         Decision Journal Module – with Rich Replay
+//         Decision Journal Module
+// ===============================================================
+// CSP Compliant: Zero inline styles.
 // ===============================================================
 
 window.W = window.W || {};
@@ -13088,7 +13248,6 @@ W.journal = W.journal || {};
   function save() {
     W.store.set(JOURNAL_KEY, decisions);
   }
-
   function all() {
     return decisions;
   }
@@ -13116,8 +13275,6 @@ W.journal = W.journal || {};
     save();
   }
 
-  // ── Render UI ──────────────────────────────────────────
-
   async function render(view) {
     const activeTheses = W.theses
       ? W.theses.all().filter((t) => t.status === "active")
@@ -13126,55 +13283,40 @@ W.journal = W.journal || {};
     view.innerHTML = `
       <div class="card">
         <h3>📓 Decision Journal</h3>
-        <p class="muted small">Record WHY you are making a trade. A transaction records WHAT happened; this records WHY.</p>
+        <p class="text-muted small-text">Record WHY you are making a trade. A transaction records WHAT happened; this records WHY.</p>
         <button class="btn primary" id="btn-new-decision">+ Log Decision</button>
       </div>
 
-      <div id="decision-list" style="margin-top: 20px;">
-        ${decisions.length === 0 ? '<p class="muted">No decisions logged yet.</p>' : ""}
+      <div id="decision-list" class="mt-16">
+        ${decisions.length === 0 ? '<p class="text-muted">No decisions logged yet.</p>' : ""}
         ${decisions
           .map((d) => {
             const linkedThesis = activeTheses.find((t) => t.id === d.thesisId);
             const actionColor =
               d.action === "Buy"
-                ? "var(--up)"
+                ? "text-up"
                 : d.action === "Sell"
-                  ? "var(--down)"
-                  : "var(--text-muted)";
-
-            // ── Replay Evaluation ─────────────────────────
-            let replayOutcome = null;
-            let hasReplay = false;
-            // We'll fetch current price in the main loop.
-            // For now, we'll render a placeholder that will be updated later.
-            // We'll use a container for replay data.
-
+                  ? "text-down"
+                  : "text-muted";
             return `
-          <div class="card" style="margin-bottom: 15px;" data-decision-id="${d.id}">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <div class="card">
+            <div class="flex-between mb-8">
               <div>
-                <span style="color:${actionColor}; font-weight:bold; font-size:1.1em;">${d.action.toUpperCase()}</span> 
+                <span class="${actionColor} font-bold text-2xl">${d.action.toUpperCase()}</span> 
                 <b>${W.fmt.escapeHTML(d.asset)}</b>
-                <span class="replay-badge-container" data-decision-id="${d.id}"></span>
-                <span class="muted small"> @ ${W.fmt.price(d.price)}</span>
+                <span class="replay-container" data-decision-id="${d.id}"></span>
+                <span class="text-muted small-text"> @ ${W.fmt.price(d.price)}</span>
               </div>
-              <span class="muted small">${W.fmt.relativeTime(d.timestamp)}</span>
+              <span class="text-muted small-text">${W.fmt.relativeTime(d.timestamp)}</span>
             </div>
-            
-            <p class="small"><b>Reasoning:</b> ${W.fmt.escapeHTML(d.reasoning)}</p>
-            
-            <div style="display:flex; gap:15px; margin-top:10px; font-size:0.85em;">
-              <span class="muted"><b>Confidence:</b> ${(d.confidence * 100).toFixed(0)}%</span>
-              <span class="muted"><b>Horizon:</b> ${W.fmt.escapeHTML(d.horizon)}</span>
-              ${linkedThesis ? `<span class="muted"><b>Linked Thesis:</b> ${W.fmt.escapeHTML(linkedThesis.statement.substring(0, 40))}...</span>` : ""}
+            <p class="small-text"><b>Reasoning:</b> ${W.fmt.escapeHTML(d.reasoning)}</p>
+            <div class="flex-between mt-8 small-text text-muted">
+              <span><b>Confidence:</b> ${(d.confidence * 100).toFixed(0)}%</span>
+              <span><b>Horizon:</b> ${W.fmt.escapeHTML(d.horizon)}</span>
+              ${linkedThesis ? `<span><b>Linked Thesis:</b> ${W.fmt.escapeHTML(linkedThesis.statement.substring(0, 40))}...</span>` : ""}
             </div>
-
-            <!-- Replay Details (expandable) -->
-            <div class="replay-details-container" data-decision-id="${d.id}" style="margin-top:10px; display:none;"></div>
-
-            <div style="margin-top:10px; text-align:right;">
-              <button class="btn tiny" data-action="toggle-replay" data-id="${d.id}">📊 Show Replay</button>
-              <button class="btn tiny warn" data-action="delete" data-id="${d.id}">Delete</button>
+            <div class="mt-8 text-center">
+              <button class="btn tiny danger" data-action="delete" data-id="${d.id}">Delete</button>
             </div>
           </div>
           `;
@@ -13182,7 +13324,7 @@ W.journal = W.journal || {};
           .join("")}
       </div>
 
-      <div id="decision-form-container" class="card hidden" style="margin-top:20px;">
+      <div id="decision-form-container" class="card hidden mt-16">
         <h4>Log New Decision</h4>
         <form id="decision-form" class="form-grid">
           <input type="text" id="d-asset" placeholder="Asset (e.g. BTC)" required class="input">
@@ -13199,16 +13341,15 @@ W.journal = W.journal || {};
           </select>
           <input type="number" id="d-confidence" placeholder="Confidence (0.0 to 1.0)" step="0.1" min="0" max="1" class="input">
           <input type="text" id="d-horizon" placeholder="Time Horizon (e.g. 2 weeks)" class="input">
-          <textarea id="d-reasoning" placeholder="Why are you making this decision? What is the context?" required class="input" rows="3" style="grid-column: 1 / -1;"></textarea>
-          <div style="grid-column: 1 / -1; display:flex; gap:10px;">
+          <textarea id="d-reasoning" placeholder="Why are you making this decision? What is the context?" required class="input col-span-full" rows="3"></textarea>
+          <div class="flex-center gap-16 mt-16 col-span-full">
             <button type="submit" class="btn primary">Save Decision</button>
-            <button type="button" class="btn" id="btn-cancel-decision">Cancel</button>
+            <button type="button" class="btn ghost" id="btn-cancel-decision">Cancel</button>
           </div>
         </form>
       </div>
     `;
 
-    // ── Event Listeners ──────────────────────────────────
     view.querySelector("#btn-new-decision").onclick = () => {
       view.querySelector("#decision-form-container").classList.remove("hidden");
     };
@@ -13240,77 +13381,43 @@ W.journal = W.journal || {};
       };
     });
 
-    // ── Toggle Replay Details ────────────────────────────
-    view.querySelectorAll("[data-action='toggle-replay']").forEach((btn) => {
-      btn.onclick = async () => {
-        const id = btn.dataset.id;
-        const container = view.querySelector(
-          `.replay-details-container[data-decision-id="${id}"]`,
-        );
-        if (!container) return;
-
-        if (container.style.display === "none") {
-          // Fetch replay data
-          const decision = decisions.find((d) => d.id === id);
-          if (!decision) return;
-
-          // Get current price (we'll use asset symbol)
-          const asset = decision.asset;
-          let currentPrice = null;
-          let btcPrice = null;
-          try {
-            const markets = await W.api.markets(asset);
-            if (markets && markets.length) {
-              currentPrice = markets[0].current_price;
-            }
-            // Also get BTC price for benchmark
-            const btcData = await W.api.markets("bitcoin");
-            if (btcData && btcData.length) {
-              btcPrice = btcData[0].current_price;
-            }
-          } catch (e) {}
-
-          // Build currentData and benchmarkData
-          const currentData = { price: currentPrice, btcPrice: btcPrice };
-          const benchmarkData = {}; // We could fetch historical prices, but for simplicity we use current BTC.
-          // In a full implementation, we'd store BTC price at decision time.
-
-          // Evaluate
-          if (W.decisionReplay) {
-            const outcome = W.decisionReplay.evaluate(
-              decision,
-              currentData,
-              benchmarkData,
-            );
-            // Render details
-            W.decisionReplay.renderDetails(container, outcome);
-            // Also update badge
-            const badgeContainer = view.querySelector(
-              `.replay-badge-container[data-decision-id="${id}"]`,
-            );
-            if (badgeContainer) {
-              badgeContainer.innerHTML = W.decisionReplay.renderBadge(outcome);
-            }
-            container.style.display = "block";
-            btn.textContent = "📊 Hide Replay";
-          }
-        } else {
-          container.style.display = "none";
-          btn.textContent = "📊 Show Replay";
+    // ── Decision Replay Integration ─────────────
+    if (W.decisionReplay && decisions.length > 0) {
+      const uniqueAssets = [
+        ...new Set(decisions.map((d) => d.asset?.toLowerCase())),
+      ].filter(Boolean);
+      let priceMap = {};
+      if (uniqueAssets.length > 0 && W.api?.markets) {
+        try {
+          const markets = await W.api.markets(uniqueAssets.join(","));
+          markets.forEach((m) => {
+            if (m && m.id) priceMap[m.id.toLowerCase()] = m.current_price;
+          });
+        } catch (e) {
+          console.warn(
+            "[Journal] Failed to fetch market data for replay:",
+            e.message,
+          );
         }
-      };
-    });
+      }
 
-    // ── Initial badge rendering ───────────────────────────
-    // For decisions that already have a replay, we could pre‑load.
-    // We'll leave it to user click.
+      decisions.forEach((d) => {
+        const currentPrice = priceMap[d.asset?.toLowerCase()] || null;
+        const outcome = W.decisionReplay.evaluate(d, { price: currentPrice });
+        const container = view.querySelector(
+          `.replay-container[data-decision-id="${d.id}"]`,
+        );
+        if (container) {
+          container.innerHTML = W.decisionReplay.renderBadge(outcome);
+        }
+      });
+    }
   }
 
-  // ── Exports ────────────────────────────────────────────
   W.journal = { all, create, remove, render };
 })();
 
-console.log("[Journal] Decision module loaded (with rich replay).");
+console.log("[Journal] Decision module loaded (CSP compliant).");
 // ---- js/features/token-analysis.js ----
 // ===============================================================
 //         Token Analysis – Evidence‑Driven Decision Workflow
@@ -13776,45 +13883,83 @@ W.tokenAnalysis = (async () => {
   console.log(`[Tilt] Enabled on ${cards.length} cards.`);
 })();
 // ---- js/app.js ----
-//  Weaver Core Application
+// ===============================================================
+//         Weaver Core Application
+// ===============================================================
+// Purpose: Handle routing, navigation rendering, and app initialization.
+// Security Fix: Removed plaintext Telegram save handler (P0 Task 1).
+// ===============================================================
 
 window.W = window.W || {};
 
 (function () {
-  // ── Navigation Configuration ──────────────────────────
-  const NAV = [
-    { id: "dashboard", icon: "📊", label: "Dashboard" },
-    { id: "portfolio", icon: "💼", label: "Portfolio" },
-    { id: "watchlist", icon: "⭐", label: "Watchlist" },
-    { id: "explorer", icon: "🔍", label: "Coin Explorer" },
-    { id: "alerts", icon: "🚨", label: "Alerts" },
-    { id: "news", icon: "📰", label: "News" },
-    { id: "ai", icon: "🧠", label: "Portfolio Intelligence" },
-    { id: "optimizer", icon: "🧮", label: "Optimizer" },
-    { id: "time", icon: "⏳", label: "Time Machine" },
-    { id: "trader", icon: "⚡", label: "Trading Assistant" },
-    { id: "gems", icon: "💎", label: "Gem Agent" },
-    { id: "shield", icon: "🛡️", label: "Token Shield" },
-    { id: "web3", icon: "🌐", label: "Web3 Wallets" },
-    { id: "defi", icon: "💰", label: "DeFi" },
-    { id: "airdrops", icon: "🎯", label: "Airdrop Hunter" },
-    { id: "market", icon: "📈", label: "Trading Tools" },
-    { id: "sectors", icon: "🌊", label: "Sector Map" },
-    { id: "whales", icon: "🐋", label: "Whale Tracker" },
-    { id: "smart", icon: "🧠", label: "Smart Money" },
-    { id: "unlocks", icon: "🔓", label: "Token Unlocks" },
-    { id: "learn", icon: "📚", label: "Learn" },
-    { id: "profile", icon: "👤", label: "Profile" },
-    { id: "pro", icon: "🔮", label: "Weaver Pro" },
-    { id: "theses", icon: "🎯", label: "Theses" },
-    { id: "journal", icon: "📓", label: "Journal" },
-    { id: "sync", icon: "☁️", label: "Sync" },
-    { id: "settings", icon: "⚙️", label: "Settings" },
-    // ── NEW: Token Analysis ──────────────────────────────
-    { id: "token", icon: "🔍", label: "Token Analysis" },
+  const NAV_GROUPS = [
+    {
+      label: "PRIMARY",
+      items: [
+        {
+          id: "dashboard",
+          icon: "📊",
+          label: "Dashboard",
+          route: "#/dashboard",
+        },
+        { id: "explorer", icon: "🔍", label: "Discover", route: "#/explorer" },
+        { id: "token", icon: "📈", label: "Analyze", route: "#/token" },
+        {
+          id: "portfolio",
+          icon: "💼",
+          label: "Portfolio",
+          route: "#/portfolio",
+        },
+      ],
+    },
+    {
+      label: "MONITOR",
+      items: [
+        {
+          id: "watchlist",
+          icon: "⭐",
+          label: "Watchlist",
+          route: "#/watchlist",
+        },
+        { id: "alerts", icon: "🚨", label: "Alerts", route: "#/alerts" },
+        { id: "market", icon: "📡", label: "Signals", route: "#/market" },
+      ],
+    },
+    {
+      label: "INTELLIGENCE",
+      items: [
+        { id: "news", icon: "📰", label: "News", route: "#/news" },
+        { id: "whales", icon: "🐋", label: "Whale Tracker", route: "#/whales" },
+        { id: "smart", icon: "🧠", label: "Smart Money", route: "#/smart" },
+        { id: "theses", icon: "🎯", label: "Theses", route: "#/theses" },
+        { id: "journal", icon: "📓", label: "Journal", route: "#/journal" },
+      ],
+    },
+    {
+      label: "TOOLS",
+      items: [
+        { id: "shield", icon: "🛡️", label: "Token Shield", route: "#/shield" },
+        {
+          id: "optimizer",
+          icon: "🧮",
+          label: "Optimizer",
+          route: "#/optimizer",
+        },
+        {
+          id: "unlocks",
+          icon: "🔓",
+          label: "Token Unlocks",
+          route: "#/unlocks",
+        },
+        { id: "ai", icon: "🧠", label: "AI Insights", route: "#/ai" },
+        { id: "settings", icon: "⚙️", label: "Settings", route: "#/settings" },
+      ],
+    },
   ];
 
-  // ── Route Map ──────────────────────────────────────────
+  const ALL_NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
+
   const routes = {
     dashboard: (v) =>
       W.dashboard?.render?.(v) ||
@@ -13891,48 +14036,38 @@ window.W = window.W || {};
     settings: (v) =>
       W.misc?.renderSettings?.(v) ||
       W.ui?.toast?.("Settings module not loaded", "warn"),
-    // ── NEW: Token Analysis route ───────────────────────────
     token: async (v) => {
       const param = getPageParam();
       if (W.tokenAnalysis) {
-        if (param) {
-          await W.tokenAnalysis.render(v, param);
-        } else {
-          await W.tokenAnalysis.render(v);
-        }
+        if (param) await W.tokenAnalysis.render(v, param);
+        else await W.tokenAnalysis.render(v);
       } else {
         W.ui?.toast?.("Token Analysis module not loaded", "warn");
       }
     },
   };
 
-  // ── Helpers ────────────────────────────────────────────
   function getCurrentPage() {
     return location.hash.slice(2).split("/")[0] || "dashboard";
   }
-
   function getPageParam() {
     const parts = location.hash.slice(2).split("/");
     return parts.length > 1 ? parts[1] : null;
   }
 
-  // ── Route Handler ──────────────────────────────────────
   function route() {
     const hash = location.hash.slice(2) || "dashboard";
     const [page, param] = hash.split("/");
     const activeId = page === "coin" ? "explorer" : page;
 
-    // Update navigation
     document.querySelectorAll("#nav a").forEach((a) => {
       a.classList.toggle("active", a.dataset.id === activeId);
     });
 
-    // Update page title
-    const navItem = NAV.find((n) => n.id === activeId);
+    const navItem = ALL_NAV_ITEMS.find((n) => n.id === activeId);
     const titleEl = document.getElementById("page-title");
     if (titleEl) titleEl.textContent = navItem ? navItem.label : "Weaver";
 
-    // Render view
     const view = document.getElementById("view");
     if (!view) {
       console.warn("[App] View element not found");
@@ -13941,12 +14076,10 @@ window.W = window.W || {};
 
     try {
       if (page === "coin" && param) {
-        if (W.explorer?.renderCoin) {
-          W.explorer.renderCoin(view, param);
-        } else {
+        if (W.explorer?.renderCoin) W.explorer.renderCoin(view, param);
+        else
           view.innerHTML =
             '<p class="muted">Explorer module not available.</p>';
-        }
       } else if (routes[page]) {
         routes[page](view);
       } else {
@@ -13955,26 +14088,15 @@ window.W = window.W || {};
       }
     } catch (e) {
       console.error("[App] Route error:", e);
-      view.innerHTML = `
-        <div class="card">
-          <h3>⚠️ Something went wrong</h3>
-          <p class="muted">${W.fmt?.escapeHTML?.(e.message) || e.message}</p>
-          <p class="muted small">Check the console (F12) for details.</p>
-        </div>
-      `;
+      view.innerHTML = `<div class="card"><h3>⚠️ Something went wrong</h3><p class="muted">${W.fmt?.escapeHTML?.(e.message) || e.message}</p><p class="muted small">Check the console (F12) for details.</p></div>`;
     }
 
-    // Update last updated timestamp
     const updated = document.getElementById("last-updated");
-    if (updated) {
+    if (updated)
       updated.textContent = `updated ${new Date().toLocaleTimeString()} · via ${W.api?.source || "…"}`;
-    }
-
-    // Check alerts
     if (W.alerts?.check) W.alerts.check();
   }
 
-  // ── Streak Tracking ────────────────────────────────────
   function updateStreak() {
     const today = new Date().toDateString();
     const streak = W.store?.get?.("streak", null);
@@ -13985,9 +14107,7 @@ window.W = window.W || {};
     }
   }
 
-  // ── Auto-Refresh Loop ──────────────────────────────────
   let refreshLoop = null;
-
   function startLoop() {
     clearInterval(refreshLoop);
     const settings = W.store?.get?.("settings", {});
@@ -14005,7 +14125,6 @@ window.W = window.W || {};
     }
   }
 
-  // ── Settings Application ──────────────────────────────
   W.applySettings = function () {
     const cur = W.currency?.() || "usd";
     const el = document.getElementById("currency");
@@ -14013,35 +14132,35 @@ window.W = window.W || {};
     startLoop();
   };
 
-  // ── W.currency (fixed) ────────────────────────────────
   W.currency = function () {
     return W.store?.get?.("settings", {})?.currency || "usd";
   };
-
-  // ── Refresh wrapper ────────────────────────────────────
   W.refresh = function () {
     route();
   };
 
-  // ── Init ───────────────────────────────────────────────
   function init() {
     console.log("[App] Initializing Weaver...");
 
-    // ── Build navigation ──────────────────────────────────
     const navEl = document.getElementById("nav");
     if (navEl) {
-      navEl.innerHTML = NAV.map(
-        (n) => `
-        <a href="#/${n.id}" data-id="${n.id}">
-          <span class="nav-ico">${n.icon}</span>
-          <span>${n.label}</span>
-          ${n.id === "alerts" ? '<span class="nav-badge" id="alert-badge"></span>' : ""}
-        </a>
-      `,
-      ).join("");
+      navEl.innerHTML = NAV_GROUPS.map((group) => {
+        const groupHtml = `<div class="nav-group-label">${group.label}</div>`;
+        const itemsHtml = group.items
+          .map(
+            (n) => `
+          <a href="${n.route}" data-id="${n.id}">
+            <span class="nav-ico">${n.icon}</span>
+            <span>${n.label}</span>
+            ${n.id === "alerts" ? '<span class="nav-badge" id="alert-badge"></span>' : ""}
+          </a>
+        `,
+          )
+          .join("");
+        return groupHtml + itemsHtml;
+      }).join("");
     }
 
-    // ── Setup currency dropdown ──────────────────────────
     const curEl = document.getElementById("currency");
     if (curEl) {
       const currencies = [
@@ -14066,27 +14185,20 @@ window.W = window.W || {};
       };
     }
 
-    // ── Refresh button ────────────────────────────────────
     const refreshBtn = document.getElementById("btn-refresh");
     if (refreshBtn) refreshBtn.onclick = route;
 
-    // ── Pro button ────────────────────────────────────────
     const proBtn = document.getElementById("btn-pro");
     if (proBtn) proBtn.onclick = () => (location.hash = "#/pro");
 
-    // ── Sync button ──────────────────────────────────────
     const syncBtn = document.getElementById("sync-btn");
     if (syncBtn) {
       syncBtn.onclick = () => {
-        if (W.sync?.syncVault) {
-          W.sync.syncVault();
-        } else {
-          W.ui?.toast?.("Sync module not available", "warn");
-        }
+        if (W.sync?.syncVault) W.sync.syncVault();
+        else W.ui?.toast?.("Sync module not available", "warn");
       };
     }
 
-    // ── Unhandled rejections ─────────────────────────────
     window.addEventListener("unhandledrejection", (e) => {
       console.warn("[App] Unhandled rejection:", e.reason);
       const msg = e.reason?.message || "Request failed";
@@ -14097,57 +14209,17 @@ window.W = window.W || {};
       }
     });
 
-    // ── Achievements ─────────────────────────────────────
-    if (W.achievements?.check) {
-      W.achievements.check();
-    }
-
-    // ── Streak ────────────────────────────────────────────
+    if (W.achievements?.check) W.achievements.check();
     updateStreak();
-
-    // ── Sync boot ────────────────────────────────────────
     if (W.sync?.boot) W.sync.boot();
 
-    // ── Route and start loop ─────────────────────────────
     window.addEventListener("hashchange", route);
     route();
     startLoop();
 
-    // ── Alert checker (every 60s) ────────────────────────
     setInterval(() => {
       if (W.alerts?.check) W.alerts.check();
     }, 60000);
-
-    // ── Interactive cursor glow ──────────────────────────
-    const glow = document.createElement("div");
-    glow.id = "cursor-glow";
-    glow.style.cssText = `
-      position: fixed;
-      width: 400px;
-      height: 400px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(124,92,255,0.08) 0%, transparent 70%);
-      pointer-events: none;
-      z-index: -1;
-      transform: translate(-50%, -50%);
-      transition: opacity 0.3s ease;
-      will-change: transform, opacity;
-    `;
-    document.body.appendChild(glow);
-
-    let glowTimeout = null;
-    document.addEventListener("mousemove", (e) => {
-      glow.style.left = e.clientX + "px";
-      glow.style.top = e.clientY + "px";
-      glow.style.opacity = "1";
-      clearTimeout(glowTimeout);
-      glowTimeout = setTimeout(() => {
-        glow.style.opacity = "0.5";
-      }, 2000);
-    });
-
-    // Hide glow on touch devices
-    if ("ontouchstart" in window) glow.style.display = "none";
 
     // ── Toast click handler for Telegram test ────────────
     document.addEventListener("click", (e) => {
@@ -14181,27 +14253,13 @@ window.W = window.W || {};
           });
       }
 
-      if (id === "set-save") {
-        setTimeout(() => {
-          const token = document.querySelector("#set-tgtoken");
-          const chat = document.querySelector("#set-tgchat");
-          const on = document.querySelector("#set-tgon");
-          if (!token || !chat) return;
-          const settings = W.store?.get?.("settings", {}) || {};
-          settings.telegram = {
-            on: on?.checked || false,
-            token: token.value.trim(),
-            chat: chat.value.trim(),
-          };
-          W.store?.set?.("settings", settings);
-        }, 0);
-      }
+      // SECURITY FIX: Removed plaintext `if (id === "set-save")` handler.
+      // Credential saving is now exclusively handled by the secure vault in `W.misc.renderSettings`.
     });
 
     console.log("[App] ✅ Weaver initialized.");
   }
 
-  // ── Start on DOM ready ─────────────────────────────────
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
   } else {

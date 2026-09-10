@@ -9,6 +9,14 @@
     "test": "npm run test:unit && npm run test:integration && npm run test:security && npm run test:e2e"
   },
   "devDependencies": {
-    "esbuild": "^0.28.2"
+    "@playwright/test": "^1.63.0",
+    "axios": "^1.20.0",
+    "chai": "^6.2.2",
+    "esbuild": "^0.28.2",
+    "jsdom": "^30.0.1"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1"
   }
 }

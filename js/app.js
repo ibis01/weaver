@@ -1,42 +1,80 @@
-//  Weaver Core Application
+// ===============================================================
+//         Weaver Core Application
+// ===============================================================
+// Purpose: Handle routing, navigation rendering, and app initialization.
+// Security Fix: Removed plaintext Telegram save handler (P0 Task 1).
+// ===============================================================
 
 window.W = window.W || {};
 
 (function () {
-  // ── Navigation Configuration ──────────────────────────
-  const NAV = [
-    { id: "dashboard", icon: "📊", label: "Dashboard" },
-    { id: "portfolio", icon: "💼", label: "Portfolio" },
-    { id: "watchlist", icon: "⭐", label: "Watchlist" },
-    { id: "explorer", icon: "🔍", label: "Coin Explorer" },
-    { id: "alerts", icon: "🚨", label: "Alerts" },
-    { id: "news", icon: "📰", label: "News" },
-    { id: "ai", icon: "🧠", label: "Portfolio Intelligence" },
-    { id: "optimizer", icon: "🧮", label: "Optimizer" },
-    { id: "time", icon: "⏳", label: "Time Machine" },
-    { id: "trader", icon: "⚡", label: "Trading Assistant" },
-    { id: "gems", icon: "💎", label: "Gem Agent" },
-    { id: "shield", icon: "🛡️", label: "Token Shield" },
-    { id: "web3", icon: "🌐", label: "Web3 Wallets" },
-    { id: "defi", icon: "💰", label: "DeFi" },
-    { id: "airdrops", icon: "🎯", label: "Airdrop Hunter" },
-    { id: "market", icon: "📈", label: "Trading Tools" },
-    { id: "sectors", icon: "🌊", label: "Sector Map" },
-    { id: "whales", icon: "🐋", label: "Whale Tracker" },
-    { id: "smart", icon: "🧠", label: "Smart Money" },
-    { id: "unlocks", icon: "🔓", label: "Token Unlocks" },
-    { id: "learn", icon: "📚", label: "Learn" },
-    { id: "profile", icon: "👤", label: "Profile" },
-    { id: "pro", icon: "🔮", label: "Weaver Pro" },
-    { id: "theses", icon: "🎯", label: "Theses" },
-    { id: "journal", icon: "📓", label: "Journal" },
-    { id: "sync", icon: "☁️", label: "Sync" },
-    { id: "settings", icon: "⚙️", label: "Settings" },
-    // ── NEW: Token Analysis ──────────────────────────────
-    { id: "token", icon: "🔍", label: "Token Analysis" },
+  const NAV_GROUPS = [
+    {
+      label: "PRIMARY",
+      items: [
+        {
+          id: "dashboard",
+          icon: "📊",
+          label: "Dashboard",
+          route: "#/dashboard",
+        },
+        { id: "explorer", icon: "🔍", label: "Discover", route: "#/explorer" },
+        { id: "token", icon: "📈", label: "Analyze", route: "#/token" },
+        {
+          id: "portfolio",
+          icon: "💼",
+          label: "Portfolio",
+          route: "#/portfolio",
+        },
+      ],
+    },
+    {
+      label: "MONITOR",
+      items: [
+        {
+          id: "watchlist",
+          icon: "⭐",
+          label: "Watchlist",
+          route: "#/watchlist",
+        },
+        { id: "alerts", icon: "🚨", label: "Alerts", route: "#/alerts" },
+        { id: "market", icon: "📡", label: "Signals", route: "#/market" },
+      ],
+    },
+    {
+      label: "INTELLIGENCE",
+      items: [
+        { id: "news", icon: "📰", label: "News", route: "#/news" },
+        { id: "whales", icon: "🐋", label: "Whale Tracker", route: "#/whales" },
+        { id: "smart", icon: "🧠", label: "Smart Money", route: "#/smart" },
+        { id: "theses", icon: "🎯", label: "Theses", route: "#/theses" },
+        { id: "journal", icon: "📓", label: "Journal", route: "#/journal" },
+      ],
+    },
+    {
+      label: "TOOLS",
+      items: [
+        { id: "shield", icon: "🛡️", label: "Token Shield", route: "#/shield" },
+        {
+          id: "optimizer",
+          icon: "🧮",
+          label: "Optimizer",
+          route: "#/optimizer",
+        },
+        {
+          id: "unlocks",
+          icon: "🔓",
+          label: "Token Unlocks",
+          route: "#/unlocks",
+        },
+        { id: "ai", icon: "🧠", label: "AI Insights", route: "#/ai" },
+        { id: "settings", icon: "⚙️", label: "Settings", route: "#/settings" },
+      ],
+    },
   ];
 
-  // ── Route Map ──────────────────────────────────────────
+  const ALL_NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
+
   const routes = {
     dashboard: (v) =>
       W.dashboard?.render?.(v) ||
@@ -113,48 +151,38 @@ window.W = window.W || {};
     settings: (v) =>
       W.misc?.renderSettings?.(v) ||
       W.ui?.toast?.("Settings module not loaded", "warn"),
-    // ── NEW: Token Analysis route ───────────────────────────
     token: async (v) => {
       const param = getPageParam();
       if (W.tokenAnalysis) {
-        if (param) {
-          await W.tokenAnalysis.render(v, param);
-        } else {
-          await W.tokenAnalysis.render(v);
-        }
+        if (param) await W.tokenAnalysis.render(v, param);
+        else await W.tokenAnalysis.render(v);
       } else {
         W.ui?.toast?.("Token Analysis module not loaded", "warn");
       }
     },
   };
 
-  // ── Helpers ────────────────────────────────────────────
   function getCurrentPage() {
     return location.hash.slice(2).split("/")[0] || "dashboard";
   }
-
   function getPageParam() {
     const parts = location.hash.slice(2).split("/");
     return parts.length > 1 ? parts[1] : null;
   }
 
-  // ── Route Handler ──────────────────────────────────────
   function route() {
     const hash = location.hash.slice(2) || "dashboard";
     const [page, param] = hash.split("/");
     const activeId = page === "coin" ? "explorer" : page;
 
-    // Update navigation
     document.querySelectorAll("#nav a").forEach((a) => {
       a.classList.toggle("active", a.dataset.id === activeId);
     });
 
-    // Update page title
-    const navItem = NAV.find((n) => n.id === activeId);
+    const navItem = ALL_NAV_ITEMS.find((n) => n.id === activeId);
     const titleEl = document.getElementById("page-title");
     if (titleEl) titleEl.textContent = navItem ? navItem.label : "Weaver";
 
-    // Render view
     const view = document.getElementById("view");
     if (!view) {
       console.warn("[App] View element not found");
@@ -163,12 +191,10 @@ window.W = window.W || {};
 
     try {
       if (page === "coin" && param) {
-        if (W.explorer?.renderCoin) {
-          W.explorer.renderCoin(view, param);
-        } else {
+        if (W.explorer?.renderCoin) W.explorer.renderCoin(view, param);
+        else
           view.innerHTML =
             '<p class="muted">Explorer module not available.</p>';
-        }
       } else if (routes[page]) {
         routes[page](view);
       } else {
@@ -177,26 +203,15 @@ window.W = window.W || {};
       }
     } catch (e) {
       console.error("[App] Route error:", e);
-      view.innerHTML = `
-        <div class="card">
-          <h3>⚠️ Something went wrong</h3>
-          <p class="muted">${W.fmt?.escapeHTML?.(e.message) || e.message}</p>
-          <p class="muted small">Check the console (F12) for details.</p>
-        </div>
-      `;
+      view.innerHTML = `<div class="card"><h3>⚠️ Something went wrong</h3><p class="muted">${W.fmt?.escapeHTML?.(e.message) || e.message}</p><p class="muted small">Check the console (F12) for details.</p></div>`;
     }
 
-    // Update last updated timestamp
     const updated = document.getElementById("last-updated");
-    if (updated) {
+    if (updated)
       updated.textContent = `updated ${new Date().toLocaleTimeString()} · via ${W.api?.source || "…"}`;
-    }
-
-    // Check alerts
     if (W.alerts?.check) W.alerts.check();
   }
 
-  // ── Streak Tracking ────────────────────────────────────
   function updateStreak() {
     const today = new Date().toDateString();
     const streak = W.store?.get?.("streak", null);
@@ -207,9 +222,7 @@ window.W = window.W || {};
     }
   }
 
-  // ── Auto-Refresh Loop ──────────────────────────────────
   let refreshLoop = null;
-
   function startLoop() {
     clearInterval(refreshLoop);
     const settings = W.store?.get?.("settings", {});
@@ -227,7 +240,6 @@ window.W = window.W || {};
     }
   }
 
-  // ── Settings Application ──────────────────────────────
   W.applySettings = function () {
     const cur = W.currency?.() || "usd";
     const el = document.getElementById("currency");
@@ -235,35 +247,35 @@ window.W = window.W || {};
     startLoop();
   };
 
-  // ── W.currency (fixed) ────────────────────────────────
   W.currency = function () {
     return W.store?.get?.("settings", {})?.currency || "usd";
   };
-
-  // ── Refresh wrapper ────────────────────────────────────
   W.refresh = function () {
     route();
   };
 
-  // ── Init ───────────────────────────────────────────────
   function init() {
     console.log("[App] Initializing Weaver...");
 
-    // ── Build navigation ──────────────────────────────────
     const navEl = document.getElementById("nav");
     if (navEl) {
-      navEl.innerHTML = NAV.map(
-        (n) => `
-        <a href="#/${n.id}" data-id="${n.id}">
-          <span class="nav-ico">${n.icon}</span>
-          <span>${n.label}</span>
-          ${n.id === "alerts" ? '<span class="nav-badge" id="alert-badge"></span>' : ""}
-        </a>
-      `,
-      ).join("");
+      navEl.innerHTML = NAV_GROUPS.map((group) => {
+        const groupHtml = `<div class="nav-group-label">${group.label}</div>`;
+        const itemsHtml = group.items
+          .map(
+            (n) => `
+          <a href="${n.route}" data-id="${n.id}">
+            <span class="nav-ico">${n.icon}</span>
+            <span>${n.label}</span>
+            ${n.id === "alerts" ? '<span class="nav-badge" id="alert-badge"></span>' : ""}
+          </a>
+        `,
+          )
+          .join("");
+        return groupHtml + itemsHtml;
+      }).join("");
     }
 
-    // ── Setup currency dropdown ──────────────────────────
     const curEl = document.getElementById("currency");
     if (curEl) {
       const currencies = [
@@ -288,27 +300,20 @@ window.W = window.W || {};
       };
     }
 
-    // ── Refresh button ────────────────────────────────────
     const refreshBtn = document.getElementById("btn-refresh");
     if (refreshBtn) refreshBtn.onclick = route;
 
-    // ── Pro button ────────────────────────────────────────
     const proBtn = document.getElementById("btn-pro");
     if (proBtn) proBtn.onclick = () => (location.hash = "#/pro");
 
-    // ── Sync button ──────────────────────────────────────
     const syncBtn = document.getElementById("sync-btn");
     if (syncBtn) {
       syncBtn.onclick = () => {
-        if (W.sync?.syncVault) {
-          W.sync.syncVault();
-        } else {
-          W.ui?.toast?.("Sync module not available", "warn");
-        }
+        if (W.sync?.syncVault) W.sync.syncVault();
+        else W.ui?.toast?.("Sync module not available", "warn");
       };
     }
 
-    // ── Unhandled rejections ─────────────────────────────
     window.addEventListener("unhandledrejection", (e) => {
       console.warn("[App] Unhandled rejection:", e.reason);
       const msg = e.reason?.message || "Request failed";
@@ -319,57 +324,17 @@ window.W = window.W || {};
       }
     });
 
-    // ── Achievements ─────────────────────────────────────
-    if (W.achievements?.check) {
-      W.achievements.check();
-    }
-
-    // ── Streak ────────────────────────────────────────────
+    if (W.achievements?.check) W.achievements.check();
     updateStreak();
-
-    // ── Sync boot ────────────────────────────────────────
     if (W.sync?.boot) W.sync.boot();
 
-    // ── Route and start loop ─────────────────────────────
     window.addEventListener("hashchange", route);
     route();
     startLoop();
 
-    // ── Alert checker (every 60s) ────────────────────────
     setInterval(() => {
       if (W.alerts?.check) W.alerts.check();
     }, 60000);
-
-    // ── Interactive cursor glow ──────────────────────────
-    const glow = document.createElement("div");
-    glow.id = "cursor-glow";
-    glow.style.cssText = `
-      position: fixed;
-      width: 400px;
-      height: 400px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(124,92,255,0.08) 0%, transparent 70%);
-      pointer-events: none;
-      z-index: -1;
-      transform: translate(-50%, -50%);
-      transition: opacity 0.3s ease;
-      will-change: transform, opacity;
-    `;
-    document.body.appendChild(glow);
-
-    let glowTimeout = null;
-    document.addEventListener("mousemove", (e) => {
-      glow.style.left = e.clientX + "px";
-      glow.style.top = e.clientY + "px";
-      glow.style.opacity = "1";
-      clearTimeout(glowTimeout);
-      glowTimeout = setTimeout(() => {
-        glow.style.opacity = "0.5";
-      }, 2000);
-    });
-
-    // Hide glow on touch devices
-    if ("ontouchstart" in window) glow.style.display = "none";
 
     // ── Toast click handler for Telegram test ────────────
     document.addEventListener("click", (e) => {
@@ -403,27 +368,13 @@ window.W = window.W || {};
           });
       }
 
-      if (id === "set-save") {
-        setTimeout(() => {
-          const token = document.querySelector("#set-tgtoken");
-          const chat = document.querySelector("#set-tgchat");
-          const on = document.querySelector("#set-tgon");
-          if (!token || !chat) return;
-          const settings = W.store?.get?.("settings", {}) || {};
-          settings.telegram = {
-            on: on?.checked || false,
-            token: token.value.trim(),
-            chat: chat.value.trim(),
-          };
-          W.store?.set?.("settings", settings);
-        }, 0);
-      }
+      // SECURITY FIX: Removed plaintext `if (id === "set-save")` handler.
+      // Credential saving is now exclusively handled by the secure vault in `W.misc.renderSettings`.
     });
 
     console.log("[App] ✅ Weaver initialized.");
   }
 
-  // ── Start on DOM ready ─────────────────────────────────
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
   } else {

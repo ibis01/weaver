@@ -1,4 +1,4 @@
-// js/features/gems.js – Gem Agent: Token Hunter
+// – Gem Agent: Token Hunter
 
 window.W = window.W || {};
 
@@ -23,6 +23,11 @@ W.gems = (() => {
     ton: "💎",
     blast: "💥",
   };
+
+  // Bump this whenever score()'s weights/logic change. Alerts and cards
+  // display it so a score from an old version is never confused with one
+  // from a newer, differently-weighted model (Weaver Constitution §3.8).
+  const SCORE_VERSION = "gem-v1";
 
   // ── Helpers ────────────────────────────────────────────
   function escapeHTML(str) {
@@ -145,13 +150,59 @@ W.gems = (() => {
             ? ["⚠️ Degen play", "triggered"]
             : ["🚩 Avoid", "sell"];
 
-    return { score: s, reasons, verdict, liq, vol, ageH, h1, h6, h24 };
+    return {
+      score: s,
+      reasons,
+      verdict,
+      liq,
+      vol,
+      ageH,
+      h1,
+      h6,
+      h24,
+      scoreVersion: SCORE_VERSION,
+    };
   }
 
   // ── Scan ──────────────────────────────────────────────
   let auto = false,
     timer = null;
   let seen = {};
+  let shieldCache = {}; // addr -> shield assessment result (session-only)
+
+  // Chain-parity bridge to Token Shield (Weaver Constitution §3.3): a gem
+  // is only as trustworthy as its verification, so before alerting on it
+  // we ask Shield for a risk assessment. Chains Shield doesn't support yet
+  // (ton, blast) degrade honestly to "unsupported" rather than silently
+  // skipping the check or pretending it passed.
+  async function checkShield(addr, chainKey) {
+    if (shieldCache[addr]) return shieldCache[addr];
+    if (!W.shield || !W.shield.CHAINS[chainKey]) {
+      const result = { unsupported: true };
+      shieldCache[addr] = result;
+      return result;
+    }
+    try {
+      const assessment = await W.shield.check(addr, chainKey);
+      const result = assessment
+        ? { ...assessment, ok: true }
+        : { noData: true };
+      shieldCache[addr] = result;
+      return result;
+    } catch (e) {
+      const result = { error: true, message: e.message };
+      shieldCache[addr] = result;
+      return result;
+    }
+  }
+
+  function shieldSummary(s) {
+    if (!s) return "🛡️ Shield: not checked";
+    if (s.unsupported) return "🛡️ Shield: not available for this chain";
+    if (s.error) return "🛡️ Shield: check failed — verify manually";
+    if (s.noData) return "🛡️ Shield: no security data found";
+    return `🛡️ Shield: ${s.riskLevel[0]} (${s.riskScore}/100, ${s.scoreVersion})`;
+  }
 
   async function scan(view) {
     const body = view.querySelector("#g-body");
@@ -203,16 +254,24 @@ W.gems = (() => {
         .sort((a, b) => b.analysis.score - a.analysis.score)
         .slice(0, 24);
 
-      // Notify new gems
-      results.forEach((g) => {
+      // Notify new gems — run a Shield check first so every alert already
+      // carries a risk verdict, not just an opportunity score.
+      for (const g of results) {
         const addr = g.pair.baseToken.address;
         if (g.analysis.score >= 70 && !seen[addr]) {
-          const msg = `🤖 <b>Gem detected:</b> ${g.pair.baseToken.symbol} on ${g.pair.chainId} — score ${g.analysis.score}`;
-          W.ui.toast(msg, "ok", 6000);
+          const shield = await checkShield(addr, g.pair.chainId);
+          const msg =
+            `🤖 <b>Gem detected:</b> ${g.pair.baseToken.symbol} on ${g.pair.chainId} — score ${g.analysis.score} (${g.analysis.scoreVersion})\n` +
+            shieldSummary(shield);
+          W.ui.toast(
+            `Gem detected: ${g.pair.baseToken.symbol} — score ${g.analysis.score}`,
+            "ok",
+            6000,
+          );
           if (W.tg) W.tg.notify("gem:" + addr, msg);
         }
         seen[addr] = 1;
-      });
+      }
 
       // Stats
       view.querySelector("#g-stats").innerHTML = `
@@ -228,8 +287,13 @@ W.gems = (() => {
             const p = g.pair,
               a = g.analysis,
               t = p.baseToken;
+            const addr = t.address;
+            const shield = shieldCache[addr];
+            const shieldSection = shield
+              ? `<div class="kv-row"><span class="muted">Security</span><span>${escapeHTML(shieldSummary(shield))}</span></div>`
+              : `<button class="btn tiny mt" data-shield-check data-addr="${escapeHTML(addr)}" data-chain="${escapeHTML(p.chainId)}">🛡️ Verify Security</button>`;
             return `
-            <div class="card">
+            <div class="card" data-gem-card="${escapeHTML(addr)}">
               <div class="watch-head">
                 <div>
                   <b>${escapeHTML(t.symbol)}</b> <span class="muted small">${escapeHTML(t.name)}</span><br>
@@ -238,12 +302,14 @@ W.gems = (() => {
                 <div style="text-align:right;">
                   <span class="tag ${a.verdict[1]}" style="font-size:12px;padding:5px 10px;">${a.verdict[0]}</span>
                   <div class="alt-num" style="font-size:26px;">${a.score}</div>
+                  <div class="muted" style="font-size:10px;">${a.scoreVersion}</div>
                 </div>
               </div>
               <div class="meter-bar"><div style="width:${a.score}%; background: var(--grad);"></div></div>
               <div class="kv-row"><span class="muted">Price</span><span>$${p.priceUsd}</span></div>
               <div class="kv-row"><span class="muted">Liquidity / 24h Vol</span><span>$${kfmt(a.liq)} / $${kfmt(a.vol)}</span></div>
               <div class="kv-row"><span class="muted">1h / 6h / 24h</span><span>${W.fmt.pct(a.h1)} ${W.fmt.pct(a.h6)} ${W.fmt.pct(a.h24)}</span></div>
+              <div class="shield-slot">${shieldSection}</div>
               <ul class="tx-list">${a.reasons
                 .slice(0, 4)
                 .map((r) => `<li>${escapeHTML(r)}</li>`)
@@ -253,6 +319,21 @@ W.gems = (() => {
           `;
           })
           .join("")}</div>`;
+
+        body.querySelectorAll("[data-shield-check]").forEach((btn) => {
+          btn.onclick = async () => {
+            btn.textContent = "Checking…";
+            btn.disabled = true;
+            const shield = await checkShield(
+              btn.dataset.addr,
+              btn.dataset.chain,
+            );
+            const slot = btn.closest(".shield-slot");
+            if (slot) {
+              slot.innerHTML = `<div class="kv-row"><span class="muted">Security</span><span>${escapeHTML(shieldSummary(shield))}</span></div>`;
+            }
+          };
+        });
       } else {
         body.innerHTML = W.ui.empty(
           "🤖",

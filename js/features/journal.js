@@ -1,5 +1,7 @@
 // ===============================================================
-//         Decision Journal Module – with Rich Replay
+//         Decision Journal Module
+// ===============================================================
+// CSP Compliant: Zero inline styles.
 // ===============================================================
 
 window.W = window.W || {};
@@ -12,7 +14,6 @@ W.journal = W.journal || {};
   function save() {
     W.store.set(JOURNAL_KEY, decisions);
   }
-
   function all() {
     return decisions;
   }
@@ -40,8 +41,6 @@ W.journal = W.journal || {};
     save();
   }
 
-  // ── Render UI ──────────────────────────────────────────
-
   async function render(view) {
     const activeTheses = W.theses
       ? W.theses.all().filter((t) => t.status === "active")
@@ -50,55 +49,40 @@ W.journal = W.journal || {};
     view.innerHTML = `
       <div class="card">
         <h3>📓 Decision Journal</h3>
-        <p class="muted small">Record WHY you are making a trade. A transaction records WHAT happened; this records WHY.</p>
+        <p class="text-muted small-text">Record WHY you are making a trade. A transaction records WHAT happened; this records WHY.</p>
         <button class="btn primary" id="btn-new-decision">+ Log Decision</button>
       </div>
 
-      <div id="decision-list" style="margin-top: 20px;">
-        ${decisions.length === 0 ? '<p class="muted">No decisions logged yet.</p>' : ""}
+      <div id="decision-list" class="mt-16">
+        ${decisions.length === 0 ? '<p class="text-muted">No decisions logged yet.</p>' : ""}
         ${decisions
           .map((d) => {
             const linkedThesis = activeTheses.find((t) => t.id === d.thesisId);
             const actionColor =
               d.action === "Buy"
-                ? "var(--up)"
+                ? "text-up"
                 : d.action === "Sell"
-                  ? "var(--down)"
-                  : "var(--text-muted)";
-
-            // ── Replay Evaluation ─────────────────────────
-            let replayOutcome = null;
-            let hasReplay = false;
-            // We'll fetch current price in the main loop.
-            // For now, we'll render a placeholder that will be updated later.
-            // We'll use a container for replay data.
-
+                  ? "text-down"
+                  : "text-muted";
             return `
-          <div class="card" style="margin-bottom: 15px;" data-decision-id="${d.id}">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <div class="card">
+            <div class="flex-between mb-8">
               <div>
-                <span style="color:${actionColor}; font-weight:bold; font-size:1.1em;">${d.action.toUpperCase()}</span> 
+                <span class="${actionColor} font-bold text-2xl">${d.action.toUpperCase()}</span> 
                 <b>${W.fmt.escapeHTML(d.asset)}</b>
-                <span class="replay-badge-container" data-decision-id="${d.id}"></span>
-                <span class="muted small"> @ ${W.fmt.price(d.price)}</span>
+                <span class="replay-container" data-decision-id="${d.id}"></span>
+                <span class="text-muted small-text"> @ ${W.fmt.price(d.price)}</span>
               </div>
-              <span class="muted small">${W.fmt.relativeTime(d.timestamp)}</span>
+              <span class="text-muted small-text">${W.fmt.relativeTime(d.timestamp)}</span>
             </div>
-            
-            <p class="small"><b>Reasoning:</b> ${W.fmt.escapeHTML(d.reasoning)}</p>
-            
-            <div style="display:flex; gap:15px; margin-top:10px; font-size:0.85em;">
-              <span class="muted"><b>Confidence:</b> ${(d.confidence * 100).toFixed(0)}%</span>
-              <span class="muted"><b>Horizon:</b> ${W.fmt.escapeHTML(d.horizon)}</span>
-              ${linkedThesis ? `<span class="muted"><b>Linked Thesis:</b> ${W.fmt.escapeHTML(linkedThesis.statement.substring(0, 40))}...</span>` : ""}
+            <p class="small-text"><b>Reasoning:</b> ${W.fmt.escapeHTML(d.reasoning)}</p>
+            <div class="flex-between mt-8 small-text text-muted">
+              <span><b>Confidence:</b> ${(d.confidence * 100).toFixed(0)}%</span>
+              <span><b>Horizon:</b> ${W.fmt.escapeHTML(d.horizon)}</span>
+              ${linkedThesis ? `<span><b>Linked Thesis:</b> ${W.fmt.escapeHTML(linkedThesis.statement.substring(0, 40))}...</span>` : ""}
             </div>
-
-            <!-- Replay Details (expandable) -->
-            <div class="replay-details-container" data-decision-id="${d.id}" style="margin-top:10px; display:none;"></div>
-
-            <div style="margin-top:10px; text-align:right;">
-              <button class="btn tiny" data-action="toggle-replay" data-id="${d.id}">📊 Show Replay</button>
-              <button class="btn tiny warn" data-action="delete" data-id="${d.id}">Delete</button>
+            <div class="mt-8 text-center">
+              <button class="btn tiny danger" data-action="delete" data-id="${d.id}">Delete</button>
             </div>
           </div>
           `;
@@ -106,7 +90,7 @@ W.journal = W.journal || {};
           .join("")}
       </div>
 
-      <div id="decision-form-container" class="card hidden" style="margin-top:20px;">
+      <div id="decision-form-container" class="card hidden mt-16">
         <h4>Log New Decision</h4>
         <form id="decision-form" class="form-grid">
           <input type="text" id="d-asset" placeholder="Asset (e.g. BTC)" required class="input">
@@ -123,16 +107,15 @@ W.journal = W.journal || {};
           </select>
           <input type="number" id="d-confidence" placeholder="Confidence (0.0 to 1.0)" step="0.1" min="0" max="1" class="input">
           <input type="text" id="d-horizon" placeholder="Time Horizon (e.g. 2 weeks)" class="input">
-          <textarea id="d-reasoning" placeholder="Why are you making this decision? What is the context?" required class="input" rows="3" style="grid-column: 1 / -1;"></textarea>
-          <div style="grid-column: 1 / -1; display:flex; gap:10px;">
+          <textarea id="d-reasoning" placeholder="Why are you making this decision? What is the context?" required class="input col-span-full" rows="3"></textarea>
+          <div class="flex-center gap-16 mt-16 col-span-full">
             <button type="submit" class="btn primary">Save Decision</button>
-            <button type="button" class="btn" id="btn-cancel-decision">Cancel</button>
+            <button type="button" class="btn ghost" id="btn-cancel-decision">Cancel</button>
           </div>
         </form>
       </div>
     `;
 
-    // ── Event Listeners ──────────────────────────────────
     view.querySelector("#btn-new-decision").onclick = () => {
       view.querySelector("#decision-form-container").classList.remove("hidden");
     };
@@ -140,22 +123,21 @@ W.journal = W.journal || {};
       view.querySelector("#decision-form-container").classList.add("hidden");
     };
 
-    view.querySelector("#decision-form").onsubmit = (e) => {
-      e.preventDefault();
-      create({
-        asset: view.querySelector("#d-asset").value.trim().toUpperCase(),
-        action: view.querySelector("#d-action").value,
-        amount: view.querySelector("#d-amount").value,
-        price: view.querySelector("#d-price").value,
-        thesisId: view.querySelector("#d-thesis").value || null,
-        confidence: view.querySelector("#d-confidence").value,
-        horizon: view.querySelector("#d-horizon").value.trim(),
-        reasoning: view.querySelector("#d-reasoning").value.trim(),
-      });
-      render(view);
-      W.ui.toast("Decision logged", "ok");
-    };
-
+         view.querySelector("#decision-form").onsubmit = async (e) => {
+           e.preventDefault();
+           create({
+             asset: view.querySelector("#d-asset").value.trim().toUpperCase(),
+             action: view.querySelector("#d-action").value,
+             amount: view.querySelector("#d-amount").value,
+             price: view.querySelector("#d-price").value,
+             thesisId: view.querySelector("#d-thesis").value || null,
+             confidence: view.querySelector("#d-confidence").value,
+             horizon: view.querySelector("#d-horizon").value.trim(),
+             reasoning: view.querySelector("#d-reasoning").value.trim(),
+           });
+           await render(view); // <-- This await is critical for the E2E test to find the badge
+           W.ui.toast("Decision logged", "ok");
+         };
     view.querySelectorAll("[data-action='delete']").forEach((btn) => {
       btn.onclick = () => {
         remove(btn.dataset.id);
@@ -164,74 +146,40 @@ W.journal = W.journal || {};
       };
     });
 
-    // ── Toggle Replay Details ────────────────────────────
-    view.querySelectorAll("[data-action='toggle-replay']").forEach((btn) => {
-      btn.onclick = async () => {
-        const id = btn.dataset.id;
-        const container = view.querySelector(
-          `.replay-details-container[data-decision-id="${id}"]`,
-        );
-        if (!container) return;
-
-        if (container.style.display === "none") {
-          // Fetch replay data
-          const decision = decisions.find((d) => d.id === id);
-          if (!decision) return;
-
-          // Get current price (we'll use asset symbol)
-          const asset = decision.asset;
-          let currentPrice = null;
-          let btcPrice = null;
-          try {
-            const markets = await W.api.markets(asset);
-            if (markets && markets.length) {
-              currentPrice = markets[0].current_price;
-            }
-            // Also get BTC price for benchmark
-            const btcData = await W.api.markets("bitcoin");
-            if (btcData && btcData.length) {
-              btcPrice = btcData[0].current_price;
-            }
-          } catch (e) {}
-
-          // Build currentData and benchmarkData
-          const currentData = { price: currentPrice, btcPrice: btcPrice };
-          const benchmarkData = {}; // We could fetch historical prices, but for simplicity we use current BTC.
-          // In a full implementation, we'd store BTC price at decision time.
-
-          // Evaluate
-          if (W.decisionReplay) {
-            const outcome = W.decisionReplay.evaluate(
-              decision,
-              currentData,
-              benchmarkData,
-            );
-            // Render details
-            W.decisionReplay.renderDetails(container, outcome);
-            // Also update badge
-            const badgeContainer = view.querySelector(
-              `.replay-badge-container[data-decision-id="${id}"]`,
-            );
-            if (badgeContainer) {
-              badgeContainer.innerHTML = W.decisionReplay.renderBadge(outcome);
-            }
-            container.style.display = "block";
-            btn.textContent = "📊 Hide Replay";
-          }
-        } else {
-          container.style.display = "none";
-          btn.textContent = "📊 Show Replay";
+    // ── Decision Replay Integration ─────────────
+    if (W.decisionReplay && decisions.length > 0) {
+      const uniqueAssets = [
+        ...new Set(decisions.map((d) => d.asset?.toLowerCase())),
+      ].filter(Boolean);
+      let priceMap = {};
+      if (uniqueAssets.length > 0 && W.api?.markets) {
+        try {
+          const markets = await W.api.markets(uniqueAssets.join(","));
+          markets.forEach((m) => {
+            if (m && m.id) priceMap[m.id.toLowerCase()] = m.current_price;
+          });
+        } catch (e) {
+          console.warn(
+            "[Journal] Failed to fetch market data for replay:",
+            e.message,
+          );
         }
-      };
-    });
+      }
 
-    // ── Initial badge rendering ───────────────────────────
-    // For decisions that already have a replay, we could pre‑load.
-    // We'll leave it to user click.
+      decisions.forEach((d) => {
+        const currentPrice = priceMap[d.asset?.toLowerCase()] || null;
+        const outcome = W.decisionReplay.evaluate(d, { price: currentPrice });
+        const container = view.querySelector(
+          `.replay-container[data-decision-id="${d.id}"]`,
+        );
+        if (container) {
+          container.innerHTML = W.decisionReplay.renderBadge(outcome);
+        }
+      });
+    }
   }
 
-  // ── Exports ────────────────────────────────────────────
   W.journal = { all, create, remove, render };
 })();
 
-console.log("[Journal] Decision module loaded (with rich replay).");
+console.log("[Journal] Decision module loaded (CSP compliant).");

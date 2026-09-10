@@ -1,5 +1,7 @@
 // ===============================================================
-//         "Why It Matters" Context Generator 
+//         "Why It Matters" Context Generator
+// ===============================================================
+// CSP Compliant: Zero inline styles used.
 // ===============================================================
 
 window.W = window.W || {};
@@ -94,27 +96,22 @@ W.context = (() => {
     };
   }
 
-  // ── Render Context (kept for compatibility) ──────────────────
   function renderContext(container, contextData) {
     if (!container || !contextData) return;
     const existing = container.querySelector(".context-render");
     if (existing) existing.remove();
 
     const div = document.createElement("div");
-    div.className = "context-render";
-    div.style.cssText =
-      "margin-top: 8px; padding: 8px 12px; background: rgba(124, 92, 255, 0.05); border-left: 3px solid var(--primary, #7c5cff); border-radius: 4px;";
+    div.className =
+      "context-render mt-8 p-16 bg-surface border-l-brand rounded";
 
     const title = document.createElement("div");
-    title.className = "small";
-    title.style.fontWeight = "bold";
+    title.className = "small-text font-bold";
     title.textContent = "Why it matters:";
     div.appendChild(title);
 
     const text = document.createElement("div");
-    text.className = "small muted";
-    text.style.marginTop = "4px";
-    text.style.lineHeight = "1.4";
+    text.className = "small-text text-muted mt-4 leading-relaxed";
     text.textContent = contextData.whyItMatters;
     div.appendChild(text);
 
@@ -123,17 +120,14 @@ W.context = (() => {
       contextData.personalRelevance !== "low"
     ) {
       const action = document.createElement("div");
-      action.className = "small";
-      action.style.marginTop = "6px";
-      action.style.color = "var(--up, #2ee6a8)";
+      action.className = "small-text text-up mt-6";
       action.textContent = `→ ${contextData.recommendedAction}`;
       div.appendChild(action);
     }
 
     if (contextData.confidence !== undefined) {
       const conf = document.createElement("div");
-      conf.className = "small muted";
-      conf.style.marginTop = "4px";
+      conf.className = "small-text text-muted mt-4";
       const pct = (contextData.confidence * 100).toFixed(0);
       conf.textContent = `Confidence: ${pct}%`;
       div.appendChild(conf);
@@ -145,4 +139,6 @@ W.context = (() => {
   return { generateContext, renderContext };
 })();
 
-console.log("[Context] Why It Matters generator loaded (Phase 6 ready).");
+console.log(
+  "[Context] Why It Matters generator loaded (Phase 6 ready, CSP compliant).",
+);

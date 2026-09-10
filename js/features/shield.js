@@ -1,5 +1,5 @@
 // ================================================================
-//  Token Shield (Contract Security Auditor)
+// Token Shield (Contract Security Auditor)
 // ================================================================
 
 window.W = window.W || {};
@@ -24,6 +24,12 @@ W.shield = (() => {
     gnosis: { id: "100", name: "Gnosis", icon: "🟣" },
     solana: { id: "solana", name: "Solana", icon: "🟣" },
   };
+
+  // Bumped whenever the corresponding risk-scoring weights/logic change.
+  // EVM and Solana are versioned separately since they score different
+  // fields entirely — see Weaver Constitution §3.8.
+  const SHIELD_SCORE_VERSION_EVM = "shield-evm-v1";
+  const SHIELD_SCORE_VERSION_SOLANA = "shield-solana-v1";
 
   // ── Helpers ────────────────────────────────────────────
 
@@ -171,18 +177,9 @@ W.shield = (() => {
 
   // ── Parse and Render Results ──────────────────────────
 
-  function renderResults(data, address, chainKey) {
-    const chain = CHAINS[chainKey];
-    const result = data.result && data.result[address.toLowerCase()];
-    if (!result) {
-      return `
-        <div class="card">
-          ${W.ui.empty("🛡️", "No data found", "Token might be too new or not a standard ERC-20/BEP-20 on this chain.")}
-        </div>
-      `;
-    }
+  // ── Risk Assessment (pure — no DOM, reusable by other modules) ────
 
-    // ── Extract flags ──────────────────────────────────
+  function assessEvmRisk(result) {
     const isHoneypot = result.is_honeypot === "1";
     const isMintable = result.is_mintable === "1";
     const isProxy = result.is_proxy === "1";
@@ -192,17 +189,9 @@ W.shield = (() => {
     const isLpLocked = (result.lp_holders || []).some(
       (lp) => lp.is_locked === 1,
     );
-
     const buyTax = (parseFloat(result.buy_tax) * 100).toFixed(1);
     const sellTax = (parseFloat(result.sell_tax) * 100).toFixed(1);
-    const holderCount = result.holder_count || 0;
-    const totalSupply = result.total_supply
-      ? parseFloat(result.total_supply).toLocaleString(undefined, {
-          maximumFractionDigits: 0,
-        })
-      : "Unknown";
 
-    // ── Risk scoring ──────────────────────────────────
     let riskScore = 0;
     const risks = [];
 
@@ -242,6 +231,44 @@ W.shield = (() => {
           ? ["⚠️ CAUTION", "triggered"]
           : ["✅ LOOKS SAFE", "buy"];
 
+    return {
+      riskScore,
+      risks,
+      riskLevel,
+      scoreVersion: SHIELD_SCORE_VERSION_EVM,
+      flags: { isHoneypot, isMintable, isProxy, isOwnerRenounced, isLpLocked },
+      buyTax,
+      sellTax,
+    };
+  }
+
+  function renderResults(data, address, chainKey) {
+    const chain = CHAINS[chainKey];
+    const result = data.result && data.result[address.toLowerCase()];
+    if (!result) {
+      return `
+        <div class="card">
+          ${W.ui.empty("🛡️", "No data found", "Token might be too new or not a standard ERC-20/BEP-20 on this chain.")}
+        </div>
+      `;
+    }
+
+    const assessment = assessEvmRisk(result);
+    const { riskScore, risks, riskLevel } = assessment;
+    const isHoneypot = assessment.flags.isHoneypot;
+    const isMintable = assessment.flags.isMintable;
+    const isProxy = assessment.flags.isProxy;
+    const isOwnerRenounced = assessment.flags.isOwnerRenounced;
+    const isLpLocked = assessment.flags.isLpLocked;
+    const buyTax = assessment.buyTax;
+    const sellTax = assessment.sellTax;
+    const holderCount = result.holder_count || 0;
+    const totalSupply = result.total_supply
+      ? parseFloat(result.total_supply).toLocaleString(undefined, {
+          maximumFractionDigits: 0,
+        })
+      : "Unknown";
+
     // ── Top holders ──────────────────────────────────
     const topHolders = (result.holders || []).slice(0, 5);
     const lpHolders = (result.lp_holders || []).slice(0, 3);
@@ -257,6 +284,7 @@ W.shield = (() => {
           <div style="text-align:right;">
             <span class="tag ${riskLevel[1]}" style="font-size:14px;padding:8px 16px;">${riskLevel[0]}</span>
             <div class="muted small">Risk Score: ${riskScore}/100</div>
+            <div class="muted" style="font-size:10px;">${SHIELD_SCORE_VERSION_EVM}</div>
           </div>
         </div>
         ${
@@ -378,17 +406,7 @@ W.shield = (() => {
     return { active, authority: null };
   }
 
-  function renderSolanaResults(data, address) {
-    const chain = CHAINS.solana;
-    const result = data.result && data.result[address];
-    if (!result) {
-      return `
-        <div class="card">
-          ${W.ui.empty("🛡️", "No data found", "Token might be too new or not indexed yet.")}
-        </div>
-      `;
-    }
-
+  function assessSolanaRisk(result) {
     const mintable = readSolanaFlag(result.mintable);
     const freezable = readSolanaFlag(result.freezable);
     const closable = readSolanaFlag(result.closable);
@@ -399,14 +417,6 @@ W.shield = (() => {
     const isTrusted =
       result.trusted_token === "1" || result.trusted_token === 1;
 
-    const holderCount = result.holder_count || 0;
-    const totalSupply = result.total_supply
-      ? parseFloat(result.total_supply).toLocaleString(undefined, {
-          maximumFractionDigits: 0,
-        })
-      : "Unknown";
-
-    // ── Risk scoring ──────────────────────────────────
     let riskScore = 0;
     const risks = [];
 
@@ -444,6 +454,42 @@ W.shield = (() => {
           ? ["⚠️ CAUTION", "triggered"]
           : ["✅ LOOKS SAFE", "buy"];
 
+    return {
+      riskScore,
+      risks,
+      riskLevel,
+      scoreVersion: SHIELD_SCORE_VERSION_SOLANA,
+      flags: { mintable, freezable, closable, metadataMutable, balanceMutable },
+      transferFeePct,
+      isTrusted,
+    };
+  }
+
+  function renderSolanaResults(data, address) {
+    const chain = CHAINS.solana;
+    const result = data.result && data.result[address];
+    if (!result) {
+      return `
+        <div class="card">
+          ${W.ui.empty("🛡️", "No data found", "Token might be too new or not indexed yet.")}
+        </div>
+      `;
+    }
+
+    const assessment = assessSolanaRisk(result);
+    const { riskScore, risks, riskLevel } = assessment;
+    const { mintable, freezable, closable, metadataMutable, balanceMutable } =
+      assessment.flags;
+    const transferFeePct = assessment.transferFeePct;
+    const isTrusted = assessment.isTrusted;
+
+    const holderCount = result.holder_count || 0;
+    const totalSupply = result.total_supply
+      ? parseFloat(result.total_supply).toLocaleString(undefined, {
+          maximumFractionDigits: 0,
+        })
+      : "Unknown";
+
     const flagBadge = (flag, activeLabel, safeLabel) => {
       if (flag.active === null) return `<b class="muted">UNKNOWN</b>`;
       return flag.active
@@ -461,6 +507,7 @@ W.shield = (() => {
           <div style="text-align:right;">
             <span class="tag ${riskLevel[1]}" style="font-size:14px;padding:8px 16px;">${riskLevel[0]}</span>
             <div class="muted small">Risk Score: ${riskScore}/100</div>
+            <div class="muted" style="font-size:10px;">${SHIELD_SCORE_VERSION_SOLANA}</div>
           </div>
         </div>
         ${
@@ -667,11 +714,38 @@ W.shield = (() => {
     }
   }
 
+  // ── Unified Check (fetch + assess, no rendering) ────────
+  // For other modules (e.g. Gem Agent) that need a risk verdict without
+  // the HTML card — returns the same assessment shape scan() renders
+  // from, or null if no data was found. Errors propagate to the caller
+  // so they can be surfaced honestly rather than swallowed here.
+  async function check(address, chainKey) {
+    if (!isValidAddress(address, chainKey)) {
+      throw new Error(`Invalid ${chainKey} address`);
+    }
+    if (chainKey === "solana") {
+      const data = await fetchSolanaTokenSecurity(address);
+      const result = data.result && data.result[address];
+      if (!result) return null;
+      return assessSolanaRisk(result);
+    }
+    const chain = CHAINS[chainKey];
+    if (!chain) throw new Error(`Unsupported chain: ${chainKey}`);
+    const data = await fetchTokenSecurity(chain.id, address);
+    const result = data.result && data.result[address.toLowerCase()];
+    if (!result) return null;
+    return assessEvmRisk(result);
+  }
+
   // ── Exports ────────────────────────────────────────────
   return {
     render,
     scan,
+    check,
+    assessEvmRisk,
+    assessSolanaRisk,
     fetchTokenSecurity,
+    fetchSolanaTokenSecurity,
     CHAINS,
   };
 })();
