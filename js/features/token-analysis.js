@@ -167,10 +167,112 @@ W.tokenAnalysis = (async () => {
 
   // Render function (unchanged from previous version, but improved UI)
   async function render(view, assetId) {
-    // ... (same as before, but now uses the enhanced analyze)
-  }
+    // If no assetId, show the search input
+    if (!assetId) {
+      view.innerHTML = `
+      <div class="card">
+        <h3>🔍 Token Analysis</h3>
+        <p class="muted small">Get an evidence‑driven decision report for any crypto asset.</p>
+        <div class="qa mt">
+          <input type="text" id="ta-input" placeholder="Enter symbol or name (e.g., BTC, Ethereum)" class="input" style="flex:1;">
+          <button class="btn primary" id="ta-go">Analyze</button>
+        </div>
+        <div id="ta-result"></div>
+      </div>
+    `;
+      view.querySelector("#ta-go").onclick = () => {
+        const input = view.querySelector("#ta-input").value.trim();
+        if (input) render(view, input);
+      };
+      view.querySelector("#ta-input").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") view.querySelector("#ta-go").click();
+      });
+      return;
+    }
 
+    view.innerHTML = W.ui.spinner();
+
+    try {
+      const result = await analyze(assetId, { includePersonalContext: true });
+      if (result.error) {
+        view.innerHTML = `<div class="card"><p class="muted">${result.error}</p></div>`;
+        return;
+      }
+
+      view.innerHTML = `
+      <div class="card">
+        <h3>📊 Token Analysis: ${result.asset}</h3>
+        <div class="cards" style="margin-top:12px;">
+          <div class="card stat">
+            <div class="stat-label">Opportunity Score</div>
+            <div class="stat-big" style="color:${result.opportunityScore > 60 ? "var(--up)" : "var(--warn)"}">${result.opportunityScore}/100</div>
+          </div>
+          <div class="card stat">
+            <div class="stat-label">Risk Score</div>
+            <div class="stat-big" style="color:${result.riskScore > 60 ? "var(--down)" : "var(--warn)"}">${result.riskScore}/100</div>
+          </div>
+          <div class="card stat">
+            <div class="stat-label">Confidence</div>
+            <div class="stat-big">${result.confidence}%</div>
+          </div>
+          <div class="card stat">
+            <div class="stat-label">Signals Analyzed</div>
+            <div class="stat-big">${result.signalsCount}</div>
+          </div>
+        </div>
+        <div style="margin-top:12px;">
+          <div class="meter-bar"><div style="width:${result.opportunityScore}%; background:var(--up);"></div></div>
+          <div class="meter-label">Opportunity Score</div>
+        </div>
+        <div style="margin-top:8px;">
+          <div class="meter-bar"><div style="width:${result.riskScore}%; background:var(--down);"></div></div>
+          <div class="meter-label">Risk Score</div>
+        </div>
+        <div class="grid-2" style="margin-top:16px;">
+          <div class="card">
+            <h4 style="color:var(--up);">🟢 Bullish Evidence</h4>
+            ${result.bullishEvidence.length ? result.bullishEvidence.map((e) => `<div class="kv-row"><span>${e.title}</span><span class="small">${e.evidence}</span></div>`).join("") : '<p class="muted small">No bullish evidence found.</p>'}
+          </div>
+          <div class="card">
+            <h4 style="color:var(--down);">🔴 Bearish Evidence</h4>
+            ${result.bearishEvidence.length ? result.bearishEvidence.map((e) => `<div class="kv-row"><span>${e.title}</span><span class="small">${e.evidence}</span></div>`).join("") : '<p class="muted small">No bearish evidence found.</p>'}
+          </div>
+        </div>
+        ${
+          result.contradictions && result.contradictions.length
+            ? `
+          <div style="margin-top:12px; padding:12px; background:rgba(255,179,92,0.1); border-radius:8px;">
+            <b>⚠️ Contradicting Evidence:</b>
+            ${result.contradictions.map((c) => `<div class="small">${c.bull} vs ${c.bear} — ${c.details}</div>`).join("")}
+          </div>
+        `
+            : ""
+        }
+        <div style="margin-top:16px; padding:12px; background:rgba(124,92,255,0.08); border-radius:8px;">
+          <b>Verdict:</b> ${result.verdict}
+          <p class="small muted" style="margin-top:4px;">${result.explanation}</p>
+        </div>
+        ${
+          result.personalContext
+            ? `
+          <div style="margin-top:12px; padding:12px; background:rgba(46,230,168,0.08); border-radius:8px;">
+            <b>👤 Your Position:</b>
+            ${result.personalContext.hasPosition ? `You hold ${result.personalContext.quantity} ${result.asset} at avg cost $${result.personalContext.avgCost.toFixed(2)} (current value $${result.personalContext.currentValue.toFixed(2)}).` : "You do not hold this asset."}
+          </div>
+        `
+            : ""
+        }
+        <div style="margin-top:12px;">
+          <button class="btn tiny" onclick="document.location.hash='#/token'">← New Analysis</button>
+        </div>
+      </div>
+    `;
+    } catch (e) {
+      view.innerHTML = `<div class="card"><p class="muted">Analysis failed: ${e.message}</p></div>`;
+    }
+  }
+  console.log("[TokenAnalysis] Module loaded.");
+
+  // expose API
   return { analyze, render };
 })();
-
-console.log("[TokenAnalysis] Module loaded.");

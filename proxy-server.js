@@ -7,23 +7,34 @@ const dns = require("dns").promises;
 const app = express();
 const PORT = process.env.PROXY_PORT || 3001;
 
-// ── Allowed Origins (environment variable or fallback) ──
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
-  .split(",")
+// ── Allowed Origins (environment variable) ──────────────
+const ALLOWED_ORIGINS_ENV = process.env.ALLOWED_ORIGINS || "";
+const isProduction = process.env.NODE_ENV === "production";
+
+let allowedOrigins = ALLOWED_ORIGINS_ENV.split(",")
   .map((o) => o.trim())
   .filter(Boolean);
 
-// Fallback origins for development if env var is not set
+// ── Production fail‑fast ────────────────────────────────
+if (isProduction && allowedOrigins.length === 0) {
+  console.error("ERROR: ALLOWED_ORIGINS must be configured in production.");
+  process.exit(1);
+}
+
+// ── Development fallback ──────────────────────────────────
 const DEFAULT_ORIGINS = [
   "http://localhost:8000",
   "http://127.0.0.1:8000",
   "http://localhost:3000",
 ];
-const allowedOrigins = ALLOWED_ORIGINS.length
-  ? ALLOWED_ORIGINS
-  : DEFAULT_ORIGINS;
+if (!isProduction && allowedOrigins.length === 0) {
+  allowedOrigins = DEFAULT_ORIGINS;
+  console.log(
+    `[Proxy] Using default development origins: ${allowedOrigins.join(", ")}`,
+  );
+}
 
-// ── Allowed Domains for outbound requests ──────────────────
+// ── Allowed Domains (outbound) ────────────────────────────
 const ALLOWED_DOMAINS = [
   "api.coingecko.com",
   "api.binance.com",
@@ -107,7 +118,7 @@ async function validateUrl(urlString) {
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Allow requests with no origin (e.g., health checks, server-to-server)
+      // Allow no‑origin (health checks, server-to-server)
       if (!origin) return callback(null, true);
       if (allowedOrigins.includes(origin)) {
         callback(null, true);
