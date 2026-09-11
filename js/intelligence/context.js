@@ -15,6 +15,10 @@
 // genuinely probabilistic local source is added later (e.g. a
 // behavioral-pattern inference), it should carry its own honestly
 // computed confidence — not reuse this constant.
+//
+// NO-EVIDENCE NOTE: when there is no evidence at all, confidence
+// must be `null`, never `0.5`. A fabricated "middle" value implies
+// certainty that does not exist. See WEAVER_CONSTITUTION §2.9.1.
 // ===============================================================
 
 window.W = window.W || {};
@@ -55,7 +59,7 @@ W.context = (() => {
         timestamp: holding.updatedAt || new Date().toISOString(),
         // A direct lookup against the user's own portfolio is a verified
         // fact, not an estimate — no external staleness/reliability
-        // discount applies. See EVIDENCE_CONFIDENCE_NOTE below.
+        // discount applies. See EVIDENCE_CONFIDENCE_NOTE above.
         confidence: 1.0,
       });
     }
@@ -102,10 +106,17 @@ W.context = (() => {
       whyItMatters = `This event may impact the broader market, but you have no direct exposure to ${symbol}.`;
     }
 
-    let confidence = 0.5;
+    // Confidence is only meaningful when at least one evidence item exists.
+    // If there is no evidence, confidence is null — never a fabricated 0.5.
+    let confidence = null;
     if (evidence.length > 0) {
-      confidence =
-        evidence.reduce((sum, e) => sum + e.confidence, 0) / evidence.length;
+      confidence = Math.min(
+        1,
+        Math.max(
+          0,
+          evidence.reduce((sum, e) => sum + e.confidence, 0) / evidence.length,
+        ),
+      );
     }
 
     return {
@@ -115,7 +126,7 @@ W.context = (() => {
       thesisImpact,
       recommendedAction,
       evidence,
-      confidence: Math.min(1, Math.max(0, confidence)),
+      confidence,
     };
   }
 
@@ -148,12 +159,22 @@ W.context = (() => {
       div.appendChild(action);
     }
 
-    if (contextData.confidence !== undefined) {
+    // Only display a confidence percentage when one is genuinely known.
+    if (
+      contextData.confidence !== undefined &&
+      contextData.confidence !== null
+    ) {
       const conf = document.createElement("div");
       conf.className = "small-text text-muted mt-4";
       const pct = (contextData.confidence * 100).toFixed(0);
       conf.textContent = `Confidence: ${pct}%`;
       div.appendChild(conf);
+    } else {
+      const noConf = document.createElement("div");
+      noConf.className = "small-text text-muted mt-4 italic";
+      noConf.textContent =
+        "Confidence: unavailable (no evidence for this asset).";
+      div.appendChild(noConf);
     }
 
     container.appendChild(div);

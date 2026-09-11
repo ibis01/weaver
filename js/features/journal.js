@@ -2,6 +2,11 @@
 //         Decision Journal Module
 // ===============================================================
 // CSP Compliant: Zero inline styles.
+//
+// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9.1):
+//   - If the user does not enter a confidence, it is stored as `null`.
+//   - It is never defaulted to 0.5.
+//   - The UI hides the confidence line when no value was recorded.
 // ===============================================================
 
 window.W = window.W || {};
@@ -18,6 +23,16 @@ W.journal = W.journal || {};
     return decisions;
   }
 
+  // Parse confidence from user input. Empty → null. Invalid → null.
+  // Valid numeric string in [0,1] → number.
+  function parseConfidenceInput(raw) {
+    if (raw === "" || raw === null || raw === undefined) return null;
+    const parsed = parseFloat(raw);
+    if (!Number.isFinite(parsed)) return null;
+    if (parsed < 0 || parsed > 1) return null;
+    return parsed;
+  }
+
   function create(data) {
     const decision = {
       id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
@@ -27,7 +42,7 @@ W.journal = W.journal || {};
       price: parseFloat(data.price) || 0,
       thesisId: data.thesisId || null,
       reasoning: data.reasoning || "",
-      confidence: parseFloat(data.confidence) || 0.5,
+      confidence: parseConfidenceInput(data.confidence),
       horizon: data.horizon || "Short-term",
       timestamp: new Date().toISOString(),
     };
@@ -64,6 +79,13 @@ W.journal = W.journal || {};
                 : d.action === "Sell"
                   ? "text-down"
                   : "text-muted";
+
+            // Only show a confidence line when one was actually recorded.
+            const confidenceLine =
+              d.confidence !== null && d.confidence !== undefined
+                ? `<span><b>Confidence:</b> ${(d.confidence * 100).toFixed(0)}%</span>`
+                : `<span class="italic"><b>Confidence:</b> not stated</span>`;
+
             return `
           <div class="card">
             <div class="flex-between mb-8">
@@ -77,7 +99,7 @@ W.journal = W.journal || {};
             </div>
             <p class="small-text"><b>Reasoning:</b> ${W.fmt.escapeHTML(d.reasoning)}</p>
             <div class="flex-between mt-8 small-text text-muted">
-              <span><b>Confidence:</b> ${(d.confidence * 100).toFixed(0)}%</span>
+              ${confidenceLine}
               <span><b>Horizon:</b> ${W.fmt.escapeHTML(d.horizon)}</span>
               ${linkedThesis ? `<span><b>Linked Thesis:</b> ${W.fmt.escapeHTML(linkedThesis.statement.substring(0, 40))}...</span>` : ""}
             </div>
@@ -105,7 +127,7 @@ W.journal = W.journal || {};
             <option value="">-- Link to Thesis (Optional) --</option>
             ${activeTheses.map((t) => `<option value="${t.id}">${W.fmt.escapeHTML(t.asset)}: ${W.fmt.escapeHTML(t.statement.substring(0, 30))}...</option>`).join("")}
           </select>
-          <input type="number" id="d-confidence" placeholder="Confidence (0.0 to 1.0)" step="0.1" min="0" max="1" class="input">
+          <input type="number" id="d-confidence" placeholder="Confidence (0.0 to 1.0, optional)" step="0.1" min="0" max="1" class="input">
           <input type="text" id="d-horizon" placeholder="Time Horizon (e.g. 2 weeks)" class="input">
           <textarea id="d-reasoning" placeholder="Why are you making this decision? What is the context?" required class="input col-span-full" rows="3"></textarea>
           <div class="flex-center gap-16 mt-16 col-span-full">
@@ -123,21 +145,22 @@ W.journal = W.journal || {};
       view.querySelector("#decision-form-container").classList.add("hidden");
     };
 
-         view.querySelector("#decision-form").onsubmit = async (e) => {
-           e.preventDefault();
-           create({
-             asset: view.querySelector("#d-asset").value.trim().toUpperCase(),
-             action: view.querySelector("#d-action").value,
-             amount: view.querySelector("#d-amount").value,
-             price: view.querySelector("#d-price").value,
-             thesisId: view.querySelector("#d-thesis").value || null,
-             confidence: view.querySelector("#d-confidence").value,
-             horizon: view.querySelector("#d-horizon").value.trim(),
-             reasoning: view.querySelector("#d-reasoning").value.trim(),
-           });
-           await render(view); // <-- This await is critical for the E2E test to find the badge
-           W.ui.toast("Decision logged", "ok");
-         };
+    view.querySelector("#decision-form").onsubmit = async (e) => {
+      e.preventDefault();
+      create({
+        asset: view.querySelector("#d-asset").value.trim().toUpperCase(),
+        action: view.querySelector("#d-action").value,
+        amount: view.querySelector("#d-amount").value,
+        price: view.querySelector("#d-price").value,
+        thesisId: view.querySelector("#d-thesis").value || null,
+        confidence: view.querySelector("#d-confidence").value,
+        horizon: view.querySelector("#d-horizon").value.trim(),
+        reasoning: view.querySelector("#d-reasoning").value.trim(),
+      });
+      await render(view); // critical for the E2E test to find the badge
+      W.ui.toast("Decision logged", "ok");
+    };
+
     view.querySelectorAll("[data-action='delete']").forEach((btn) => {
       btn.onclick = () => {
         remove(btn.dataset.id);

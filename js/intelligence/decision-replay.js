@@ -2,6 +2,11 @@
 //         Decision Replay Engine – Multi‑Dimensional Evaluation
 // ===============================================================
 // CSP Compliant: Zero inline styles used.
+//
+// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9.1):
+//   - Calibration is only computed when the user actually stated a
+//     confidence for the decision. If none was stated, calibration
+//     is reported as "unknown" rather than fabricated.
 // ===============================================================
 
 window.W = window.W || {};
@@ -51,12 +56,21 @@ W.decisionReplay = (() => {
     const timeSince = Date.now() - new Date(decision.timestamp).getTime();
     const horizonStatus = timeSince > horizonMs ? "expired" : "active";
 
-    const conf = parseFloat(decision.confidence) || 0.5;
-    let confidenceCalibration = "well_calibrated";
-    if (conf >= 0.8 && outcome === "unsuccessful")
-      confidenceCalibration = "overconfident";
-    else if (conf <= 0.3 && outcome === "successful")
-      confidenceCalibration = "underconfident";
+    // Calibration only makes sense when a confidence was actually stated.
+    // Missing confidence → "unknown". Never fabricate 0.5.
+    const parsedConf = parseFloat(decision.confidence);
+    const conf = Number.isFinite(parsedConf) ? parsedConf : null;
+
+    let confidenceCalibration = "unknown";
+    if (conf !== null) {
+      if (conf >= 0.8 && outcome === "unsuccessful") {
+        confidenceCalibration = "overconfident";
+      } else if (conf <= 0.3 && outcome === "successful") {
+        confidenceCalibration = "underconfident";
+      } else {
+        confidenceCalibration = "well_calibrated";
+      }
+    }
 
     let thesisHealth = null;
     if (decision.thesisId && W.thesisHealth) {
@@ -128,13 +142,17 @@ W.decisionReplay = (() => {
       icon = "❌";
     }
 
-    let calibrationText = "🎯 Calibrated";
-    if (outcomeData.confidenceCalibration === "overconfident")
-      calibrationText = "⚡ Overconfident";
+    // Calibration segment only appears when calibration is known.
+    let calibrationText = "";
+    if (outcomeData.confidenceCalibration === "well_calibrated")
+      calibrationText = " · 🎯 Calibrated";
+    else if (outcomeData.confidenceCalibration === "overconfident")
+      calibrationText = " · ⚡ Overconfident";
     else if (outcomeData.confidenceCalibration === "underconfident")
-      calibrationText = "🔽 Underconfident";
+      calibrationText = " · 🔽 Underconfident";
+    // "unknown" → no segment appended
 
-    return `<span class="replay-badge small-text font-bold ${colorClass} ml-8">${icon} ${statusText} (${outcomeData.absoluteReturn.toFixed(1)}%) · ${calibrationText}</span>`;
+    return `<span class="replay-badge small-text font-bold ${colorClass} ml-8">${icon} ${statusText} (${outcomeData.absoluteReturn.toFixed(1)}%)${calibrationText}</span>`;
   }
 
   function renderDetails(container, outcomeData) {
