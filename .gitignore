@@ -1,4 +1,10 @@
 .DS_Store
 Thumbs.db
 node_modules/
-.env
+.envdist/
+dist/bundle.js
+dist/bundle.js.map
+dist/*.map
+dist/*.map
+dist/bundle.js.map
+dist/bundle.js
