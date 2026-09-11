@@ -8,6 +8,10 @@
 //
 // The Decision Engine consumes Evidence, never reconstructs it.
 //
+// IMPORTANT: This module MERGES into W.evidence. It does not replace
+// it. evidence.js defines the create/validate/sortByConfidence/
+// filterByConfidence API; this file adds `build`. Together they form
+// the full evidence API consumed by the decision engine.
 // ===============================================================
 
 window.W = window.W || {};
@@ -125,9 +129,11 @@ W.evidence = W.evidence || {};
   }
 
   // ── Public API ────────────────────────────────────────────────────
-  W.evidence = {
-    build,
-  };
+  // MERGE into the existing W.evidence object. Do not replace it.
+  // evidence.js defines create/validate/sortByConfidence/filterByConfidence.
+  // This file adds build. Both are needed by the decision engine.
+  W.evidence = W.evidence || {};
+  W.evidence.build = build;
 
   console.log("[EvidenceBuilder] Module loaded.");
 })();

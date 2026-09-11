@@ -8,11 +8,21 @@
          CONTENT SECURITY POLICY – Allows inline styles for Chart.js
          ============================================================ -->
        
+    <!--
+      Sentry ingest domain below is a wildcard default
+      (*.ingest.sentry.io). Once you have a real DSN, Sentry's setup
+      docs will show your exact ingest host (often something like
+      oXXXXXX.ingest.us.sentry.io or .de.sentry.io) — narrowing this to
+      that exact host is safer than the wildcard. Without SOME ingest
+      domain allowed in connect-src, error reports silently never send
+      even with Sentry.init() configured correctly — CSP blocks the
+      network call itself, with no visible error anywhere.
+    -->
     <meta
       http-equiv="Content-Security-Policy"
       content="
         default-src 'self';
-        script-src 'self' https://cdn.jsdelivr.net https://js.sentry-cdn.com;
+        script-src 'self' https://cdn.jsdelivr.net https://browser.sentry-cdn.com;
         style-src 'self' https://fonts.googleapis.com;
         font-src 'self' https://fonts.gstatic.com;
         img-src 'self' data: https:;
@@ -28,7 +38,8 @@
           https://cloudflare-eth.com
           https://cdn.jsdelivr.net
           http://localhost:3001
-          http://127.0.0.1:3001;
+          http://127.0.0.1:3001
+          https://*.ingest.sentry.io;
         worker-src 'self';
         object-src 'none';
         base-uri 'self';
@@ -111,9 +122,17 @@
     <!-- Chart.js (required for charts) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
-    <!-- Sentry (optional, uncomment if you have a DSN) -->
+    <!-- Sentry (optional) — uncomment once you have a DSN from
+         sentry.io and have entered it in Settings → Error Reporting.
+         This loads the plain SDK bundle (NOT the DSN-embedded "Loader
+         Script" Sentry's dashboard shows by default) because js/init.js
+         calls Sentry.init({dsn}) manually — mixing the two patterns
+         double-initializes or silently no-ops. Pin the version + add
+         the integrity hash from Sentry's own CDN install docs before
+         going to production; do not leave this on an unpinned
+         "latest" URL. -->
     <!--
-    <script src="https://js.sentry-cdn.com/YOUR_DSN.min.js" crossorigin="anonymous"></script>
+    <script src="https://browser.sentry-cdn.com/8.x.x/bundle.min.js" crossorigin="anonymous"></script>
     -->
 
     <!-- Weaver Production Bundle -->

@@ -125,13 +125,15 @@
   }
 
   // Migrate legacy holdings to canonical assetId (one-time)
-if (W.portfolio && W.portfolio.migrateLegacyHoldings) {
-  W.portfolio.migrateLegacyHoldings().then(count => {
-    if (count > 0) {
-      console.log(`[Init] Migrated ${count} legacy holdings to canonical assetId.`);
-    }
-  });
-}
+  if (W.portfolio && W.portfolio.migrateLegacyHoldings) {
+    W.portfolio.migrateLegacyHoldings().then((count) => {
+      if (count > 0) {
+        console.log(
+          `[Init] Migrated ${count} legacy holdings to canonical assetId.`,
+        );
+      }
+    });
+  }
   // ── Run All Initializations ──────────────────────────────
   function runInit() {
     // Wait for W.store to be available
@@ -142,7 +144,10 @@ if (W.portfolio && W.portfolio.migrateLegacyHoldings) {
 
     // ── Sentry Integration  ──
     if (window.Sentry && typeof Sentry.init === "function") {
-      const dsn = localStorage.getItem("sentry_dsn") || "";
+      // Read via W.store, not raw localStorage — it prefixes/JSON-encodes
+      // keys, so this must match how the Settings UI saves it (see
+      // js/features/misc.js) or the two would silently never agree.
+      const dsn = W.store?.get?.("sentry_dsn", "") || "";
       if (dsn) {
         Sentry.init({
           dsn,

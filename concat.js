@@ -1,5 +1,12 @@
 // ================================================================
 //  Concatenate all Weaver scripts with safety prelude
+//
+//  Emits two artifacts:
+//    dist/bundle.js      — unminified, for debugging / inspection
+//    dist/bundle.min.js  — minified, the file index.html actually loads
+//
+//  Both are generated from the same `output` string, so they are
+//  guaranteed to be in sync. Never hand-edit either file.
 // ================================================================
 
 const fs = require("fs");
@@ -32,7 +39,11 @@ const files = [
   "js/ai/providers.js",
 
   // ── Intelligence Layer ──────────────────────────────────────
+  // NOTE: evidence.js defines the base API (create/validate/etc).
+  //       evidence-builder.js merges `build` into that same object.
+  //       Order is significant — evidence.js must run first.
   "js/intelligence/evidence.js",
+  "js/intelligence/evidence-builder.js",
   "js/intelligence/regime.js",
   "js/intelligence/delta.js",
   "js/intelligence/behavior.js",
@@ -104,17 +115,24 @@ for (const file of files) {
   }
 }
 
-// ── Minify and write to the file index.html actually loads ────
+// ── Emit unminified bundle (for debugging) ────────────────────
+const unminifiedPath = path.join(distDir, "bundle.js");
+fs.writeFileSync(unminifiedPath, output);
+
+// ── Emit minified bundle (what index.html loads) ──────────────
 const { transformSync } = require("esbuild");
 
-const bundlePath = path.join(distDir, "bundle.min.js");
+const minifiedPath = path.join(distDir, "bundle.min.js");
 const minified = transformSync(output, {
   minify: true,
   loader: "js",
   target: "es2020",
 }).code;
+fs.writeFileSync(minifiedPath, minified);
 
-fs.writeFileSync(bundlePath, minified);
+console.log(`✅ Bundle created: ${unminifiedPath}`);
 console.log(
-  `✅ Bundle created: ${bundlePath} (${(minified.length / 1024).toFixed(1)} KB, ${fileCount} files)`,
+  `   ${(output.length / 1024).toFixed(1)} KB, ${fileCount} files (unminified)`,
 );
+console.log(`✅ Bundle created: ${minifiedPath}`);
+console.log(`   ${(minified.length / 1024).toFixed(1)} KB (minified)`);

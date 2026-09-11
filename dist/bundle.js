@@ -2893,6 +2893,146 @@ W.evidence = (() => {
 })();
 
 console.log("[Evidence Engine] Module loaded.");
+// ---- js/intelligence/evidence-builder.js ----
+// ===============================================================
+//         Evidence Builder – Canonical Evidence Layer
+// ===============================================================
+//
+// Purpose: Convert raw signals into fully formed Evidence objects
+// with computed source reliability, freshness, completeness,
+// interpretation confidence, and overall evidence strength.
+//
+// The Decision Engine consumes Evidence, never reconstructs it.
+//
+// IMPORTANT: This module MERGES into W.evidence. It does not replace
+// it. evidence.js defines the create/validate/sortByConfidence/
+// filterByConfidence API; this file adds `build`. Together they form
+// the full evidence API consumed by the decision engine.
+// ===============================================================
+
+window.W = window.W || {};
+W.evidence = W.evidence || {};
+
+(function () {
+  // ── Import helpers from types ──────────────────────────────────
+  const { getSourceReliability, computeFreshness, computeConfidence } =
+    W.intelligence || {};
+
+  /**
+   * Build an Evidence object from a raw signal.
+   * @param {Object} signal - The raw signal from the event collector.
+   * @param {Object} options - Additional metadata (e.g., corroboration count, completeness).
+   * @returns {Object} - A fully populated Evidence object.
+   */
+  function build(signal, options = {}) {
+    if (!signal || !signal.id || !signal.source) {
+      throw new Error("Invalid signal: missing id or source");
+    }
+
+    // 1. Source reliability – static per source
+    const sourceReliability = getSourceReliability
+      ? getSourceReliability(signal.source)
+      : 0.5;
+
+    // 2. Data freshness – decays with age
+    const dataFreshness = computeFreshness
+      ? computeFreshness(signal.timestamp, signal.type)
+      : 0.8;
+
+    // 3. Corroboration – number of independent sources confirming
+    //    (if not provided, assume 1)
+    let corroborationCount = options.corroborationCount || 1;
+    if (typeof corroborationCount !== "number" || corroborationCount < 1) {
+      corroborationCount = 1;
+    }
+
+    // 4. Data completeness – how complete the data is (0–1)
+    let dataCompleteness = options.dataCompleteness;
+    if (dataCompleteness === undefined || dataCompleteness === null) {
+      // If we have full price history, 0.9; if only a snapshot, 0.5.
+      // For now, we'll use a default of 0.8 if not provided.
+      dataCompleteness = 0.8;
+    }
+    dataCompleteness = Math.max(0, Math.min(1, dataCompleteness));
+
+    // 5. Interpretation confidence – model‑specific confidence
+    let interpretationConfidence = options.interpretationConfidence;
+    if (
+      interpretationConfidence === undefined ||
+      interpretationConfidence === null
+    ) {
+      // Default is 0.7, but we can derive from signal type:
+      if (signal.type === "PRICE_MOVE") {
+        // For price moves, use the consistency of the move with technicals
+        interpretationConfidence = 0.8;
+      } else if (signal.type === "REGIME_SHIFT") {
+        // Regime detection uses agreement ratio
+        interpretationConfidence = 0.75;
+      } else if (signal.type === "UNLOCK") {
+        // Unlock data is usually reliable if from a verified source
+        interpretationConfidence = 0.85;
+      } else {
+        interpretationConfidence = 0.7;
+      }
+    }
+    interpretationConfidence = Math.max(
+      0,
+      Math.min(1, interpretationConfidence),
+    );
+
+    // 6. Compute overall confidence using the canonical model
+    const evidence = {
+      signalId: signal.id,
+      sourceReliability,
+      dataFreshness,
+      corroborationCount,
+      dataCompleteness,
+      interpretationConfidence,
+      reasoning: [],
+    };
+
+    evidence.confidence = computeConfidence
+      ? computeConfidence(evidence)
+      : sourceReliability *
+        dataFreshness *
+        (1 + (corroborationCount - 1) * 0.1) *
+        dataCompleteness *
+        interpretationConfidence;
+
+    // Clamp confidence
+    evidence.confidence = Math.max(0, Math.min(1, evidence.confidence));
+
+    // Add reasoning
+    evidence.reasoning.push(
+      `Source: ${signal.source} (reliability ${(sourceReliability * 100).toFixed(0)}%)`,
+    );
+    evidence.reasoning.push(`Freshness: ${(dataFreshness * 100).toFixed(0)}%`);
+    evidence.reasoning.push(`Corroboration: ${corroborationCount} source(s)`);
+    evidence.reasoning.push(
+      `Completeness: ${(dataCompleteness * 100).toFixed(0)}%`,
+    );
+    evidence.reasoning.push(
+      `Interpretation: ${(interpretationConfidence * 100).toFixed(0)}%`,
+    );
+    evidence.reasoning.push(
+      `Overall confidence: ${(evidence.confidence * 100).toFixed(0)}%`,
+    );
+
+    // Store the raw signal id for reference
+    evidence.signalId = signal.id;
+
+    return evidence;
+  }
+
+  // ── Public API ────────────────────────────────────────────────────
+  // MERGE into the existing W.evidence object. Do not replace it.
+  // evidence.js defines create/validate/sortByConfidence/filterByConfidence.
+  // This file adds build. Both are needed by the decision engine.
+  W.evidence = W.evidence || {};
+  W.evidence.build = build;
+
+  console.log("[EvidenceBuilder] Module loaded.");
+})();
 // ---- js/intelligence/regime.js ----
 // ===============================================================
 //         Market Regime Detection Engine – Confidence Model
@@ -10066,6 +10206,12 @@ W.misc = (() => {
           Auto-refresh seconds (0 = off)
           <input id="set-refresh" type="number" min="0" value="${settings.refresh ?? 60}">
         </label>
+        <h3 class="mt">🩺 Error Reporting (optional)</h3>
+        <p class="muted small">Add a Sentry DSN to get crash/error reports if something breaks for you. DSNs are safe to store in plain text — they only allow sending error reports, not reading any data.</p>
+        <label>
+          Sentry DSN
+          <input id="set-sentrydsn" placeholder="https://abc123@o000000.ingest.sentry.io/000000" value="${escapeHTML(settings.sentryDsn || "")}">
+        </label>
         <h3 class="mt">🤖 AI Assistant (optional)</h3>
         <p class="muted small">Plug in any OpenAI-compatible endpoint to power "Ask Weaver". Without a key, Weaver answers with live on-chain data.</p>
         <label>
@@ -10132,7 +10278,12 @@ W.misc = (() => {
       const nonSensitive = {
         currency: view.querySelector("#set-cur").value,
         refresh: +view.querySelector("#set-refresh").value,
+        sentryDsn: view.querySelector("#set-sentrydsn").value.trim(),
       };
+      // Sentry's own SDK reads its DSN from a flat W.store key at init
+      // time (see js/init.js), separately from the general settings
+      // blob, so both stay in sync here without restructuring init.js.
+      W.store.set("sentry_dsn", nonSensitive.sentryDsn);
 
       if (hasSensitive) {
         let passphrase = W.secureSession.getPassphrase();
@@ -13497,6 +13648,11 @@ console.log("[Theses] Module loaded (with Health Monitor integration).");
 //   - If the user does not enter a confidence, it is stored as `null`.
 //   - It is never defaulted to 0.5.
 //   - The UI hides the confidence line when no value was recorded.
+//
+// REPLAY RENDERING:
+//   - Replay badges render synchronously with placeholder data so
+//     the UI is never blocked on external market data.
+//   - A second async pass updates badges when prices arrive.
 // ===============================================================
 
 window.W = window.W || {};
@@ -13660,28 +13816,15 @@ W.journal = W.journal || {};
     });
 
     // ── Decision Replay Integration ─────────────
+    // Badges are rendered synchronously first so the UI is never empty,
+    // then updated in the background if market data arrives. This keeps
+    // the journal responsive and does not block on external APIs.
     if (W.decisionReplay && decisions.length > 0) {
-      const uniqueAssets = [
-        ...new Set(decisions.map((d) => d.asset?.toLowerCase())),
-      ].filter(Boolean);
-      let priceMap = {};
-      if (uniqueAssets.length > 0 && W.api?.markets) {
-        try {
-          const markets = await W.api.markets(uniqueAssets.join(","));
-          markets.forEach((m) => {
-            if (m && m.id) priceMap[m.id.toLowerCase()] = m.current_price;
-          });
-        } catch (e) {
-          console.warn(
-            "[Journal] Failed to fetch market data for replay:",
-            e.message,
-          );
-        }
-      }
-
+      // Pass 1 — immediate render. No current price yet, so
+      // `evaluate` returns "Inconclusive", which is honest: we don't
+      // have enough data yet to judge the outcome.
       decisions.forEach((d) => {
-        const currentPrice = priceMap[d.asset?.toLowerCase()] || null;
-        const outcome = W.decisionReplay.evaluate(d, { price: currentPrice });
+        const outcome = W.decisionReplay.evaluate(d, { price: null });
         const container = view.querySelector(
           `.replay-container[data-decision-id="${d.id}"]`,
         );
@@ -13689,6 +13832,44 @@ W.journal = W.journal || {};
           container.innerHTML = W.decisionReplay.renderBadge(outcome);
         }
       });
+
+      // Pass 2 — fetch prices and update badges. Not awaited, so a slow
+      // or unavailable market API never blocks the journal from rendering.
+      const uniqueAssets = [
+        ...new Set(decisions.map((d) => d.asset?.toLowerCase())),
+      ].filter(Boolean);
+
+      if (uniqueAssets.length > 0 && W.api?.markets) {
+        W.api
+          .markets(uniqueAssets.join(","))
+          .then((markets) => {
+            const priceMap = {};
+            markets.forEach((m) => {
+              if (m && m.id) priceMap[m.id.toLowerCase()] = m.current_price;
+            });
+
+            decisions.forEach((d) => {
+              const currentPrice = priceMap[d.asset?.toLowerCase()] || null;
+              if (currentPrice === null) return;
+
+              const outcome = W.decisionReplay.evaluate(d, {
+                price: currentPrice,
+              });
+              const container = view.querySelector(
+                `.replay-container[data-decision-id="${d.id}"]`,
+              );
+              if (container) {
+                container.innerHTML = W.decisionReplay.renderBadge(outcome);
+              }
+            });
+          })
+          .catch((e) => {
+            console.warn(
+              "[Journal] Replay market data unavailable:",
+              e.message,
+            );
+          });
+      }
     }
   }
 
@@ -14674,13 +14855,15 @@ console.log("[App] Module loaded.");
   }
 
   // Migrate legacy holdings to canonical assetId (one-time)
-if (W.portfolio && W.portfolio.migrateLegacyHoldings) {
-  W.portfolio.migrateLegacyHoldings().then(count => {
-    if (count > 0) {
-      console.log(`[Init] Migrated ${count} legacy holdings to canonical assetId.`);
-    }
-  });
-}
+  if (W.portfolio && W.portfolio.migrateLegacyHoldings) {
+    W.portfolio.migrateLegacyHoldings().then((count) => {
+      if (count > 0) {
+        console.log(
+          `[Init] Migrated ${count} legacy holdings to canonical assetId.`,
+        );
+      }
+    });
+  }
   // ── Run All Initializations ──────────────────────────────
   function runInit() {
     // Wait for W.store to be available
@@ -14691,7 +14874,10 @@ if (W.portfolio && W.portfolio.migrateLegacyHoldings) {
 
     // ── Sentry Integration  ──
     if (window.Sentry && typeof Sentry.init === "function") {
-      const dsn = localStorage.getItem("sentry_dsn") || "";
+      // Read via W.store, not raw localStorage — it prefixes/JSON-encodes
+      // keys, so this must match how the Settings UI saves it (see
+      // js/features/misc.js) or the two would silently never agree.
+      const dsn = W.store?.get?.("sentry_dsn", "") || "";
       if (dsn) {
         Sentry.init({
           dsn,

@@ -443,6 +443,12 @@ W.misc = (() => {
           Auto-refresh seconds (0 = off)
           <input id="set-refresh" type="number" min="0" value="${settings.refresh ?? 60}">
         </label>
+        <h3 class="mt">🩺 Error Reporting (optional)</h3>
+        <p class="muted small">Add a Sentry DSN to get crash/error reports if something breaks for you. DSNs are safe to store in plain text — they only allow sending error reports, not reading any data.</p>
+        <label>
+          Sentry DSN
+          <input id="set-sentrydsn" placeholder="https://abc123@o000000.ingest.sentry.io/000000" value="${escapeHTML(settings.sentryDsn || "")}">
+        </label>
         <h3 class="mt">🤖 AI Assistant (optional)</h3>
         <p class="muted small">Plug in any OpenAI-compatible endpoint to power "Ask Weaver". Without a key, Weaver answers with live on-chain data.</p>
         <label>
@@ -509,7 +515,12 @@ W.misc = (() => {
       const nonSensitive = {
         currency: view.querySelector("#set-cur").value,
         refresh: +view.querySelector("#set-refresh").value,
+        sentryDsn: view.querySelector("#set-sentrydsn").value.trim(),
       };
+      // Sentry's own SDK reads its DSN from a flat W.store key at init
+      // time (see js/init.js), separately from the general settings
+      // blob, so both stay in sync here without restructuring init.js.
+      W.store.set("sentry_dsn", nonSensitive.sentryDsn);
 
       if (hasSensitive) {
         let passphrase = W.secureSession.getPassphrase();
