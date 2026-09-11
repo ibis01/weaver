@@ -3,6 +3,19 @@
 // ===============================================================
 // CSP Compliant: Zero inline styles used.
 // ===============================================================
+//
+// EVIDENCE_CONFIDENCE_NOTE: every evidence item generated here comes
+// from a direct, local, synchronous read of the user's own data
+// (portfolio holdings, theses, journal) — never a network call. There
+// is no meaningful estimation uncertainty in "does this holding exist
+// in the user's portfolio" the way there is for, say, a market-data
+// API response. Confidence is therefore fixed at 1.0 for all evidence
+// here rather than an arbitrary descending sequence (0.95/0.9/0.85)
+// that previously implied a precision this data never had. If a
+// genuinely probabilistic local source is added later (e.g. a
+// behavioral-pattern inference), it should carry its own honestly
+// computed confidence — not reuse this constant.
+// ===============================================================
 
 window.W = window.W || {};
 W.context = (() => {
@@ -37,8 +50,13 @@ W.context = (() => {
         claim: `User holds ${symbol}`,
         evidence: `${qty} units`,
         source: "portfolio",
-        timestamp: new Date().toISOString(),
-        confidence: 0.95,
+        // Direct local data read — timestamp reflects when the holding
+        // record actually changed, not when this function happened to run.
+        timestamp: holding.updatedAt || new Date().toISOString(),
+        // A direct lookup against the user's own portfolio is a verified
+        // fact, not an estimate — no external staleness/reliability
+        // discount applies. See EVIDENCE_CONFIDENCE_NOTE below.
+        confidence: 1.0,
       });
     }
 
@@ -55,8 +73,8 @@ W.context = (() => {
         claim: `User has thesis on ${symbol}`,
         evidence: thesis.statement || "Thesis exists",
         source: "theses",
-        timestamp: new Date().toISOString(),
-        confidence: 0.9,
+        timestamp: thesis.createdAt || new Date().toISOString(),
+        confidence: 1.0,
       });
     }
 
@@ -66,8 +84,13 @@ W.context = (() => {
         claim: `Recent decisions on ${symbol}`,
         evidence: `${recentDecisions.length} recent journal entries`,
         source: "journal",
-        timestamp: new Date().toISOString(),
-        confidence: 0.85,
+        // Use the most recent matching decision's own timestamp, not "now".
+        timestamp:
+          recentDecisions
+            .map((d) => d.timestamp)
+            .sort()
+            .reverse()[0] || new Date().toISOString(),
+        confidence: 1.0,
       });
     }
 

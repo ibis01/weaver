@@ -1,9 +1,5 @@
 // ===============================================================
-//         Portfolio Management Module
-// ===============================================================
-// Purpose: Track holdings, calculate cost basis, and manage transactions.
-// P1 Data Correctness Task 2: Implement weighted-average cost basis.
-// Rule 21: Safely handles NaN, zero quantities, and missing fields.
+//         Portfolio Management Module – Canonical AssetId
 // ===============================================================
 
 window.W = window.W || {};
@@ -11,74 +7,116 @@ W.portfolio = W.portfolio || {};
 
 (function () {
   const PORTFOLIO_KEY = "portfolio_holdings";
-  const TX_KEY = "portfolio_transactions";
-
   let holdings = W.store.get(PORTFOLIO_KEY, []);
-  let transactions = W.store.get(TX_KEY, []);
 
   function save() {
     W.store.set(PORTFOLIO_KEY, holdings);
-    W.store.set(TX_KEY, transactions);
   }
 
   function all() {
     return holdings;
   }
-  function txs() {
-    return transactions;
+
+  // ── Canonical key: prefer coingeckoId, fall back to symbol ────
+  function identityKey(holding) {
+    if (!holding) return null;
+    if (holding.assetId && holding.assetId.coingeckoId) {
+      return `cg:${holding.assetId.coingeckoId}`;
+    }
+    if (holding.coinId) return `cg:${holding.coinId}`;
+    if (holding.assetId && holding.assetId.symbol) {
+      return `sym:${holding.assetId.symbol}`;
+    }
+    if (holding.symbol) return `sym:${holding.symbol.toUpperCase()}`;
+    return null;
   }
 
-  // ── Core Logic: Weighted Average Cost Basis (P1 Task 2) ──
-  function add(holding) {
-    if (!holding || !holding.symbol) return false;
+  // ── Add/Update with weighted-average cost basis ───────────────
+  async function add(holding) {
+    if (!holding) {
+      console.warn("[Portfolio] Invalid holding data");
+      return false;
+    }
 
-    const symbol = holding.symbol.toUpperCase().trim();
-    const newQty = parseFloat(holding.qty) || 0;
-    const newPrice = parseFloat(holding.buyPrice) || 0;
+    const qty = parseFloat(holding.qty) || 0;
+    const buyPrice = parseFloat(holding.buyPrice) || 0;
+    if (qty <= 0 || buyPrice < 0) {
+      console.warn("[Portfolio] Invalid quantity or price");
+      return false;
+    }
 
-    // Rule 21: Prevent invalid state (zero or negative quantity)
-    if (newQty <= 0) return false;
+    // Resolve canonical assetId if not provided
+    let assetId = holding.assetId;
+    if (!assetId) {
+      const input = holding.coinId || holding.symbol || holding.name;
+      try {
+        assetId = await W.asset.resolveAssetId(input);
+      } catch (e) {
+        console.warn("[Portfolio] Asset resolution failed:", e.message);
+        assetId = {
+          chainId: "unknown",
+          contractAddress: null,
+          symbol: (holding.symbol || "UNKNOWN").toUpperCase(),
+          coingeckoId: holding.coinId || null,
+          name: holding.name || holding.symbol || "Unknown",
+        };
+      }
+    }
 
-    const existingIndex = holdings.findIndex(
-      (h) => h.symbol.toUpperCase() === symbol,
-    );
+    const merged = {
+      ...holding,
+      assetId,
+      symbol: assetId.symbol,
+      name: assetId.name,
+      coinId: assetId.coingeckoId,
+    };
+
+    const key = identityKey(merged);
+    if (!key) {
+      console.warn("[Portfolio] Could not determine identity for holding");
+      return false;
+    }
+
+    const existingIndex = holdings.findIndex((h) => identityKey(h) === key);
 
     if (existingIndex !== -1) {
-      // MERGE: Calculate weighted average price
       const existing = holdings[existingIndex];
       const oldQty = parseFloat(existing.qty) || 0;
-      const oldPrice = parseFloat(existing.buyPrice) || 0;
-
-      const totalQty = oldQty + newQty;
-
-      // Avoid division by zero (totalQty is guaranteed > 0 here)
-      const avgPrice =
-        totalQty > 0
-          ? (oldQty * oldPrice + newQty * newPrice) / totalQty
-          : newPrice;
+      const oldAvg = parseFloat(existing.buyPrice) || 0;
+      const oldTotalCost =
+        existing.totalCost !== undefined ? existing.totalCost : oldQty * oldAvg;
+      const newTotalCost = oldTotalCost + qty * buyPrice;
+      const newTotalQty = oldQty + qty;
+      const newAvgPrice = newTotalQty > 0 ? newTotalCost / newTotalQty : 0;
 
       holdings[existingIndex] = {
         ...existing,
-        symbol: symbol,
-        name: holding.name || existing.name,
-        coinId: holding.coinId || existing.coinId,
-        img: holding.img || existing.img,
-        qty: totalQty,
-        buyPrice: avgPrice,
-        updatedAt: new Date().toISOString(),
+        assetId,
+        symbol: assetId.symbol,
+        name: assetId.name,
+        coinId: assetId.coingeckoId,
+        qty: newTotalQty,
+        buyPrice: newAvgPrice,
+        totalCost: newTotalCost,
+        updatedAt: Date.now(),
       };
     } else {
-      // NEW HOLDING
+      const totalCost = qty * buyPrice;
       holdings.push({
-        id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
-        symbol: symbol,
-        name: holding.name || symbol,
-        coinId: holding.coinId || symbol.toLowerCase(),
+        id:
+          typeof crypto !== "undefined" && crypto.randomUUID
+            ? crypto.randomUUID()
+            : Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+        assetId,
+        symbol: assetId.symbol,
+        name: assetId.name,
+        coinId: assetId.coingeckoId,
         img: holding.img || "",
-        qty: newQty,
-        buyPrice: newPrice,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        qty,
+        buyPrice,
+        totalCost,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       });
     }
 
@@ -89,79 +127,131 @@ W.portfolio = W.portfolio || {};
   function remove(id) {
     holdings = holdings.filter((h) => h.id !== id);
     save();
+    return true;
   }
 
-  function update(id, data) {
+  function update(id, updates) {
     const index = holdings.findIndex((h) => h.id === id);
-    if (index !== -1) {
-      holdings[index] = {
-        ...holdings[index],
-        ...data,
-        updatedAt: new Date().toISOString(),
-      };
-      save();
-    }
-  }
-
-  function recordTx(tx) {
-    if (!tx || !tx.coin) return false;
-
-    const newTx = {
-      id: Date.now().toString(36),
-      type: tx.type, // 'buy' or 'sell'
-      coinId: tx.coin.id,
-      symbol: tx.coin.symbol.toUpperCase(),
-      name: tx.coin.name,
-      qty: parseFloat(tx.qty),
-      price: parseFloat(tx.price),
-      date: new Date().toISOString(),
+    if (index === -1) return false;
+    const current = holdings[index];
+    const newQty =
+      updates.qty !== undefined ? parseFloat(updates.qty) : current.qty;
+    const newPrice =
+      updates.buyPrice !== undefined
+        ? parseFloat(updates.buyPrice)
+        : current.buyPrice;
+    holdings[index] = {
+      ...current,
+      ...updates,
+      qty: newQty,
+      buyPrice: newPrice,
+      totalCost: newQty * newPrice,
+      updatedAt: Date.now(),
     };
-
-    transactions.push(newTx);
-
-    // Auto-update holding if it's a buy
-    if (tx.type === "buy") {
-      add({
-        symbol: tx.coin.symbol,
-        name: tx.coin.name,
-        coinId: tx.coin.id,
-        img: tx.coin.img,
-        qty: tx.qty,
-        buyPrice: tx.price,
-      });
-    }
-
     save();
     return true;
   }
 
-  function seed() {
-    holdings = [
+  function clear() {
+    holdings = [];
+    save();
+  }
+
+  // ── Migration: resolve assetIds for legacy holdings ───────────
+  async function migrateLegacyHoldings() {
+    let migrated = 0;
+    for (let i = 0; i < holdings.length; i++) {
+      const h = holdings[i];
+      if (h.assetId && h.assetId.coingeckoId) continue;
+      const input = h.coinId || h.symbol || h.name;
+      if (!input) continue;
+      try {
+        const assetId = await W.asset.resolveAssetId(input);
+        holdings[i] = {
+          ...h,
+          assetId,
+          symbol: assetId.symbol,
+          name: assetId.name,
+          coinId: assetId.coingeckoId,
+        };
+        migrated++;
+      } catch (e) {
+        // leave as-is
+      }
+    }
+    if (migrated > 0) save();
+    return migrated;
+  }
+
+  // ── Transactions ──────────────────────────────────────────────
+  const TX_KEY = "portfolio_transactions";
+  function txs() {
+    return W.store.get(TX_KEY, []);
+  }
+  function recordTx(tx) {
+    const list = W.store.get(TX_KEY, []);
+    list.push({
+      id:
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      ...tx,
+      timestamp: Date.now(),
+    });
+    W.store.set(TX_KEY, list);
+    return true;
+  }
+
+  // ── Sample portfolio ──────────────────────────────────────────
+  async function seed() {
+    const samples = [
       {
-        id: "s1",
         symbol: "BTC",
         name: "Bitcoin",
         coinId: "bitcoin",
         qty: 0.5,
-        buyPrice: 42000,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        buyPrice: 60000,
       },
       {
-        id: "s2",
         symbol: "ETH",
         name: "Ethereum",
         coinId: "ethereum",
-        qty: 4.2,
-        buyPrice: 2200,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        qty: 5,
+        buyPrice: 3000,
+      },
+      {
+        symbol: "SOL",
+        name: "Solana",
+        coinId: "solana",
+        qty: 20,
+        buyPrice: 150,
       },
     ];
-    save();
+    for (const s of samples) {
+      await add(s);
+    }
+    return true;
   }
 
-  W.portfolio = { all, add, remove, update, recordTx, txs, seed };
+  async function render(view) {
+    view.innerHTML = '<p class="muted">Portfolio module loaded</p>';
+  }
+
+  W.portfolio = {
+    all,
+    add,
+    remove,
+    update,
+    clear,
+    txs,
+    recordTx,
+    seed,
+    render,
+    migrateLegacyHoldings,
+    identityKey,
+  };
 })();
 
-console.log("[Portfolio] Module loaded (weighted-average cost basis enabled).");
+console.log(
+  "[Portfolio] Module loaded (canonical AssetId + weighted-average).",
+);

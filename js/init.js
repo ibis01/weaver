@@ -124,6 +124,14 @@
     }
   }
 
+  // Migrate legacy holdings to canonical assetId (one-time)
+if (W.portfolio && W.portfolio.migrateLegacyHoldings) {
+  W.portfolio.migrateLegacyHoldings().then(count => {
+    if (count > 0) {
+      console.log(`[Init] Migrated ${count} legacy holdings to canonical assetId.`);
+    }
+  });
+}
   // ── Run All Initializations ──────────────────────────────
   function runInit() {
     // Wait for W.store to be available

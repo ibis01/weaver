@@ -20,8 +20,6 @@ W.gems = (() => {
     arbitrum: "🔺",
     polygon: "🟪",
     avalanche: "❄️",
-    ton: "💎",
-    blast: "💥",
   };
 
   // Bump this whenever score()'s weights/logic change. Alerts and cards

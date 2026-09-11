@@ -2549,94 +2549,140 @@ window.W = window.W || {};
 })();
 // ---- js/models/asset.js ----
 // ===============================================================
-// js/models/asset.js – Canonical Asset Identity
+//         Canonical Asset Identity Model
 // ===============================================================
 
 window.W = window.W || {};
 W.asset = W.asset || {};
 
 (function () {
-  // ── Local cache for resolved assets ──────────────────────────
-  const RESOLVE_CACHE_KEY = "asset_resolve_cache";
+  const CACHE_KEY = "asset_resolve_cache";
+  const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+  // ── Cache helpers ─────────────────────────────────────────────
   function getCache() {
-    return W.store.get(RESOLVE_CACHE_KEY, {});
+    return W.store.get(CACHE_KEY, {});
   }
+
   function setCache(cache) {
-    W.store.set(RESOLVE_CACHE_KEY, cache);
+    W.store.set(CACHE_KEY, cache);
   }
 
-  // ── Resolve a user input (symbol, name, partial) to AssetId ──
-  async function resolve(input) {
-    if (!input || typeof input !== "string") {
-      throw new Error("Invalid input");
-    }
-
-    const cache = getCache();
-    const normalized = input.trim().toLowerCase();
-    // Check cache first
-    if (cache[normalized]) {
-      return cache[normalized];
-    }
-
-    // Query Coingecko search
-    try {
-      const result = await W.api.search(normalized);
-      if (!result || !result.coins || result.coins.length === 0) {
-        throw new Error(`No asset found for "${input}"`);
+  function pruneCache(cache) {
+    const now = Date.now();
+    const pruned = {};
+    for (const [key, entry] of Object.entries(cache)) {
+      if (entry && entry.cachedAt && now - entry.cachedAt < CACHE_TTL) {
+        pruned[key] = entry;
       }
-
-      // Take the first result that matches closely
-      const coin = result.coins[0];
-      const assetId = {
-        chainId: inferChainId(coin), // heuristic
-        contractAddress: null, // we don't have it from search; will be set later if needed
-        symbol: coin.symbol.toUpperCase(),
-        coingeckoId: coin.id,
-        name: coin.name,
-      };
-
-      // Cache it
-      cache[normalized] = assetId;
-      setCache(cache);
-
-      return assetId;
-    } catch (e) {
-      console.warn("[Asset] Resolve failed:", e.message);
-      // Fallback: create a minimal AssetId using the input as symbol
-      return {
-        chainId: "unknown",
-        contractAddress: null,
-        symbol: input.toUpperCase(),
-        coingeckoId: null,
-        name: input,
-      };
     }
+    return pruned;
   }
 
-  // ── Heuristic: infer chain from coin data ────────────────────
+  // ── Chain inference ───────────────────────────────────────────
   function inferChainId(coin) {
-    // This is simplistic; in production we'd use the platforms field
+    if (!coin) return "unknown";
     if (coin.id === "bitcoin") return "bitcoin";
     if (coin.id === "ethereum") return "ethereum";
     if (coin.id === "solana") return "solana";
     if (coin.id === "binancecoin") return "bsc";
-    return "ethereum"; // default
+    if (coin.id === "matic-network" || coin.id === "polygon-ecosystem-token")
+      return "polygon";
+    if (coin.id === "avalanche-2") return "avalanche";
+    if (coin.id === "arbitrum") return "arbitrum";
+    if (coin.id === "optimism") return "optimism";
+    // Default to ethereum for ERC-20s
+    return "ethereum";
   }
 
-  // ── Get price for an AssetId ──────────────────────────────────
-  async function getPrice(assetId) {
-    if (assetId.coingeckoId) {
-      const data = await W.api.markets(assetId.coingeckoId);
-      return data[0]?.current_price || 0;
+  // ── Canonical resolution ──────────────────────────────────────
+  /**
+   * Resolve a user input (symbol, name, coingeckoId) to a canonical AssetId.
+   * @param {string} input - Symbol, name, or Coingecko ID.
+   * @returns {Promise<Object>} - { chainId, contractAddress, symbol, coingeckoId, name }
+   */
+  async function resolveAssetId(input) {
+    if (!input || typeof input !== "string") {
+      throw new Error("Invalid asset input");
     }
-    // Fallback: try symbol
-    const data = await W.api.markets(assetId.symbol);
-    return data[0]?.current_price || 0;
+
+    const normalized = input.trim().toLowerCase();
+    if (!normalized) throw new Error("Empty asset input");
+
+    // 1. Check cache
+    const cache = getCache();
+    if (cache[normalized] && cache[normalized].assetId) {
+      return cache[normalized].assetId;
+    }
+
+    // 2. If input already looks like a Coingecko ID, use it directly
+    //    (heuristic: lowercase, hyphen-separated, no spaces)
+    const looksLikeCoingeckoId =
+      /^[a-z0-9-]+$/.test(normalized) && normalized.length > 2;
+
+    // 3. Query Coingecko search
+    try {
+      const result = await W.api.search(normalized);
+      const coins = (result && result.coins) || [];
+
+      if (coins.length === 0) {
+        // Fallback: return a synthetic AssetId using the input as symbol
+        return fallbackAssetId(input);
+      }
+
+      // Prefer exact ID match, else first result
+      let coin = coins.find((c) => c.id === normalized) || coins[0];
+
+      const assetId = {
+        chainId: inferChainId(coin),
+        contractAddress: null, // not available from search; refined later if needed
+        symbol: (coin.symbol || input).toUpperCase(),
+        coingeckoId: coin.id,
+        name: coin.name || input,
+      };
+
+      // 4. Cache the result
+      cache[normalized] = {
+        assetId,
+        cachedAt: Date.now(),
+      };
+      setCache(pruneCache(cache));
+
+      return assetId;
+    } catch (e) {
+      console.warn("[Asset] Resolve failed, using fallback:", e.message);
+      return fallbackAssetId(input);
+    }
   }
 
-  // ── Exports ────────────────────────────────────────────────────
+  // ── Fallback (never throws) ───────────────────────────────────
+  function fallbackAssetId(input) {
+    return {
+      chainId: "unknown",
+      contractAddress: null,
+      symbol: String(input).toUpperCase(),
+      coingeckoId: null,
+      name: String(input),
+    };
+  }
+
+  // ── Price lookup ──────────────────────────────────────────────
+  async function getPrice(assetId) {
+    if (!assetId) return 0;
+    const key = assetId.coingeckoId || assetId.symbol;
+    if (!key) return 0;
+    try {
+      const data = await W.api.markets(key);
+      return (data[0] && data[0].current_price) || 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  // ── Exports ───────────────────────────────────────────────────
   W.asset = {
-    resolve,
+    resolveAssetId,
+    resolve: resolveAssetId, // backward-compat alias
     getPrice,
     inferChainId,
   };
@@ -3272,6 +3318,19 @@ console.log("[Behavior] Pattern detection engine loaded.");
 // ===============================================================
 // CSP Compliant: Zero inline styles used.
 // ===============================================================
+//
+// EVIDENCE_CONFIDENCE_NOTE: every evidence item generated here comes
+// from a direct, local, synchronous read of the user's own data
+// (portfolio holdings, theses, journal) — never a network call. There
+// is no meaningful estimation uncertainty in "does this holding exist
+// in the user's portfolio" the way there is for, say, a market-data
+// API response. Confidence is therefore fixed at 1.0 for all evidence
+// here rather than an arbitrary descending sequence (0.95/0.9/0.85)
+// that previously implied a precision this data never had. If a
+// genuinely probabilistic local source is added later (e.g. a
+// behavioral-pattern inference), it should carry its own honestly
+// computed confidence — not reuse this constant.
+// ===============================================================
 
 window.W = window.W || {};
 W.context = (() => {
@@ -3306,8 +3365,13 @@ W.context = (() => {
         claim: `User holds ${symbol}`,
         evidence: `${qty} units`,
         source: "portfolio",
-        timestamp: new Date().toISOString(),
-        confidence: 0.95,
+        // Direct local data read — timestamp reflects when the holding
+        // record actually changed, not when this function happened to run.
+        timestamp: holding.updatedAt || new Date().toISOString(),
+        // A direct lookup against the user's own portfolio is a verified
+        // fact, not an estimate — no external staleness/reliability
+        // discount applies. See EVIDENCE_CONFIDENCE_NOTE below.
+        confidence: 1.0,
       });
     }
 
@@ -3324,8 +3388,8 @@ W.context = (() => {
         claim: `User has thesis on ${symbol}`,
         evidence: thesis.statement || "Thesis exists",
         source: "theses",
-        timestamp: new Date().toISOString(),
-        confidence: 0.9,
+        timestamp: thesis.createdAt || new Date().toISOString(),
+        confidence: 1.0,
       });
     }
 
@@ -3335,8 +3399,13 @@ W.context = (() => {
         claim: `Recent decisions on ${symbol}`,
         evidence: `${recentDecisions.length} recent journal entries`,
         source: "journal",
-        timestamp: new Date().toISOString(),
-        confidence: 0.85,
+        // Use the most recent matching decision's own timestamp, not "now".
+        timestamp:
+          recentDecisions
+            .map((d) => d.timestamp)
+            .sort()
+            .reverse()[0] || new Date().toISOString(),
+        confidence: 1.0,
       });
     }
 
@@ -4944,11 +5013,7 @@ console.log(
 );
 // ---- js/features/portfolio.js ----
 // ===============================================================
-//         Portfolio Management Module
-// ===============================================================
-// Purpose: Track holdings, calculate cost basis, and manage transactions.
-// P1 Data Correctness Task 2: Implement weighted-average cost basis.
-// Rule 21: Safely handles NaN, zero quantities, and missing fields.
+//         Portfolio Management Module – Canonical AssetId
 // ===============================================================
 
 window.W = window.W || {};
@@ -4956,74 +5021,116 @@ W.portfolio = W.portfolio || {};
 
 (function () {
   const PORTFOLIO_KEY = "portfolio_holdings";
-  const TX_KEY = "portfolio_transactions";
-
   let holdings = W.store.get(PORTFOLIO_KEY, []);
-  let transactions = W.store.get(TX_KEY, []);
 
   function save() {
     W.store.set(PORTFOLIO_KEY, holdings);
-    W.store.set(TX_KEY, transactions);
   }
 
   function all() {
     return holdings;
   }
-  function txs() {
-    return transactions;
+
+  // ── Canonical key: prefer coingeckoId, fall back to symbol ────
+  function identityKey(holding) {
+    if (!holding) return null;
+    if (holding.assetId && holding.assetId.coingeckoId) {
+      return `cg:${holding.assetId.coingeckoId}`;
+    }
+    if (holding.coinId) return `cg:${holding.coinId}`;
+    if (holding.assetId && holding.assetId.symbol) {
+      return `sym:${holding.assetId.symbol}`;
+    }
+    if (holding.symbol) return `sym:${holding.symbol.toUpperCase()}`;
+    return null;
   }
 
-  // ── Core Logic: Weighted Average Cost Basis (P1 Task 2) ──
-  function add(holding) {
-    if (!holding || !holding.symbol) return false;
+  // ── Add/Update with weighted-average cost basis ───────────────
+  async function add(holding) {
+    if (!holding) {
+      console.warn("[Portfolio] Invalid holding data");
+      return false;
+    }
 
-    const symbol = holding.symbol.toUpperCase().trim();
-    const newQty = parseFloat(holding.qty) || 0;
-    const newPrice = parseFloat(holding.buyPrice) || 0;
+    const qty = parseFloat(holding.qty) || 0;
+    const buyPrice = parseFloat(holding.buyPrice) || 0;
+    if (qty <= 0 || buyPrice < 0) {
+      console.warn("[Portfolio] Invalid quantity or price");
+      return false;
+    }
 
-    // Rule 21: Prevent invalid state (zero or negative quantity)
-    if (newQty <= 0) return false;
+    // Resolve canonical assetId if not provided
+    let assetId = holding.assetId;
+    if (!assetId) {
+      const input = holding.coinId || holding.symbol || holding.name;
+      try {
+        assetId = await W.asset.resolveAssetId(input);
+      } catch (e) {
+        console.warn("[Portfolio] Asset resolution failed:", e.message);
+        assetId = {
+          chainId: "unknown",
+          contractAddress: null,
+          symbol: (holding.symbol || "UNKNOWN").toUpperCase(),
+          coingeckoId: holding.coinId || null,
+          name: holding.name || holding.symbol || "Unknown",
+        };
+      }
+    }
 
-    const existingIndex = holdings.findIndex(
-      (h) => h.symbol.toUpperCase() === symbol,
-    );
+    const merged = {
+      ...holding,
+      assetId,
+      symbol: assetId.symbol,
+      name: assetId.name,
+      coinId: assetId.coingeckoId,
+    };
+
+    const key = identityKey(merged);
+    if (!key) {
+      console.warn("[Portfolio] Could not determine identity for holding");
+      return false;
+    }
+
+    const existingIndex = holdings.findIndex((h) => identityKey(h) === key);
 
     if (existingIndex !== -1) {
-      // MERGE: Calculate weighted average price
       const existing = holdings[existingIndex];
       const oldQty = parseFloat(existing.qty) || 0;
-      const oldPrice = parseFloat(existing.buyPrice) || 0;
-
-      const totalQty = oldQty + newQty;
-
-      // Avoid division by zero (totalQty is guaranteed > 0 here)
-      const avgPrice =
-        totalQty > 0
-          ? (oldQty * oldPrice + newQty * newPrice) / totalQty
-          : newPrice;
+      const oldAvg = parseFloat(existing.buyPrice) || 0;
+      const oldTotalCost =
+        existing.totalCost !== undefined ? existing.totalCost : oldQty * oldAvg;
+      const newTotalCost = oldTotalCost + qty * buyPrice;
+      const newTotalQty = oldQty + qty;
+      const newAvgPrice = newTotalQty > 0 ? newTotalCost / newTotalQty : 0;
 
       holdings[existingIndex] = {
         ...existing,
-        symbol: symbol,
-        name: holding.name || existing.name,
-        coinId: holding.coinId || existing.coinId,
-        img: holding.img || existing.img,
-        qty: totalQty,
-        buyPrice: avgPrice,
-        updatedAt: new Date().toISOString(),
+        assetId,
+        symbol: assetId.symbol,
+        name: assetId.name,
+        coinId: assetId.coingeckoId,
+        qty: newTotalQty,
+        buyPrice: newAvgPrice,
+        totalCost: newTotalCost,
+        updatedAt: Date.now(),
       };
     } else {
-      // NEW HOLDING
+      const totalCost = qty * buyPrice;
       holdings.push({
-        id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
-        symbol: symbol,
-        name: holding.name || symbol,
-        coinId: holding.coinId || symbol.toLowerCase(),
+        id:
+          typeof crypto !== "undefined" && crypto.randomUUID
+            ? crypto.randomUUID()
+            : Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+        assetId,
+        symbol: assetId.symbol,
+        name: assetId.name,
+        coinId: assetId.coingeckoId,
         img: holding.img || "",
-        qty: newQty,
-        buyPrice: newPrice,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        qty,
+        buyPrice,
+        totalCost,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       });
     }
 
@@ -5034,82 +5141,134 @@ W.portfolio = W.portfolio || {};
   function remove(id) {
     holdings = holdings.filter((h) => h.id !== id);
     save();
+    return true;
   }
 
-  function update(id, data) {
+  function update(id, updates) {
     const index = holdings.findIndex((h) => h.id === id);
-    if (index !== -1) {
-      holdings[index] = {
-        ...holdings[index],
-        ...data,
-        updatedAt: new Date().toISOString(),
-      };
-      save();
-    }
-  }
-
-  function recordTx(tx) {
-    if (!tx || !tx.coin) return false;
-
-    const newTx = {
-      id: Date.now().toString(36),
-      type: tx.type, // 'buy' or 'sell'
-      coinId: tx.coin.id,
-      symbol: tx.coin.symbol.toUpperCase(),
-      name: tx.coin.name,
-      qty: parseFloat(tx.qty),
-      price: parseFloat(tx.price),
-      date: new Date().toISOString(),
+    if (index === -1) return false;
+    const current = holdings[index];
+    const newQty =
+      updates.qty !== undefined ? parseFloat(updates.qty) : current.qty;
+    const newPrice =
+      updates.buyPrice !== undefined
+        ? parseFloat(updates.buyPrice)
+        : current.buyPrice;
+    holdings[index] = {
+      ...current,
+      ...updates,
+      qty: newQty,
+      buyPrice: newPrice,
+      totalCost: newQty * newPrice,
+      updatedAt: Date.now(),
     };
-
-    transactions.push(newTx);
-
-    // Auto-update holding if it's a buy
-    if (tx.type === "buy") {
-      add({
-        symbol: tx.coin.symbol,
-        name: tx.coin.name,
-        coinId: tx.coin.id,
-        img: tx.coin.img,
-        qty: tx.qty,
-        buyPrice: tx.price,
-      });
-    }
-
     save();
     return true;
   }
 
-  function seed() {
-    holdings = [
+  function clear() {
+    holdings = [];
+    save();
+  }
+
+  // ── Migration: resolve assetIds for legacy holdings ───────────
+  async function migrateLegacyHoldings() {
+    let migrated = 0;
+    for (let i = 0; i < holdings.length; i++) {
+      const h = holdings[i];
+      if (h.assetId && h.assetId.coingeckoId) continue;
+      const input = h.coinId || h.symbol || h.name;
+      if (!input) continue;
+      try {
+        const assetId = await W.asset.resolveAssetId(input);
+        holdings[i] = {
+          ...h,
+          assetId,
+          symbol: assetId.symbol,
+          name: assetId.name,
+          coinId: assetId.coingeckoId,
+        };
+        migrated++;
+      } catch (e) {
+        // leave as-is
+      }
+    }
+    if (migrated > 0) save();
+    return migrated;
+  }
+
+  // ── Transactions ──────────────────────────────────────────────
+  const TX_KEY = "portfolio_transactions";
+  function txs() {
+    return W.store.get(TX_KEY, []);
+  }
+  function recordTx(tx) {
+    const list = W.store.get(TX_KEY, []);
+    list.push({
+      id:
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      ...tx,
+      timestamp: Date.now(),
+    });
+    W.store.set(TX_KEY, list);
+    return true;
+  }
+
+  // ── Sample portfolio ──────────────────────────────────────────
+  async function seed() {
+    const samples = [
       {
-        id: "s1",
         symbol: "BTC",
         name: "Bitcoin",
         coinId: "bitcoin",
         qty: 0.5,
-        buyPrice: 42000,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        buyPrice: 60000,
       },
       {
-        id: "s2",
         symbol: "ETH",
         name: "Ethereum",
         coinId: "ethereum",
-        qty: 4.2,
-        buyPrice: 2200,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        qty: 5,
+        buyPrice: 3000,
+      },
+      {
+        symbol: "SOL",
+        name: "Solana",
+        coinId: "solana",
+        qty: 20,
+        buyPrice: 150,
       },
     ];
-    save();
+    for (const s of samples) {
+      await add(s);
+    }
+    return true;
   }
 
-  W.portfolio = { all, add, remove, update, recordTx, txs, seed };
+  async function render(view) {
+    view.innerHTML = '<p class="muted">Portfolio module loaded</p>';
+  }
+
+  W.portfolio = {
+    all,
+    add,
+    remove,
+    update,
+    clear,
+    txs,
+    recordTx,
+    seed,
+    render,
+    migrateLegacyHoldings,
+    identityKey,
+  };
 })();
 
-console.log("[Portfolio] Module loaded (weighted-average cost basis enabled).");
+console.log(
+  "[Portfolio] Module loaded (canonical AssetId + weighted-average).",
+);
 // ---- js/features/watchlist.js ----
 // ================================================================
 // js/features/watchlist.js – Weaver Watchlist
@@ -13587,9 +13746,6 @@ W.tokenAnalysis = (async () => {
 
   // Render function (unchanged from previous version, but improved UI)
   async function render(view, assetId) {
-<<<<<<< HEAD
-    // ... (same as before, but now uses the enhanced analyze)
-=======
     // If no assetId, show the search input
     if (!assetId) {
       view.innerHTML = `
@@ -13693,7 +13849,6 @@ W.tokenAnalysis = (async () => {
     } catch (e) {
       view.innerHTML = `<div class="card"><p class="muted">Analysis failed: ${e.message}</p></div>`;
     }
->>>>>>> 82406e29bdc8b212413ee40df5fc02e64f4e0e8e
   }
   console.log("[TokenAnalysis] Module loaded.");
 
@@ -14398,6 +14553,14 @@ console.log("[App] Module loaded.");
     }
   }
 
+  // Migrate legacy holdings to canonical assetId (one-time)
+if (W.portfolio && W.portfolio.migrateLegacyHoldings) {
+  W.portfolio.migrateLegacyHoldings().then(count => {
+    if (count > 0) {
+      console.log(`[Init] Migrated ${count} legacy holdings to canonical assetId.`);
+    }
+  });
+}
   // ── Run All Initializations ──────────────────────────────
   function runInit() {
     // Wait for W.store to be available
