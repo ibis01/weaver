@@ -155,4 +155,22 @@ global.W = {
   },
 };
 
+// ── Load real modules that the unit tests exercise directly ────
+// These are loaded AFTER the mock block so they can attach to
+// global.W without being overwritten by the mocks above.
+//
+// W.api is stubbed so the real asset module has something to call.
+// The stub returns empty results, forcing the module's fallback
+// path — which is exactly what the "fallback AssetId" test checks.
+global.W.api = {
+  search: async () => ({ coins: [] }),
+  markets: async () => [],
+};
+
+// asset.js assigns to `window.W.asset`. In Node, `window` is the
+// JSDOM window, but the mocks live on the Node global. Bridge them
+// so the real module attaches to the same object the tests read.
+global.window.W = global.W;
+require("../js/models/asset.js");
+
 console.log("✅ Test environment initialized with JSDOM and W namespace.");

@@ -104,8 +104,17 @@ for (const file of files) {
   }
 }
 
-const bundlePath = path.join(distDir, "bundle.js");
-fs.writeFileSync(bundlePath, output);
+// ── Minify and write to the file index.html actually loads ────
+const { transformSync } = require("esbuild");
+
+const bundlePath = path.join(distDir, "bundle.min.js");
+const minified = transformSync(output, {
+  minify: true,
+  loader: "js",
+  target: "es2020",
+}).code;
+
+fs.writeFileSync(bundlePath, minified);
 console.log(
-  `✅ Bundle created: ${bundlePath} (${(output.length / 1024).toFixed(1)} KB, ${fileCount} files)`,
+  `✅ Bundle created: ${bundlePath} (${(minified.length / 1024).toFixed(1)} KB, ${fileCount} files)`,
 );

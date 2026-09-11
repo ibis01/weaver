@@ -2553,7 +2553,6 @@ window.W = window.W || {};
 // ===============================================================
 
 window.W = window.W || {};
-W.asset = W.asset || {};
 
 (function () {
   const CACHE_KEY = "asset_resolve_cache";
@@ -2615,37 +2614,28 @@ W.asset = W.asset || {};
       return cache[normalized].assetId;
     }
 
-    // 2. If input already looks like a Coingecko ID, use it directly
-    //    (heuristic: lowercase, hyphen-separated, no spaces)
-    const looksLikeCoingeckoId =
-      /^[a-z0-9-]+$/.test(normalized) && normalized.length > 2;
-
-    // 3. Query Coingecko search
+    // 2. Query Coingecko search
     try {
       const result = await W.api.search(normalized);
       const coins = (result && result.coins) || [];
 
       if (coins.length === 0) {
-        // Fallback: return a synthetic AssetId using the input as symbol
         return fallbackAssetId(input);
       }
 
       // Prefer exact ID match, else first result
-      let coin = coins.find((c) => c.id === normalized) || coins[0];
+      const coin = coins.find((c) => c.id === normalized) || coins[0];
 
       const assetId = {
         chainId: inferChainId(coin),
-        contractAddress: null, // not available from search; refined later if needed
+        contractAddress: null,
         symbol: (coin.symbol || input).toUpperCase(),
         coingeckoId: coin.id,
         name: coin.name || input,
       };
 
-      // 4. Cache the result
-      cache[normalized] = {
-        assetId,
-        cachedAt: Date.now(),
-      };
+      // 3. Cache the result
+      cache[normalized] = { assetId, cachedAt: Date.now() };
       setCache(pruneCache(cache));
 
       return assetId;
@@ -2682,7 +2672,7 @@ W.asset = W.asset || {};
   // ── Exports ───────────────────────────────────────────────────
   W.asset = {
     resolveAssetId,
-    resolve: resolveAssetId, // backward-compat alias
+    resolve: resolveAssetId,
     getPrice,
     inferChainId,
   };
