@@ -7,6 +7,11 @@
 //   - If the user does not enter a confidence, it is stored as `null`.
 //   - It is never defaulted to 0.5.
 //   - The UI hides the confidence line when no value was recorded.
+//
+// REPLAY RENDERING:
+//   - Replay badges render synchronously with placeholder data so
+//     the UI is never blocked on external market data.
+//   - A second async pass updates badges when prices arrive.
 // ===============================================================
 
 window.W = window.W || {};
@@ -170,28 +175,15 @@ W.journal = W.journal || {};
     });
 
     // ── Decision Replay Integration ─────────────
+    // Badges are rendered synchronously first so the UI is never empty,
+    // then updated in the background if market data arrives. This keeps
+    // the journal responsive and does not block on external APIs.
     if (W.decisionReplay && decisions.length > 0) {
-      const uniqueAssets = [
-        ...new Set(decisions.map((d) => d.asset?.toLowerCase())),
-      ].filter(Boolean);
-      let priceMap = {};
-      if (uniqueAssets.length > 0 && W.api?.markets) {
-        try {
-          const markets = await W.api.markets(uniqueAssets.join(","));
-          markets.forEach((m) => {
-            if (m && m.id) priceMap[m.id.toLowerCase()] = m.current_price;
-          });
-        } catch (e) {
-          console.warn(
-            "[Journal] Failed to fetch market data for replay:",
-            e.message,
-          );
-        }
-      }
-
+      // Pass 1 — immediate render. No current price yet, so
+      // `evaluate` returns "Inconclusive", which is honest: we don't
+      // have enough data yet to judge the outcome.
       decisions.forEach((d) => {
-        const currentPrice = priceMap[d.asset?.toLowerCase()] || null;
-        const outcome = W.decisionReplay.evaluate(d, { price: currentPrice });
+        const outcome = W.decisionReplay.evaluate(d, { price: null });
         const container = view.querySelector(
           `.replay-container[data-decision-id="${d.id}"]`,
         );
@@ -199,6 +191,44 @@ W.journal = W.journal || {};
           container.innerHTML = W.decisionReplay.renderBadge(outcome);
         }
       });
+
+      // Pass 2 — fetch prices and update badges. Not awaited, so a slow
+      // or unavailable market API never blocks the journal from rendering.
+      const uniqueAssets = [
+        ...new Set(decisions.map((d) => d.asset?.toLowerCase())),
+      ].filter(Boolean);
+
+      if (uniqueAssets.length > 0 && W.api?.markets) {
+        W.api
+          .markets(uniqueAssets.join(","))
+          .then((markets) => {
+            const priceMap = {};
+            markets.forEach((m) => {
+              if (m && m.id) priceMap[m.id.toLowerCase()] = m.current_price;
+            });
+
+            decisions.forEach((d) => {
+              const currentPrice = priceMap[d.asset?.toLowerCase()] || null;
+              if (currentPrice === null) return;
+
+              const outcome = W.decisionReplay.evaluate(d, {
+                price: currentPrice,
+              });
+              const container = view.querySelector(
+                `.replay-container[data-decision-id="${d.id}"]`,
+              );
+              if (container) {
+                container.innerHTML = W.decisionReplay.renderBadge(outcome);
+              }
+            });
+          })
+          .catch((e) => {
+            console.warn(
+              "[Journal] Replay market data unavailable:",
+              e.message,
+            );
+          });
+      }
     }
   }
 
