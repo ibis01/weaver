@@ -2808,24 +2808,35 @@ console.log("[AI Providers] Registry initialized.");
 // ===============================================================
 //         Evidence Engine for Weaver Intelligence
 // ===============================================================
+//
+// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9.1):
+//   - A missing or invalid confidence is recorded as `null`,
+//     never defaulted to 0.5.
+//   - `null` confidence marks the record `incomplete`.
+//   - Callers must handle null confidence honestly — either by
+//     excluding the record or by surfacing "evidence incomplete".
+// ===============================================================
 
 window.W = window.W || {};
 W.intelligence = W.intelligence || {};
 
 W.evidence = (() => {
-  const REQUIRED_FIELDS = [
-    "claim",
-    "evidence",
-    "source",
-    "timestamp",
-    "confidence",
-  ];
+  // Confidence is intentionally NOT a required field. A valid record
+  // may legitimately have null confidence — meaning "the fact is
+  // established but its numerical certainty is not estimated".
+  const REQUIRED_FIELDS = ["claim", "evidence", "source", "timestamp"];
 
   function create(data) {
     if (!data || typeof data !== "object") {
       console.warn("[Evidence] Invalid input: expected object.");
       return null;
     }
+
+    const rawConfidence = parseFloat(data.confidence);
+    const hasValidConfidence =
+      Number.isFinite(rawConfidence) &&
+      rawConfidence >= 0 &&
+      rawConfidence <= 1;
 
     const record = {
       claim: typeof data.claim === "string" ? data.claim.trim() : null,
@@ -2834,16 +2845,14 @@ W.evidence = (() => {
       timestamp: data.timestamp
         ? new Date(data.timestamp).toISOString()
         : new Date().toISOString(),
-      confidence: parseFloat(data.confidence),
+      confidence: hasValidConfidence ? rawConfidence : null,
+      incomplete: !hasValidConfidence,
     };
 
-    if (
-      isNaN(record.confidence) ||
-      record.confidence < 0 ||
-      record.confidence > 1
-    ) {
-      console.warn("[Evidence] Invalid confidence score. Defaulting to 0.5.");
-      record.confidence = 0.5;
+    if (!hasValidConfidence) {
+      console.warn(
+        "[Evidence] Missing or invalid confidence score. Record marked incomplete.",
+      );
     }
 
     if (!record.claim || !record.evidence || !record.source) {
@@ -2864,16 +2873,25 @@ W.evidence = (() => {
     );
   }
 
+  // Nulls sort to the bottom. `?? -1` ensures a null record never
+  // outranks a record with a real confidence.
   function sortByConfidence(records) {
     if (!Array.isArray(records)) return [];
     return [...records].sort(
-      (a, b) => (b.confidence || 0) - (a.confidence || 0),
+      (a, b) => (b.confidence ?? -1) - (a.confidence ?? -1),
     );
   }
 
+  // Records with null confidence are excluded from a minimum-confidence
+  // filter — they cannot be claimed to meet a threshold they don't have.
   function filterByConfidence(records, minConfidence = 0.5) {
     if (!Array.isArray(records)) return [];
-    return records.filter((r) => (r.confidence || 0) >= minConfidence);
+    return records.filter(
+      (r) =>
+        r.confidence !== null &&
+        r.confidence !== undefined &&
+        r.confidence >= minConfidence,
+    );
   }
 
   return {
@@ -3330,6 +3348,10 @@ console.log("[Behavior] Pattern detection engine loaded.");
 // genuinely probabilistic local source is added later (e.g. a
 // behavioral-pattern inference), it should carry its own honestly
 // computed confidence — not reuse this constant.
+//
+// NO-EVIDENCE NOTE: when there is no evidence at all, confidence
+// must be `null`, never `0.5`. A fabricated "middle" value implies
+// certainty that does not exist. See WEAVER_CONSTITUTION §2.9.1.
 // ===============================================================
 
 window.W = window.W || {};
@@ -3370,7 +3392,7 @@ W.context = (() => {
         timestamp: holding.updatedAt || new Date().toISOString(),
         // A direct lookup against the user's own portfolio is a verified
         // fact, not an estimate — no external staleness/reliability
-        // discount applies. See EVIDENCE_CONFIDENCE_NOTE below.
+        // discount applies. See EVIDENCE_CONFIDENCE_NOTE above.
         confidence: 1.0,
       });
     }
@@ -3417,10 +3439,17 @@ W.context = (() => {
       whyItMatters = `This event may impact the broader market, but you have no direct exposure to ${symbol}.`;
     }
 
-    let confidence = 0.5;
+    // Confidence is only meaningful when at least one evidence item exists.
+    // If there is no evidence, confidence is null — never a fabricated 0.5.
+    let confidence = null;
     if (evidence.length > 0) {
-      confidence =
-        evidence.reduce((sum, e) => sum + e.confidence, 0) / evidence.length;
+      confidence = Math.min(
+        1,
+        Math.max(
+          0,
+          evidence.reduce((sum, e) => sum + e.confidence, 0) / evidence.length,
+        ),
+      );
     }
 
     return {
@@ -3430,7 +3459,7 @@ W.context = (() => {
       thesisImpact,
       recommendedAction,
       evidence,
-      confidence: Math.min(1, Math.max(0, confidence)),
+      confidence,
     };
   }
 
@@ -3463,12 +3492,22 @@ W.context = (() => {
       div.appendChild(action);
     }
 
-    if (contextData.confidence !== undefined) {
+    // Only display a confidence percentage when one is genuinely known.
+    if (
+      contextData.confidence !== undefined &&
+      contextData.confidence !== null
+    ) {
       const conf = document.createElement("div");
       conf.className = "small-text text-muted mt-4";
       const pct = (contextData.confidence * 100).toFixed(0);
       conf.textContent = `Confidence: ${pct}%`;
       div.appendChild(conf);
+    } else {
+      const noConf = document.createElement("div");
+      noConf.className = "small-text text-muted mt-4 italic";
+      noConf.textContent =
+        "Confidence: unavailable (no evidence for this asset).";
+      div.appendChild(noConf);
     }
 
     container.appendChild(div);
@@ -3840,6 +3879,11 @@ console.log("[Opportunities] Scanner engine loaded (no hardcoded confidence).");
 //         Decision Replay Engine – Multi‑Dimensional Evaluation
 // ===============================================================
 // CSP Compliant: Zero inline styles used.
+//
+// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9.1):
+//   - Calibration is only computed when the user actually stated a
+//     confidence for the decision. If none was stated, calibration
+//     is reported as "unknown" rather than fabricated.
 // ===============================================================
 
 window.W = window.W || {};
@@ -3889,12 +3933,21 @@ W.decisionReplay = (() => {
     const timeSince = Date.now() - new Date(decision.timestamp).getTime();
     const horizonStatus = timeSince > horizonMs ? "expired" : "active";
 
-    const conf = parseFloat(decision.confidence) || 0.5;
-    let confidenceCalibration = "well_calibrated";
-    if (conf >= 0.8 && outcome === "unsuccessful")
-      confidenceCalibration = "overconfident";
-    else if (conf <= 0.3 && outcome === "successful")
-      confidenceCalibration = "underconfident";
+    // Calibration only makes sense when a confidence was actually stated.
+    // Missing confidence → "unknown". Never fabricate 0.5.
+    const parsedConf = parseFloat(decision.confidence);
+    const conf = Number.isFinite(parsedConf) ? parsedConf : null;
+
+    let confidenceCalibration = "unknown";
+    if (conf !== null) {
+      if (conf >= 0.8 && outcome === "unsuccessful") {
+        confidenceCalibration = "overconfident";
+      } else if (conf <= 0.3 && outcome === "successful") {
+        confidenceCalibration = "underconfident";
+      } else {
+        confidenceCalibration = "well_calibrated";
+      }
+    }
 
     let thesisHealth = null;
     if (decision.thesisId && W.thesisHealth) {
@@ -3966,13 +4019,17 @@ W.decisionReplay = (() => {
       icon = "❌";
     }
 
-    let calibrationText = "🎯 Calibrated";
-    if (outcomeData.confidenceCalibration === "overconfident")
-      calibrationText = "⚡ Overconfident";
+    // Calibration segment only appears when calibration is known.
+    let calibrationText = "";
+    if (outcomeData.confidenceCalibration === "well_calibrated")
+      calibrationText = " · 🎯 Calibrated";
+    else if (outcomeData.confidenceCalibration === "overconfident")
+      calibrationText = " · ⚡ Overconfident";
     else if (outcomeData.confidenceCalibration === "underconfident")
-      calibrationText = "🔽 Underconfident";
+      calibrationText = " · 🔽 Underconfident";
+    // "unknown" → no segment appended
 
-    return `<span class="replay-badge small-text font-bold ${colorClass} ml-8">${icon} ${statusText} (${outcomeData.absoluteReturn.toFixed(1)}%) · ${calibrationText}</span>`;
+    return `<span class="replay-badge small-text font-bold ${colorClass} ml-8">${icon} ${statusText} (${outcomeData.absoluteReturn.toFixed(1)}%)${calibrationText}</span>`;
   }
 
   function renderDetails(container, outcomeData) {
@@ -4195,13 +4252,19 @@ W.intelligence.getSourceReliability = getSourceReliability;
 console.log("[Intelligence] Confidence model loaded.");
 // ---- js/intelligence/decision-engine.js ----
 // ===============================================================
-//         Unified Decision Engine 
+//         Unified Decision Engine
 // ===============================================================
 //
 // Consumes Evidence objects from the Evidence Builder.
 // No longer reconstructs evidence.
 // Uses user-centric impact, not market-cap buckets.
 // No REBALANCE action.
+//
+// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9.1):
+//   - Confidence is derived, never fabricated.
+//   - When confidence is unknown, it stays `null` end-to-end.
+//   - Nulls are never coerced to 0.5 for display or scoring.
+//   - Signals with no evidence are skipped, not defaulted.
 //
 // ===============================================================
 
@@ -4226,7 +4289,7 @@ W.decisionEngine = (() => {
     let riskLimit = settings.riskLimit || 0.5;
     let timeHorizon = settings.timeHorizon || "medium";
     let thesisHealth = 0;
-    let decisionConfidence = 0;
+    let decisionConfidence = null;
     let chainExposure = 0;
     let sectorExposure = 0;
 
@@ -4252,7 +4315,6 @@ W.decisionEngine = (() => {
     if (thesis) {
       thesisStatus = thesis.status === "active" ? "ACTIVE" : "INVALIDATED";
       if (W.thesisHealth && thesis.status === "active") {
-        // Get current price to evaluate health
         const price = holdings.length > 0 ? holdings[0].price : null;
         const health = W.thesisHealth.evaluate(thesis, { price }, []);
         thesisHealth = health ? health.healthScore : 0;
@@ -4268,13 +4330,19 @@ W.decisionEngine = (() => {
     });
     recentDecisions = recent.length;
 
-    // Decision confidence (average confidence of recent decisions)
-    if (recent.length > 0) {
+    // Decision confidence — average only over decisions that actually
+    // stated a confidence. Nulls are excluded, not treated as 0.5.
+    const statedConfidences = recent
+      .map((d) => d.confidence)
+      .filter((c) => c !== null && c !== undefined && !isNaN(c))
+      .map((c) => parseFloat(c));
+
+    if (statedConfidences.length > 0) {
       decisionConfidence =
-        recent.reduce((sum, d) => sum + (d.confidence || 0.5), 0) /
-        recent.length;
+        statedConfidences.reduce((sum, c) => sum + c, 0) /
+        statedConfidences.length;
     } else {
-      decisionConfidence = 0.5;
+      decisionConfidence = null;
     }
 
     // Behavioral risk
@@ -4282,8 +4350,7 @@ W.decisionEngine = (() => {
       behavioralRisk = behavior.pattern.toUpperCase();
     }
 
-    // Chain and sector exposure (
-    // In a full implementation, we'd resolve chain and sector from assetId.
+    // Chain and sector exposure
     chainExposure = 0;
     sectorExposure = 0;
 
@@ -4320,11 +4387,14 @@ W.decisionEngine = (() => {
     }
     relevance = Math.min(1, relevance);
 
-    // 2. Impact – portfolio‑aware, not market‑cap based
-    // impact = evidence.confidence * portfolioWeight * eventSeverity
-    const eventSeverity = signal.rawData?.impactValue || 0.5; // 0–1
+    // 2. Impact — portfolio-aware, not market-cap based.
+    //    If evidence.confidence is null, treat as zero impact (no signal),
+    //    not as a fabricated 0.5. The signal remains surfaced through
+    //    relevance/urgency but scores 0 in the final priority.
+    const eventSeverity = signal.rawData?.impactValue || 0.5;
+    const confidenceForImpact = evidence.confidence ?? 0;
     let impact =
-      evidence.confidence *
+      confidenceForImpact *
       eventSeverity *
       (personalContext.portfolioWeight * 2 + 0.2);
     impact = Math.min(1, impact);
@@ -4343,36 +4413,49 @@ W.decisionEngine = (() => {
       urgency = 0.5;
     }
 
-    const confidence = evidence.confidence || 0.5;
+    // Confidence stays null if unknown. Never default to 0.5.
+    const confidence =
+      evidence.confidence !== null && evidence.confidence !== undefined
+        ? evidence.confidence
+        : null;
 
     const reasoning = [
       `Relevance: ${(relevance * 100).toFixed(0)}%`,
       `Impact: ${(impact * 100).toFixed(0)}% (event severity ${(eventSeverity * 100).toFixed(0)}%, portfolio weight ${(personalContext.portfolioWeight * 100).toFixed(0)}%)`,
       `Urgency: ${(urgency * 100).toFixed(0)}%`,
-      `Confidence: ${(confidence * 100).toFixed(0)}%`,
     ];
+    if (confidence !== null) {
+      reasoning.push(`Confidence: ${(confidence * 100).toFixed(0)}%`);
+    } else {
+      reasoning.push("Confidence: unavailable (evidence incomplete)");
+    }
 
     return { relevance, impact, urgency, confidence, reasoning };
   }
 
   // ── Helper: Compute Decision Priority ──────────────────────
   function computeDecisionPriority(signal, assessment) {
+    // If confidence is null, score is 0. The signal will not rank highly.
     const score =
       assessment.relevance *
       assessment.impact *
       assessment.urgency *
-      assessment.confidence;
+      (assessment.confidence ?? 0);
+
     let recommendedAction = "MONITOR";
     if (
       assessment.relevance > 0.7 &&
       assessment.impact > 0.6 &&
       assessment.urgency > 0.5
     ) {
-      // Previously REBALANCE – now REVIEW_RISK
       recommendedAction = "REVIEW_RISK";
     } else if (assessment.relevance > 0.5 && assessment.impact > 0.4) {
       recommendedAction = "REVIEW_THESIS";
-    } else if (assessment.confidence > 0.8 && assessment.relevance > 0.3) {
+    } else if (
+      assessment.confidence !== null &&
+      assessment.confidence > 0.8 &&
+      assessment.relevance > 0.3
+    ) {
       recommendedAction = "LOG_DECISION";
     }
 
@@ -4406,26 +4489,30 @@ W.decisionEngine = (() => {
     const decisions = [];
 
     for (const signal of signals) {
-      // 3. Build evidence using the Evidence Builder
+      // 3. Build evidence using the Evidence Builder.
+      //    If the builder is unavailable or fails, skip the signal entirely.
+      //    We never fabricate evidence — see WEAVER_CONSTITUTION §2.9.1.
+      if (!W.evidence || typeof W.evidence.build !== "function") {
+        console.warn(
+          "[DecisionEngine] Evidence builder unavailable; skipping signal:",
+          signal.id,
+        );
+        continue;
+      }
+
       let evidence;
       try {
-        if (W.evidence && typeof W.evidence.build === "function") {
-          evidence = W.evidence.build(signal, signal._metadata || {});
-        } else {
-          // Fallback (should not happen)
-          evidence = {
-            signalId: signal.id,
-            sourceReliability: 0.5,
-            dataFreshness: 0.8,
-            corroborationCount: 1,
-            dataCompleteness: 0.8,
-            interpretationConfidence: 0.7,
-            confidence: 0.5,
-            reasoning: ["Fallback evidence"],
-          };
-        }
+        evidence = W.evidence.build(signal, signal._metadata || {});
       } catch (e) {
         console.warn("[DecisionEngine] Evidence build failed:", e);
+        continue;
+      }
+
+      if (!evidence) {
+        console.warn(
+          "[DecisionEngine] Evidence builder returned null; skipping signal:",
+          signal.id,
+        );
         continue;
       }
 
@@ -4445,7 +4532,6 @@ W.decisionEngine = (() => {
 
       // 6. Compute Decision Priority
       const priority = computeDecisionPriority(signal, assessment);
-      // Attach asset symbol for UI
       priority._assetSymbol = signal.assetId.symbol;
       priority._signalType = signal.type;
       priority._signalTitle = signal.rawData?.title || signal.type;
@@ -4551,41 +4637,64 @@ W.decisionEngine = (() => {
         li.appendChild(fallback);
       }
 
-      // Confidence bar
-      const confidence = item.assessment?.confidence || 0.5;
-      const confBar = document.createElement("div");
-      confBar.style.cssText =
-        "margin-top: 8px; display: flex; align-items: center; gap: 8px;";
-      const confLabel = document.createElement("span");
-      confLabel.className = "muted small";
-      confLabel.textContent = "Evidence Strength:";
-      const bar = document.createElement("div");
-      bar.style.cssText =
-        "flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;";
-      const fill = document.createElement("div");
-      const confidencePct = (confidence * 100).toFixed(0);
-      fill.style.cssText = `width: ${confidencePct}%; height: 100%; background: ${confidence > 0.7 ? "var(--up, #2ee6a8)" : confidence > 0.4 ? "var(--warn, #ffb35c)" : "var(--down, #ff5c7a)"}; border-radius: 2px;`;
-      bar.appendChild(fill);
-      const pctSpan = document.createElement("span");
-      pctSpan.className = "muted small";
-      pctSpan.textContent = `${confidencePct}%`;
-      confBar.appendChild(confLabel);
-      confBar.appendChild(bar);
-      confBar.appendChild(pctSpan);
-      li.appendChild(confBar);
+      // Confidence bar — only rendered when confidence is genuinely known.
+      // When null, show an honest "evidence incomplete" note instead of
+      // a fabricated 50% bar. See WEAVER_CONSTITUTION §2.9.1.
+      const confidence =
+        item.assessment?.confidence !== undefined &&
+        item.assessment?.confidence !== null
+          ? item.assessment.confidence
+          : null;
 
-      // Uncertainty note
-      if (confidence < 0.6) {
-        const uncertainty = document.createElement("div");
-        uncertainty.className = "small muted";
-        uncertainty.style.marginTop = "4px";
-        uncertainty.style.fontStyle = "italic";
-        uncertainty.textContent =
-          "⚠️ This signal has significant uncertainty. Consider additional verification.";
-        li.appendChild(uncertainty);
+      if (confidence !== null) {
+        const confBar = document.createElement("div");
+        confBar.style.cssText =
+          "margin-top: 8px; display: flex; align-items: center; gap: 8px;";
+        const confLabel = document.createElement("span");
+        confLabel.className = "muted small";
+        confLabel.textContent = "Evidence Strength:";
+        const bar = document.createElement("div");
+        bar.style.cssText =
+          "flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;";
+        const fill = document.createElement("div");
+        const confidencePct = (confidence * 100).toFixed(0);
+        fill.style.cssText = `width: ${confidencePct}%; height: 100%; background: ${
+          confidence > 0.7
+            ? "var(--up, #2ee6a8)"
+            : confidence > 0.4
+              ? "var(--warn, #ffb35c)"
+              : "var(--down, #ff5c7a)"
+        }; border-radius: 2px;`;
+        bar.appendChild(fill);
+        const pctSpan = document.createElement("span");
+        pctSpan.className = "muted small";
+        pctSpan.textContent = `${confidencePct}%`;
+        confBar.appendChild(confLabel);
+        confBar.appendChild(bar);
+        confBar.appendChild(pctSpan);
+        li.appendChild(confBar);
+
+        // Uncertainty note
+        if (confidence < 0.6) {
+          const uncertainty = document.createElement("div");
+          uncertainty.className = "small muted";
+          uncertainty.style.marginTop = "4px";
+          uncertainty.style.fontStyle = "italic";
+          uncertainty.textContent =
+            "⚠️ This signal has significant uncertainty. Consider additional verification.";
+          li.appendChild(uncertainty);
+        }
+      } else {
+        const noConf = document.createElement("div");
+        noConf.className = "small muted";
+        noConf.style.marginTop = "8px";
+        noConf.style.fontStyle = "italic";
+        noConf.textContent =
+          "Evidence incomplete — no confidence score available for this signal.";
+        li.appendChild(noConf);
       }
 
-      // Suggested action (now MONITOR, REVIEW_THESIS, REVIEW_RISK, LOG_DECISION)
+      // Suggested action
       const action = document.createElement("div");
       action.className = "small";
       action.style.marginTop = "6px";
@@ -8061,8 +8170,6 @@ W.gems = (() => {
     arbitrum: "🔺",
     polygon: "🟪",
     avalanche: "❄️",
-    ton: "💎",
-    blast: "💥",
   };
 
   // Bump this whenever score()'s weights/logic change. Alerts and cards
@@ -13395,6 +13502,11 @@ console.log("[Theses] Module loaded (with Health Monitor integration).");
 //         Decision Journal Module
 // ===============================================================
 // CSP Compliant: Zero inline styles.
+//
+// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9.1):
+//   - If the user does not enter a confidence, it is stored as `null`.
+//   - It is never defaulted to 0.5.
+//   - The UI hides the confidence line when no value was recorded.
 // ===============================================================
 
 window.W = window.W || {};
@@ -13411,6 +13523,16 @@ W.journal = W.journal || {};
     return decisions;
   }
 
+  // Parse confidence from user input. Empty → null. Invalid → null.
+  // Valid numeric string in [0,1] → number.
+  function parseConfidenceInput(raw) {
+    if (raw === "" || raw === null || raw === undefined) return null;
+    const parsed = parseFloat(raw);
+    if (!Number.isFinite(parsed)) return null;
+    if (parsed < 0 || parsed > 1) return null;
+    return parsed;
+  }
+
   function create(data) {
     const decision = {
       id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
@@ -13420,7 +13542,7 @@ W.journal = W.journal || {};
       price: parseFloat(data.price) || 0,
       thesisId: data.thesisId || null,
       reasoning: data.reasoning || "",
-      confidence: parseFloat(data.confidence) || 0.5,
+      confidence: parseConfidenceInput(data.confidence),
       horizon: data.horizon || "Short-term",
       timestamp: new Date().toISOString(),
     };
@@ -13457,6 +13579,13 @@ W.journal = W.journal || {};
                 : d.action === "Sell"
                   ? "text-down"
                   : "text-muted";
+
+            // Only show a confidence line when one was actually recorded.
+            const confidenceLine =
+              d.confidence !== null && d.confidence !== undefined
+                ? `<span><b>Confidence:</b> ${(d.confidence * 100).toFixed(0)}%</span>`
+                : `<span class="italic"><b>Confidence:</b> not stated</span>`;
+
             return `
           <div class="card">
             <div class="flex-between mb-8">
@@ -13470,7 +13599,7 @@ W.journal = W.journal || {};
             </div>
             <p class="small-text"><b>Reasoning:</b> ${W.fmt.escapeHTML(d.reasoning)}</p>
             <div class="flex-between mt-8 small-text text-muted">
-              <span><b>Confidence:</b> ${(d.confidence * 100).toFixed(0)}%</span>
+              ${confidenceLine}
               <span><b>Horizon:</b> ${W.fmt.escapeHTML(d.horizon)}</span>
               ${linkedThesis ? `<span><b>Linked Thesis:</b> ${W.fmt.escapeHTML(linkedThesis.statement.substring(0, 40))}...</span>` : ""}
             </div>
@@ -13498,7 +13627,7 @@ W.journal = W.journal || {};
             <option value="">-- Link to Thesis (Optional) --</option>
             ${activeTheses.map((t) => `<option value="${t.id}">${W.fmt.escapeHTML(t.asset)}: ${W.fmt.escapeHTML(t.statement.substring(0, 30))}...</option>`).join("")}
           </select>
-          <input type="number" id="d-confidence" placeholder="Confidence (0.0 to 1.0)" step="0.1" min="0" max="1" class="input">
+          <input type="number" id="d-confidence" placeholder="Confidence (0.0 to 1.0, optional)" step="0.1" min="0" max="1" class="input">
           <input type="text" id="d-horizon" placeholder="Time Horizon (e.g. 2 weeks)" class="input">
           <textarea id="d-reasoning" placeholder="Why are you making this decision? What is the context?" required class="input col-span-full" rows="3"></textarea>
           <div class="flex-center gap-16 mt-16 col-span-full">
@@ -13516,21 +13645,22 @@ W.journal = W.journal || {};
       view.querySelector("#decision-form-container").classList.add("hidden");
     };
 
-         view.querySelector("#decision-form").onsubmit = async (e) => {
-           e.preventDefault();
-           create({
-             asset: view.querySelector("#d-asset").value.trim().toUpperCase(),
-             action: view.querySelector("#d-action").value,
-             amount: view.querySelector("#d-amount").value,
-             price: view.querySelector("#d-price").value,
-             thesisId: view.querySelector("#d-thesis").value || null,
-             confidence: view.querySelector("#d-confidence").value,
-             horizon: view.querySelector("#d-horizon").value.trim(),
-             reasoning: view.querySelector("#d-reasoning").value.trim(),
-           });
-           await render(view); // <-- This await is critical for the E2E test to find the badge
-           W.ui.toast("Decision logged", "ok");
-         };
+    view.querySelector("#decision-form").onsubmit = async (e) => {
+      e.preventDefault();
+      create({
+        asset: view.querySelector("#d-asset").value.trim().toUpperCase(),
+        action: view.querySelector("#d-action").value,
+        amount: view.querySelector("#d-amount").value,
+        price: view.querySelector("#d-price").value,
+        thesisId: view.querySelector("#d-thesis").value || null,
+        confidence: view.querySelector("#d-confidence").value,
+        horizon: view.querySelector("#d-horizon").value.trim(),
+        reasoning: view.querySelector("#d-reasoning").value.trim(),
+      });
+      await render(view); // critical for the E2E test to find the badge
+      W.ui.toast("Decision logged", "ok");
+    };
+
     view.querySelectorAll("[data-action='delete']").forEach((btn) => {
       btn.onclick = () => {
         remove(btn.dataset.id);
