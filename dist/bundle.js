@@ -7029,7 +7029,15 @@ W.alerts = (() => {
 
 console.log("[Alerts] Module loaded.");
 // ---- js/features/news.js ----
-// js/features/news.js – Complete News Module
+
+// SECURITY: All RSS-derived content (title, description, link, pubDate)
+// is attacker-controllable. It MUST be escaped before insertion into
+// the DOM. Use W.fmt.escapeHTML or textContent — never innerHTML with
+// raw feed data.
+//
+// SNAPSHOT: The fallback snapshot is a fixed URL, not the result of
+// running an empty string through the proxy chain. Snapshot fetches
+// go directly to the known-good URL.
 
 const newsLog = (msg, data) => {
   console.log(`[News] ${msg}`, data || "");
@@ -7042,13 +7050,15 @@ const FEEDS = [
   ["Decrypt", "https://decrypt.co/feed"],
 ];
 
-// ── Proxy chain ─────────────────────────────────────────────────
+// ── Fixed snapshot URL (used only if live feeds fail) ──────────
+const SNAPSHOT_URL = "https://ibis01.github.io/weaver/data/news.json";
+
+// ── Proxy chain — builds a fetchable URL for a given target ────
 const PROX = [
   (u) => "http://localhost:3001/proxy?url=" + encodeURIComponent(u),
   (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
   (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u),
   (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
-  (u) => "https://ibis01.github.io/weaver/data/news.json",
 ];
 
 // ── Fetch with proxy fallback ──────────────────────────────────
@@ -7075,7 +7085,9 @@ async function via(url, asJSON = false) {
       clearTimeout(timeout);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const text = await resp.text();
+      // Guard: if we asked for RSS and got HTML, this proxy failed.
       if (
+        !asJSON &&
         text.trim().startsWith("<") &&
         !text.includes("<rss") &&
         !text.includes("<feed")
@@ -7084,7 +7096,6 @@ async function via(url, asJSON = false) {
       }
       newsLog(`✅ Proxy succeeded: ${proxyUrl}`);
       const parsed = asJSON ? JSON.parse(text) : text;
-      if (asJSON && W.schemas) W.schemas.validate("newsSnapshot", parsed);
       return parsed;
     } catch (err) {
       clearTimeout(timeout);
@@ -7094,6 +7105,22 @@ async function via(url, asJSON = false) {
   }
   console.error("[News] All proxies failed.", lastErr);
   throw lastErr || new Error("All proxies failed");
+}
+
+// ── Fetch the fixed snapshot directly (no proxy chain) ─────────
+async function fetchSnapshot() {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const resp = await fetch(SNAPSHOT_URL, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    return Array.isArray(data) ? data : [];
+  } catch (e) {
+    newsLog(`Snapshot failed: ${e.message}`);
+    return [];
+  }
 }
 
 // ── Parse RSS XML ──────────────────────────────────────────────
@@ -7107,40 +7134,67 @@ function parseRSS(xml) {
     const link = item.querySelector("link")?.textContent || "#";
     const description = item.querySelector("description")?.textContent || "";
     const pubDate = item.querySelector("pubDate")?.textContent || "";
-    articles.push({ title, link, description, pubDate });
+    // Strip HTML entities that some feeds embed in description.
+    const plainDesc = description.replace(/<[^>]+>/g, "").trim();
+    articles.push({ title, link, description: plainDesc, pubDate });
   });
-  if (W.schemas) W.schemas.validate("newsSnapshot", articles);
   return articles;
 }
 
-// ── Render articles into container ─────────────────────────────
-function renderArticles(articles) {
-  const container = document.getElementById("news-container");
+// ── Deduplicate and sort articles by date ──────────────────────
+function dedupeAndSort(articles) {
+  const seen = new Set();
+  const unique = [];
+  for (const a of articles) {
+    const key = a.link || a.title;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(a);
+  }
+  return unique.sort((a, b) => {
+    const ta = Date.parse(a.pubDate) || 0;
+    const tb = Date.parse(b.pubDate) || 0;
+    return tb - ta;
+  });
+}
+
+// ── Render articles into a specific container ──────────────────
+// Container is passed in, not looked up globally — avoids collisions
+// if more than one view ever renders at once.
+function renderArticles(container, articles) {
   if (!container) return;
   if (!articles || articles.length === 0) {
     container.innerHTML = '<div class="info">No articles available.</div>';
     return;
   }
+
+  const esc = W.fmt?.escapeHTML || ((s) => String(s ?? ""));
+
   const items = articles
     .slice(0, 20)
-    .map(
-      (a) => `
-    <div class="news-item">
-      <h3><a href="${a.link}" target="_blank" rel="noopener">${a.title}</a></h3>
-      <p>${a.description ? a.description.substring(0, 200) + "..." : ""}</p>
-      <small>${a.pubDate || ""}</small>
-    </div>
-  `,
-    )
+    .map((a) => {
+      const safeTitle = esc(a.title);
+      const safeLink = esc(a.link);
+      const safeDesc = esc(a.description || "");
+      const safeDate = esc(a.pubDate || "");
+      return `
+        <div class="news-item">
+          <h3><a href="${safeLink}" target="_blank" rel="noopener noreferrer">${safeTitle}</a></h3>
+          <p>${safeDesc ? safeDesc.substring(0, 200) + "…" : ""}</p>
+          <small>${safeDate}</small>
+        </div>
+      `;
+    })
     .join("");
+
   container.innerHTML = `<div class="news-list">${items}</div>`;
 }
 
 // ════════════════════════════════════════════════════════════════
-// ═══════ FIXED: Renders inside the view, not below it ═══════
+//         render(view) — called by the router
 // ════════════════════════════════════════════════════════════════
 async function render(view) {
-  // 1. Clear the view and set up the news page structure
+  // 1. Build the page structure with a locally-scoped container reference.
   view.innerHTML = `
     <div class="card">
       <h3>📰 Crypto News</h3>
@@ -7148,17 +7202,16 @@ async function render(view) {
     </div>
   `;
 
-  // 2. Get the container
-  const container = document.getElementById("news-container");
+  const container = view.querySelector("#news-container");
   if (!container) {
     console.warn("[News] Container not found after rendering");
     return;
   }
 
-  // 3. Show loading
   container.innerHTML = '<div class="loading">Loading news...</div>';
 
   try {
+    // 2. Fetch all feeds in parallel.
     const feedPromises = FEEDS.map(async ([name, url]) => {
       try {
         const xml = await via(url);
@@ -7169,9 +7222,11 @@ async function render(view) {
         return { name, articles: [], error: err.message };
       }
     });
+
     const results = await Promise.all(feedPromises);
-    const allArticles = results.flatMap((r) => r.articles);
-    W.dataHealth?.mark("news", {
+    const allArticles = dedupeAndSort(results.flatMap((r) => r.articles));
+
+    W.dataHealth?.mark?.("news", {
       source: "rss",
       observedAt: Date.now(),
       staleAfter: 60 * 60 * 1000,
@@ -7179,25 +7234,27 @@ async function render(view) {
 
     if (allArticles.length === 0) {
       newsLog("No live articles, trying snapshot...");
-      const snapshot = await via("", true);
-      if (snapshot && snapshot.length) {
-        W.dataHealth?.mark("news", {
+      const snapshot = await fetchSnapshot();
+      const sorted = dedupeAndSort(snapshot);
+      if (sorted.length) {
+        W.dataHealth?.mark?.("news", {
           source: "snapshot",
           observedAt: Date.now() - 31 * 60 * 1000,
           staleAfter: 60 * 60 * 1000,
         });
-        renderArticles(snapshot);
+        renderArticles(container, sorted);
         return;
       }
       container.innerHTML =
         '<div class="error">Could not load news. Try again later.</div>';
       return;
     }
-    renderArticles(allArticles);
+
+    renderArticles(container, allArticles);
   } catch (err) {
     console.error("[News] Render error:", err);
-    container.innerHTML =
-      '<div class="error">Failed to load news. Check console.</div>';
+    const msg = W.fmt?.escapeHTML?.(err.message) || "unknown error";
+    container.innerHTML = `<div class="error">Failed to load news: ${msg}</div>`;
   }
 }
 
@@ -15347,6 +15404,14 @@ W.tokenAnalysis = (() => {
 // ===============================================================
 // Purpose: Handle routing, navigation rendering, and app initialization.
 // Security Fix: Removed plaintext Telegram save handler (P0 Task 1).
+//
+// Router notes:
+//   - The view is cleared BEFORE dispatch, so a failed or empty
+//     render cannot leave stale content from the previous route.
+//   - Handlers are dispatched via safeRender(), which resolves the
+//     module method lazily (at call time, not at module-load time)
+//     and surfaces failures instead of firing false "not loaded"
+//     toasts when a render returns a falsy value.
 // ===============================================================
 
 window.W = window.W || {};
@@ -15419,89 +15484,67 @@ window.W = window.W || {};
 
   const ALL_NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
 
+  // ── Shared route dispatcher ────────────────────────────────
+  // Resolves the module method at dispatch time (not at script-load
+  // time, which matters because modules load in order). Catches
+  // failures and renders an honest error card instead of silently
+  // leaving the view empty or firing a false "not loaded" toast.
+  async function safeRender(view, name, getMethod) {
+    const method = getMethod();
+    if (typeof method !== "function") {
+      W.ui?.toast?.(`${name} module not loaded`, "warn");
+      view.innerHTML = `<div class="card"><p class="muted">${name} module not available.</p></div>`;
+      return;
+    }
+    try {
+      await method(view);
+    } catch (e) {
+      console.warn(`[Router] ${name} render failed:`, e);
+      view.innerHTML = `<div class="card"><p class="muted">Failed to load ${name}: ${W.fmt?.escapeHTML?.(e.message) || "unknown error"}</p></div>`;
+    }
+  }
+
   const routes = {
-    dashboard: (v) =>
-      W.dashboard?.render?.(v) ||
-      W.ui?.toast?.("Dashboard module not loaded", "warn"),
+    dashboard: (v) => safeRender(v, "dashboard", () => W.dashboard?.render),
     portfolio: (v) =>
-      W.dashboard?.renderPortfolio?.(v) ||
-      W.ui?.toast?.("Portfolio module not loaded", "warn"),
-    watchlist: (v) =>
-      W.watchlist?.render?.(v) ||
-      W.ui?.toast?.("Watchlist module not loaded", "warn"),
-    explorer: (v) =>
-      W.explorer?.render?.(v) ||
-      W.ui?.toast?.("Explorer module not loaded", "warn"),
-    alerts: (v) =>
-      W.alerts?.render?.(v) ||
-      W.ui?.toast?.("Alerts module not loaded", "warn"),
-    news: (v) =>
-      W.news?.render?.(v) || W.ui?.toast?.("News module not loaded", "warn"),
-    ai: (v) =>
-      W.ai?.render?.(v) || W.ui?.toast?.("AI module not loaded", "warn"),
-    optimizer: (v) =>
-      W.optimizer?.render?.(v) ||
-      W.ui?.toast?.("Optimizer module not loaded", "warn"),
-    time: (v) =>
-      W.time?.render?.(v) ||
-      W.ui?.toast?.("Time Machine module not loaded", "warn"),
-    trader: (v) =>
-      W.trader?.render?.(v) ||
-      W.ui?.toast?.("Trader module not loaded", "warn"),
-    gems: (v) =>
-      W.gems?.render?.(v) || W.ui?.toast?.("Gems module not loaded", "warn"),
-    shield: (v) =>
-      W.shield?.render?.(v) ||
-      W.ui?.toast?.("Shield module not loaded", "warn"),
-    web3: (v) =>
-      W.web3?.render?.(v) || W.ui?.toast?.("Web3 module not loaded", "warn"),
-    defi: (v) =>
-      W.misc?.renderDefi?.(v) ||
-      W.ui?.toast?.("DeFi module not loaded", "warn"),
-    airdrops: (v) =>
-      W.misc?.renderAirdrops?.(v) ||
-      W.ui?.toast?.("Airdrops module not loaded", "warn"),
-    market: (v) =>
-      W.market?.render?.(v) ||
-      W.ui?.toast?.("Market module not loaded", "warn"),
-    sectors: (v) =>
-      W.sectors?.render?.(v) ||
-      W.ui?.toast?.("Sectors module not loaded", "warn"),
-    whales: (v) =>
-      W.whales?.render?.(v) ||
-      W.ui?.toast?.("Whales module not loaded", "warn"),
-    smart: (v) =>
-      W.smart?.render?.(v) || W.ui?.toast?.("Smart module not loaded", "warn"),
-    unlocks: (v) =>
-      W.unlocks?.render?.(v) ||
-      W.ui?.toast?.("Unlocks module not loaded", "warn"),
-    learn: (v) =>
-      W.learn?.render?.(v) || W.ui?.toast?.("Learn module not loaded", "warn"),
-    profile: (v) =>
-      W.misc?.renderProfile?.(v) ||
-      W.ui?.toast?.("Profile module not loaded", "warn"),
-    pro: (v) =>
-      W.misc?.renderPro?.(v) || W.ui?.toast?.("Pro module not loaded", "warn"),
-    theses: (v) =>
-      W.theses?.render?.(v) ||
-      W.ui?.toast?.("Theses module not loaded", "warn"),
-    journal: (v) =>
-      W.journal?.render?.(v) ||
-      W.ui?.toast?.("Journal module not loaded", "warn"),
-    sync: (v) => {
-      if (W.sync?.render) W.sync.render(v);
-      else W.ui?.toast?.("Sync module not loaded", "warn");
-    },
-    settings: (v) =>
-      W.misc?.renderSettings?.(v) ||
-      W.ui?.toast?.("Settings module not loaded", "warn"),
+      safeRender(v, "portfolio", () => W.dashboard?.renderPortfolio),
+    watchlist: (v) => safeRender(v, "watchlist", () => W.watchlist?.render),
+    explorer: (v) => safeRender(v, "explorer", () => W.explorer?.render),
+    alerts: (v) => safeRender(v, "alerts", () => W.alerts?.render),
+    news: (v) => safeRender(v, "news", () => W.news?.render),
+    ai: (v) => safeRender(v, "ai", () => W.ai?.render),
+    optimizer: (v) => safeRender(v, "optimizer", () => W.optimizer?.render),
+    time: (v) => safeRender(v, "time", () => W.time?.render),
+    trader: (v) => safeRender(v, "trader", () => W.trader?.render),
+    gems: (v) => safeRender(v, "gems", () => W.gems?.render),
+    shield: (v) => safeRender(v, "shield", () => W.shield?.render),
+    web3: (v) => safeRender(v, "web3", () => W.web3?.render),
+    defi: (v) => safeRender(v, "defi", () => W.misc?.renderDefi),
+    airdrops: (v) => safeRender(v, "airdrops", () => W.misc?.renderAirdrops),
+    market: (v) => safeRender(v, "market", () => W.market?.render),
+    sectors: (v) => safeRender(v, "sectors", () => W.sectors?.render),
+    whales: (v) => safeRender(v, "whales", () => W.whales?.render),
+    smart: (v) => safeRender(v, "smart", () => W.smart?.render),
+    unlocks: (v) => safeRender(v, "unlocks", () => W.unlocks?.render),
+    learn: (v) => safeRender(v, "learn", () => W.learn?.render),
+    profile: (v) => safeRender(v, "profile", () => W.misc?.renderProfile),
+    pro: (v) => safeRender(v, "pro", () => W.misc?.renderPro),
+    theses: (v) => safeRender(v, "theses", () => W.theses?.render),
+    journal: (v) => safeRender(v, "journal", () => W.journal?.render),
+    sync: (v) => safeRender(v, "sync", () => W.sync?.render),
+    settings: (v) => safeRender(v, "settings", () => W.misc?.renderSettings),
     token: async (v) => {
       const param = getPageParam();
-      if (W.tokenAnalysis) {
-        if (param) await W.tokenAnalysis.render(v, param);
-        else await W.tokenAnalysis.render(v);
-      } else {
+      if (!W.tokenAnalysis?.render) {
         W.ui?.toast?.("Token Analysis module not loaded", "warn");
+        v.innerHTML = `<div class="card"><p class="muted">Token Analysis module not available.</p></div>`;
+        return;
+      }
+      try {
+        await W.tokenAnalysis.render(v, param || undefined);
+      } catch (e) {
+        console.warn("[Router] token render failed:", e);
+        v.innerHTML = `<div class="card"><p class="muted">Failed to load token analysis: ${W.fmt?.escapeHTML?.(e.message) || "unknown error"}</p></div>`;
       }
     },
   };
@@ -15532,6 +15575,11 @@ window.W = window.W || {};
       console.warn("[App] View element not found");
       return;
     }
+
+    // Clear previous route's DOM before dispatch. Without this, a
+    // failed or empty render leaves the previous route's content on
+    // screen (e.g. clicking News showed stale Sync content).
+    view.innerHTML = "";
 
     try {
       if (page === "coin" && param) {
