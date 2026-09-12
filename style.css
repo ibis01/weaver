@@ -1398,3 +1398,82 @@ th.num {
   flex-basis: 100%;
   font-style: italic;
 }
+
+/* ── Layout utilities ─────────────────────────────────────── */
+.grid-full              { grid-column: 1 / -1; }
+.text-right             { text-align: right; }
+.m-0                    { margin: 0; }
+.mt-8                   { margin-top: 8px; }
+.mt-10                  { margin-top: 10px; }
+.mt-12                  { margin-top: 12px; }
+.mt-16                  { margin-top: 16px; }
+.w-auto                 { width: auto; }
+.lh-17                  { line-height: 1.7; }
+.min-w-260              { min-width: 260px; }
+.min-w-280              { min-width: 280px; }
+.w-80-right             { width: 80px; text-align: right; }
+
+.flex-between           { display: flex; justify-content: space-between; align-items: center; }
+.flex-gap-10            { display: flex; gap: 10px; }
+.flex-gap-10-mt-10      { display: flex; gap: 10px; margin-top: 10px; }
+.grid-full-flex-gap-10  { grid-column: 1 / -1; display: flex; gap: 10px; }
+
+/* ── Icons ────────────────────────────────────────────────── */
+.icon-20 {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+.icon-24 {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+}
+
+/* ── Chart canvas ─────────────────────────────────────────── */
+.chart-canvas {
+  width: 100%;
+  display: block;
+  cursor: crosshair;
+}
+
+/* ── Verdict cards ────────────────────────────────────────── */
+.card-warn {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(255, 179, 92, 0.1);
+  border-radius: 8px;
+}
+.card-verdict {
+  margin-top: 16px;
+  padding: 12px;
+  background: rgba(124, 92, 255, 0.08);
+  border-radius: 8px;
+}
+.card-position {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(46, 230, 168, 0.08);
+  border-radius: 8px;
+}
+.card-warn-mt { margin-top: 12px; }
+
+/* ── Dynamic bars (JS sets width/colour via .style) ──────── */
+.bar-track {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 2px;
+}
+
+/* ── Progress fill (tasks) ───────────────────────────────── */
+.progress-fill {
+  height: 100%;
+  background: var(--primary, #7c5cff);
+  border-radius: 2px;
+}

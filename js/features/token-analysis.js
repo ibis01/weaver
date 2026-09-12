@@ -4,7 +4,7 @@
 
 window.W = window.W || {};
 
-W.tokenAnalysis = (async () => {
+W.tokenAnalysis = (() => {
   /**
    * Analyze a token and return a structured decision report.
    * @param {string} assetId - Coingecko ID or symbol (e.g., 'bitcoin', 'BTC')
@@ -220,49 +220,49 @@ W.tokenAnalysis = (async () => {
             <div class="stat-big">${result.signalsCount}</div>
           </div>
         </div>
-        <div style="margin-top:12px;">
+        <div class="mt-12">
           <div class="meter-bar"><div style="width:${result.opportunityScore}%; background:var(--up);"></div></div>
           <div class="meter-label">Opportunity Score</div>
         </div>
-        <div style="margin-top:8px;">
+        <div class="mt-8">
           <div class="meter-bar"><div style="width:${result.riskScore}%; background:var(--down);"></div></div>
           <div class="meter-label">Risk Score</div>
         </div>
         <div class="grid-2" style="margin-top:16px;">
           <div class="card">
-            <h4 style="color:var(--up);">🟢 Bullish Evidence</h4>
+            <h4 class="text-up">🟢 Bullish Evidence</h4>
             ${result.bullishEvidence.length ? result.bullishEvidence.map((e) => `<div class="kv-row"><span>${e.title}</span><span class="small">${e.evidence}</span></div>`).join("") : '<p class="muted small">No bullish evidence found.</p>'}
           </div>
           <div class="card">
-            <h4 style="color:var(--down);">🔴 Bearish Evidence</h4>
+            <h4 class="text-down">🔴 Bearish Evidence</h4>
             ${result.bearishEvidence.length ? result.bearishEvidence.map((e) => `<div class="kv-row"><span>${e.title}</span><span class="small">${e.evidence}</span></div>`).join("") : '<p class="muted small">No bearish evidence found.</p>'}
           </div>
         </div>
         ${
           result.contradictions && result.contradictions.length
             ? `
-          <div style="margin-top:12px; padding:12px; background:rgba(255,179,92,0.1); border-radius:8px;">
+          <div class="card-warn">
             <b>⚠️ Contradicting Evidence:</b>
             ${result.contradictions.map((c) => `<div class="small">${c.bull} vs ${c.bear} — ${c.details}</div>`).join("")}
           </div>
         `
             : ""
         }
-        <div style="margin-top:16px; padding:12px; background:rgba(124,92,255,0.08); border-radius:8px;">
+        <div class="card-verdict">
           <b>Verdict:</b> ${result.verdict}
           <p class="small muted" style="margin-top:4px;">${result.explanation}</p>
         </div>
         ${
           result.personalContext
             ? `
-          <div style="margin-top:12px; padding:12px; background:rgba(46,230,168,0.08); border-radius:8px;">
+          <div class="card-position">
             <b>👤 Your Position:</b>
             ${result.personalContext.hasPosition ? `You hold ${result.personalContext.quantity} ${result.asset} at avg cost $${result.personalContext.avgCost.toFixed(2)} (current value $${result.personalContext.currentValue.toFixed(2)}).` : "You do not hold this asset."}
           </div>
         `
             : ""
         }
-        <div style="margin-top:12px;">
+        <div class="mt-12">
           <button class="btn tiny" onclick="document.location.hash='#/token'">← New Analysis</button>
         </div>
       </div>

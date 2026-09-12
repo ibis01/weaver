@@ -316,7 +316,7 @@ W.gems = (() => {
                   <b>${escapeHTML(t.symbol)}</b> <span class="muted small">${escapeHTML(t.name)}</span><br>
                   ${chainTag(p.chainId)} <span class="muted small">age ${ageText(a.ageH)}</span>
                 </div>
-                <div style="text-align:right;">
+                <div class="text-right">
                   <span class="tag ${a.verdict[1]}" style="font-size:12px;padding:5px 10px;">${a.verdict[0]}</span>
                   <div class="alt-num" style="font-size:26px;">${a.score}</div>
                   <div class="muted" style="font-size:10px;">${a.scoreVersion}</div>
@@ -370,8 +370,8 @@ W.gems = (() => {
         <div class="watch-head">
           <h3>🤖 Gem Agent — autonomous new-token hunter</h3>
           <div class="qa">
-            <label style="margin:0;">Min score
-              <select id="g-min" style="width:auto;">
+            <label class="m-0">Min score
+              <select id="g-min" class="w-auto">
                 <option value="0">0</option>
                 <option value="40" selected>40</option>
                 <option value="60">60</option>
@@ -379,7 +379,7 @@ W.gems = (() => {
               </select>
             </label>
             <label class="small" style="margin:0;">
-              <input type="checkbox" id="g-auto" ${auto ? "checked" : ""} style="width:auto;">
+              <input type="checkbox" id="g-auto" ${auto ? "checked" : ""} class="w-auto">
               Auto-scan 5 min
             </label>
             <button class="btn primary" id="g-go">▶ Scan now</button>

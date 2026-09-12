@@ -54,7 +54,7 @@ W.watchlist = (() => {
       <div class="card">
         <div class="watch-head">
           <h3>⭐ Watchlist</h3>
-          <div id="w-picker" style="min-width:280px;"></div>
+          <div id="w-picker" class="min-w-280"></div>
         </div>
         <div id="w-body">${W.ui.spinner()}</div>
       </div>

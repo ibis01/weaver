@@ -356,7 +356,7 @@ W.smart = (() => {
           <br><span class="tag rank">ERC-20 tokens on Ethereum</span>
         </p>
         <div class="qa mt">
-          <div id="sm-picker" style="min-width:280px;"></div>
+          <div id="sm-picker" class="min-w-280"></div>
           <button class="btn primary" id="sm-go">Scan Holders</button>
         </div>
       </div>

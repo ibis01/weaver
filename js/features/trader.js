@@ -315,7 +315,7 @@ W.trader = (() => {
         <h3>⚡ AI Trading Assistant</h3>
         <p class="muted small">RSI-14 + SMA 20/50 trend + momentum + Fear&Greed contrarian filter → Weaver Score → signal.</p>
         <div class="qa mt">
-          <div id="t-picker" style="min-width:260px;"></div>
+          <div id="t-picker" class="min-w-260"></div>
           <button class="btn primary" id="t-go">Analyze</button>
         </div>
         <div class="qa mt" id="t-quick"></div>
@@ -421,7 +421,7 @@ W.trader = (() => {
                   (a) => `
                 <tr>
                   <td class="coin-cell">
-                    <img src="${a.coin.image?.small || ""}" alt="${a.coin.name}" style="width:20px;height:20px;border-radius:50%;">
+                    <img src="${a.coin.image?.small || ""}" alt="${a.coin.name}" class="icon-20">
                     <b>${a.coin.name}</b>
                   </td>
                   <td><span class="tag ${a.cssClass}">${a.signal}</span></td>

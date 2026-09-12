@@ -308,14 +308,16 @@ W.misc = (() => {
                   .join("")}
               </ul>
               <div class="meter-bar">
-                <div style="width: ${(dk.length / d.tasks.length) * 100}%"></div>
+               <div class="progress-fill" data-width="${(dk.length / d.tasks.length) * 100}"></div>
               </div>
             </div>
           `;
         }).join("")}
       </div>
     `;
-
+    view.querySelectorAll("[data-width]").forEach((el) => {
+  el.style.width = `${el.dataset.width}%`;
+     });
     view.querySelectorAll('input[type="checkbox"][data-drop]').forEach((cb) => {
       cb.onchange = () => {
         const done = W.store.get(KEY, {});
@@ -479,7 +481,7 @@ W.misc = (() => {
           <input id="set-tgchat" placeholder="e.g. 7099096813" value="${escapeHTML(tg.chat || "")}">
         </label>
         <label class="small">
-          <input type="checkbox" id="set-tgon" ${tg.on ? "checked" : ""} style="width:auto">
+         <input type="checkbox" id="set-tgon" ${tg.on ? "checked" : ""} class="w-auto">
           Enable Telegram alerts
         </label>
         <div class="qa mt">

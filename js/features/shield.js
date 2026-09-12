@@ -293,7 +293,7 @@ W.shield = (() => {
             <h2>${escapeHTML(result.token_name || "Unknown")} <span class="muted">${escapeHTML(result.token_symbol || "")}</span></h2>
             <p class="muted small">${chain.icon} ${chain.name} · ${holderCount} Holders · Supply: ${totalSupply}</p>
           </div>
-          <div style="text-align:right;">
+          <div class="text-right">
             <span class="tag ${riskLevel[1]}" style="font-size:14px;padding:8px 16px;">${riskLevel[0]}</span>
             <div class="muted small">Risk Score: ${riskScore}/100</div>
             <div class="muted" style="font-size:10px;">${SHIELD_SCORE_VERSION_EVM}</div>
@@ -325,7 +325,7 @@ W.shield = (() => {
           <div class="kv-row"><span>Sell Tax</span> <b style="color: ${parseFloat(sellTax) > 5 ? "var(--down)" : "var(--up)"};">${sellTax}%</b></div>
           <div class="meter-label mt">Tax Severity</div>
           <div class="meter-bar">
-            <div style="width: ${Math.min(100, (parseFloat(buyTax) + parseFloat(sellTax)) * 2)}%; background: ${Math.max(parseFloat(buyTax), parseFloat(sellTax)) > 5 ? "var(--down)" : "var(--up)"};"></div>
+            <div class="bar-fill" data-width="${Math.min(100, (parseFloat(buyTax) + parseFloat(sellTax)) * 2)}" data-risk="${Math.max(parseFloat(buyTax), parseFloat(sellTax)) > 5 ? "high" : "low"}"></div>
           </div>
           <p class="muted small mt">Taxes > 5% are often used to drain buyer funds. 0/0 is ideal.</p>
         </div>
@@ -385,6 +385,13 @@ W.shield = (() => {
       </div>
     `;
   }
+  view.querySelectorAll("[data-width]").forEach((el) => {
+    el.style.width = `${el.dataset.width}%`;
+  });
+  view.querySelectorAll("[data-risk]").forEach((el) => {
+    el.style.background =
+      el.dataset.risk === "high" ? "var(--down)" : "var(--up)";
+  });
 
   // ── Parse and Render Results (Solana) ──────────────────
   // GoPlus's Solana schema is different from EVM: authority-based flags
@@ -761,5 +768,6 @@ W.shield = (() => {
     CHAINS,
   };
 })();
+
 
 console.log("[Shield] Module loaded.");
