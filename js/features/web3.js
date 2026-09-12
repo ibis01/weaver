@@ -127,12 +127,27 @@ W.web3 = W.web3 || {};
       }
 
       const modal = document.createElement("div");
-      modal.style.cssText =
-        "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);";
+      modal.style.position = "fixed";
+      modal.style.top = "0";
+      modal.style.left = "0";
+      modal.style.right = "0";
+      modal.style.bottom = "0";
+      modal.style.background = "rgba(0,0,0,0.85)";
+      modal.style.zIndex = "9999";
+      modal.style.display = "flex";
+      modal.style.alignItems = "center";
+      modal.style.justifyContent = "center";
+      modal.style.backdropFilter = "blur(4px)";
 
       const card = document.createElement("div");
-      card.style.cssText =
-        "background:var(--bg-card, #161b22);padding:24px;border-radius:12px;max-width:420px;width:90%;color:var(--text, #e6edf3);border:1px solid var(--border, #30363d);box-shadow:0 10px 30px rgba(0,0,0,0.5);";
+      card.style.background = "var(--bg-card, #161b22)";
+      card.style.padding = "24px";
+      card.style.borderRadius = "12px";
+      card.style.maxWidth = "420px";
+      card.style.width = "90%";
+      card.style.color = "var(--text, #e6edf3)";
+      card.style.border = "1px solid var(--border, #30363d)";
+      card.style.boxShadow = "0 10px 30px rgba(0,0,0,0.5)";
 
       const title = document.createElement("h3");
       title.style.marginTop = "0";
@@ -170,7 +185,9 @@ W.web3 = W.web3 || {};
       }
 
       const btnContainer = document.createElement("div");
-      btnContainer.style.cssText = "display:flex;gap:12px;margin-top:24px;";
+      btnContainer.style.display = "flex";
+      btnContainer.style.gap = "12px";
+      btnContainer.style.marginTop = "24px";
 
       const cancelBtn = document.createElement("button");
       cancelBtn.textContent = "Cancel";

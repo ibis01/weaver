@@ -315,16 +315,21 @@ W.decisionEngine = (() => {
     card.appendChild(title);
 
     const list = document.createElement("ul");
-    list.style.cssText = "list-style:none; padding:0; margin:0;";
+    list.style.listStyle = "none";
+    list.style.padding = "0";
+    list.style.margin = "0";
 
     top.forEach((item) => {
       const li = document.createElement("li");
-      li.style.cssText =
-        "padding: 12px 0; border-bottom: 1px solid var(--border, #30363d);";
+      li.style.padding = "12px 0";
+      li.style.borderBottom = "1px solid var(--border, #30363d)";
+
 
       const header = document.createElement("div");
-      header.style.cssText =
-        "display:flex; justify-content:space-between; align-items:center; margin-bottom: 4px;";
+      header.style.display = "flex";
+      header.style.justifyContent = "space-between";
+      header.style.alignItems = "center";
+      header.style.marginBottom = "4px";
 
       const assetName = document.createElement("b");
       assetName.textContent = item._assetSymbol || "Asset";
@@ -402,23 +407,30 @@ W.decisionEngine = (() => {
 
       if (confidence !== null) {
         const confBar = document.createElement("div");
-        confBar.style.cssText =
-          "margin-top: 8px; display: flex; align-items: center; gap: 8px;";
+        confBar.style.marginTop = "8px";
+        confBar.style.display = "flex";
+        confBar.style.alignItems = "center";
+        confBar.style.gap = "8px";
         const confLabel = document.createElement("span");
         confLabel.className = "muted small";
         confLabel.textContent = "Evidence Strength:";
         const bar = document.createElement("div");
-        bar.style.cssText =
-          "flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;";
+        bar.style.flex = "1";
+        bar.style.height = "4px";
+        bar.style.background = "rgba(255,255,255,0.1)";
+        bar.style.borderRadius = "2px";
+       bar.style.overflow = "hidden";
         const fill = document.createElement("div");
         const confidencePct = (confidence * 100).toFixed(0);
-        fill.style.cssText = `width: ${confidencePct}%; height: 100%; background: ${
+        fill.style.width = `${confidencePct}%`;
+        fill.style.height = "100%";
+        fill.style.background =
           confidence > 0.7
             ? "var(--up, #2ee6a8)"
             : confidence > 0.4
               ? "var(--warn, #ffb35c)"
-              : "var(--down, #ff5c7a)"
-        }; border-radius: 2px;`;
+              : "var(--down, #ff5c7a)";
+        fill.style.borderRadius = "2px";
         bar.appendChild(fill);
         const pctSpan = document.createElement("span");
         pctSpan.className = "muted small";

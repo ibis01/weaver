@@ -718,8 +718,8 @@ ${behaviorContext}
           insights.slice(0, 4).forEach((i) => {
             const div = document.createElement("div");
             div.className = "kv-row";
-            div.style.cssText =
-              "border-bottom:1px solid var(--border);padding:8px 0;";
+            div.style.borderBottom = "1px solid var(--border)";
+            div.style.padding = "8px 0";
             const left = document.createElement("span");
             left.innerHTML = `${i.icon || ""} <b>${W.fmt.escapeHTML(i.title)}</b><br><span class="muted small">${W.fmt.escapeHTML(i.message)}</span>`;
             const right = document.createElement("span");

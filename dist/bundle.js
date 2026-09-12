@@ -453,6 +453,17 @@ W.fmt = W.fmt || {};
     return num.toFixed(2);
   };
 
+    W.fmt.num = function (n) {
+      if (n == null || isNaN(n)) return "—";
+      const num = Number(n);
+      const abs = Math.abs(num);
+      if (abs >= 1e12) return `${(num / 1e12).toFixed(2)}T`;
+      if (abs >= 1e9) return `${(num / 1e9).toFixed(2)}B`;
+      if (abs >= 1e6) return `${(num / 1e6).toFixed(2)}M`;
+      if (abs >= 1e3) return `${(num / 1e3).toFixed(2)}K`;
+      return num.toLocaleString("en-US", { maximumFractionDigits: 2 });
+    };
+
   /**
    * Get currency symbol
    */
@@ -4044,12 +4055,17 @@ W.delta = (() => {
       card.appendChild(p);
     } else {
       const list = document.createElement("ul");
-      list.style.cssText = "list-style:none; padding:0; margin:0;";
+      list.style.listStyle = "none";
+      list.style.padding = "0";
+      list.style.margin = "0";
 
       deltas.forEach((d) => {
         const li = document.createElement("li");
-        li.style.cssText =
-          "padding: 8px 0; border-bottom: 1px solid var(--border, #30363d); display:flex; justify-content:space-between; align-items:center;";
+        li.style.padding = "8px 0";
+        li.style.borderBottom = "1px solid var(--border, #30363d)";
+        li.style.display = "flex";
+        li.style.justifyContent = "space-between";
+        li.style.alignItems = "center";
 
         const label = document.createElement("span");
         label.textContent = d.metric; // SAFE: textContent
@@ -4194,10 +4210,12 @@ W.behavior = (() => {
 
     if (result.pattern !== "none") {
       const rec = document.createElement("div");
-      rec.style.cssText =
-        "margin-top:10px; padding:10px; background:rgba(255, 92, 122, 0.1); border-radius:6px;";
+      rec.style.marginTop = "10px";
+      rec.style.padding = "10px";
+      rec.style.background = "rgba(255, 92, 122, 0.1)";
+      rec.style.borderRadius = "6px";
       // SAFE: escapeHTML used for dynamic text injected via innerHTML
-      rec.innerHTML = `<b class="small" style="color:var(--down)">⚠️ Recommendation:</b> <span class="small">${W.fmt.escapeHTML(result.recommendation)}</span>`;
+      rec.innerHTML = `<b class="small text-down">⚠️ Recommendation:</b> <span class="small">${W.fmt.escapeHTML(result.recommendation)}</span>`;
       card.appendChild(rec);
     }
 
@@ -4619,11 +4637,15 @@ W.thesisHealth = (() => {
 
     if (healthData.reasons.length > 0) {
       const ul = document.createElement("ul");
-      ul.style.cssText =
-        "list-style: none; padding: 0; margin: 8px 0; font-size: 0.9em;";
+      ul.style.listStyle = "none";
+      ul.style.padding = "0";
+      ul.style.margin = "8px 0";
+      ul.style.fontSize = "0.9em";
       healthData.reasons.forEach((reason) => {
         const li = document.createElement("li");
-        li.style.cssText = "padding: 4px 0; color: var(--text-muted);";
+        li.style.padding = "4px 0";
+        li.style.color = "var(--text-muted)";
+
         li.textContent = `• ${reason}`;
         ul.appendChild(li);
       });
@@ -4631,8 +4653,12 @@ W.thesisHealth = (() => {
     }
 
     const rec = document.createElement("div");
-    rec.style.cssText =
-      "margin-top: 8px; padding: 8px; background: rgba(124, 92, 255, 0.05); border-left: 3px solid var(--primary); border-radius: 4px; font-size: 0.9em;";
+    rec.style.marginTop = "8px";
+    rec.style.padding = "8px";
+    rec.style.background = "rgba(124, 92, 255, 0.05)";
+    rec.style.borderLeft = "3px solid var(--primary)";
+    rec.style.borderRadius = "4px";
+    rec.style.fontSize = "0.9em";
     rec.textContent = `Recommendation: ${healthData.recommendation}`;
     container.appendChild(rec);
   }
@@ -5446,16 +5472,21 @@ W.decisionEngine = (() => {
     card.appendChild(title);
 
     const list = document.createElement("ul");
-    list.style.cssText = "list-style:none; padding:0; margin:0;";
+    list.style.listStyle = "none";
+    list.style.padding = "0";
+    list.style.margin = "0";
 
     top.forEach((item) => {
       const li = document.createElement("li");
-      li.style.cssText =
-        "padding: 12px 0; border-bottom: 1px solid var(--border, #30363d);";
+      li.style.padding = "12px 0";
+      li.style.borderBottom = "1px solid var(--border, #30363d)";
+
 
       const header = document.createElement("div");
-      header.style.cssText =
-        "display:flex; justify-content:space-between; align-items:center; margin-bottom: 4px;";
+      header.style.display = "flex";
+      header.style.justifyContent = "space-between";
+      header.style.alignItems = "center";
+      header.style.marginBottom = "4px";
 
       const assetName = document.createElement("b");
       assetName.textContent = item._assetSymbol || "Asset";
@@ -5533,23 +5564,30 @@ W.decisionEngine = (() => {
 
       if (confidence !== null) {
         const confBar = document.createElement("div");
-        confBar.style.cssText =
-          "margin-top: 8px; display: flex; align-items: center; gap: 8px;";
+        confBar.style.marginTop = "8px";
+        confBar.style.display = "flex";
+        confBar.style.alignItems = "center";
+        confBar.style.gap = "8px";
         const confLabel = document.createElement("span");
         confLabel.className = "muted small";
         confLabel.textContent = "Evidence Strength:";
         const bar = document.createElement("div");
-        bar.style.cssText =
-          "flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;";
+        bar.style.flex = "1";
+        bar.style.height = "4px";
+        bar.style.background = "rgba(255,255,255,0.1)";
+        bar.style.borderRadius = "2px";
+       bar.style.overflow = "hidden";
         const fill = document.createElement("div");
         const confidencePct = (confidence * 100).toFixed(0);
-        fill.style.cssText = `width: ${confidencePct}%; height: 100%; background: ${
+        fill.style.width = `${confidencePct}%`;
+        fill.style.height = "100%";
+        fill.style.background =
           confidence > 0.7
             ? "var(--up, #2ee6a8)"
             : confidence > 0.4
               ? "var(--warn, #ffb35c)"
-              : "var(--down, #ff5c7a)"
-        }; border-radius: 2px;`;
+              : "var(--down, #ff5c7a)";
+        fill.style.borderRadius = "2px";
         bar.appendChild(fill);
         const pctSpan = document.createElement("span");
         pctSpan.className = "muted small";
@@ -6320,7 +6358,7 @@ W.watchlist = (() => {
       <div class="card">
         <div class="watch-head">
           <h3>⭐ Watchlist</h3>
-          <div id="w-picker" style="min-width:280px;"></div>
+          <div id="w-picker" class="min-w-280"></div>
         </div>
         <div id="w-body">${W.ui.spinner()}</div>
       </div>
@@ -6815,7 +6853,8 @@ W.alerts = (() => {
       <div class="card">
         <h3>🚨 Create Alert</h3>
         <form id="a-form" class="alert-form">
-          <div id="a-picker" style="grid-column:1/-1;"></div>
+          <div id="a-picker" class="grid-full"></div>
+
           <label>Condition
             <select name="cond">
               <option value="above">Price goes above</option>
@@ -7890,8 +7929,8 @@ ${behaviorContext}
           insights.slice(0, 4).forEach((i) => {
             const div = document.createElement("div");
             div.className = "kv-row";
-            div.style.cssText =
-              "border-bottom:1px solid var(--border);padding:8px 0;";
+            div.style.borderBottom = "1px solid var(--border)";
+            div.style.padding = "8px 0";
             const left = document.createElement("span");
             left.innerHTML = `${i.icon || ""} <b>${W.fmt.escapeHTML(i.title)}</b><br><span class="muted small">${W.fmt.escapeHTML(i.message)}</span>`;
             const right = document.createElement("span");
@@ -8058,14 +8097,14 @@ W.optimizer = (() => {
                 (r) => `
               <tr>
                 <td class="coin-cell">
-                  <img src="${r.image || r.img || ""}" alt="${escapeHTML(r.name)}" style="width:24px;height:24px;border-radius:50%;">
+                  <img src="${r.image || r.img || ""}" alt="${escapeHTML(r.name)}" class="icon-24">
                   <b>${escapeHTML(r.name)}</b>
                   <span class="muted small">${r.symbol.toUpperCase()}</span>
                 </td>
                 <td class="num">${W.fmt.money(r.value)}</td>
                 <td class="num">${totals.value ? ((r.value / totals.value) * 100).toFixed(1) : 0}%</td>
                 <td class="num">
-                  <input type="number" step="0.1" min="0" max="100" data-target="${r.coinId}" style="width:80px;text-align:right;" value="${+targets[r.coinId].toFixed(1)}">
+                  <input type="number" step="0.1" min="0" max="100" data-target="${r.coinId}" class="w-80-right" value="${+targets[r.coinId].toFixed(1)}">
                 </td>
                 <td data-trade="${r.coinId}"></td>
               </tr>
@@ -8937,7 +8976,7 @@ W.trader = (() => {
         <h3>⚡ AI Trading Assistant</h3>
         <p class="muted small">RSI-14 + SMA 20/50 trend + momentum + Fear&Greed contrarian filter → Weaver Score → signal.</p>
         <div class="qa mt">
-          <div id="t-picker" style="min-width:260px;"></div>
+          <div id="t-picker" class="min-w-260"></div>
           <button class="btn primary" id="t-go">Analyze</button>
         </div>
         <div class="qa mt" id="t-quick"></div>
@@ -9043,7 +9082,7 @@ W.trader = (() => {
                   (a) => `
                 <tr>
                   <td class="coin-cell">
-                    <img src="${a.coin.image?.small || ""}" alt="${a.coin.name}" style="width:20px;height:20px;border-radius:50%;">
+                    <img src="${a.coin.image?.small || ""}" alt="${a.coin.name}" class="icon-20">
                     <b>${a.coin.name}</b>
                   </td>
                   <td><span class="tag ${a.cssClass}">${a.signal}</span></td>
@@ -9396,7 +9435,7 @@ W.gems = (() => {
                   <b>${escapeHTML(t.symbol)}</b> <span class="muted small">${escapeHTML(t.name)}</span><br>
                   ${chainTag(p.chainId)} <span class="muted small">age ${ageText(a.ageH)}</span>
                 </div>
-                <div style="text-align:right;">
+                <div class="text-right">
                   <span class="tag ${a.verdict[1]}" style="font-size:12px;padding:5px 10px;">${a.verdict[0]}</span>
                   <div class="alt-num" style="font-size:26px;">${a.score}</div>
                   <div class="muted" style="font-size:10px;">${a.scoreVersion}</div>
@@ -9450,8 +9489,8 @@ W.gems = (() => {
         <div class="watch-head">
           <h3>🤖 Gem Agent — autonomous new-token hunter</h3>
           <div class="qa">
-            <label style="margin:0;">Min score
-              <select id="g-min" style="width:auto;">
+            <label class="m-0">Min score
+              <select id="g-min" class="w-auto">
                 <option value="0">0</option>
                 <option value="40" selected>40</option>
                 <option value="60">60</option>
@@ -9459,7 +9498,7 @@ W.gems = (() => {
               </select>
             </label>
             <label class="small" style="margin:0;">
-              <input type="checkbox" id="g-auto" ${auto ? "checked" : ""} style="width:auto;">
+              <input type="checkbox" id="g-auto" ${auto ? "checked" : ""} class="w-auto">
               Auto-scan 5 min
             </label>
             <button class="btn primary" id="g-go">▶ Scan now</button>
@@ -9786,7 +9825,7 @@ W.shield = (() => {
             <h2>${escapeHTML(result.token_name || "Unknown")} <span class="muted">${escapeHTML(result.token_symbol || "")}</span></h2>
             <p class="muted small">${chain.icon} ${chain.name} · ${holderCount} Holders · Supply: ${totalSupply}</p>
           </div>
-          <div style="text-align:right;">
+          <div class="text-right">
             <span class="tag ${riskLevel[1]}" style="font-size:14px;padding:8px 16px;">${riskLevel[0]}</span>
             <div class="muted small">Risk Score: ${riskScore}/100</div>
             <div class="muted" style="font-size:10px;">${SHIELD_SCORE_VERSION_EVM}</div>
@@ -9818,7 +9857,7 @@ W.shield = (() => {
           <div class="kv-row"><span>Sell Tax</span> <b style="color: ${parseFloat(sellTax) > 5 ? "var(--down)" : "var(--up)"};">${sellTax}%</b></div>
           <div class="meter-label mt">Tax Severity</div>
           <div class="meter-bar">
-            <div style="width: ${Math.min(100, (parseFloat(buyTax) + parseFloat(sellTax)) * 2)}%; background: ${Math.max(parseFloat(buyTax), parseFloat(sellTax)) > 5 ? "var(--down)" : "var(--up)"};"></div>
+            <div class="bar-fill" data-width="${Math.min(100, (parseFloat(buyTax) + parseFloat(sellTax)) * 2)}" data-risk="${Math.max(parseFloat(buyTax), parseFloat(sellTax)) > 5 ? "high" : "low"}"></div>
           </div>
           <p class="muted small mt">Taxes > 5% are often used to drain buyer funds. 0/0 is ideal.</p>
         </div>
@@ -9878,6 +9917,13 @@ W.shield = (() => {
       </div>
     `;
   }
+  view.querySelectorAll("[data-width]").forEach((el) => {
+    el.style.width = `${el.dataset.width}%`;
+  });
+  view.querySelectorAll("[data-risk]").forEach((el) => {
+    el.style.background =
+      el.dataset.risk === "high" ? "var(--down)" : "var(--up)";
+  });
 
   // ── Parse and Render Results (Solana) ──────────────────
   // GoPlus's Solana schema is different from EVM: authority-based flags
@@ -10255,6 +10301,7 @@ W.shield = (() => {
   };
 })();
 
+
 console.log("[Shield] Module loaded.");
 // ---- js/features/web3.js ----
 // ===============================================================
@@ -10386,12 +10433,27 @@ W.web3 = W.web3 || {};
       }
 
       const modal = document.createElement("div");
-      modal.style.cssText =
-        "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);";
+      modal.style.position = "fixed";
+      modal.style.top = "0";
+      modal.style.left = "0";
+      modal.style.right = "0";
+      modal.style.bottom = "0";
+      modal.style.background = "rgba(0,0,0,0.85)";
+      modal.style.zIndex = "9999";
+      modal.style.display = "flex";
+      modal.style.alignItems = "center";
+      modal.style.justifyContent = "center";
+      modal.style.backdropFilter = "blur(4px)";
 
       const card = document.createElement("div");
-      card.style.cssText =
-        "background:var(--bg-card, #161b22);padding:24px;border-radius:12px;max-width:420px;width:90%;color:var(--text, #e6edf3);border:1px solid var(--border, #30363d);box-shadow:0 10px 30px rgba(0,0,0,0.5);";
+      card.style.background = "var(--bg-card, #161b22)";
+      card.style.padding = "24px";
+      card.style.borderRadius = "12px";
+      card.style.maxWidth = "420px";
+      card.style.width = "90%";
+      card.style.color = "var(--text, #e6edf3)";
+      card.style.border = "1px solid var(--border, #30363d)";
+      card.style.boxShadow = "0 10px 30px rgba(0,0,0,0.5)";
 
       const title = document.createElement("h3");
       title.style.marginTop = "0";
@@ -10429,7 +10491,9 @@ W.web3 = W.web3 || {};
       }
 
       const btnContainer = document.createElement("div");
-      btnContainer.style.cssText = "display:flex;gap:12px;margin-top:24px;";
+      btnContainer.style.display = "flex";
+      btnContainer.style.gap = "12px";
+      btnContainer.style.marginTop = "24px";
 
       const cancelBtn = document.createElement("button");
       cancelBtn.textContent = "Cancel";
@@ -10909,14 +10973,16 @@ W.misc = (() => {
                   .join("")}
               </ul>
               <div class="meter-bar">
-                <div style="width: ${(dk.length / d.tasks.length) * 100}%"></div>
+               <div class="progress-fill" data-width="${(dk.length / d.tasks.length) * 100}"></div>
               </div>
             </div>
           `;
         }).join("")}
       </div>
     `;
-
+    view.querySelectorAll("[data-width]").forEach((el) => {
+  el.style.width = `${el.dataset.width}%`;
+     });
     view.querySelectorAll('input[type="checkbox"][data-drop]').forEach((cb) => {
       cb.onchange = () => {
         const done = W.store.get(KEY, {});
@@ -11080,7 +11146,7 @@ W.misc = (() => {
           <input id="set-tgchat" placeholder="e.g. 7099096813" value="${escapeHTML(tg.chat || "")}">
         </label>
         <label class="small">
-          <input type="checkbox" id="set-tgon" ${tg.on ? "checked" : ""} style="width:auto">
+         <input type="checkbox" id="set-tgon" ${tg.on ? "checked" : ""} class="w-auto">
           Enable Telegram alerts
         </label>
         <div class="qa mt">
@@ -11289,7 +11355,7 @@ W.whales = W.whales || {};
           .map(
             (w) => `
           <div class="card">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
+           <div class="flex-between">
               <h4>${W.fmt.escapeHTML(w.chain)}</h4>
               <span class="tag ${w.type === "inflow" ? "sell" : "buy"}">${w.type}</span>
             </div>
@@ -11692,7 +11758,7 @@ W.smart = (() => {
           <br><span class="tag rank">ERC-20 tokens on Ethereum</span>
         </p>
         <div class="qa mt">
-          <div id="sm-picker" style="min-width:280px;"></div>
+          <div id="sm-picker" class="min-w-280"></div>
           <button class="btn primary" id="sm-go">Scan Holders</button>
         </div>
       </div>
@@ -12958,7 +13024,7 @@ W.learn = (() => {
       title: `${l.icon} ${escapeHTML(l.title)}`,
       body: `
         <span class="tag rank">${escapeHTML(l.category)}</span>
-        <div style="line-height:1.7;margin-top:12px;">${l.body}</div>
+        <div class="lh-17 mt-12">${l.body}</div>
         <div class="mt">
           <b>Quiz:</b> ${escapeHTML(l.quiz.q)}
           ${l.quiz.a
@@ -14459,8 +14525,8 @@ W.theses = W.theses || {};
 
             return `
           <div class="card" data-thesis-id="${t.id}">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <h4 style="margin:0;">${W.fmt.escapeHTML(t.asset)} ${badgeHtml}</h4>
+           <div class="flex-between">
+            <h4 class="m-0">${W.fmt.escapeHTML(t.asset)} ${badgeHtml}</h4>
             </div>
             <p class="small"><b>Statement:</b> ${W.fmt.escapeHTML(t.statement)}</p>
             <p class="small muted"><b>Horizon:</b> ${W.fmt.escapeHTML(t.horizon)} | <b>Target:</b> ${t.target ? "$" + t.target : "N/A"}</p>
@@ -14469,7 +14535,7 @@ W.theses = W.theses || {};
             <!-- Hook for health details (injected below) -->
             <div class="thesis-health-details" data-details-id="${t.id}" style="margin-top: 12px;"></div>
 
-            <div style="margin-top:10px; display:flex; gap:10px;">
+            <div class="flex-gap-10-mt-10">
               <button class="btn tiny warn" data-action="invalidate" data-id="${t.id}">Mark Invalidated</button>
               <button class="btn tiny" data-action="delete" data-id="${t.id}">Delete</button>
             </div>
@@ -14488,7 +14554,7 @@ W.theses = W.theses || {};
           <textarea id="t-statement" placeholder="Core Thesis Statement (Why are you buying?)" required class="input" rows="3"></textarea>
           <textarea id="t-signals" placeholder="Expected confirming signals" class="input" rows="2"></textarea>
           <textarea id="t-invalidation" placeholder="What would prove this thesis wrong?" class="input" rows="2"></textarea>
-          <div style="grid-column: 1 / -1; display:flex; gap:10px;">
+          <div class="grid-full-flex-gap-10">
             <button type="submit" class="btn primary">Save Thesis</button>
             <button type="button" class="btn" id="btn-cancel-thesis">Cancel</button>
           </div>
@@ -14818,7 +14884,7 @@ console.log("[Journal] Decision module loaded (CSP compliant).");
 
 window.W = window.W || {};
 
-W.tokenAnalysis = (async () => {
+W.tokenAnalysis = (() => {
   /**
    * Analyze a token and return a structured decision report.
    * @param {string} assetId - Coingecko ID or symbol (e.g., 'bitcoin', 'BTC')
@@ -15034,49 +15100,49 @@ W.tokenAnalysis = (async () => {
             <div class="stat-big">${result.signalsCount}</div>
           </div>
         </div>
-        <div style="margin-top:12px;">
+        <div class="mt-12">
           <div class="meter-bar"><div style="width:${result.opportunityScore}%; background:var(--up);"></div></div>
           <div class="meter-label">Opportunity Score</div>
         </div>
-        <div style="margin-top:8px;">
+        <div class="mt-8">
           <div class="meter-bar"><div style="width:${result.riskScore}%; background:var(--down);"></div></div>
           <div class="meter-label">Risk Score</div>
         </div>
         <div class="grid-2" style="margin-top:16px;">
           <div class="card">
-            <h4 style="color:var(--up);">🟢 Bullish Evidence</h4>
+            <h4 class="text-up">🟢 Bullish Evidence</h4>
             ${result.bullishEvidence.length ? result.bullishEvidence.map((e) => `<div class="kv-row"><span>${e.title}</span><span class="small">${e.evidence}</span></div>`).join("") : '<p class="muted small">No bullish evidence found.</p>'}
           </div>
           <div class="card">
-            <h4 style="color:var(--down);">🔴 Bearish Evidence</h4>
+            <h4 class="text-down">🔴 Bearish Evidence</h4>
             ${result.bearishEvidence.length ? result.bearishEvidence.map((e) => `<div class="kv-row"><span>${e.title}</span><span class="small">${e.evidence}</span></div>`).join("") : '<p class="muted small">No bearish evidence found.</p>'}
           </div>
         </div>
         ${
           result.contradictions && result.contradictions.length
             ? `
-          <div style="margin-top:12px; padding:12px; background:rgba(255,179,92,0.1); border-radius:8px;">
+          <div class="card-warn">
             <b>⚠️ Contradicting Evidence:</b>
             ${result.contradictions.map((c) => `<div class="small">${c.bull} vs ${c.bear} — ${c.details}</div>`).join("")}
           </div>
         `
             : ""
         }
-        <div style="margin-top:16px; padding:12px; background:rgba(124,92,255,0.08); border-radius:8px;">
+        <div class="card-verdict">
           <b>Verdict:</b> ${result.verdict}
           <p class="small muted" style="margin-top:4px;">${result.explanation}</p>
         </div>
         ${
           result.personalContext
             ? `
-          <div style="margin-top:12px; padding:12px; background:rgba(46,230,168,0.08); border-radius:8px;">
+          <div class="card-position">
             <b>👤 Your Position:</b>
             ${result.personalContext.hasPosition ? `You hold ${result.personalContext.quantity} ${result.asset} at avg cost $${result.personalContext.avgCost.toFixed(2)} (current value $${result.personalContext.currentValue.toFixed(2)}).` : "You do not hold this asset."}
           </div>
         `
             : ""
         }
-        <div style="margin-top:12px;">
+        <div class="mt-12">
           <button class="btn tiny" onclick="document.location.hash='#/token'">← New Analysis</button>
         </div>
       </div>
