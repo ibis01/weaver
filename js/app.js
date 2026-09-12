@@ -3,6 +3,14 @@
 // ===============================================================
 // Purpose: Handle routing, navigation rendering, and app initialization.
 // Security Fix: Removed plaintext Telegram save handler (P0 Task 1).
+//
+// Router notes:
+//   - The view is cleared BEFORE dispatch, so a failed or empty
+//     render cannot leave stale content from the previous route.
+//   - Handlers are dispatched via safeRender(), which resolves the
+//     module method lazily (at call time, not at module-load time)
+//     and surfaces failures instead of firing false "not loaded"
+//     toasts when a render returns a falsy value.
 // ===============================================================
 
 window.W = window.W || {};
@@ -75,89 +83,67 @@ window.W = window.W || {};
 
   const ALL_NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
 
+  // ── Shared route dispatcher ────────────────────────────────
+  // Resolves the module method at dispatch time (not at script-load
+  // time, which matters because modules load in order). Catches
+  // failures and renders an honest error card instead of silently
+  // leaving the view empty or firing a false "not loaded" toast.
+  async function safeRender(view, name, getMethod) {
+    const method = getMethod();
+    if (typeof method !== "function") {
+      W.ui?.toast?.(`${name} module not loaded`, "warn");
+      view.innerHTML = `<div class="card"><p class="muted">${name} module not available.</p></div>`;
+      return;
+    }
+    try {
+      await method(view);
+    } catch (e) {
+      console.warn(`[Router] ${name} render failed:`, e);
+      view.innerHTML = `<div class="card"><p class="muted">Failed to load ${name}: ${W.fmt?.escapeHTML?.(e.message) || "unknown error"}</p></div>`;
+    }
+  }
+
   const routes = {
-    dashboard: (v) =>
-      W.dashboard?.render?.(v) ||
-      W.ui?.toast?.("Dashboard module not loaded", "warn"),
+    dashboard: (v) => safeRender(v, "dashboard", () => W.dashboard?.render),
     portfolio: (v) =>
-      W.dashboard?.renderPortfolio?.(v) ||
-      W.ui?.toast?.("Portfolio module not loaded", "warn"),
-    watchlist: (v) =>
-      W.watchlist?.render?.(v) ||
-      W.ui?.toast?.("Watchlist module not loaded", "warn"),
-    explorer: (v) =>
-      W.explorer?.render?.(v) ||
-      W.ui?.toast?.("Explorer module not loaded", "warn"),
-    alerts: (v) =>
-      W.alerts?.render?.(v) ||
-      W.ui?.toast?.("Alerts module not loaded", "warn"),
-    news: (v) =>
-      W.news?.render?.(v) || W.ui?.toast?.("News module not loaded", "warn"),
-    ai: (v) =>
-      W.ai?.render?.(v) || W.ui?.toast?.("AI module not loaded", "warn"),
-    optimizer: (v) =>
-      W.optimizer?.render?.(v) ||
-      W.ui?.toast?.("Optimizer module not loaded", "warn"),
-    time: (v) =>
-      W.time?.render?.(v) ||
-      W.ui?.toast?.("Time Machine module not loaded", "warn"),
-    trader: (v) =>
-      W.trader?.render?.(v) ||
-      W.ui?.toast?.("Trader module not loaded", "warn"),
-    gems: (v) =>
-      W.gems?.render?.(v) || W.ui?.toast?.("Gems module not loaded", "warn"),
-    shield: (v) =>
-      W.shield?.render?.(v) ||
-      W.ui?.toast?.("Shield module not loaded", "warn"),
-    web3: (v) =>
-      W.web3?.render?.(v) || W.ui?.toast?.("Web3 module not loaded", "warn"),
-    defi: (v) =>
-      W.misc?.renderDefi?.(v) ||
-      W.ui?.toast?.("DeFi module not loaded", "warn"),
-    airdrops: (v) =>
-      W.misc?.renderAirdrops?.(v) ||
-      W.ui?.toast?.("Airdrops module not loaded", "warn"),
-    market: (v) =>
-      W.market?.render?.(v) ||
-      W.ui?.toast?.("Market module not loaded", "warn"),
-    sectors: (v) =>
-      W.sectors?.render?.(v) ||
-      W.ui?.toast?.("Sectors module not loaded", "warn"),
-    whales: (v) =>
-      W.whales?.render?.(v) ||
-      W.ui?.toast?.("Whales module not loaded", "warn"),
-    smart: (v) =>
-      W.smart?.render?.(v) || W.ui?.toast?.("Smart module not loaded", "warn"),
-    unlocks: (v) =>
-      W.unlocks?.render?.(v) ||
-      W.ui?.toast?.("Unlocks module not loaded", "warn"),
-    learn: (v) =>
-      W.learn?.render?.(v) || W.ui?.toast?.("Learn module not loaded", "warn"),
-    profile: (v) =>
-      W.misc?.renderProfile?.(v) ||
-      W.ui?.toast?.("Profile module not loaded", "warn"),
-    pro: (v) =>
-      W.misc?.renderPro?.(v) || W.ui?.toast?.("Pro module not loaded", "warn"),
-    theses: (v) =>
-      W.theses?.render?.(v) ||
-      W.ui?.toast?.("Theses module not loaded", "warn"),
-    journal: (v) =>
-      W.journal?.render?.(v) ||
-      W.ui?.toast?.("Journal module not loaded", "warn"),
-    sync: (v) => {
-      if (W.sync?.render) W.sync.render(v);
-      else W.ui?.toast?.("Sync module not loaded", "warn");
-    },
-    settings: (v) =>
-      W.misc?.renderSettings?.(v) ||
-      W.ui?.toast?.("Settings module not loaded", "warn"),
+      safeRender(v, "portfolio", () => W.dashboard?.renderPortfolio),
+    watchlist: (v) => safeRender(v, "watchlist", () => W.watchlist?.render),
+    explorer: (v) => safeRender(v, "explorer", () => W.explorer?.render),
+    alerts: (v) => safeRender(v, "alerts", () => W.alerts?.render),
+    news: (v) => safeRender(v, "news", () => W.news?.render),
+    ai: (v) => safeRender(v, "ai", () => W.ai?.render),
+    optimizer: (v) => safeRender(v, "optimizer", () => W.optimizer?.render),
+    time: (v) => safeRender(v, "time", () => W.time?.render),
+    trader: (v) => safeRender(v, "trader", () => W.trader?.render),
+    gems: (v) => safeRender(v, "gems", () => W.gems?.render),
+    shield: (v) => safeRender(v, "shield", () => W.shield?.render),
+    web3: (v) => safeRender(v, "web3", () => W.web3?.render),
+    defi: (v) => safeRender(v, "defi", () => W.misc?.renderDefi),
+    airdrops: (v) => safeRender(v, "airdrops", () => W.misc?.renderAirdrops),
+    market: (v) => safeRender(v, "market", () => W.market?.render),
+    sectors: (v) => safeRender(v, "sectors", () => W.sectors?.render),
+    whales: (v) => safeRender(v, "whales", () => W.whales?.render),
+    smart: (v) => safeRender(v, "smart", () => W.smart?.render),
+    unlocks: (v) => safeRender(v, "unlocks", () => W.unlocks?.render),
+    learn: (v) => safeRender(v, "learn", () => W.learn?.render),
+    profile: (v) => safeRender(v, "profile", () => W.misc?.renderProfile),
+    pro: (v) => safeRender(v, "pro", () => W.misc?.renderPro),
+    theses: (v) => safeRender(v, "theses", () => W.theses?.render),
+    journal: (v) => safeRender(v, "journal", () => W.journal?.render),
+    sync: (v) => safeRender(v, "sync", () => W.sync?.render),
+    settings: (v) => safeRender(v, "settings", () => W.misc?.renderSettings),
     token: async (v) => {
       const param = getPageParam();
-      if (W.tokenAnalysis) {
-        if (param) await W.tokenAnalysis.render(v, param);
-        else await W.tokenAnalysis.render(v);
-      } else {
+      if (!W.tokenAnalysis?.render) {
         W.ui?.toast?.("Token Analysis module not loaded", "warn");
+        v.innerHTML = `<div class="card"><p class="muted">Token Analysis module not available.</p></div>`;
+        return;
+      }
+      try {
+        await W.tokenAnalysis.render(v, param || undefined);
+      } catch (e) {
+        console.warn("[Router] token render failed:", e);
+        v.innerHTML = `<div class="card"><p class="muted">Failed to load token analysis: ${W.fmt?.escapeHTML?.(e.message) || "unknown error"}</p></div>`;
       }
     },
   };
@@ -188,6 +174,11 @@ window.W = window.W || {};
       console.warn("[App] View element not found");
       return;
     }
+
+    // Clear previous route's DOM before dispatch. Without this, a
+    // failed or empty render leaves the previous route's content on
+    // screen (e.g. clicking News showed stale Sync content).
+    view.innerHTML = "";
 
     try {
       if (page === "coin" && param) {
