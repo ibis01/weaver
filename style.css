@@ -829,6 +829,7 @@ code {
   color: var(--muted);
   flex: 1;
   display: -webkit-box;
+  line-clamp: 3;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
@@ -1214,3 +1215,22 @@ th.num {
   }
 }
 
+/* ── Data freshness status ─────────────────────────── */
+.data-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.data-status-ok { background: rgba(16, 185, 129, 0.06); }
+.data-status-stale {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: var(--warn);
+}
+.data-status-details, .data-status-note { color: var(--muted); }
+.data-status-note { flex-basis: 100%; font-style: italic; }

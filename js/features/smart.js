@@ -24,6 +24,30 @@ W.smart = (() => {
     return div.innerHTML;
   }
 
+  async function fetchJSON(url, schema) {
+    const response = W.requestGuard
+      ? await W.requestGuard.fetch(
+          url,
+          {},
+          {
+            capacity: 8,
+            refillMs: 10000,
+            failureThreshold: 4,
+            cooldownMs: 30000,
+          },
+        )
+      : await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (W.schemas) W.schemas.validate(schema, data);
+    W.dataHealth?.mark("on-chain", {
+      source: "blockscout",
+      observedAt: Date.now(),
+      staleAfter: CACHE_TTL * 2,
+    });
+    return data;
+  }
+
   // ── Price Map for Historical Dates ────────────────────
 
   async function buildPriceMap(coinId, days = 365) {
@@ -139,9 +163,10 @@ W.smart = (() => {
 
       // Fetch token info and holders
       const [tok, holders] = await Promise.all([
-        fetch(`${BLOCKSCOUT_API}/tokens/${contract}`).then((r) => r.json()),
-        fetch(`${BLOCKSCOUT_API}/tokens/${contract}/holders`).then((r) =>
-          r.json(),
+        fetchJSON(`${BLOCKSCOUT_API}/tokens/${contract}`, "blockscoutToken"),
+        fetchJSON(
+          `${BLOCKSCOUT_API}/tokens/${contract}/holders`,
+          "blockscoutCollection",
         ),
       ]);
 
@@ -161,7 +186,7 @@ W.smart = (() => {
       for (const h of topHolders) {
         try {
           const txUrl = `${BLOCKSCOUT_API}/addresses/${h.address.hash}/token-transfers?token=${contract}`;
-          const txs = await fetch(txUrl).then((r) => r.json());
+          const txs = await fetchJSON(txUrl, "blockscoutCollection");
           const analysis = analyzeWallet(
             txs.items || [],
             h.address.hash,

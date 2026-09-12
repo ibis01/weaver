@@ -11,6 +11,30 @@ const AiModule = (() => {
   const INSIGHTS_KEY = "ai_insights";
   const MAX_HISTORY = 50;
 
+  async function fetchOnChainJSON(url) {
+    const response = W.requestGuard
+      ? await W.requestGuard.fetch(
+          url,
+          {},
+          {
+            capacity: 8,
+            refillMs: 10000,
+            failureThreshold: 4,
+            cooldownMs: 30000,
+          },
+        )
+      : await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (W.schemas) W.schemas.validate("blockscoutCollection", data);
+    W.dataHealth?.mark("on-chain", {
+      source: "blockscout",
+      observedAt: Date.now(),
+      staleAfter: 10 * 60 * 1000,
+    });
+    return data;
+  }
+
   let memory = W.store.get(MEMORY_KEY, { conversations: [], insights: [] });
   let insightsCache = W.store.get(INSIGHTS_KEY, []);
 
@@ -134,9 +158,9 @@ const AiModule = (() => {
       const coin = await W.api.coin(coinId);
       const contract = coin?.platforms?.ethereum;
       if (!contract) return null;
-      const txs = await fetch(
+      const txs = await fetchOnChainJSON(
         `https://eth.blockscout.com/api/v2/tokens/${contract}/transfers`,
-      ).then((r) => r.json());
+      );
       const price = coin?.market_data?.current_price?.usd || 0;
       return (txs.items || [])
         .filter(
@@ -162,17 +186,17 @@ const AiModule = (() => {
       const coin = await W.api.coin(coinId);
       const contract = coin?.platforms?.ethereum;
       if (!contract) return null;
-      const holders = await fetch(
+      const holders = await fetchOnChainJSON(
         `https://eth.blockscout.com/api/v2/tokens/${contract}/holders`,
-      ).then((r) => r.json());
+      );
       if (!holders?.items) return null;
       const top5 = holders.items.slice(0, 5);
       let accumulating = 0;
       for (const h of top5) {
         try {
-          const txs = await fetch(
+          const txs = await fetchOnChainJSON(
             `https://eth.blockscout.com/api/v2/addresses/${h.address.hash}/token-transfers?token=${contract}`,
-          ).then((r) => r.json());
+          );
           const weekAgo = Date.now() - 7 * 864e5;
           const recent = (txs.items || []).filter(
             (t) => new Date(t.timestamp).getTime() > weekAgo,

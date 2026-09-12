@@ -81,7 +81,14 @@ W.web3 = W.web3 || {};
           params: [address],
         }),
       });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
+      if (W.schemas) W.schemas.validate("jsonRpc", data);
+      W.dataHealth?.mark("wallet-data", {
+        source: "solana-rpc",
+        observedAt: Date.now(),
+        staleAfter: 10 * 60 * 1000,
+      });
       return data.result?.value !== undefined ? data.result.value / 1e9 : null;
     } catch (error) {
       console.error("[Web3] Solana balance error"); // SAFE: No raw address logged

@@ -111,10 +111,16 @@ W.tg = (() => {
         return false;
       }
       const data = await response.json();
+      if (W.schemas) W.schemas.validate("telegram", data);
       if (!data.ok) {
         console.error("[Telegram] Error response:", data.description);
         return false;
       }
+      W.dataHealth?.mark("telegram", {
+        source: "telegram",
+        observedAt: Date.now(),
+        staleAfter: 60 * 60 * 1000,
+      });
       return true;
     } catch (e) {
       console.error("[Telegram] Network error:", e.message);

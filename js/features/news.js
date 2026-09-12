@@ -29,10 +29,18 @@ async function via(url, asJSON = false) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 9000);
     try {
-      const resp = await fetch(proxyUrl, {
+      const requestOptions = {
         signal: controller.signal,
         headers: { "User-Agent": "Mozilla/5.0 (compatible; WeaverBot/1.0)" },
-      });
+      };
+      const resp = W.requestGuard
+        ? await W.requestGuard.fetch(proxyUrl, requestOptions, {
+            capacity: 6,
+            refillMs: 10000,
+            failureThreshold: 4,
+            cooldownMs: 30000,
+          })
+        : await fetch(proxyUrl, requestOptions);
       clearTimeout(timeout);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const text = await resp.text();
@@ -44,7 +52,9 @@ async function via(url, asJSON = false) {
         throw new Error("HTML response (not RSS)");
       }
       newsLog(`✅ Proxy succeeded: ${proxyUrl}`);
-      return asJSON ? JSON.parse(text) : text;
+      const parsed = asJSON ? JSON.parse(text) : text;
+      if (asJSON && W.schemas) W.schemas.validate("newsSnapshot", parsed);
+      return parsed;
     } catch (err) {
       clearTimeout(timeout);
       newsLog(`❌ Proxy failed: ${err.message}`);
@@ -68,6 +78,7 @@ function parseRSS(xml) {
     const pubDate = item.querySelector("pubDate")?.textContent || "";
     articles.push({ title, link, description, pubDate });
   });
+  if (W.schemas) W.schemas.validate("newsSnapshot", articles);
   return articles;
 }
 
@@ -129,11 +140,21 @@ async function render(view) {
     });
     const results = await Promise.all(feedPromises);
     const allArticles = results.flatMap((r) => r.articles);
+    W.dataHealth?.mark("news", {
+      source: "rss",
+      observedAt: Date.now(),
+      staleAfter: 60 * 60 * 1000,
+    });
 
     if (allArticles.length === 0) {
       newsLog("No live articles, trying snapshot...");
       const snapshot = await via("", true);
       if (snapshot && snapshot.length) {
+        W.dataHealth?.mark("news", {
+          source: "snapshot",
+          observedAt: Date.now() - 31 * 60 * 1000,
+          staleAfter: 60 * 60 * 1000,
+        });
         renderArticles(snapshot);
         return;
       }

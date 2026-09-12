@@ -26,9 +26,12 @@ const files = [
   // ── UI Core ──────────────────────────────────────────────────
   "js/ui/theme.js",
   "js/ui/ui.js",
+  "js/ui/data-status.js",
   "js/ui/dashboard.js",
 
   // ── API Layer ─────────────────────────────────────────────────
+  "js/api/schemas.js",
+  "js/api/request-guard.js",
   "js/api/prices.js",
   "js/api/snapshot.js",
 

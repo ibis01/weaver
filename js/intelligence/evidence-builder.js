@@ -18,6 +18,7 @@ window.W = window.W || {};
 W.evidence = W.evidence || {};
 
 (function () {
+  const METHODOLOGY_VERSION = "evidence-v1";
   // ── Import helpers from types ──────────────────────────────────
   const { getSourceReliability, computeFreshness, computeConfidence } =
     W.intelligence || {};
@@ -86,7 +87,9 @@ W.evidence = W.evidence || {};
 
     // 6. Compute overall confidence using the canonical model
     const evidence = {
+      methodologyVersion: METHODOLOGY_VERSION,
       signalId: signal.id,
+      observedAt: signal.timestamp || null,
       sourceReliability,
       dataFreshness,
       corroborationCount,

@@ -23,6 +23,40 @@ W.api = (() => {
   let source = "coingecko";
   let circuitBreaker = { failures: 0, until: 0 };
 
+  function schemaForUrl(url) {
+    if (url.includes("/coins/markets")) return "markets";
+    if (url.includes("/market_chart")) return "chart";
+    if (url.includes("/search/trending")) return "trending";
+    if (url.includes("/search?")) return "search";
+    if (url.endsWith("/global")) return "global";
+    if (url.includes("/coins/") && !url.includes("/coins/markets"))
+      return "coin";
+    if (url.includes("alternative.me/fng")) return "fearGreed";
+    if (url.includes("/ticker/24hr")) return "binanceTickers";
+    if (url.includes("/klines")) return "binanceKlines";
+    return null;
+  }
+
+  function resourceForUrl(url) {
+    if (url.includes("/coins/markets")) return "markets";
+    if (url.includes("/market_chart")) return "chart";
+    if (url.includes("/search/trending")) return "trending";
+    if (url.includes("/search?")) return "search";
+    if (url.endsWith("/global")) return "global-market";
+    if (url.includes("/coins/") && !url.includes("/coins/markets"))
+      return "coin";
+    if (url.includes("alternative.me/fng")) return "fear-greed";
+    if (url.includes("/ticker/24hr")) return "markets";
+    if (url.includes("/klines")) return "chart";
+    return "external-data";
+  }
+
+  function validateResponse(url, data) {
+    const schema = schemaForUrl(url);
+    if (schema && W.schemas) W.schemas.validate(schema, data);
+    return data;
+  }
+
   // ── Helpers ────────────────────────────────────────────
   function getCurrency() {
     return W.currency ? W.currency() : "usd";
@@ -73,6 +107,11 @@ W.api = (() => {
     const cached = getCached(url, ttl);
     if (cached !== null) {
       source = "cache";
+      W.dataHealth?.mark(resourceForUrl(url), {
+        source: "cache",
+        observedAt: Date.now() - ttl / 2,
+        staleAfter: ttl,
+      });
       return cached;
     }
     if (isCircuitOpen()) {
@@ -86,13 +125,33 @@ W.api = (() => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
       try {
-        const response = await fetch(proxyUrl, {
-          signal: controller.signal,
-          headers: { "User-Agent": "Weaver/1.0", Accept: "application/json" },
-        });
+        const response = W.requestGuard
+          ? await W.requestGuard.fetch(
+              proxyUrl,
+              {
+                signal: controller.signal,
+                headers: {
+                  "User-Agent": "Weaver/1.0",
+                  Accept: "application/json",
+                },
+              },
+              {
+                capacity: 12,
+                refillMs: 10000,
+                failureThreshold: 5,
+                cooldownMs: 30000,
+              },
+            )
+          : await fetch(proxyUrl, {
+              signal: controller.signal,
+              headers: {
+                "User-Agent": "Weaver/1.0",
+                Accept: "application/json",
+              },
+            });
         clearTimeout(timer);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
+        const data = validateResponse(url, await response.json());
         setCached(url, data);
         resetCircuit();
         source =
@@ -101,6 +160,11 @@ W.api = (() => {
             : proxy === PROXIES[1]
               ? "direct"
               : "public-proxy";
+        W.dataHealth?.mark(resourceForUrl(url), {
+          source,
+          observedAt: Date.now(),
+          staleAfter: ttl * 2,
+        });
         return data;
       } catch (e) {
         lastError = e;

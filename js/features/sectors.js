@@ -28,9 +28,30 @@ W.sectors = (() => {
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 9000);
       try {
-        const r = await fetch(wrap(url), { signal: ctrl.signal });
+        const target = wrap(url);
+        const r = W.requestGuard
+          ? await W.requestGuard.fetch(
+              target,
+              { signal: ctrl.signal },
+              {
+                capacity: 8,
+                refillMs: 10000,
+                failureThreshold: 4,
+                cooldownMs: 30000,
+              },
+            )
+          : await fetch(target, { signal: ctrl.signal });
         clearTimeout(t);
-        if (r.ok) return await r.json();
+        if (r.ok) {
+          const data = await r.json();
+          if (W.schemas) W.schemas.validate("categories", data);
+          W.dataHealth?.mark("categories", {
+            source: "coingecko",
+            observedAt: Date.now(),
+            staleAfter: 30 * 60 * 1000,
+          });
+          return data;
+        }
       } catch (e) {
         lastErr = e;
         clearTimeout(t);

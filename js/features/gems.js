@@ -59,10 +59,29 @@ W.gems = (() => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 9000);
       try {
-        const resp = await fetch(proxy(url), { signal: controller.signal });
+        const target = proxy(url);
+        const resp = W.requestGuard
+          ? await W.requestGuard.fetch(
+              target,
+              { signal: controller.signal },
+              {
+                capacity: 8,
+                refillMs: 10000,
+                failureThreshold: 4,
+                cooldownMs: 30000,
+              },
+            )
+          : await fetch(target, { signal: controller.signal });
         clearTimeout(timeout);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        return await resp.json();
+        const data = await resp.json();
+        if (W.schemas) W.schemas.validate("dexPairs", data);
+        W.dataHealth?.mark("dex-data", {
+          source: "dexscreener",
+          observedAt: Date.now(),
+          staleAfter: 10 * 60 * 1000,
+        });
+        return data;
       } catch (e) {
         lastErr = e;
         clearTimeout(timeout);

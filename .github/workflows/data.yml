@@ -1,23 +1,55 @@
 name: data
+
 on:
   schedule:
     - cron: '*/30 * * * *'
   workflow_dispatch:
-  push:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: market-data-refresh
+  cancel-in-progress: true
 
 jobs:
   fetch:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - name: Fetch market + news snapshots
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Fetch and validate market snapshots
+        shell: bash
         run: |
+          set -euo pipefail
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+          fetch_json() {
+            local url="$1"
+            local output="$2"
+            curl --fail-with-body --show-error --silent --location \
+              --proto '=https' --tlsv1.2 \
+              --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 60 \
+              -A 'WeaverDataBot/1.0' "$url" -o "$output"
+            jq -e 'type == "array" or type == "object"' "$output" >/dev/null
+          }
+          fetch_json "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&price_change_percentage=24h,7d,30d&sparkline=true" "$tmp_dir/top.json"
+          fetch_json "https://api.coingecko.com/api/v3/global" "$tmp_dir/global.json"
+          fetch_json "https://min-api.cryptocompare.com/data/v2/news/?lang=EN" "$tmp_dir/news.json"
+          fetch_json "https://api.alternative.me/fng/?limit=1" "$tmp_dir/fng.json"
+          jq -e 'type == "array" and length > 0 and all(.[]; (.id | type == "string") and (.current_price | type == "number"))' "$tmp_dir/top.json" >/dev/null
+          jq -e 'has("data") and (.data | type == "object")' "$tmp_dir/global.json" >/dev/null
+          jq -e 'has("Data") and (.Data | type == "array")' "$tmp_dir/news.json" >/dev/null
+          jq -e 'has("data") and (.data | type == "array") and (.data | length > 0)' "$tmp_dir/fng.json" >/dev/null
           mkdir -p data
-          curl -s "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&price_change_percentage=24h,7d,30d&sparkline=true" -o data/top.json
-          curl -s "https://api.coingecko.com/api/v3/global" -o data/global.json
-          curl -s "https://min-api.cryptocompare.com/data/v2/news/?lang=EN" -o data/news.json
-          curl -s "https://api.alternative.me/fng/?limit=1" -o data/fng.json
-      - name: Commit snapshots
+          mv "$tmp_dir/top.json" data/top.json
+          mv "$tmp_dir/global.json" data/global.json
+          mv "$tmp_dir/news.json" data/news.json
+          mv "$tmp_dir/fng.json" data/fng.json
+
+      - name: Commit validated snapshots
         run: |
           git config user.name "weaver-bot"
           git config user.email "bot@users.noreply.github.com"

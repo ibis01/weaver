@@ -1517,6 +1517,67 @@ W.ui = {
 };
 
 console.log("[UI] Module loaded.");
+// ---- js/ui/data-status.js ----
+// ===============================================================
+// Data freshness status UI
+// ===============================================================
+
+window.W = window.W || {};
+W.ui = W.ui || {};
+
+W.ui.renderDataStatus = function (container, resources = []) {
+  if (!container) return;
+  container.replaceChildren();
+  const statuses = resources.map(
+    (resource) =>
+      W.dataHealth?.get(resource) || {
+        resource,
+        source: "unknown",
+        state: "unknown",
+        ageMs: null,
+      },
+  );
+  const stale = statuses.filter((item) => item.state === "stale");
+  const unknown = statuses.filter((item) => item.state === "unknown");
+  const wrapper = document.createElement("div");
+  wrapper.className = `data-status ${stale.length ? "data-status-stale" : "data-status-ok"}`;
+  const title = document.createElement("strong");
+  title.textContent = stale.length ? "⚠ Data may be stale" : "✓ Data freshness";
+  wrapper.appendChild(title);
+
+  const details = document.createElement("span");
+  details.className = "data-status-details";
+  details.textContent = statuses
+    .map((item) => {
+      const label = item.resource.replaceAll("-", " ");
+      if (item.state === "unknown") return `${label}: unavailable`;
+      const age = formatAge(item.ageMs);
+      return `${label}: ${age} (${item.source})`;
+    })
+    .join(" · ");
+  wrapper.appendChild(details);
+
+  if (unknown.length || stale.length) {
+    const note = document.createElement("span");
+    note.className = "data-status-note";
+    note.textContent = "Verify important decisions against a current source.";
+    wrapper.appendChild(note);
+  }
+  container.appendChild(wrapper);
+};
+
+function formatAge(ageMs) {
+  if (!Number.isFinite(ageMs)) return "unknown age";
+  const minutes = Math.floor(ageMs / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m old`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h old`;
+  return `${Math.floor(hours / 24)}d old`;
+}
+
+W.ui.formatDataAge = formatAge;
+console.log("[DataStatus] Freshness UI loaded.");
 // ---- js/ui/dashboard.js ----
 // ===============================================================
 //                     Weaver Dashboard UI
@@ -1787,6 +1848,7 @@ W.dashboard = (() => {
 
   async function render(view) {
     view.innerHTML = `
+      <div id="d-data-health" aria-live="polite"></div>
       <div class="cards" id="d-stats"></div>
       <div class="grid-2">
         <div id="what-matters-now-container"></div>
@@ -1848,6 +1910,15 @@ W.dashboard = (() => {
     const rows = pf.status === "fulfilled" ? pf.value.rows : [];
     const totals = pf.status === "fulfilled" ? pf.value.totals : null;
     const g = globR.status === "fulfilled" ? globR.value.data : null;
+
+    const healthEl = view.querySelector("#d-data-health");
+    if (healthEl && W.ui.renderDataStatus) {
+      W.ui.renderDataStatus(healthEl, [
+        "markets",
+        "global-market",
+        "fear-greed",
+      ]);
+    }
 
     const statsEl = view.querySelector("#d-stats");
     if (statsEl) {
@@ -1982,6 +2053,539 @@ W.dashboard = (() => {
 })();
 
 console.log("[Dashboard] Module loaded (CSP compliant).");
+// ---- js/api/schemas.js ----
+// ===============================================================
+// Runtime API schemas and freshness metadata
+// ===============================================================
+
+window.W = window.W || {};
+
+W.dataHealth = (() => {
+  const resources = {};
+  const DEFAULT_STALE_AFTER = 30 * 60 * 1000;
+
+  function mark(
+    resource,
+    {
+      source = "unknown",
+      observedAt = Date.now(),
+      staleAfter = DEFAULT_STALE_AFTER,
+    } = {},
+  ) {
+    const timestamp =
+      typeof observedAt === "number" ? observedAt : Date.parse(observedAt);
+    resources[resource] = {
+      resource,
+      source,
+      observedAt: Number.isFinite(timestamp) ? timestamp : Date.now(),
+      staleAfter,
+      updatedAt: Date.now(),
+    };
+    return resources[resource];
+  }
+
+  function get(resource) {
+    const item = resources[resource];
+    if (!item)
+      return {
+        resource,
+        source: "unknown",
+        state: "unknown",
+        ageMs: null,
+        observedAt: null,
+      };
+    const ageMs = Math.max(0, Date.now() - item.observedAt);
+    return {
+      ...item,
+      ageMs,
+      state: ageMs > item.staleAfter ? "stale" : "fresh",
+    };
+  }
+
+  function all() {
+    return Object.keys(resources).map(get);
+  }
+  function isStale(resource) {
+    return get(resource).state === "stale";
+  }
+  return { mark, get, all, isStale };
+})();
+
+W.schemas = (() => {
+  class SchemaValidationError extends Error {
+    constructor(name, message) {
+      super(`${name}: ${message}`);
+      this.name = "SchemaValidationError";
+      this.schema = name;
+    }
+  }
+
+  const isObject = (v) =>
+    v !== null && typeof v === "object" && !Array.isArray(v);
+  const isFiniteNumber = (v) => typeof v === "number" && Number.isFinite(v);
+  const optionalNumber = (v) =>
+    v === null || v === undefined || isFiniteNumber(v);
+  const requiredString = (v) => typeof v === "string" && v.length > 0;
+
+  function assert(name, condition, message) {
+    if (!condition) throw new SchemaValidationError(name, message);
+  }
+
+  function marketCoin(value, name = "market coin") {
+    assert(name, isObject(value), "expected an object");
+    assert(name, requiredString(value.id), "id must be a non-empty string");
+    assert(
+      name,
+      requiredString(value.symbol),
+      "symbol must be a non-empty string",
+    );
+    assert(
+      name,
+      isFiniteNumber(value.current_price),
+      "current_price must be a finite number",
+    );
+    assert(
+      name,
+      optionalNumber(value.market_cap),
+      "market_cap must be numeric or null",
+    );
+    return value;
+  }
+
+  function markets(value) {
+    assert(
+      "CoinGecko markets",
+      Array.isArray(value) && value.length > 0,
+      "expected a non-empty array",
+    );
+    value.forEach((coin, index) =>
+      marketCoin(coin, `CoinGecko markets[${index}]`),
+    );
+    return value;
+  }
+
+  function global(value) {
+    assert(
+      "CoinGecko global",
+      isObject(value) && isObject(value.data),
+      "data must be an object",
+    );
+    const data = value.data;
+    assert(
+      "CoinGecko global",
+      isObject(data.total_market_cap),
+      "total_market_cap is required",
+    );
+    assert(
+      "CoinGecko global",
+      optionalNumber(data.market_cap_change_percentage_24h_usd),
+      "market cap change must be numeric",
+    );
+    return value;
+  }
+
+  function fearGreed(value) {
+    assert(
+      "Fear and Greed",
+      isObject(value) && Array.isArray(value.data) && value.data.length > 0,
+      "data must be a non-empty array",
+    );
+    const item = value.data[0];
+    assert(
+      "Fear and Greed",
+      requiredString(String(item.value ?? "")),
+      "value is required",
+    );
+    assert(
+      "Fear and Greed",
+      requiredString(item.value_classification),
+      "value_classification is required",
+    );
+    return value;
+  }
+
+  function search(value) {
+    assert(
+      "CoinGecko search",
+      isObject(value) && Array.isArray(value.coins),
+      "coins must be an array",
+    );
+    value.coins.forEach((coin, index) => {
+      assert(
+        "CoinGecko search",
+        isObject(coin) && requiredString(coin.id),
+        `coins[${index}].id is required`,
+      );
+    });
+    return value;
+  }
+
+  function coin(value) {
+    assert(
+      "CoinGecko coin",
+      isObject(value) && requiredString(value.id),
+      "id is required",
+    );
+    assert(
+      "CoinGecko coin",
+      requiredString(value.symbol),
+      "symbol is required",
+    );
+    assert(
+      "CoinGecko coin",
+      isObject(value.market_data),
+      "market_data is required",
+    );
+    return value;
+  }
+
+  function chart(value) {
+    assert(
+      "CoinGecko chart",
+      isObject(value) && Array.isArray(value.prices),
+      "prices must be an array",
+    );
+    value.prices.forEach((point, index) => {
+      assert(
+        "CoinGecko chart",
+        Array.isArray(point) &&
+          point.length >= 2 &&
+          isFiniteNumber(point[0]) &&
+          isFiniteNumber(point[1]),
+        `prices[${index}] must be [timestamp, price]`,
+      );
+    });
+    return value;
+  }
+
+  function trending(value) {
+    assert(
+      "CoinGecko trending",
+      isObject(value) && Array.isArray(value.coins),
+      "coins must be an array",
+    );
+    return value;
+  }
+
+  function binanceTickers(value) {
+    assert(
+      "Binance tickers",
+      Array.isArray(value) && value.length > 0,
+      "expected a non-empty array",
+    );
+    value.forEach((item, index) => {
+      assert(
+        "Binance tickers",
+        isObject(item) && requiredString(item.symbol),
+        `tickers[${index}].symbol is required`,
+      );
+      assert(
+        "Binance tickers",
+        requiredString(item.lastPrice) &&
+          Number.isFinite(Number(item.lastPrice)),
+        `tickers[${index}].lastPrice must be numeric`,
+      );
+    });
+    return value;
+  }
+
+  function binanceKlines(value) {
+    assert("Binance klines", Array.isArray(value), "expected an array");
+    value.forEach((item, index) =>
+      assert(
+        "Binance klines",
+        Array.isArray(item) &&
+          item.length >= 5 &&
+          Number.isFinite(Number(item[0])) &&
+          Number.isFinite(Number(item[4])),
+        `klines[${index}] is invalid`,
+      ),
+    );
+    return value;
+  }
+
+  function goplus(value) {
+    assert(
+      "GoPlus security",
+      isObject(value) && Number(value.code) === 1,
+      "successful response code is required",
+    );
+    assert(
+      "GoPlus security",
+      isObject(value.result),
+      "result must be an object",
+    );
+    return value;
+  }
+
+  function blockscoutCollection(value) {
+    assert(
+      "Blockscout collection",
+      isObject(value) && Array.isArray(value.items),
+      "items must be an array",
+    );
+    return value;
+  }
+
+  function blockscoutToken(value) {
+    assert("Blockscout token", isObject(value), "expected an object");
+    return value;
+  }
+
+  function jsonRpc(value) {
+    assert(
+      "JSON-RPC",
+      isObject(value) && value.jsonrpc === "2.0",
+      "jsonrpc 2.0 response is required",
+    );
+    assert(
+      "JSON-RPC",
+      value.error === undefined || isObject(value.error),
+      "error must be an object when present",
+    );
+    assert(
+      "JSON-RPC",
+      value.result !== undefined || value.error !== undefined,
+      "result or error is required",
+    );
+    return value;
+  }
+
+  function bitcoinAddress(value) {
+    assert(
+      "Bitcoin address",
+      isObject(value) && isObject(value.chain_stats),
+      "chain_stats is required",
+    );
+    assert(
+      "Bitcoin address",
+      Number.isFinite(Number(value.chain_stats.funded_txo_sum)) &&
+        Number.isFinite(Number(value.chain_stats.spent_txo_sum)),
+      "chain stats must be numeric",
+    );
+    return value;
+  }
+
+  function telegram(value) {
+    assert(
+      "Telegram API",
+      isObject(value) && value.ok === true,
+      "successful Telegram response is required",
+    );
+    return value;
+  }
+
+  function llm(value) {
+    assert("LLM response", isObject(value), "expected an object");
+    assert(
+      "LLM response",
+      Array.isArray(value.choices) ||
+        Array.isArray(value.content) ||
+        typeof value.text === "string",
+      "no supported completion payload found",
+    );
+    return value;
+  }
+
+  function dexPairs(value) {
+    assert(
+      "DEX Screener",
+      isObject(value) && Array.isArray(value.pairs),
+      "pairs must be an array",
+    );
+    return value;
+  }
+
+  function categories(value) {
+    assert("CoinGecko categories", Array.isArray(value), "expected an array");
+    value.forEach((item, index) =>
+      assert(
+        "CoinGecko categories",
+        isObject(item) && requiredString(item.id),
+        `categories[${index}].id is required`,
+      ),
+    );
+    return value;
+  }
+
+  function bscscan(value) {
+    assert(
+      "BscScan",
+      isObject(value) &&
+        requiredString(String(value.status ?? "")) &&
+        value.result !== undefined,
+      "status and result are required",
+    );
+    return value;
+  }
+
+  function newsSnapshot(value) {
+    assert("News snapshot", Array.isArray(value), "expected an array");
+    value.forEach((item, index) =>
+      assert(
+        "News snapshot",
+        isObject(item) &&
+          requiredString(item.title) &&
+          requiredString(item.link),
+        `items[${index}] is invalid`,
+      ),
+    );
+    return value;
+  }
+
+  function validate(name, value) {
+    const validators = {
+      markets,
+      global,
+      fearGreed,
+      search,
+      coin,
+      chart,
+      trending,
+      binanceTickers,
+      binanceKlines,
+      goplus,
+      blockscoutCollection,
+      blockscoutToken,
+      jsonRpc,
+      bitcoinAddress,
+      telegram,
+      llm,
+      dexPairs,
+      categories,
+      bscscan,
+      newsSnapshot,
+    };
+    assert("Schema", validators[name], `unknown schema ${name}`);
+    return validators[name](value);
+  }
+
+  return {
+    SchemaValidationError,
+    validate,
+    markets,
+    global,
+    fearGreed,
+    search,
+    coin,
+    chart,
+    trending,
+    binanceTickers,
+    binanceKlines,
+    goplus,
+    blockscoutCollection,
+    blockscoutToken,
+    jsonRpc,
+    bitcoinAddress,
+    telegram,
+    llm,
+    dexPairs,
+    categories,
+    bscscan,
+    newsSnapshot,
+  };
+})();
+
+console.log("[Schemas] Runtime API schemas and freshness tracking loaded.");
+// ---- js/api/request-guard.js ----
+// ===============================================================
+// External request resilience: rate limiting and circuit breakers
+// ===============================================================
+
+window.W = window.W || {};
+
+W.requestGuard = (() => {
+  const buckets = new Map();
+  const circuits = new Map();
+  const DEFAULTS = {
+    capacity: 12,
+    refillMs: 10000,
+    failureThreshold: 5,
+    cooldownMs: 30000,
+  };
+
+  function originKey(url) {
+    try {
+      return new URL(url, window.location.href).origin;
+    } catch {
+      return "invalid-origin";
+    }
+  }
+
+  function consume(key, options = {}) {
+    const capacity = options.capacity || DEFAULTS.capacity;
+    const refillMs = options.refillMs || DEFAULTS.refillMs;
+    const now = Date.now();
+    const bucket = buckets.get(key) || { tokens: capacity, last: now };
+    bucket.tokens = Math.min(
+      capacity,
+      bucket.tokens + (now - bucket.last) / refillMs,
+    );
+    bucket.last = now;
+    if (bucket.tokens < 1) {
+      const waitMs = Math.ceil((1 - bucket.tokens) * refillMs);
+      throw new Error(`Rate limit exceeded for ${key}; retry in ${waitMs}ms`);
+    }
+    bucket.tokens -= 1;
+    buckets.set(key, bucket);
+  }
+
+  function before(key, options = {}) {
+    const circuit = circuits.get(key);
+    if (circuit && circuit.openUntil > Date.now()) {
+      throw new Error(`Circuit open for ${key}; retry after cooldown`);
+    }
+    if (circuit && circuit.openUntil <= Date.now()) {
+      circuits.delete(key);
+    }
+    consume(key, options);
+  }
+
+  function success(key) {
+    circuits.delete(key);
+  }
+
+  function failure(key, options = {}) {
+    const threshold = options.failureThreshold || DEFAULTS.failureThreshold;
+    const cooldownMs = options.cooldownMs || DEFAULTS.cooldownMs;
+    const current = circuits.get(key) || { failures: 0, openUntil: 0 };
+    current.failures += 1;
+    if (current.failures >= threshold)
+      current.openUntil = Date.now() + cooldownMs;
+    circuits.set(key, current);
+  }
+
+  async function fetch(url, options = {}, guardOptions = {}) {
+    const key = guardOptions.key || originKey(url);
+    before(key, guardOptions);
+    try {
+      const response = await window.fetch(url, options);
+      if (response.status >= 500 || response.status === 429)
+        failure(key, guardOptions);
+      else if (response.ok) success(key);
+      return response;
+    } catch (error) {
+      failure(key, guardOptions);
+      throw error;
+    }
+  }
+
+  function state(key) {
+    return {
+      bucket: buckets.get(key) || null,
+      circuit: circuits.get(key) || { failures: 0, openUntil: 0 },
+    };
+  }
+
+  function reset() {
+    buckets.clear();
+    circuits.clear();
+  }
+
+  return { fetch, before, success, failure, state, reset, originKey };
+})();
+
+console.log("[RequestGuard] Rate limiting and circuit breakers loaded.");
 // ---- js/api/prices.js ----
 // ===============================================================
 //                  Market Data API
@@ -2007,6 +2611,40 @@ W.api = (() => {
   // ── State ──────────────────────────────────────────────
   let source = "coingecko";
   let circuitBreaker = { failures: 0, until: 0 };
+
+  function schemaForUrl(url) {
+    if (url.includes("/coins/markets")) return "markets";
+    if (url.includes("/market_chart")) return "chart";
+    if (url.includes("/search/trending")) return "trending";
+    if (url.includes("/search?")) return "search";
+    if (url.endsWith("/global")) return "global";
+    if (url.includes("/coins/") && !url.includes("/coins/markets"))
+      return "coin";
+    if (url.includes("alternative.me/fng")) return "fearGreed";
+    if (url.includes("/ticker/24hr")) return "binanceTickers";
+    if (url.includes("/klines")) return "binanceKlines";
+    return null;
+  }
+
+  function resourceForUrl(url) {
+    if (url.includes("/coins/markets")) return "markets";
+    if (url.includes("/market_chart")) return "chart";
+    if (url.includes("/search/trending")) return "trending";
+    if (url.includes("/search?")) return "search";
+    if (url.endsWith("/global")) return "global-market";
+    if (url.includes("/coins/") && !url.includes("/coins/markets"))
+      return "coin";
+    if (url.includes("alternative.me/fng")) return "fear-greed";
+    if (url.includes("/ticker/24hr")) return "markets";
+    if (url.includes("/klines")) return "chart";
+    return "external-data";
+  }
+
+  function validateResponse(url, data) {
+    const schema = schemaForUrl(url);
+    if (schema && W.schemas) W.schemas.validate(schema, data);
+    return data;
+  }
 
   // ── Helpers ────────────────────────────────────────────
   function getCurrency() {
@@ -2058,6 +2696,11 @@ W.api = (() => {
     const cached = getCached(url, ttl);
     if (cached !== null) {
       source = "cache";
+      W.dataHealth?.mark(resourceForUrl(url), {
+        source: "cache",
+        observedAt: Date.now() - ttl / 2,
+        staleAfter: ttl,
+      });
       return cached;
     }
     if (isCircuitOpen()) {
@@ -2071,13 +2714,33 @@ W.api = (() => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
       try {
-        const response = await fetch(proxyUrl, {
-          signal: controller.signal,
-          headers: { "User-Agent": "Weaver/1.0", Accept: "application/json" },
-        });
+        const response = W.requestGuard
+          ? await W.requestGuard.fetch(
+              proxyUrl,
+              {
+                signal: controller.signal,
+                headers: {
+                  "User-Agent": "Weaver/1.0",
+                  Accept: "application/json",
+                },
+              },
+              {
+                capacity: 12,
+                refillMs: 10000,
+                failureThreshold: 5,
+                cooldownMs: 30000,
+              },
+            )
+          : await fetch(proxyUrl, {
+              signal: controller.signal,
+              headers: {
+                "User-Agent": "Weaver/1.0",
+                Accept: "application/json",
+              },
+            });
         clearTimeout(timer);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
+        const data = validateResponse(url, await response.json());
         setCached(url, data);
         resetCircuit();
         source =
@@ -2086,6 +2749,11 @@ W.api = (() => {
             : proxy === PROXIES[1]
               ? "direct"
               : "public-proxy";
+        W.dataHealth?.mark(resourceForUrl(url), {
+          source,
+          observedAt: Date.now(),
+          staleAfter: ttl * 2,
+        });
         return data;
       } catch (e) {
         lastError = e;
@@ -2266,7 +2934,6 @@ W.api = (() => {
 
 console.log("[Prices] Module loaded (improved error handling).");
 // ---- js/api/snapshot.js ----
-
 // js/api/snapshot.js – Fallback Snapshot Cache
 
 // This module provides local snapshot fallbacks when live APIs are unreachable.
@@ -2294,6 +2961,57 @@ window.W = window.W || {};
   let topSnapshot = null;
   let globalSnapshot = null;
   let fngSnapshot = null;
+  const snapshotTimes = {};
+
+  function saveStored(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify({ value, savedAt: Date.now() }));
+    } catch (e) {}
+  }
+
+  function readStored(key) {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(key));
+      if (parsed && parsed.value !== undefined) return parsed;
+      return parsed
+        ? { value: parsed, savedAt: Date.now() - 31 * 60 * 1000 }
+        : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function acceptSnapshot(name, value) {
+    if (!W.schemas) return value;
+    if (name === "top") return W.schemas.markets(value);
+    if (name === "global") return W.schemas.global(value);
+    if (name === "fng") return W.schemas.fearGreed(value);
+    return value;
+  }
+
+  function markSnapshot(name, source, observedAt) {
+    snapshotTimes[name] = observedAt || Date.now();
+    W.dataHealth?.mark(
+      name === "fng"
+        ? "fear-greed"
+        : name === "global"
+          ? "global-market"
+          : "markets",
+      {
+        source,
+        observedAt: snapshotTimes[name],
+        staleAfter: 30 * 60 * 1000,
+      },
+    );
+  }
+
+  function markFallback(resource, snapshotName) {
+    W.dataHealth?.mark(resource, {
+      source: "snapshot",
+      observedAt: snapshotTimes[snapshotName] || Date.now() - 31 * 60 * 1000,
+      staleAfter: 30 * 60 * 1000,
+    });
+  }
 
   // ── Load snapshots ─────────────────────────────────────
   async function loadSnapshots() {
@@ -2306,39 +3024,50 @@ window.W = window.W || {};
       ]);
 
       if (topRes.status === "fulfilled" && topRes.value.ok) {
-        topSnapshot = await topRes.value.json();
-        try {
-          localStorage.setItem("snapshot-top", JSON.stringify(topSnapshot));
-        } catch (e) {}
+        topSnapshot = acceptSnapshot("top", await topRes.value.json());
+        saveStored("snapshot-top", topSnapshot);
+        markSnapshot("top", "snapshot", Date.now());
       } else {
         // Fallback to localStorage
-        const stored = localStorage.getItem("snapshot-top");
-        if (stored) topSnapshot = JSON.parse(stored);
+        const stored = readStored("snapshot-top");
+        if (stored) {
+          topSnapshot = acceptSnapshot("top", stored.value);
+          markSnapshot("top", "local-cache", stored.savedAt);
+        }
       }
 
       if (globalRes.status === "fulfilled" && globalRes.value.ok) {
-        globalSnapshot = await globalRes.value.json();
-        try {
-          localStorage.setItem(
-            "snapshot-global",
-            JSON.stringify(globalSnapshot),
-          );
-        } catch (e) {}
+        globalSnapshot = acceptSnapshot("global", await globalRes.value.json());
+        saveStored("snapshot-global", globalSnapshot);
+        markSnapshot("global", "snapshot", Date.now());
       } else {
-        const stored = localStorage.getItem("snapshot-global");
-        if (stored) globalSnapshot = JSON.parse(stored);
-        else globalSnapshot = SNAPSHOT_GLOBAL;
+        const stored = readStored("snapshot-global");
+        if (stored) {
+          globalSnapshot = acceptSnapshot("global", stored.value);
+          markSnapshot("global", "local-cache", stored.savedAt);
+        } else {
+          globalSnapshot = SNAPSHOT_GLOBAL;
+          markSnapshot(
+            "global",
+            "built-in-fallback",
+            Date.now() - 31 * 60 * 1000,
+          );
+        }
       }
 
       if (fngRes.status === "fulfilled" && fngRes.value.ok) {
-        fngSnapshot = await fngRes.value.json();
-        try {
-          localStorage.setItem("snapshot-fng", JSON.stringify(fngSnapshot));
-        } catch (e) {}
+        fngSnapshot = acceptSnapshot("fng", await fngRes.value.json());
+        saveStored("snapshot-fng", fngSnapshot);
+        markSnapshot("fng", "snapshot", Date.now());
       } else {
-        const stored = localStorage.getItem("snapshot-fng");
-        if (stored) fngSnapshot = JSON.parse(stored);
-        else fngSnapshot = SNAPSHOT_FNG;
+        const stored = readStored("snapshot-fng");
+        if (stored) {
+          fngSnapshot = acceptSnapshot("fng", stored.value);
+          markSnapshot("fng", "local-cache", stored.savedAt);
+        } else {
+          fngSnapshot = SNAPSHOT_FNG;
+          markSnapshot("fng", "built-in-fallback", Date.now() - 31 * 60 * 1000);
+        }
       }
     } catch (e) {
       console.warn("[Snapshot] Load error:", e);
@@ -2346,6 +3075,9 @@ window.W = window.W || {};
       topSnapshot = topSnapshot || [];
       globalSnapshot = globalSnapshot || SNAPSHOT_GLOBAL;
       fngSnapshot = fngSnapshot || SNAPSHOT_FNG;
+      markSnapshot("top", "built-in-fallback", Date.now() - 31 * 60 * 1000);
+      markSnapshot("global", "built-in-fallback", Date.now() - 31 * 60 * 1000);
+      markSnapshot("fng", "built-in-fallback", Date.now() - 31 * 60 * 1000);
     }
 
     // Ensure we have arrays
@@ -2376,6 +3108,7 @@ window.W = window.W || {};
           const idArray = typeof ids === "string" ? ids.split(",") : ids;
           const result = topSnapshot.filter((c) => idArray.includes(c.id));
           api.source = "snapshot";
+          markFallback("markets", "top");
           return result.length ? result : topSnapshot.slice(0, idArray.length);
         }
       };
@@ -2392,6 +3125,7 @@ window.W = window.W || {};
           if (!topSnapshot || !topSnapshot.length)
             throw new Error("No snapshot data");
           api.source = "snapshot";
+          markFallback("markets", "top");
           return topSnapshot.slice(0, limit);
         }
       };
@@ -2406,6 +3140,7 @@ window.W = window.W || {};
         } catch (e) {
           console.warn("[Snapshot] Global fallback:", e.message);
           api.source = "snapshot";
+          markFallback("global-market", "global");
           return globalSnapshot || SNAPSHOT_GLOBAL;
         }
       };
@@ -2420,6 +3155,7 @@ window.W = window.W || {};
         } catch (e) {
           console.warn("[Snapshot] FearGreed fallback:", e.message);
           api.source = "snapshot";
+          markFallback("fear-greed", "fng");
           const fg = fngSnapshot?.data?.[0] || SNAPSHOT_FNG;
           return fg;
         }
@@ -2439,6 +3175,7 @@ window.W = window.W || {};
           const coin = topSnapshot.find((c) => c.id === id);
           if (coin?.sparkline_in_7d?.price) {
             api.source = "snapshot";
+            markFallback("chart", "top");
             const prices = coin.sparkline_in_7d.price;
             const now = Date.now();
             return prices.map((v, i) => [
@@ -2470,6 +3207,7 @@ window.W = window.W || {};
             )
             .slice(0, 10);
           api.source = "snapshot";
+          markFallback("markets", "top");
           return {
             coins: results.map((c) => ({
               id: c.id,
@@ -2496,6 +3234,7 @@ window.W = window.W || {};
           const coin = topSnapshot.find((c) => c.id === id);
           if (!coin) throw new Error("Coin not found in snapshot");
           api.source = "snapshot";
+          markFallback("markets", "top");
           return {
             id: coin.id,
             symbol: coin.symbol,
@@ -2735,6 +3474,12 @@ W.ai.providers = (() => {
     }
 
     const data = await response.json();
+    if (W.schemas) W.schemas.validate("llm", data);
+    W.dataHealth?.mark("llm", {
+      source: providerName,
+      observedAt: Date.now(),
+      staleAfter: 15 * 60 * 1000,
+    });
     return provider.parseResponse(data);
   }
 
@@ -2914,6 +3659,7 @@ window.W = window.W || {};
 W.evidence = W.evidence || {};
 
 (function () {
+  const METHODOLOGY_VERSION = "evidence-v1";
   // ── Import helpers from types ──────────────────────────────────
   const { getSourceReliability, computeFreshness, computeConfidence } =
     W.intelligence || {};
@@ -2982,7 +3728,9 @@ W.evidence = W.evidence || {};
 
     // 6. Compute overall confidence using the canonical model
     const evidence = {
+      methodologyVersion: METHODOLOGY_VERSION,
       signalId: signal.id,
+      observedAt: signal.timestamp || null,
       sourceReliability,
       dataFreshness,
       corroborationCount,
@@ -4400,6 +5148,7 @@ console.log("[Intelligence] Confidence model loaded.");
 
 window.W = window.W || {};
 W.decisionEngine = (() => {
+  const METHODOLOGY_VERSION = "decision-engine-v1";
   // ── Helper: Compute Personal Context (enriched) ─────────────
   function computePersonalContext(
     assetId,
@@ -4574,6 +5323,11 @@ W.decisionEngine = (() => {
 
     let recommendedAction = "MONITOR";
     if (
+      ["SECURITY_RISK", "CONTRACT_RISK", "RISK_ALERT"].includes(signal.type) &&
+      assessment.impact > 0.4
+    ) {
+      recommendedAction = "REVIEW_RISK";
+    } else if (
       assessment.relevance > 0.7 &&
       assessment.impact > 0.6 &&
       assessment.urgency > 0.5
@@ -4592,6 +5346,7 @@ W.decisionEngine = (() => {
     const explanation = `Signal: ${signal.type} for ${signal.assetId.symbol}. Score: ${(score * 100).toFixed(0)}%. ${assessment.reasoning.join(". ")}`;
 
     return {
+      methodologyVersion: METHODOLOGY_VERSION,
       signalId: signal.id,
       assessment,
       score,
@@ -6266,10 +7021,18 @@ async function via(url, asJSON = false) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 9000);
     try {
-      const resp = await fetch(proxyUrl, {
+      const requestOptions = {
         signal: controller.signal,
         headers: { "User-Agent": "Mozilla/5.0 (compatible; WeaverBot/1.0)" },
-      });
+      };
+      const resp = W.requestGuard
+        ? await W.requestGuard.fetch(proxyUrl, requestOptions, {
+            capacity: 6,
+            refillMs: 10000,
+            failureThreshold: 4,
+            cooldownMs: 30000,
+          })
+        : await fetch(proxyUrl, requestOptions);
       clearTimeout(timeout);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const text = await resp.text();
@@ -6281,7 +7044,9 @@ async function via(url, asJSON = false) {
         throw new Error("HTML response (not RSS)");
       }
       newsLog(`✅ Proxy succeeded: ${proxyUrl}`);
-      return asJSON ? JSON.parse(text) : text;
+      const parsed = asJSON ? JSON.parse(text) : text;
+      if (asJSON && W.schemas) W.schemas.validate("newsSnapshot", parsed);
+      return parsed;
     } catch (err) {
       clearTimeout(timeout);
       newsLog(`❌ Proxy failed: ${err.message}`);
@@ -6305,6 +7070,7 @@ function parseRSS(xml) {
     const pubDate = item.querySelector("pubDate")?.textContent || "";
     articles.push({ title, link, description, pubDate });
   });
+  if (W.schemas) W.schemas.validate("newsSnapshot", articles);
   return articles;
 }
 
@@ -6366,11 +7132,21 @@ async function render(view) {
     });
     const results = await Promise.all(feedPromises);
     const allArticles = results.flatMap((r) => r.articles);
+    W.dataHealth?.mark("news", {
+      source: "rss",
+      observedAt: Date.now(),
+      staleAfter: 60 * 60 * 1000,
+    });
 
     if (allArticles.length === 0) {
       newsLog("No live articles, trying snapshot...");
       const snapshot = await via("", true);
       if (snapshot && snapshot.length) {
+        W.dataHealth?.mark("news", {
+          source: "snapshot",
+          observedAt: Date.now() - 31 * 60 * 1000,
+          staleAfter: 60 * 60 * 1000,
+        });
         renderArticles(snapshot);
         return;
       }
@@ -6406,6 +7182,30 @@ const AiModule = (() => {
   const MEMORY_KEY = "ai_memory";
   const INSIGHTS_KEY = "ai_insights";
   const MAX_HISTORY = 50;
+
+  async function fetchOnChainJSON(url) {
+    const response = W.requestGuard
+      ? await W.requestGuard.fetch(
+          url,
+          {},
+          {
+            capacity: 8,
+            refillMs: 10000,
+            failureThreshold: 4,
+            cooldownMs: 30000,
+          },
+        )
+      : await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (W.schemas) W.schemas.validate("blockscoutCollection", data);
+    W.dataHealth?.mark("on-chain", {
+      source: "blockscout",
+      observedAt: Date.now(),
+      staleAfter: 10 * 60 * 1000,
+    });
+    return data;
+  }
 
   let memory = W.store.get(MEMORY_KEY, { conversations: [], insights: [] });
   let insightsCache = W.store.get(INSIGHTS_KEY, []);
@@ -6530,9 +7330,9 @@ const AiModule = (() => {
       const coin = await W.api.coin(coinId);
       const contract = coin?.platforms?.ethereum;
       if (!contract) return null;
-      const txs = await fetch(
+      const txs = await fetchOnChainJSON(
         `https://eth.blockscout.com/api/v2/tokens/${contract}/transfers`,
-      ).then((r) => r.json());
+      );
       const price = coin?.market_data?.current_price?.usd || 0;
       return (txs.items || [])
         .filter(
@@ -6558,17 +7358,17 @@ const AiModule = (() => {
       const coin = await W.api.coin(coinId);
       const contract = coin?.platforms?.ethereum;
       if (!contract) return null;
-      const holders = await fetch(
+      const holders = await fetchOnChainJSON(
         `https://eth.blockscout.com/api/v2/tokens/${contract}/holders`,
-      ).then((r) => r.json());
+      );
       if (!holders?.items) return null;
       const top5 = holders.items.slice(0, 5);
       let accumulating = 0;
       for (const h of top5) {
         try {
-          const txs = await fetch(
+          const txs = await fetchOnChainJSON(
             `https://eth.blockscout.com/api/v2/addresses/${h.address.hash}/token-transfers?token=${contract}`,
-          ).then((r) => r.json());
+          );
           const weekAgo = Date.now() - 7 * 864e5;
           const recent = (txs.items || []).filter(
             (t) => new Date(t.timestamp).getTime() > weekAgo,
@@ -8339,10 +9139,29 @@ W.gems = (() => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 9000);
       try {
-        const resp = await fetch(proxy(url), { signal: controller.signal });
+        const target = proxy(url);
+        const resp = W.requestGuard
+          ? await W.requestGuard.fetch(
+              target,
+              { signal: controller.signal },
+              {
+                capacity: 8,
+                refillMs: 10000,
+                failureThreshold: 4,
+                cooldownMs: 30000,
+              },
+            )
+          : await fetch(target, { signal: controller.signal });
         clearTimeout(timeout);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        return await resp.json();
+        const data = await resp.json();
+        if (W.schemas) W.schemas.validate("dexPairs", data);
+        W.dataHealth?.mark("dex-data", {
+          source: "dexscreener",
+          observedAt: Date.now(),
+          staleAfter: 10 * 60 * 1000,
+        });
+        return data;
       } catch (e) {
         lastErr = e;
         clearTimeout(timeout);
@@ -8791,11 +9610,17 @@ W.shield = (() => {
         clearTimeout(timeout);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
+        if (W.schemas) W.schemas.validate("goplus", data);
         if (data.code !== 1) {
           throw new Error(data.message || "API error");
         }
         // Cache and return
         setCache(chainId, address, data);
+        W.dataHealth?.mark("token-security", {
+          source: "goplus",
+          observedAt: Date.now(),
+          staleAfter: CACHE_TTL * 2,
+        });
         return data;
       } catch (e) {
         lastError = e;
@@ -8836,10 +9661,16 @@ W.shield = (() => {
         clearTimeout(timeout);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
+        if (W.schemas) W.schemas.validate("goplus", data);
         if (data.code !== 1) {
           throw new Error(data.message || "API error");
         }
         setCache("solana", address, data);
+        W.dataHealth?.mark("token-security", {
+          source: "goplus-solana",
+          observedAt: Date.now(),
+          staleAfter: CACHE_TTL * 2,
+        });
         return data;
       } catch (e) {
         lastError = e;
@@ -9509,7 +10340,14 @@ W.web3 = W.web3 || {};
           params: [address],
         }),
       });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
+      if (W.schemas) W.schemas.validate("jsonRpc", data);
+      W.dataHealth?.mark("wallet-data", {
+        source: "solana-rpc",
+        observedAt: Date.now(),
+        staleAfter: 10 * 60 * 1000,
+      });
       return data.result?.value !== undefined ? data.result.value / 1e9 : null;
     } catch (error) {
       console.error("[Web3] Solana balance error"); // SAFE: No raw address logged
@@ -10522,6 +11360,30 @@ W.smart = (() => {
     return div.innerHTML;
   }
 
+  async function fetchJSON(url, schema) {
+    const response = W.requestGuard
+      ? await W.requestGuard.fetch(
+          url,
+          {},
+          {
+            capacity: 8,
+            refillMs: 10000,
+            failureThreshold: 4,
+            cooldownMs: 30000,
+          },
+        )
+      : await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (W.schemas) W.schemas.validate(schema, data);
+    W.dataHealth?.mark("on-chain", {
+      source: "blockscout",
+      observedAt: Date.now(),
+      staleAfter: CACHE_TTL * 2,
+    });
+    return data;
+  }
+
   // ── Price Map for Historical Dates ────────────────────
 
   async function buildPriceMap(coinId, days = 365) {
@@ -10637,9 +11499,10 @@ W.smart = (() => {
 
       // Fetch token info and holders
       const [tok, holders] = await Promise.all([
-        fetch(`${BLOCKSCOUT_API}/tokens/${contract}`).then((r) => r.json()),
-        fetch(`${BLOCKSCOUT_API}/tokens/${contract}/holders`).then((r) =>
-          r.json(),
+        fetchJSON(`${BLOCKSCOUT_API}/tokens/${contract}`, "blockscoutToken"),
+        fetchJSON(
+          `${BLOCKSCOUT_API}/tokens/${contract}/holders`,
+          "blockscoutCollection",
         ),
       ]);
 
@@ -10659,7 +11522,7 @@ W.smart = (() => {
       for (const h of topHolders) {
         try {
           const txUrl = `${BLOCKSCOUT_API}/addresses/${h.address.hash}/token-transfers?token=${contract}`;
-          const txs = await fetch(txUrl).then((r) => r.json());
+          const txs = await fetchJSON(txUrl, "blockscoutCollection");
           const analysis = analyzeWallet(
             txs.items || [],
             h.address.hash,
@@ -11269,9 +12132,30 @@ W.sectors = (() => {
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 9000);
       try {
-        const r = await fetch(wrap(url), { signal: ctrl.signal });
+        const target = wrap(url);
+        const r = W.requestGuard
+          ? await W.requestGuard.fetch(
+              target,
+              { signal: ctrl.signal },
+              {
+                capacity: 8,
+                refillMs: 10000,
+                failureThreshold: 4,
+                cooldownMs: 30000,
+              },
+            )
+          : await fetch(target, { signal: ctrl.signal });
         clearTimeout(t);
-        if (r.ok) return await r.json();
+        if (r.ok) {
+          const data = await r.json();
+          if (W.schemas) W.schemas.validate("categories", data);
+          W.dataHealth?.mark("categories", {
+            source: "coingecko",
+            observedAt: Date.now(),
+            staleAfter: 30 * 60 * 1000,
+          });
+          return data;
+        }
       } catch (e) {
         lastErr = e;
         clearTimeout(t);
@@ -12690,10 +13574,16 @@ W.tg = (() => {
         return false;
       }
       const data = await response.json();
+      if (W.schemas) W.schemas.validate("telegram", data);
       if (!data.ok) {
         console.error("[Telegram] Error response:", data.description);
         return false;
       }
+      W.dataHealth?.mark("telegram", {
+        source: "telegram",
+        observedAt: Date.now(),
+        staleAfter: 60 * 60 * 1000,
+      });
       return true;
     } catch (e) {
       console.error("[Telegram] Network error:", e.message);
@@ -12786,6 +13676,26 @@ W.walletSync = (() => {
   const CACHE_KEY = "wallet_sync_cache";
   const CACHE_TTL = 300000; // 5 minutes
 
+  async function fetchJSON(url, options, schema) {
+    const response = W.requestGuard
+      ? await W.requestGuard.fetch(url, options, {
+          capacity: 8,
+          refillMs: 10000,
+          failureThreshold: 4,
+          cooldownMs: 30000,
+        })
+      : await fetch(url, options);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (W.schemas) W.schemas.validate(schema, data);
+    W.dataHealth?.mark("wallet-data", {
+      source: new URL(url).hostname,
+      observedAt: Date.now(),
+      staleAfter: CACHE_TTL * 2,
+    });
+    return data;
+  }
+
   // ── Chain configurations ──────────────────────────────
   const CHAINS = {
     btc: {
@@ -12794,9 +13704,11 @@ W.walletSync = (() => {
       icon: "₿",
       explorer: "https://mempool.space/address/",
       balance: async (addr) => {
-        const data = await fetch(
+        const data = await fetchJSON(
           `https://mempool.space/api/address/${addr}`,
-        ).then((r) => r.json());
+          undefined,
+          "bitcoinAddress",
+        );
         return (
           (data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum) /
           1e8
@@ -12810,16 +13722,20 @@ W.walletSync = (() => {
       icon: "⟠",
       explorer: "https://etherscan.io/address/",
       balance: async (addr) => {
-        const data = await fetch("https://cloudflare-eth.com", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "eth_getBalance",
-            params: [addr, "latest"],
-          }),
-        }).then((r) => r.json());
+        const data = await fetchJSON(
+          "https://cloudflare-eth.com",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "eth_getBalance",
+              params: [addr, "latest"],
+            }),
+          },
+          "jsonRpc",
+        );
         return parseInt(data.result || "0x0", 16) / 1e18;
       },
       tokens: async (addr) => {
@@ -12849,22 +13765,26 @@ W.walletSync = (() => {
         const results = [];
         for (const token of tokens) {
           try {
-            const data = await fetch("https://cloudflare-eth.com", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                jsonrpc: "2.0",
-                id: 1,
-                method: "eth_call",
-                params: [
-                  {
-                    to: token.address,
-                    data: "0x70a08231" + addr.slice(2).padStart(64, "0"),
-                  },
-                  "latest",
-                ],
-              }),
-            }).then((r) => r.json());
+            const data = await fetchJSON(
+              "https://cloudflare-eth.com",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: 1,
+                  method: "eth_call",
+                  params: [
+                    {
+                      to: token.address,
+                      data: "0x70a08231" + addr.slice(2).padStart(64, "0"),
+                    },
+                    "latest",
+                  ],
+                }),
+              },
+              "jsonRpc",
+            );
             const balance =
               parseInt(data.result || "0x0", 16) / Math.pow(10, token.decimals);
             if (balance > 1e-9) {
@@ -12883,9 +13803,11 @@ W.walletSync = (() => {
       icon: "🟡",
       explorer: "https://bscscan.com/address/",
       balance: async (addr) => {
-        const data = await fetch(
+        const data = await fetchJSON(
           `https://api.bscscan.com/api?module=account&action=balance&address=${addr}&tag=latest`,
-        ).then((r) => r.json());
+          undefined,
+          "bscscan",
+        );
         return parseInt(data.result || "0") / 1e18;
       },
       tokens: async (addr) => {
@@ -12911,22 +13833,26 @@ W.walletSync = (() => {
         const results = [];
         for (const token of tokens) {
           try {
-            const data = await fetch("https://bsc-dataseed.binance.org", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                jsonrpc: "2.0",
-                id: 1,
-                method: "eth_call",
-                params: [
-                  {
-                    to: token.address,
-                    data: "0x70a08231" + addr.slice(2).padStart(64, "0"),
-                  },
-                  "latest",
-                ],
-              }),
-            }).then((r) => r.json());
+            const data = await fetchJSON(
+              "https://bsc-dataseed.binance.org",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: 1,
+                  method: "eth_call",
+                  params: [
+                    {
+                      to: token.address,
+                      data: "0x70a08231" + addr.slice(2).padStart(64, "0"),
+                    },
+                    "latest",
+                  ],
+                }),
+              },
+              "jsonRpc",
+            );
             const balance =
               parseInt(data.result || "0x0", 16) / Math.pow(10, token.decimals);
             if (balance > 1e-9) {
@@ -12945,16 +13871,20 @@ W.walletSync = (() => {
       icon: "🟣",
       explorer: "https://solscan.io/account/",
       balance: async (addr) => {
-        const data = await fetch("https://api.mainnet-beta.solana.com", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "getBalance",
-            params: [addr],
-          }),
-        }).then((r) => r.json());
+        const data = await fetchJSON(
+          "https://api.mainnet-beta.solana.com",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "getBalance",
+              params: [addr],
+            }),
+          },
+          "jsonRpc",
+        );
         return (data.result?.value || 0) / 1e9;
       },
       tokens: async (addr) => {
@@ -12974,20 +13904,24 @@ W.walletSync = (() => {
         const results = [];
         for (const token of tokens) {
           try {
-            const data = await fetch("https://api.mainnet-beta.solana.com", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                jsonrpc: "2.0",
-                id: 1,
-                method: "getTokenAccountsByOwner",
-                params: [
-                  addr,
-                  { mint: token.mint },
-                  { encoding: "jsonParsed" },
-                ],
-              }),
-            }).then((r) => r.json());
+            const data = await fetchJSON(
+              "https://api.mainnet-beta.solana.com",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: 1,
+                  method: "getTokenAccountsByOwner",
+                  params: [
+                    addr,
+                    { mint: token.mint },
+                    { encoding: "jsonParsed" },
+                  ],
+                }),
+              },
+              "jsonRpc",
+            );
             let balance = 0;
             (data.result?.value || []).forEach((acc) => {
               const amount =
@@ -13736,7 +14670,7 @@ W.journal = W.journal || {};
           <div class="card">
             <div class="flex-between mb-8">
               <div>
-                <span class="${actionColor} font-bold text-2xl">${d.action.toUpperCase()}</span> 
+                <span class="${actionColor} font-bold text-2xl">${d.action.toUpperCase()}</span>
                 <b>${W.fmt.escapeHTML(d.asset)}</b>
                 <span class="replay-container" data-decision-id="${d.id}"></span>
                 <span class="text-muted small-text"> @ ${W.fmt.price(d.price)}</span>

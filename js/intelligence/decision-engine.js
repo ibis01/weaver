@@ -17,6 +17,7 @@
 
 window.W = window.W || {};
 W.decisionEngine = (() => {
+  const METHODOLOGY_VERSION = "decision-engine-v1";
   // ── Helper: Compute Personal Context (enriched) ─────────────
   function computePersonalContext(
     assetId,
@@ -191,6 +192,11 @@ W.decisionEngine = (() => {
 
     let recommendedAction = "MONITOR";
     if (
+      ["SECURITY_RISK", "CONTRACT_RISK", "RISK_ALERT"].includes(signal.type) &&
+      assessment.impact > 0.4
+    ) {
+      recommendedAction = "REVIEW_RISK";
+    } else if (
       assessment.relevance > 0.7 &&
       assessment.impact > 0.6 &&
       assessment.urgency > 0.5
@@ -209,6 +215,7 @@ W.decisionEngine = (() => {
     const explanation = `Signal: ${signal.type} for ${signal.assetId.symbol}. Score: ${(score * 100).toFixed(0)}%. ${assessment.reasoning.join(". ")}`;
 
     return {
+      methodologyVersion: METHODOLOGY_VERSION,
       signalId: signal.id,
       assessment,
       score,

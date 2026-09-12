@@ -117,11 +117,17 @@ W.shield = (() => {
         clearTimeout(timeout);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
+        if (W.schemas) W.schemas.validate("goplus", data);
         if (data.code !== 1) {
           throw new Error(data.message || "API error");
         }
         // Cache and return
         setCache(chainId, address, data);
+        W.dataHealth?.mark("token-security", {
+          source: "goplus",
+          observedAt: Date.now(),
+          staleAfter: CACHE_TTL * 2,
+        });
         return data;
       } catch (e) {
         lastError = e;
@@ -162,10 +168,16 @@ W.shield = (() => {
         clearTimeout(timeout);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
+        if (W.schemas) W.schemas.validate("goplus", data);
         if (data.code !== 1) {
           throw new Error(data.message || "API error");
         }
         setCache("solana", address, data);
+        W.dataHealth?.mark("token-security", {
+          source: "goplus-solana",
+          observedAt: Date.now(),
+          staleAfter: CACHE_TTL * 2,
+        });
         return data;
       } catch (e) {
         lastError = e;
