@@ -1,4 +1,3 @@
-// ========== proxy-server.js – SECURE & ROBUST ==========
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
@@ -6,32 +5,21 @@ const dns = require("dns").promises;
 const net = require("net");
 const http = require("http");
 const https = require("https");
+const { RedisState } = require("./server/redis-state");
+const { Telemetry } = require("./server/telemetry");
+const { loadConfig } = require("./server/config");
 
 const app = express();
-const PORT = process.env.PROXY_PORT || process.env.PORT || 3001;
-
-const ALLOWED_ORIGINS_ENV = process.env.ALLOWED_ORIGINS || "";
-const isProduction = process.env.NODE_ENV === "production";
-let allowedOrigins = ALLOWED_ORIGINS_ENV.split(",")
-  .map((o) => o.trim())
-  .filter(Boolean);
-
-if (isProduction && allowedOrigins.length === 0) {
-  console.error("ERROR: ALLOWED_ORIGINS must be configured in production.");
-  process.exit(1);
-}
-
-const DEFAULT_ORIGINS = [
-  "http://localhost:8000",
-  "http://127.0.0.1:8000",
-  "http://localhost:3000",
-];
-if (!isProduction && allowedOrigins.length === 0) {
-  allowedOrigins = DEFAULT_ORIGINS;
-  console.log(
-    `[Proxy] Using default development origins: ${allowedOrigins.join(", ")}`,
-  );
-}
+const config = loadConfig();
+const PORT = config.port;
+const isProduction = config.production;
+let allowedOrigins = config.origins;
+if (!isProduction && !allowedOrigins.length)
+  allowedOrigins = [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:3000",
+  ];
 
 const ALLOWED_DOMAINS = [
   "api.coingecko.com",
@@ -52,50 +40,49 @@ const ALLOWED_DOMAINS = [
   "api.etherscan.io",
 ];
 
+const redisState = new RedisState({
+  url: config.redisUrl,
+  required: isProduction,
+  namespace: config.redisNamespace,
+});
+const telemetry = new Telemetry({
+  alertUrl: config.alertWebhookUrl,
+  failureAlertThreshold: config.failureAlertThreshold,
+});
+const memoryRateLimit = new Map();
+const memoryCircuits = new Map();
+
 function ipv4ToNumber(ip) {
   return ip.split(".").reduce((n, octet) => n * 256 + Number(octet), 0);
 }
-
 function isPrivateAddress(address) {
-  const normalized = String(address)
+  const value = String(address)
     .toLowerCase()
     .replace(/^\[|\]$/g, "");
-  if (net.isIPv4(normalized)) {
-    const n = ipv4ToNumber(normalized);
-    const ranges = [
-      [ipv4ToNumber("0.0.0.0"), ipv4ToNumber("0.255.255.255")],
-      [ipv4ToNumber("10.0.0.0"), ipv4ToNumber("10.255.255.255")],
-      [ipv4ToNumber("100.64.0.0"), ipv4ToNumber("100.127.255.255")],
-      [ipv4ToNumber("127.0.0.0"), ipv4ToNumber("127.255.255.255")],
-      [ipv4ToNumber("169.254.0.0"), ipv4ToNumber("169.254.255.255")],
-      [ipv4ToNumber("172.16.0.0"), ipv4ToNumber("172.31.255.255")],
-      [ipv4ToNumber("192.0.0.0"), ipv4ToNumber("192.0.0.255")],
-      [ipv4ToNumber("192.168.0.0"), ipv4ToNumber("192.168.255.255")],
-      [ipv4ToNumber("198.18.0.0"), ipv4ToNumber("198.19.255.255")],
-      [ipv4ToNumber("224.0.0.0"), ipv4ToNumber("255.255.255.255")],
-    ];
-    return ranges.some(([start, end]) => n >= start && n <= end);
+  if (net.isIPv4(value)) {
+    const n = ipv4ToNumber(value);
+    return [
+      ["0.0.0.0", "0.255.255.255"],
+      ["10.0.0.0", "10.255.255.255"],
+      ["100.64.0.0", "100.127.255.255"],
+      ["127.0.0.0", "127.255.255.255"],
+      ["169.254.0.0", "169.254.255.255"],
+      ["172.16.0.0", "172.31.255.255"],
+      ["192.0.0.0", "192.0.0.255"],
+      ["192.168.0.0", "192.168.255.255"],
+      ["198.18.0.0", "198.19.255.255"],
+      ["224.0.0.0", "255.255.255.255"],
+    ].some(([a, b]) => n >= ipv4ToNumber(a) && n <= ipv4ToNumber(b));
   }
-  if (net.isIPv6(normalized)) {
+  if (net.isIPv6(value))
     return (
-      normalized === "::1" ||
-      normalized === "::" ||
-      normalized.startsWith("fc") ||
-      normalized.startsWith("fd") ||
-      normalized.startsWith("fe8") ||
-      normalized.startsWith("fe9") ||
-      normalized.startsWith("fea") ||
-      normalized.startsWith("feb") ||
-      normalized.startsWith("ff") ||
-      normalized.startsWith("::ffff:10.") ||
-      normalized.startsWith("::ffff:127.") ||
-      normalized.startsWith("::ffff:192.168.") ||
-      normalized.startsWith("::ffff:169.254.")
+      value === "::1" ||
+      value === "::" ||
+      /^(fc|fd|fe8|fe9|fea|feb|ff)/.test(value) ||
+      value.startsWith("::ffff:")
     );
-  }
   return true;
 }
-
 async function resolvePublicAddresses(hostname) {
   if (net.isIP(hostname)) {
     if (isPrivateAddress(hostname)) throw new Error("Private IP not allowed");
@@ -105,12 +92,10 @@ async function resolvePublicAddresses(hostname) {
   if (
     !records.length ||
     records.some((record) => isPrivateAddress(record.address))
-  ) {
+  )
     throw new Error("Private or unresolved address not allowed");
-  }
   return records;
 }
-
 async function validateUrl(urlString) {
   if (!urlString || typeof urlString !== "string")
     throw new Error("Missing URL");
@@ -123,76 +108,94 @@ async function validateUrl(urlString) {
   if (!["http:", "https:"].includes(url.protocol))
     throw new Error("Only HTTP/HTTPS allowed");
   const hostname = url.hostname.toLowerCase();
-  const allowed = ALLOWED_DOMAINS.some(
-    (d) => hostname === d || hostname.endsWith(`.${d}`),
-  );
-  if (!allowed) throw new Error(`Domain "${hostname}" is not permitted`);
-  const addresses = await resolvePublicAddresses(hostname);
-  return { url, addresses };
+  if (
+    !ALLOWED_DOMAINS.some(
+      (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+    )
+  )
+    throw new Error(`Domain "${hostname}" is not permitted`);
+  return { url, addresses: await resolvePublicAddresses(hostname) };
 }
-
 function makePinnedAgent(url, addresses) {
   const Agent = url.protocol === "https:" ? https.Agent : http.Agent;
   const selected = addresses[0];
   return new Agent({
     keepAlive: false,
-    lookup: (_hostname, _options, callback) =>
+    lookup: (_host, _opts, callback) =>
       callback(null, selected.address, selected.family),
   });
 }
-
-const rateLimit = new Map();
-const upstreamCircuits = new Map();
-
-function beforeUpstream(hostname) {
-  const circuit = upstreamCircuits.get(hostname);
-  if (circuit && circuit.openUntil > Date.now()) {
-    throw new Error(`Upstream circuit open for ${hostname}`);
+async function checkRateLimit(identity) {
+  if (redisState.connected) {
+    const result = await redisState.consumeRateLimit(identity, {
+      windowMs: config.rateLimitWindowMs,
+      maxRequests: config.rateLimitMaxRequests,
+    });
+    if (!result.allowed) throw new Error("Rate limit exceeded");
+    return;
   }
-  if (circuit && circuit.openUntil <= Date.now())
-    upstreamCircuits.delete(hostname);
-}
-
-function recordUpstreamSuccess(hostname) {
-  upstreamCircuits.delete(hostname);
-}
-
-function recordUpstreamFailure(hostname) {
-  const circuit = upstreamCircuits.get(hostname) || {
-    failures: 0,
-    openUntil: 0,
-  };
-  circuit.failures += 1;
-  if (circuit.failures >= 5) circuit.openUntil = Date.now() + 30000;
-  upstreamCircuits.set(hostname, circuit);
-}
-
-function checkRateLimit(ip) {
   const now = Date.now();
-  const windowMs = 60 * 1000;
-  const maxRequests = 30;
-  const entry = rateLimit.get(ip) || { count: 0, reset: now + windowMs };
-  if (now > entry.reset) {
+  const entry = memoryRateLimit.get(identity) || {
+    count: 0,
+    reset: now + config.rateLimitWindowMs,
+  };
+  if (now >= entry.reset) {
     entry.count = 0;
-    entry.reset = now + windowMs;
+    entry.reset = now + config.rateLimitWindowMs;
   }
-  entry.count++;
-  rateLimit.set(ip, entry);
-  if (entry.count > maxRequests) throw new Error("Rate limit exceeded");
+  if (++entry.count > config.rateLimitMaxRequests)
+    throw new Error("Rate limit exceeded");
+  memoryRateLimit.set(identity, entry);
+}
+async function beforeUpstream(hostname) {
+  if (redisState.connected) {
+    if ((await redisState.circuitOpen(hostname)).open)
+      throw new Error(`Upstream circuit open for ${hostname}`);
+    return;
+  }
+  const circuit = memoryCircuits.get(hostname);
+  if (circuit && circuit.openUntil > Date.now())
+    throw new Error(`Upstream circuit open for ${hostname}`);
+  if (circuit) memoryCircuits.delete(hostname);
+}
+async function upstreamSuccess(hostname) {
+  if (redisState.connected) await redisState.recordCircuitSuccess(hostname);
+  else memoryCircuits.delete(hostname);
+}
+async function upstreamFailure(hostname, status) {
+  let result;
+  if (redisState.connected)
+    result = await redisState.recordCircuitFailure(hostname);
+  else {
+    const circuit = memoryCircuits.get(hostname) || {
+      failures: 0,
+      openUntil: 0,
+    };
+    circuit.failures += 1;
+    if (circuit.failures >= 5) circuit.openUntil = Date.now() + 30000;
+    memoryCircuits.set(hostname, circuit);
+    result = {
+      failures: circuit.failures,
+      opened: circuit.failures === 5,
+      openUntil: circuit.openUntil,
+    };
+  }
+  await telemetry.recordApiFailure(hostname, status || 0, redisState);
+  if (result.opened)
+    await telemetry.circuitOpened(hostname, result.failures, result.openUntil);
 }
 
 app.use(
   cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin))
-        return callback(null, true);
-      return callback(new Error("Origin not allowed by CORS"));
-    },
+    origin: (origin, callback) =>
+      !origin || allowedOrigins.includes(origin)
+        ? callback(null, true)
+        : callback(new Error("Origin not allowed by CORS")),
     methods: ["GET"],
     credentials: false,
   }),
 );
-app.use((req, res, next) => {
+app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
@@ -200,15 +203,12 @@ app.use((req, res, next) => {
 });
 
 app.get("/proxy", async (req, res) => {
-  const clientIp = req.ip || req.connection.remoteAddress || "unknown";
   try {
-    checkRateLimit(clientIp);
-    let validated = await validateUrl(req.query.url);
-    let redirectCount = 0;
-    const MAX_REDIRECTS = 5;
-
-    const fetchUrl = async (current) => {
-      beforeUpstream(current.url.hostname);
+    await checkRateLimit(req.ip || req.connection.remoteAddress || "unknown");
+    let current = await validateUrl(req.query.url);
+    let redirects = 0;
+    while (true) {
+      await beforeUpstream(current.url.hostname);
       let response;
       try {
         response = await axios({
@@ -235,65 +235,99 @@ app.get("/proxy", async (req, res) => {
               : undefined,
         });
         if (response.status >= 500 || response.status === 429)
-          recordUpstreamFailure(current.url.hostname);
-        else recordUpstreamSuccess(current.url.hostname);
+          await upstreamFailure(current.url.hostname, response.status);
+        else await upstreamSuccess(current.url.hostname);
       } catch (error) {
-        recordUpstreamFailure(current.url.hostname);
+        await upstreamFailure(current.url.hostname, error.response?.status);
         throw error;
       }
-      if ([301, 302, 307, 308].includes(response.status)) {
-        if (++redirectCount > MAX_REDIRECTS)
-          throw new Error("Too many redirects");
-        const location = response.headers.location;
-        if (!location) throw new Error("Redirect without Location header");
-        validated = await validateUrl(new URL(location, current.url).href);
-        return fetchUrl(validated);
+      if (![301, 302, 307, 308].includes(response.status)) {
+        res.set(
+          "Content-Type",
+          response.headers["content-type"] || "application/json",
+        );
+        return res.status(response.status).send(response.data);
       }
-      return response;
-    };
-
-    const response = await fetchUrl(validated);
-    console.log(
-      `[Proxy] request completed (${String(response.data).length} bytes)`,
-    );
-    res.set(
-      "Content-Type",
-      response.headers["content-type"] || "application/json",
-    );
-    res.status(response.status).send(response.data);
-  } catch (error) {
-    console.error(`[Proxy] Error: ${error.message}`);
-    let statusCode = 500;
-    let message = "Proxy request failed";
-    if (error.message.includes("Rate limit")) {
-      statusCode = 429;
-      message = "Too many requests";
-    } else if (
-      /not permitted|not allowed|Private|unresolved/.test(error.message)
-    ) {
-      statusCode = 403;
-      message = "Access denied";
-    } else if (/Invalid URL|Missing/.test(error.message)) {
-      statusCode = 400;
-      message = "Bad request";
-    } else if (error.response) {
-      statusCode = error.response.status || 502;
-      message = "Upstream service error";
-    } else if (error.message.includes("Origin not allowed")) {
-      statusCode = 403;
-      message = "CORS origin not allowed";
-    } else if (error.message.includes("Upstream circuit open")) {
-      statusCode = 503;
-      message = "Upstream temporarily unavailable";
+      if (++redirects > 5 || !response.headers.location)
+        throw new Error("Too many redirects");
+      current = await validateUrl(
+        new URL(response.headers.location, current.url).href,
+      );
     }
-    res.set("Content-Type", "text/plain").status(statusCode).send(message);
+  } catch (error) {
+    let status = 500,
+      message = "Proxy request failed";
+    if (error.message.includes("Rate limit"))
+      [status, message] = [429, "Too many requests"];
+    else if (error.message.includes("Upstream circuit open"))
+      [status, message] = [503, "Upstream temporarily unavailable"];
+    else if (/not permitted|not allowed|Private|unresolved/.test(error.message))
+      [status, message] = [403, "Access denied"];
+    else if (/Invalid URL|Missing/.test(error.message))
+      [status, message] = [400, "Bad request"];
+    else if (error.response)
+      [status, message] = [
+        error.response.status || 502,
+        "Upstream service error",
+      ];
+    else if (error.message.includes("Origin not allowed"))
+      [status, message] = [403, "CORS origin not allowed"];
+    console.error(
+      JSON.stringify({ event: "proxy_error", status, message: error.message }),
+    );
+    return res.set("Content-Type", "text/plain").status(status).send(message);
   }
 });
 
-app.get("/health", (req, res) => res.send("Proxy running securely"));
-app.listen(PORT, () => {
-  console.log(`🚀 Secure proxy on http://localhost:${PORT}`);
-  console.log(`   Allowed origins: ${allowedOrigins.join(", ")}`);
+app.get("/health", async (_req, res) => {
+  const result = {
+    service: "weaver-proxy",
+    status: "ok",
+    sharedState: redisState.connected ? "redis" : "memory-fallback",
+    timestamp: new Date().toISOString(),
+  };
+  if (redisState.connected) {
+    try {
+      await redisState.client.ping();
+    } catch {
+      result.status = "degraded";
+      result.sharedState = "redis-unhealthy";
+    }
+  }
+  res.status(result.status === "ok" ? 200 : 503).json(result);
 });
+app.get("/ready", (_req, res) =>
+  res
+    .status(!isProduction || redisState.connected ? 200 : 503)
+    .json({ ready: !isProduction || redisState.connected }),
+);
 
-module.exports = { isPrivateAddress, resolvePublicAddresses, validateUrl };
+async function start() {
+  await redisState.connect();
+  console.log(
+    JSON.stringify({
+      event: redisState.connected
+        ? "shared_state_connected"
+        : "shared_state_fallback",
+      backend: redisState.connected ? "redis" : "memory",
+    }),
+  );
+  return app.listen(PORT, () =>
+    console.log(`Secure proxy listening on ${PORT}`),
+  );
+}
+if (require.main === module)
+  start().catch((error) => {
+    console.error(
+      JSON.stringify({ event: "proxy_start_failed", message: error.message }),
+    );
+    process.exit(1);
+  });
+module.exports = {
+  app,
+  start,
+  isPrivateAddress,
+  resolvePublicAddresses,
+  validateUrl,
+  redisState,
+};
