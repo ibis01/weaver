@@ -9671,6 +9671,11 @@ W.gems = (() => {
     (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
   ];
 
+  // Only chains with a working Token Shield verification path.
+  // Constitution §3.3: DISCOVERABLE_CHAINS ⊆ VERIFIED_CHAINS.
+  // Adding a chain here without adding it to shield.js's CHAINS
+  // violates the constitution. The parity test in test/unit/gems.test.js
+  // enforces this.
   const CHAINS = {
     solana: "🟣",
     ethereum: "🔷",
@@ -9679,13 +9684,11 @@ W.gems = (() => {
     arbitrum: "🔺",
     polygon: "🟪",
     avalanche: "❄️",
-    ton: "💎",
-    blast: "💥",
   };
 
   // Bump this whenever score()'s weights/logic change. Alerts and cards
   // display it so a score from an old version is never confused with one
-  // from a newer, differently-weighted model (Weaver Constitution §3.8).
+  // from a newer, differently-weighted model.
   const SCORE_VERSION = "gem-v1";
 
   // ── Helpers ────────────────────────────────────────────
@@ -9800,14 +9803,17 @@ W.gems = (() => {
     }
 
     s = Math.max(0, Math.min(100, s));
+
+    // Non-directive classifications. Weaver does not issue trading
+    // directives. Constitution §2.4.
     const verdict =
       s >= 70
-        ? ["🌱 High-potential gem", "buy"]
+        ? ["🌱 Strong opportunity signals", "strong-opportunity"]
         : s >= 50
-          ? ["🔥 Heating up", "live"]
+          ? ["🔥 Emerging opportunity", "emerging-opportunity"]
           : s >= 30
-            ? ["⚠️ Degen play", "triggered"]
-            : ["🚩 Avoid", "sell"];
+            ? ["⚠️ Speculative / mixed", "speculative"]
+            : ["🚩 Weak opportunity signals", "weak-opportunity"];
 
     return {
       score: s,
@@ -9827,13 +9833,11 @@ W.gems = (() => {
   let auto = false,
     timer = null;
   let seen = {};
-  let shieldCache = {}; // addr -> shield assessment result (session-only)
+  let shieldCache = {};
 
-  // Chain-parity bridge to Token Shield (Weaver Constitution §3.3): a gem
-  // is only as trustworthy as its verification, so before alerting on it
-  // we ask Shield for a risk assessment. Chains Shield doesn't support yet
-  // (ton, blast) degrade honestly to "unsupported" rather than silently
-  // skipping the check or pretending it passed.
+  // Ask Token Shield for a risk assessment before emitting an alert.
+  // Chains not in Shield's CHAINS return { unsupported: true }; this
+  // is honest degradation, not a silent skip.
   async function checkShield(addr, chainKey) {
     if (shieldCache[addr]) return shieldCache[addr];
     if (!W.shield || !W.shield.CHAINS[chainKey]) {
@@ -9869,7 +9873,6 @@ W.gems = (() => {
     body.innerHTML = W.ui.spinner();
 
     try {
-      // Fetch boosted and profiled tokens
       const [boosts, profiles] = await Promise.allSettled([
         fetchDexScreener(DEXSCREENER_API + "/token-boosts/latest/v1"),
         fetchDexScreener(DEXSCREENER_API + "/token-profiles/latest/v1"),
@@ -9890,7 +9893,6 @@ W.gems = (() => {
       const addresses = [...map.keys()].slice(0, 30);
       if (!addresses.length) throw new Error("No candidates");
 
-      // Fetch pair data
       const pairs = await fetchDexScreener(
         DEXSCREENER_API + "/latest/dex/tokens/" + addresses.join(","),
       );
@@ -9913,13 +9915,10 @@ W.gems = (() => {
         .sort((a, b) => b.analysis.score - a.analysis.score)
         .slice(0, 24);
 
-      // Notify new gems — run a Shield check first so every alert already
-      // carries a risk verdict, not just an opportunity score.
       for (const g of results) {
         const addr = g.pair.baseToken.address;
         if (g.analysis.score >= 70 && !seen[addr]) {
           const shield = await checkShield(addr, g.pair.chainId);
-          // Constitution §2.2 — never ship a bare score with no explanation.
           const reasonLines = (g.analysis.reasons || [])
             .slice(0, 4)
             .map((r) => "• " + r)
@@ -9938,14 +9937,12 @@ W.gems = (() => {
         seen[addr] = 1;
       }
 
-      // Stats
       view.querySelector("#g-stats").innerHTML = `
         <div class="card stat"><div class="stat-label">Candidates scanned</div><div class="stat-big">${addresses.length}</div></div>
         <div class="card stat"><div class="stat-label">Chains covered</div><div class="stat-big">${new Set(results.map((g) => g.pair.chainId)).size}</div></div>
         <div class="card stat"><div class="stat-label">Gems ≥ ${minScore}</div><div class="stat-big">${results.length}</div></div>
       `;
 
-      // Render cards
       if (results.length) {
         body.innerHTML = `<div class="grid-2">${results
           .map((g) => {
@@ -9964,7 +9961,7 @@ W.gems = (() => {
                   <b>${escapeHTML(t.symbol)}</b> <span class="muted small">${escapeHTML(t.name)}</span><br>
                   ${chainTag(p.chainId)} <span class="muted small">age ${ageText(a.ageH)}</span>
                 </div>
-                <div style="text-align:right;">
+                <div class="text-right">
                   <span class="tag ${a.verdict[1]}" style="font-size:12px;padding:5px 10px;">${a.verdict[0]}</span>
                   <div class="alt-num" style="font-size:26px;">${a.score}</div>
                   <div class="muted" style="font-size:10px;">${a.scoreVersion}</div>
@@ -10013,27 +10010,28 @@ W.gems = (() => {
 
   // ── Render ─────────────────────────────────────────────
   async function render(view) {
+    const chainList = Object.keys(CHAINS).join(", ");
     view.innerHTML = `
       <div class="card">
         <div class="watch-head">
-          <h3>🤖 Gem Agent — autonomous new-token hunter</h3>
+          <h3>🤖 Gem Agent — new-token scanner</h3>
           <div class="qa">
-            <label style="margin:0;">Min score
-              <select id="g-min" style="width:auto;">
+            <label class="m-0">Min score
+              <select id="g-min" class="w-auto">
                 <option value="0">0</option>
                 <option value="40" selected>40</option>
                 <option value="60">60</option>
                 <option value="70">70</option>
               </select>
             </label>
-            <label class="small" style="margin:0;">
-              <input type="checkbox" id="g-auto" ${auto ? "checked" : ""} style="width:auto;">
+            <label class="small m-0">
+              <input type="checkbox" id="g-auto" ${auto ? "checked" : ""} class="w-auto">
               Auto-scan 5 min
             </label>
             <button class="btn primary" id="g-go">▶ Scan now</button>
           </div>
         </div>
-        <p class="muted small">The agent crawls DEX Screener's latest boosted & newly-profiled tokens on <b>every chain</b>, pulls their pairs and scores potential: liquidity sweet-spot, volume÷liquidity, momentum, age & early buying pressure. Memecoins can go to zero — not financial advice.</p>
+        <p class="muted small">The agent crawls DEX Screener's latest boosted & newly-profiled tokens on chains with Token Shield verification (<b>${escapeHTML(chainList)}</b>), pulls their pairs and scores potential: liquidity sweet-spot, volume÷liquidity, momentum, age & early buying pressure. Memecoins can go to zero — not financial advice.</p>
       </div>
       <div class="cards" id="g-stats"></div>
       <div id="g-body">${W.ui.spinner()}</div>
@@ -10054,7 +10052,7 @@ W.gems = (() => {
     await scan(view);
   }
 
-  return { render };
+  return { render, CHAINS, SCORE_VERSION };
 })();
 
 console.log("[Gems] Module loaded.");
