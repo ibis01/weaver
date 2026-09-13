@@ -1477,3 +1477,11 @@ th.num {
   background: var(--primary, #7c5cff);
   border-radius: 2px;
 }
+
+/* Opportunity strength badges.
+   The old names (buy/live/triggered/sell) are kept as aliases so any
+   cached markup still renders. Do not reintroduce them in new code. */
+.tag.buy,     .tag.strong-opportunity { color: var(--up); background: rgba(46, 230, 168, 0.12); }
+.tag.live,    .tag.emerging-opportunity { color: var(--warn); background: rgba(255, 179, 92, 0.12); }
+.tag.triggered, .tag.speculative { color: var(--text-muted); background: rgba(255, 255, 255, 0.06); }
+.tag.sell,    .tag.weak-opportunity { color: var(--down); background: rgba(255, 92, 122, 0.12); }

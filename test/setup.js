@@ -135,6 +135,17 @@ global.W = {
       this._holdings = [];
     },
   },
+  // Placeholders for modules loaded at the bottom of this file. If a
+  // require throws (e.g. JSDOM missing an API), the parity test fails
+  // cleanly rather than throwing on undefined.
+  gems: {},
+  shield: { CHAINS: {} },
+  sentry: {
+    init: async () => false,
+    beforeSend: (e) => e,
+    isInitialized: () => false,
+  },
+  sentryBuffer: [],
   // NOTE: decisionEngine is intentionally NOT mocked. Integration
   // tests load the real module via require() below. If a future
   // unit test needs an isolated decision engine, mock it locally
@@ -153,8 +164,22 @@ global.W.api = {
 global.window.W = global.W;
 
 require("../js/models/asset.js");
-require("../js/utils/logger.js");  
+require("../js/utils/logger.js");
 require("../js/intelligence/decision-engine.js");
-require("../js/intelligence/calibration.js"); 
+require("../js/intelligence/calibration.js");
+
+// Load the real gems and shield modules so the chain-parity test
+// exercises the actual chain lists. If either throws, the parity
+// test will fail on empty CHAINS rather than crash on undefined.
+try {
+  require("../js/features/shield.js");
+} catch (e) {
+  console.warn("[setup] shield.js load failed:", e.message);
+}
+try {
+  require("../js/features/gems.js");
+} catch (e) {
+  console.warn("[setup] gems.js load failed:", e.message);
+}
 
 console.log("✅ Test environment initialized with JSDOM and W namespace.");
