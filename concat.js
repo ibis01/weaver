@@ -17,6 +17,7 @@ const files = [
   "js/storage/storage.js",
   "js/lib/crypto/secure.js",
   "js/lib/crypto/secure-session.js",
+  "js/lib/sentry-init.js",
   "js/utils/format.js",
   "js/utils/finance.js",
   "js/utils/debounce.js",
@@ -54,6 +55,7 @@ const files = [
   "js/intelligence/thesis-health.js",
   "js/intelligence/opportunities.js",
   "js/intelligence/decision-replay.js",
+  "js/intelligence/calibration.js",
 
   // ── Intelligence Contracts & Engine ─────────────────────────
   "js/intelligence/types.js",

@@ -7,17 +7,23 @@
 // Uses user-centric impact, not market-cap buckets.
 // No REBALANCE action.
 //
-// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9.1):
+// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9):
 //   - Confidence is derived, never fabricated.
 //   - When confidence is unknown, it stays `null` end-to-end.
 //   - Nulls are never coerced to 0.5 for display or scoring.
 //   - Signals with no evidence are skipped, not defaulted.
 //
+// SCORING VERSION (§3.8):
+//   Every decision carries `scoreVersion` so historical results
+//   remain auditable against the scoring model that produced them.
+//   Bump this string whenever thresholds or weights change.
+//
 // ===============================================================
 
 window.W = window.W || {};
 W.decisionEngine = (() => {
-  const METHODOLOGY_VERSION = "decision-engine-v1";
+  const SCORE_VERSION = "decision-engine-v1";
+
   // ── Helper: Compute Personal Context (enriched) ─────────────
   function computePersonalContext(
     assetId,
@@ -178,11 +184,35 @@ W.decisionEngine = (() => {
       reasoning.push("Confidence: unavailable (evidence incomplete)");
     }
 
-    return { relevance, impact, urgency, confidence, reasoning };
-  }
+    let userCalibration = null;
+    if (W.calibration && W.calibration.forAsset) {
+      try {
+        const r = W.calibration.forAsset(signal.assetId);
+        if (r && r.score != null) userCalibration = r;
+      } catch {
+        /* calibration is optional */
+      }
+    }
+
+    return {
+      relevance,
+      impact,
+      urgency,
+      confidence,
+      reasoning,
+      userCalibration,
+    };
+
 
   // ── Helper: Compute Decision Priority ──────────────────────
   function computeDecisionPriority(signal, assessment) {
+    // Tolerate partial assessments. A caller may pass an object
+    // without `reasoning` (unit tests do this deliberately). Never
+    // crash on a missing field — degrade to an empty explanation.
+    const reasoning = Array.isArray(assessment?.reasoning)
+      ? assessment.reasoning
+      : [];
+
     // If confidence is null, score is 0. The signal will not rank highly.
     const score =
       assessment.relevance *
@@ -190,11 +220,20 @@ W.decisionEngine = (() => {
       assessment.urgency *
       (assessment.confidence ?? 0);
 
+    // Priority is driven by two things: the signal's semantic type,
+    // and the numeric assessment. Type takes precedence because a
+    // "this thesis is deteriorating" signal is a risk signal by
+    // definition — its classification is the type, not the score.
     let recommendedAction = "MONITOR";
-    if (
-      ["SECURITY_RISK", "CONTRACT_RISK", "RISK_ALERT"].includes(signal.type) &&
-      assessment.impact > 0.4
-    ) {
+
+    const RISK_SIGNAL_TYPES = new Set([
+      "THESIS_DETERIORATION",
+      "SECURITY_RISK",
+    ]);
+
+    if (RISK_SIGNAL_TYPES.has(signal.type)) {
+      recommendedAction = "REVIEW_RISK";
+    } else if (signal.type === "REGIME_SHIFT" && assessment.relevance > 0.5) {
       recommendedAction = "REVIEW_RISK";
     } else if (
       assessment.relevance > 0.7 &&
@@ -212,15 +251,19 @@ W.decisionEngine = (() => {
       recommendedAction = "LOG_DECISION";
     }
 
-    const explanation = `Signal: ${signal.type} for ${signal.assetId.symbol}. Score: ${(score * 100).toFixed(0)}%. ${assessment.reasoning.join(". ")}`;
+    const explanation =
+      `Signal: ${signal.type} for ${signal.assetId.symbol}. ` +
+      `Score: ${(score * 100).toFixed(0)}%.` +
+      (reasoning.length ? ` ${reasoning.join(". ")}` : "");
 
     return {
-      methodologyVersion: METHODOLOGY_VERSION,
       signalId: signal.id,
       assessment,
       score,
       recommendedAction,
       explanation,
+      methodologyVersion: SCORE_VERSION,
+      scoreVersion: SCORE_VERSION, 
     };
   }
 
@@ -245,7 +288,7 @@ W.decisionEngine = (() => {
     for (const signal of signals) {
       // 3. Build evidence using the Evidence Builder.
       //    If the builder is unavailable or fails, skip the signal entirely.
-      //    We never fabricate evidence — see WEAVER_CONSTITUTION §2.9.1.
+      //    We never fabricate evidence — see WEAVER_CONSTITUTION §2.9.
       if (!W.evidence || typeof W.evidence.build !== "function") {
         console.warn(
           "[DecisionEngine] Evidence builder unavailable; skipping signal:",
@@ -315,21 +358,14 @@ W.decisionEngine = (() => {
     card.appendChild(title);
 
     const list = document.createElement("ul");
-    list.style.listStyle = "none";
-    list.style.padding = "0";
-    list.style.margin = "0";
+    list.className = "decision-list";
 
     top.forEach((item) => {
       const li = document.createElement("li");
-      li.style.padding = "12px 0";
-      li.style.borderBottom = "1px solid var(--border, #30363d)";
-
+      li.className = "decision-item";
 
       const header = document.createElement("div");
-      header.style.display = "flex";
-      header.style.justifyContent = "space-between";
-      header.style.alignItems = "center";
-      header.style.marginBottom = "4px";
+      header.className = "decision-header";
 
       const assetName = document.createElement("b");
       assetName.textContent = item._assetSymbol || "Asset";
@@ -398,7 +434,7 @@ W.decisionEngine = (() => {
 
       // Confidence bar — only rendered when confidence is genuinely known.
       // When null, show an honest "evidence incomplete" note instead of
-      // a fabricated 50% bar. See WEAVER_CONSTITUTION §2.9.1.
+      // a fabricated 50% bar. See WEAVER_CONSTITUTION §2.9.
       const confidence =
         item.assessment?.confidence !== undefined &&
         item.assessment?.confidence !== null
@@ -407,30 +443,22 @@ W.decisionEngine = (() => {
 
       if (confidence !== null) {
         const confBar = document.createElement("div");
-        confBar.style.marginTop = "8px";
-        confBar.style.display = "flex";
-        confBar.style.alignItems = "center";
-        confBar.style.gap = "8px";
+        confBar.className = "decision-conf-bar";
         const confLabel = document.createElement("span");
         confLabel.className = "muted small";
         confLabel.textContent = "Evidence Strength:";
         const bar = document.createElement("div");
-        bar.style.flex = "1";
-        bar.style.height = "4px";
-        bar.style.background = "rgba(255,255,255,0.1)";
-        bar.style.borderRadius = "2px";
-       bar.style.overflow = "hidden";
+        bar.className = "decision-bar";
         const fill = document.createElement("div");
         const confidencePct = (confidence * 100).toFixed(0);
+        fill.className = "decision-bar-fill";
         fill.style.width = `${confidencePct}%`;
-        fill.style.height = "100%";
         fill.style.background =
           confidence > 0.7
             ? "var(--up, #2ee6a8)"
             : confidence > 0.4
               ? "var(--warn, #ffb35c)"
               : "var(--down, #ff5c7a)";
-        fill.style.borderRadius = "2px";
         bar.appendChild(fill);
         const pctSpan = document.createElement("span");
         pctSpan.className = "muted small";
@@ -462,11 +490,7 @@ W.decisionEngine = (() => {
 
       // Suggested action
       const action = document.createElement("div");
-      action.className = "small";
-      action.style.marginTop = "6px";
-      action.style.padding = "4px 8px";
-      action.style.background = "rgba(124, 92, 255, 0.1)";
-      action.style.borderRadius = "4px";
+      action.className = "small decision-action";
       const actionText = item.recommendedAction || "MONITOR";
       const actionMap = {
         MONITOR: "👀 Monitor",
@@ -491,6 +515,7 @@ W.decisionEngine = (() => {
     computePersonalContext,
     computeAssessment,
     computeDecisionPriority,
+    SCORE_VERSION,
   };
 })();
 
