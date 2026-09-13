@@ -57,12 +57,46 @@ describe("Proxy SSRF Protection", () => {
   });
 
   after(function (done) {
-    if (proxyProcess) {
-      proxyProcess.kill("SIGTERM");
-      proxyProcess.on("exit", () => done());
-    } else {
-      done();
+    // Process shutdown can be slow when there are open connections.
+    // Mocha's 2s default is not enough.
+    this.timeout(8000);
+
+    if (!proxyProcess) return done();
+
+    // If the process already exited, the `exit` event already fired
+    // and will never fire again. Resolve immediately.
+    if (proxyProcess.exitCode !== null || proxyProcess.signalCode !== null) {
+      return done();
     }
+
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      done();
+    };
+
+    proxyProcess.once("exit", finish);
+
+    // Ask nicely first.
+    try {
+      proxyProcess.kill("SIGTERM");
+    } catch {
+      // ESRCH means the process is already gone.
+      return finish();
+    }
+
+    // Force-kill if SIGTERM doesn't land within 3s.
+    const forceTimer = setTimeout(() => {
+      try {
+        proxyProcess.kill("SIGKILL");
+      } catch {
+        /* already gone */
+      }
+      finish();
+    }, 3000);
+
+    proxyProcess.once("exit", () => clearTimeout(forceTimer));
   });
 
   it("should block AWS metadata endpoint", async () => {
