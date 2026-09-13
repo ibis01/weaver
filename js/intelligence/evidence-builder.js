@@ -18,7 +18,6 @@ window.W = window.W || {};
 W.evidence = W.evidence || {};
 
 (function () {
-  const METHODOLOGY_VERSION = "evidence-v1";
   // ── Import helpers from types ──────────────────────────────────
   const { getSourceReliability, computeFreshness, computeConfidence } =
     W.intelligence || {};
@@ -51,45 +50,39 @@ W.evidence = W.evidence || {};
       corroborationCount = 1;
     }
 
-    // 4. Data completeness – how complete the data is (0–1)
+    // 4. Data completeness – how complete the data is (0–1).
+    // No default here: if the caller didn't supply it, we genuinely
+    // don't know how complete the underlying data is. Passing that
+    // through as null (rather than guessing 0.8) is what lets
+    // computeConfidence() honestly report "confidence unavailable"
+    // instead of a fabricated number. WEAVER_CONSTITUTION §2.7/§2.9.
     let dataCompleteness = options.dataCompleteness;
-    if (dataCompleteness === undefined || dataCompleteness === null) {
-      // If we have full price history, 0.9; if only a snapshot, 0.5.
-      // For now, we'll use a default of 0.8 if not provided.
-      dataCompleteness = 0.8;
+    if (dataCompleteness !== undefined && dataCompleteness !== null) {
+      dataCompleteness = Math.max(0, Math.min(1, dataCompleteness));
+    } else {
+      dataCompleteness = null;
     }
-    dataCompleteness = Math.max(0, Math.min(1, dataCompleteness));
 
-    // 5. Interpretation confidence – model‑specific confidence
+    // 5. Interpretation confidence – model‑specific confidence.
+    // Same principle: no invented per-signal-type defaults. A caller
+    // that has a genuine, derived interpretation confidence should
+    // supply it; otherwise this stays null.
     let interpretationConfidence = options.interpretationConfidence;
     if (
-      interpretationConfidence === undefined ||
-      interpretationConfidence === null
+      interpretationConfidence !== undefined &&
+      interpretationConfidence !== null
     ) {
-      // Default is 0.7, but we can derive from signal type:
-      if (signal.type === "PRICE_MOVE") {
-        // For price moves, use the consistency of the move with technicals
-        interpretationConfidence = 0.8;
-      } else if (signal.type === "REGIME_SHIFT") {
-        // Regime detection uses agreement ratio
-        interpretationConfidence = 0.75;
-      } else if (signal.type === "UNLOCK") {
-        // Unlock data is usually reliable if from a verified source
-        interpretationConfidence = 0.85;
-      } else {
-        interpretationConfidence = 0.7;
-      }
+      interpretationConfidence = Math.max(
+        0,
+        Math.min(1, interpretationConfidence),
+      );
+    } else {
+      interpretationConfidence = null;
     }
-    interpretationConfidence = Math.max(
-      0,
-      Math.min(1, interpretationConfidence),
-    );
 
     // 6. Compute overall confidence using the canonical model
     const evidence = {
-      methodologyVersion: METHODOLOGY_VERSION,
       signalId: signal.id,
-      observedAt: signal.timestamp || null,
       sourceReliability,
       dataFreshness,
       corroborationCount,
@@ -100,14 +93,18 @@ W.evidence = W.evidence || {};
 
     evidence.confidence = computeConfidence
       ? computeConfidence(evidence)
-      : sourceReliability *
-        dataFreshness *
-        (1 + (corroborationCount - 1) * 0.1) *
-        dataCompleteness *
-        interpretationConfidence;
+      : dataCompleteness === null || interpretationConfidence === null
+        ? null
+        : sourceReliability *
+          dataFreshness *
+          (1 + (corroborationCount - 1) * 0.1) *
+          dataCompleteness *
+          interpretationConfidence;
 
-    // Clamp confidence
-    evidence.confidence = Math.max(0, Math.min(1, evidence.confidence));
+    // Clamp confidence (only if it was actually computed)
+    if (evidence.confidence !== null) {
+      evidence.confidence = Math.max(0, Math.min(1, evidence.confidence));
+    }
 
     // Add reasoning
     evidence.reasoning.push(
@@ -116,13 +113,19 @@ W.evidence = W.evidence || {};
     evidence.reasoning.push(`Freshness: ${(dataFreshness * 100).toFixed(0)}%`);
     evidence.reasoning.push(`Corroboration: ${corroborationCount} source(s)`);
     evidence.reasoning.push(
-      `Completeness: ${(dataCompleteness * 100).toFixed(0)}%`,
+      dataCompleteness === null
+        ? "Completeness: not available"
+        : `Completeness: ${(dataCompleteness * 100).toFixed(0)}%`,
     );
     evidence.reasoning.push(
-      `Interpretation: ${(interpretationConfidence * 100).toFixed(0)}%`,
+      interpretationConfidence === null
+        ? "Interpretation: not available"
+        : `Interpretation: ${(interpretationConfidence * 100).toFixed(0)}%`,
     );
     evidence.reasoning.push(
-      `Overall confidence: ${(evidence.confidence * 100).toFixed(0)}%`,
+      evidence.confidence === null
+        ? "Overall confidence: unavailable (evidence incomplete)"
+        : `Overall confidence: ${(evidence.confidence * 100).toFixed(0)}%`,
     );
 
     // Store the raw signal id for reference

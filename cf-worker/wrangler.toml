@@ -1,0 +1,6 @@
+name = "weaver-proxy"
+main = "index.js"
+compatibility_date = "2024-09-01"
+
+# Free tier: 100,000 requests/day, no billing required.
+# No KV/D1/R2 bindings needed — this worker is stateless.

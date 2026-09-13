@@ -3,7 +3,7 @@
 // ===============================================================
 // CSP Compliant: Zero inline styles used.
 //
-// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9.1):
+// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9):
 //   - Calibration is only computed when the user actually stated a
 //     confidence for the decision. If none was stated, calibration
 //     is reported as "unknown" rather than fabricated.

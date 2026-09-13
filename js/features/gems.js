@@ -1,4 +1,4 @@
-// – Gem Agent: Token Hunter
+// js/features/gems.js – Gem Agent: Token Hunter
 
 window.W = window.W || {};
 
@@ -20,6 +20,8 @@ W.gems = (() => {
     arbitrum: "🔺",
     polygon: "🟪",
     avalanche: "❄️",
+    ton: "💎",
+    blast: "💥",
   };
 
   // Bump this whenever score()'s weights/logic change. Alerts and cards
@@ -59,29 +61,10 @@ W.gems = (() => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 9000);
       try {
-        const target = proxy(url);
-        const resp = W.requestGuard
-          ? await W.requestGuard.fetch(
-              target,
-              { signal: controller.signal },
-              {
-                capacity: 8,
-                refillMs: 10000,
-                failureThreshold: 4,
-                cooldownMs: 30000,
-              },
-            )
-          : await fetch(target, { signal: controller.signal });
+        const resp = await fetch(proxy(url), { signal: controller.signal });
         clearTimeout(timeout);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const data = await resp.json();
-        if (W.schemas) W.schemas.validate("dexPairs", data);
-        W.dataHealth?.mark("dex-data", {
-          source: "dexscreener",
-          observedAt: Date.now(),
-          staleAfter: 10 * 60 * 1000,
-        });
-        return data;
+        return await resp.json();
       } catch (e) {
         lastErr = e;
         clearTimeout(timeout);
@@ -277,8 +260,14 @@ W.gems = (() => {
         const addr = g.pair.baseToken.address;
         if (g.analysis.score >= 70 && !seen[addr]) {
           const shield = await checkShield(addr, g.pair.chainId);
+          // Constitution §2.2 — never ship a bare score with no explanation.
+          const reasonLines = (g.analysis.reasons || [])
+            .slice(0, 4)
+            .map((r) => "• " + r)
+            .join("\n");
           const msg =
             `🤖 <b>Gem detected:</b> ${g.pair.baseToken.symbol} on ${g.pair.chainId} — score ${g.analysis.score} (${g.analysis.scoreVersion})\n` +
+            (reasonLines ? reasonLines + "\n" : "") +
             shieldSummary(shield);
           W.ui.toast(
             `Gem detected: ${g.pair.baseToken.symbol} — score ${g.analysis.score}`,
@@ -316,7 +305,7 @@ W.gems = (() => {
                   <b>${escapeHTML(t.symbol)}</b> <span class="muted small">${escapeHTML(t.name)}</span><br>
                   ${chainTag(p.chainId)} <span class="muted small">age ${ageText(a.ageH)}</span>
                 </div>
-                <div class="text-right">
+                <div style="text-align:right;">
                   <span class="tag ${a.verdict[1]}" style="font-size:12px;padding:5px 10px;">${a.verdict[0]}</span>
                   <div class="alt-num" style="font-size:26px;">${a.score}</div>
                   <div class="muted" style="font-size:10px;">${a.scoreVersion}</div>
@@ -370,8 +359,8 @@ W.gems = (() => {
         <div class="watch-head">
           <h3>🤖 Gem Agent — autonomous new-token hunter</h3>
           <div class="qa">
-            <label class="m-0">Min score
-              <select id="g-min" class="w-auto">
+            <label style="margin:0;">Min score
+              <select id="g-min" style="width:auto;">
                 <option value="0">0</option>
                 <option value="40" selected>40</option>
                 <option value="60">60</option>
@@ -379,7 +368,7 @@ W.gems = (() => {
               </select>
             </label>
             <label class="small" style="margin:0;">
-              <input type="checkbox" id="g-auto" ${auto ? "checked" : ""} class="w-auto">
+              <input type="checkbox" id="g-auto" ${auto ? "checked" : ""} style="width:auto;">
               Auto-scan 5 min
             </label>
             <button class="btn primary" id="g-go">▶ Scan now</button>

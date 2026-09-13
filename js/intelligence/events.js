@@ -49,10 +49,20 @@ W.events = (() => {
       rawData: { ...raw, title },
     };
 
+    // No fabricated fallback here: if the signal source didn't supply
+    // a genuinely derived completeness/interpretation value, pass
+    // null through honestly rather than manufacturing 0.5. See
+    // js/intelligence/evidence-builder.js and types.js computeConfidence
+    // for how null propagates to an honest "confidence unavailable"
+    // instead of a fake number (WEAVER_CONSTITUTION §2.7/§2.9).
     signal._metadata = {
       corroborationCount: raw.corroborationCount || 1,
-      dataCompleteness: raw.dataCompleteness || 0.5,
-      interpretationConfidence: raw.interpretationConfidence || 0.5,
+      dataCompleteness:
+        raw.dataCompleteness === undefined ? null : raw.dataCompleteness,
+      interpretationConfidence:
+        raw.interpretationConfidence === undefined
+          ? null
+          : raw.interpretationConfidence,
     };
 
     return signal;

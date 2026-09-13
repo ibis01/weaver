@@ -85,12 +85,16 @@ W.opportunities = (() => {
         type: "opportunity",
         symbol: "PORTFOLIO",
         title: "Regime Mismatch: Risk-Off Environment",
-        description: `Market regime is RISK-OFF (${(regimeData.confidence * 100).toFixed(0)}% confidence). Review exposure to speculative assets. ${DISCLAIMER}`,
+        description: `Market regime is RISK-OFF (${regimeData.confidence != null ? (regimeData.confidence * 100).toFixed(0) + "% confidence" : "confidence unavailable"}). Review exposure to speculative assets. ${DISCLAIMER}`,
         impactValue: 0.9,
         confidence: undefined,
         urgency: 0.8,
         source: "opportunity_scanner",
-        interpretationConfidence: regimeData.confidence || 0.7,
+        // Pass regime.js's actual computed confidence through as-is —
+        // no fallback. If it's genuinely missing, evidence-builder.js
+        // now correctly treats that as "confidence unavailable" rather
+        // than a fabricated 0.7 (WEAVER_CONSTITUTION §2.7/§2.9).
+        interpretationConfidence: regimeData.confidence,
         dataCompleteness: 0.8,
       });
     }

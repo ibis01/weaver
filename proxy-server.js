@@ -1,3 +1,17 @@
+// ===============================================================
+//         Weaver Secure Proxy Server
+// ===============================================================
+// Purpose: SSRF-hardened HTTP proxy for external crypto data APIs.
+//
+// State backend (rate limiting, circuit breaking):
+//   - Redis if REDIS_URL is set and the `redis` package is available
+//   - In-memory otherwise. The memory backend is real: it enforces
+//     the same rate limits and circuit-breaker semantics, scoped to
+//     this process. Single-instance deployments never need Redis.
+//
+// Set REQUIRE_REDIS=true in production to make Redis mandatory.
+// ===============================================================
+
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
@@ -5,7 +19,7 @@ const dns = require("dns").promises;
 const net = require("net");
 const http = require("http");
 const https = require("https");
-const { RedisState } = require("./server/redis-state");
+const { createState } = require("./server/redis-state");
 const { Telemetry } = require("./server/telemetry");
 const { loadConfig } = require("./server/config");
 
@@ -40,21 +54,23 @@ const ALLOWED_DOMAINS = [
   "api.etherscan.io",
 ];
 
-const redisState = new RedisState({
-  url: config.redisUrl,
-  required: isProduction,
-  namespace: config.redisNamespace,
-});
+// Populated in start(). Never read before then.
+let redisState = null;
+
 const telemetry = new Telemetry({
   alertUrl: config.alertWebhookUrl,
   failureAlertThreshold: config.failureAlertThreshold,
 });
+
+// Legacy in-process fallbacks used only if redisState is somehow null.
+// In normal operation the MemoryState backend handles these.
 const memoryRateLimit = new Map();
 const memoryCircuits = new Map();
 
 function ipv4ToNumber(ip) {
   return ip.split(".").reduce((n, octet) => n * 256 + Number(octet), 0);
 }
+
 function isPrivateAddress(address) {
   const value = String(address)
     .toLowerCase()
@@ -83,6 +99,7 @@ function isPrivateAddress(address) {
     );
   return true;
 }
+
 async function resolvePublicAddresses(hostname) {
   if (net.isIP(hostname)) {
     if (isPrivateAddress(hostname)) throw new Error("Private IP not allowed");
@@ -96,6 +113,7 @@ async function resolvePublicAddresses(hostname) {
     throw new Error("Private or unresolved address not allowed");
   return records;
 }
+
 async function validateUrl(urlString) {
   if (!urlString || typeof urlString !== "string")
     throw new Error("Missing URL");
@@ -116,6 +134,7 @@ async function validateUrl(urlString) {
     throw new Error(`Domain "${hostname}" is not permitted`);
   return { url, addresses: await resolvePublicAddresses(hostname) };
 }
+
 function makePinnedAgent(url, addresses) {
   const Agent = url.protocol === "https:" ? https.Agent : http.Agent;
   const selected = addresses[0];
@@ -125,8 +144,11 @@ function makePinnedAgent(url, addresses) {
       callback(null, selected.address, selected.family),
   });
 }
+
 async function checkRateLimit(identity) {
-  if (redisState.connected) {
+  // redisState is guaranteed non-null after start(). MemoryState also
+  // reports connected=true, so this branch covers both backends.
+  if (redisState && redisState.connected) {
     const result = await redisState.consumeRateLimit(identity, {
       windowMs: config.rateLimitWindowMs,
       maxRequests: config.rateLimitMaxRequests,
@@ -134,6 +156,7 @@ async function checkRateLimit(identity) {
     if (!result.allowed) throw new Error("Rate limit exceeded");
     return;
   }
+  // Fallback if called before start() or if redisState is missing.
   const now = Date.now();
   const entry = memoryRateLimit.get(identity) || {
     count: 0,
@@ -147,8 +170,9 @@ async function checkRateLimit(identity) {
     throw new Error("Rate limit exceeded");
   memoryRateLimit.set(identity, entry);
 }
+
 async function beforeUpstream(hostname) {
-  if (redisState.connected) {
+  if (redisState && redisState.connected) {
     if ((await redisState.circuitOpen(hostname)).open)
       throw new Error(`Upstream circuit open for ${hostname}`);
     return;
@@ -158,15 +182,18 @@ async function beforeUpstream(hostname) {
     throw new Error(`Upstream circuit open for ${hostname}`);
   if (circuit) memoryCircuits.delete(hostname);
 }
+
 async function upstreamSuccess(hostname) {
-  if (redisState.connected) await redisState.recordCircuitSuccess(hostname);
+  if (redisState && redisState.connected)
+    await redisState.recordCircuitSuccess(hostname);
   else memoryCircuits.delete(hostname);
 }
+
 async function upstreamFailure(hostname, status) {
   let result;
-  if (redisState.connected)
+  if (redisState && redisState.connected) {
     result = await redisState.recordCircuitFailure(hostname);
-  else {
+  } else {
     const circuit = memoryCircuits.get(hostname) || {
       failures: 0,
       openUntil: 0,
@@ -195,6 +222,7 @@ app.use(
     credentials: false,
   }),
 );
+
 app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
@@ -207,6 +235,7 @@ app.get("/proxy", async (req, res) => {
     await checkRateLimit(req.ip || req.connection.remoteAddress || "unknown");
     let current = await validateUrl(req.query.url);
     let redirects = 0;
+
     while (true) {
       await beforeUpstream(current.url.hostname);
       let response;
@@ -234,6 +263,7 @@ app.get("/proxy", async (req, res) => {
               ? makePinnedAgent(current.url, current.addresses)
               : undefined,
         });
+
         if (response.status >= 500 || response.status === 429)
           await upstreamFailure(current.url.hostname, response.status);
         else await upstreamSuccess(current.url.hostname);
@@ -241,6 +271,7 @@ app.get("/proxy", async (req, res) => {
         await upstreamFailure(current.url.hostname, error.response?.status);
         throw error;
       }
+
       if (![301, 302, 307, 308].includes(response.status)) {
         res.set(
           "Content-Type",
@@ -248,15 +279,18 @@ app.get("/proxy", async (req, res) => {
         );
         return res.status(response.status).send(response.data);
       }
+
       if (++redirects > 5 || !response.headers.location)
         throw new Error("Too many redirects");
+
       current = await validateUrl(
         new URL(response.headers.location, current.url).href,
       );
     }
   } catch (error) {
-    let status = 500,
-      message = "Proxy request failed";
+    let status = 500;
+    let message = "Proxy request failed";
+
     if (error.message.includes("Rate limit"))
       [status, message] = [429, "Too many requests"];
     else if (error.message.includes("Upstream circuit open"))
@@ -272,6 +306,7 @@ app.get("/proxy", async (req, res) => {
       ];
     else if (error.message.includes("Origin not allowed"))
       [status, message] = [403, "CORS origin not allowed"];
+
     console.error(
       JSON.stringify({ event: "proxy_error", status, message: error.message }),
     );
@@ -279,43 +314,61 @@ app.get("/proxy", async (req, res) => {
   }
 });
 
+// ── Health ─────────────────────────────────────────────────────
+// Reports the actual backend in use. Only Redis can be "degraded" —
+// the memory backend cannot disconnect.
 app.get("/health", async (_req, res) => {
   const result = {
     service: "weaver-proxy",
     status: "ok",
-    sharedState: redisState.connected ? "redis" : "memory-fallback",
+    backend: redisState ? redisState.backend : "uninitialized",
     timestamp: new Date().toISOString(),
   };
-  if (redisState.connected) {
+
+  if (redisState && redisState.backend === "redis" && redisState.client) {
     try {
       await redisState.client.ping();
     } catch {
       result.status = "degraded";
-      result.sharedState = "redis-unhealthy";
+      result.backend = "redis-unhealthy";
     }
   }
+
   res.status(result.status === "ok" ? 200 : 503).json(result);
 });
-app.get("/ready", (_req, res) =>
-  res
-    .status(!isProduction || redisState.connected ? 200 : 503)
-    .json({ ready: !isProduction || redisState.connected }),
-);
+
+// ── Ready ──────────────────────────────────────────────────────
+// In production, require Redis only if REQUIRE_REDIS=true was set.
+// Otherwise the memory backend is a legitimate readiness state.
+app.get("/ready", (_req, res) => {
+  const requiresRedis = isProduction && process.env.REQUIRE_REDIS === "true";
+  const ready =
+    !requiresRedis || (redisState && redisState.backend === "redis");
+  res.status(ready ? 200 : 503).json({
+    ready,
+    backend: redisState ? redisState.backend : "uninitialized",
+  });
+});
 
 async function start() {
-  await redisState.connect();
+  redisState = await createState({
+    url: config.redisUrl,
+    required: isProduction && process.env.REQUIRE_REDIS === "true",
+    namespace: config.redisNamespace,
+  });
+
   console.log(
     JSON.stringify({
-      event: redisState.connected
-        ? "shared_state_connected"
-        : "shared_state_fallback",
-      backend: redisState.connected ? "redis" : "memory",
+      event: `shared_state_${redisState.backend}`,
+      backend: redisState.backend,
     }),
   );
+
   return app.listen(PORT, () =>
     console.log(`Secure proxy listening on ${PORT}`),
   );
 }
+
 if (require.main === module)
   start().catch((error) => {
     console.error(
@@ -323,11 +376,12 @@ if (require.main === module)
     );
     process.exit(1);
   });
+
 module.exports = {
   app,
   start,
   isPrivateAddress,
   resolvePublicAddresses,
   validateUrl,
-  redisState,
+  getRedisState: () => redisState,
 };

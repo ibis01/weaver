@@ -1,5 +1,5 @@
 // ================================================================
-// Token Shield (Contract Security Auditor)
+// js/features/shield.js – Token Shield (Contract Security Auditor)
 // ================================================================
 
 window.W = window.W || {};
@@ -88,12 +88,51 @@ W.shield = (() => {
     return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
   }
 
+  // ── Own CORS proxy (Cloudflare Worker) ─────────────────
+  // Set this after deploying cf-worker/ (see cf-worker/README.md).
+  // Left blank, Shield falls back to the public-proxy chain below,
+  // so this can be filled in whenever without breaking anything.
+  const WORKER_PROXY_BASE = "";
+
+  async function fetchViaOwnWorker(kind, chainId, address) {
+    if (!WORKER_PROXY_BASE) return null;
+    const path =
+      kind === "solana" ? "/goplus/solana" : `/goplus/evm/${chainId}`;
+    const addrParam = kind === "solana" ? address : address.toLowerCase();
+    const url = `${WORKER_PROXY_BASE}${path}?contract_addresses=${encodeURIComponent(addrParam)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      if (data.code !== 1) throw new Error(data.message || "API error");
+      return data;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   // ── Fetch from GoPlus ─────────────────────────────────
 
   async function fetchTokenSecurity(chainId, address) {
     // Check cache first
     const cached = getCached(chainId, address);
     if (cached) return cached;
+
+    // Prefer our own worker — reliable, no third-party dependency.
+    try {
+      const viaWorker = await fetchViaOwnWorker("evm", chainId, address);
+      if (viaWorker) {
+        setCache(chainId, address, viaWorker);
+        return viaWorker;
+      }
+    } catch (e) {
+      console.warn(
+        "[Shield] Own worker failed, falling back to public proxies:",
+        e.message,
+      );
+    }
 
     const url = `${GOPLUS_API}/${chainId}?contract_addresses=${address.toLowerCase()}`;
 
@@ -117,17 +156,11 @@ W.shield = (() => {
         clearTimeout(timeout);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
-        if (W.schemas) W.schemas.validate("goplus", data);
         if (data.code !== 1) {
           throw new Error(data.message || "API error");
         }
         // Cache and return
         setCache(chainId, address, data);
-        W.dataHealth?.mark("token-security", {
-          source: "goplus",
-          observedAt: Date.now(),
-          staleAfter: CACHE_TTL * 2,
-        });
         return data;
       } catch (e) {
         lastError = e;
@@ -145,6 +178,20 @@ W.shield = (() => {
   async function fetchSolanaTokenSecurity(address) {
     const cached = getCached("solana", address);
     if (cached) return cached;
+
+    // Prefer our own worker — reliable, no third-party dependency.
+    try {
+      const viaWorker = await fetchViaOwnWorker("solana", null, address);
+      if (viaWorker) {
+        setCache("solana", address, viaWorker);
+        return viaWorker;
+      }
+    } catch (e) {
+      console.warn(
+        "[Shield] Own worker failed, falling back to public proxies:",
+        e.message,
+      );
+    }
 
     // Address case matters for Solana — never lowercase it.
     const url = `${GOPLUS_SOLANA_API}?contract_addresses=${address}`;
@@ -168,16 +215,10 @@ W.shield = (() => {
         clearTimeout(timeout);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
-        if (W.schemas) W.schemas.validate("goplus", data);
         if (data.code !== 1) {
           throw new Error(data.message || "API error");
         }
         setCache("solana", address, data);
-        W.dataHealth?.mark("token-security", {
-          source: "goplus-solana",
-          observedAt: Date.now(),
-          staleAfter: CACHE_TTL * 2,
-        });
         return data;
       } catch (e) {
         lastError = e;
@@ -293,7 +334,7 @@ W.shield = (() => {
             <h2>${escapeHTML(result.token_name || "Unknown")} <span class="muted">${escapeHTML(result.token_symbol || "")}</span></h2>
             <p class="muted small">${chain.icon} ${chain.name} · ${holderCount} Holders · Supply: ${totalSupply}</p>
           </div>
-          <div class="text-right">
+          <div style="text-align:right;">
             <span class="tag ${riskLevel[1]}" style="font-size:14px;padding:8px 16px;">${riskLevel[0]}</span>
             <div class="muted small">Risk Score: ${riskScore}/100</div>
             <div class="muted" style="font-size:10px;">${SHIELD_SCORE_VERSION_EVM}</div>
@@ -325,7 +366,7 @@ W.shield = (() => {
           <div class="kv-row"><span>Sell Tax</span> <b style="color: ${parseFloat(sellTax) > 5 ? "var(--down)" : "var(--up)"};">${sellTax}%</b></div>
           <div class="meter-label mt">Tax Severity</div>
           <div class="meter-bar">
-            <div class="bar-fill" data-width="${Math.min(100, (parseFloat(buyTax) + parseFloat(sellTax)) * 2)}" data-risk="${Math.max(parseFloat(buyTax), parseFloat(sellTax)) > 5 ? "high" : "low"}"></div>
+            <div style="width: ${Math.min(100, (parseFloat(buyTax) + parseFloat(sellTax)) * 2)}%; background: ${Math.max(parseFloat(buyTax), parseFloat(sellTax)) > 5 ? "var(--down)" : "var(--up)"};"></div>
           </div>
           <p class="muted small mt">Taxes > 5% are often used to drain buyer funds. 0/0 is ideal.</p>
         </div>
@@ -385,13 +426,6 @@ W.shield = (() => {
       </div>
     `;
   }
-  view.querySelectorAll("[data-width]").forEach((el) => {
-    el.style.width = `${el.dataset.width}%`;
-  });
-  view.querySelectorAll("[data-risk]").forEach((el) => {
-    el.style.background =
-      el.dataset.risk === "high" ? "var(--down)" : "var(--up)";
-  });
 
   // ── Parse and Render Results (Solana) ──────────────────
   // GoPlus's Solana schema is different from EVM: authority-based flags
@@ -768,6 +802,5 @@ W.shield = (() => {
     CHAINS,
   };
 })();
-
 
 console.log("[Shield] Module loaded.");

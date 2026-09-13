@@ -7,22 +7,33 @@
 // Uses user-centric impact, not market-cap buckets.
 // No REBALANCE action.
 //
-// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9):
+// CONFIDENCE POLICY:
 //   - Confidence is derived, never fabricated.
 //   - When confidence is unknown, it stays `null` end-to-end.
 //   - Nulls are never coerced to 0.5 for display or scoring.
 //   - Signals with no evidence are skipped, not defaulted.
 //
-// SCORING VERSION (§3.8):
-//   Every decision carries `scoreVersion` so historical results
-//   remain auditable against the scoring model that produced them.
-//   Bump this string whenever thresholds or weights change.
+// USER CALIBRATION:
+//   - Exposed as assessment.userCalibration.
+//   - DISPLAY METRIC ONLY. Never modifies evidence.confidence.
+//   - See js/intelligence/calibration.js for the design rationale.
 //
+// SCORING VERSION:
+//   Every decision carries `scoreVersion` / `methodologyVersion`
+//   so historical results remain auditable against the scoring
+//   model that produced them. Bump on threshold changes.
 // ===============================================================
 
 window.W = window.W || {};
 W.decisionEngine = (() => {
   const SCORE_VERSION = "decision-engine-v1";
+
+  // Signal types that are risk signals by definition. Their priority
+  // is REVIEW_RISK regardless of numeric thresholds.
+  const RISK_SIGNAL_TYPES = new Set([
+    "THESIS_DETERIORATION",
+    "SECURITY_RISK",
+  ]);
 
   // ── Helper: Compute Personal Context (enriched) ─────────────
   function computePersonalContext(
@@ -47,7 +58,6 @@ W.decisionEngine = (() => {
     let chainExposure = 0;
     let sectorExposure = 0;
 
-    // Portfolio weight
     const holdings = portfolio.filter(
       (h) => (h.symbol || "").toUpperCase() === symbol,
     );
@@ -57,12 +67,10 @@ W.decisionEngine = (() => {
         holdings.reduce((sum, h) => sum + (h.value || 0), 0) / totalValue;
     }
 
-    // Watchlist
     if (watchlist.some((w) => (w || "").toUpperCase() === symbol)) {
       watchlistStatus = "WATCHING";
     }
 
-    // Thesis status and health
     const thesis = theses.find(
       (t) => (t.assetId?.symbol || t.symbol || "").toUpperCase() === symbol,
     );
@@ -75,7 +83,6 @@ W.decisionEngine = (() => {
       }
     }
 
-    // Recent decisions
     const now = Date.now();
     const weekAgo = now - 7 * 86400000;
     const recent = journal.filter((d) => {
@@ -84,8 +91,6 @@ W.decisionEngine = (() => {
     });
     recentDecisions = recent.length;
 
-    // Decision confidence — average only over decisions that actually
-    // stated a confidence. Nulls are excluded, not treated as 0.5.
     const statedConfidences = recent
       .map((d) => d.confidence)
       .filter((c) => c !== null && c !== undefined && !isNaN(c))
@@ -99,12 +104,10 @@ W.decisionEngine = (() => {
       decisionConfidence = null;
     }
 
-    // Behavioral risk
     if (behavior && behavior.pattern !== "none") {
       behavioralRisk = behavior.pattern.toUpperCase();
     }
 
-    // Chain and sector exposure
     chainExposure = 0;
     sectorExposure = 0;
 
@@ -141,10 +144,7 @@ W.decisionEngine = (() => {
     }
     relevance = Math.min(1, relevance);
 
-    // 2. Impact — portfolio-aware, not market-cap based.
-    //    If evidence.confidence is null, treat as zero impact (no signal),
-    //    not as a fabricated 0.5. The signal remains surfaced through
-    //    relevance/urgency but scores 0 in the final priority.
+    // 2. Impact
     const eventSeverity = signal.rawData?.impactValue || 0.5;
     const confidenceForImpact = evidence.confidence ?? 0;
     let impact =
@@ -167,7 +167,7 @@ W.decisionEngine = (() => {
       urgency = 0.5;
     }
 
-    // Confidence stays null if unknown. Never default to 0.5.
+    // Confidence stays null if unknown.
     const confidence =
       evidence.confidence !== null && evidence.confidence !== undefined
         ? evidence.confidence
@@ -184,6 +184,7 @@ W.decisionEngine = (() => {
       reasoning.push("Confidence: unavailable (evidence incomplete)");
     }
 
+    // User calibration — DISPLAY ONLY. Never modifies confidence.
     let userCalibration = null;
     if (W.calibration && W.calibration.forAsset) {
       try {
@@ -202,34 +203,23 @@ W.decisionEngine = (() => {
       reasoning,
       userCalibration,
     };
-
+  }
 
   // ── Helper: Compute Decision Priority ──────────────────────
   function computeDecisionPriority(signal, assessment) {
     // Tolerate partial assessments. A caller may pass an object
-    // without `reasoning` (unit tests do this deliberately). Never
-    // crash on a missing field — degrade to an empty explanation.
+    // without `reasoning` (unit tests do this deliberately).
     const reasoning = Array.isArray(assessment?.reasoning)
       ? assessment.reasoning
       : [];
 
-    // If confidence is null, score is 0. The signal will not rank highly.
     const score =
       assessment.relevance *
       assessment.impact *
       assessment.urgency *
       (assessment.confidence ?? 0);
 
-    // Priority is driven by two things: the signal's semantic type,
-    // and the numeric assessment. Type takes precedence because a
-    // "this thesis is deteriorating" signal is a risk signal by
-    // definition — its classification is the type, not the score.
     let recommendedAction = "MONITOR";
-
-    const RISK_SIGNAL_TYPES = new Set([
-      "THESIS_DETERIORATION",
-      "SECURITY_RISK",
-    ]);
 
     if (RISK_SIGNAL_TYPES.has(signal.type)) {
       recommendedAction = "REVIEW_RISK";
@@ -263,17 +253,15 @@ W.decisionEngine = (() => {
       recommendedAction,
       explanation,
       methodologyVersion: SCORE_VERSION,
-      scoreVersion: SCORE_VERSION, 
+      scoreVersion: SCORE_VERSION,
     };
   }
 
   // ── Main Pipeline ──────────────────────────────────────────
   async function run() {
-    // 1. Collect raw signals
     const signals = await W.events.collectEvents();
     if (!signals || !signals.length) return [];
 
-    // 2. Gather personal data
     const portfolio = W.portfolio?.all() || [];
     const watchlist = W.watchlist?.list ? W.watchlist.list() : [];
     const theses = W.theses?.all ? W.theses.all() : [];
@@ -286,9 +274,6 @@ W.decisionEngine = (() => {
     const decisions = [];
 
     for (const signal of signals) {
-      // 3. Build evidence using the Evidence Builder.
-      //    If the builder is unavailable or fails, skip the signal entirely.
-      //    We never fabricate evidence — see WEAVER_CONSTITUTION §2.9.
       if (!W.evidence || typeof W.evidence.build !== "function") {
         console.warn(
           "[DecisionEngine] Evidence builder unavailable; skipping signal:",
@@ -313,7 +298,6 @@ W.decisionEngine = (() => {
         continue;
       }
 
-      // 4. Compute Personal Context
       const context = computePersonalContext(
         signal.assetId,
         portfolio,
@@ -324,10 +308,8 @@ W.decisionEngine = (() => {
         settings,
       );
 
-      // 5. Compute Assessment
       const assessment = computeAssessment(signal, context, evidence);
 
-      // 6. Compute Decision Priority
       const priority = computeDecisionPriority(signal, assessment);
       priority._assetSymbol = signal.assetId.symbol;
       priority._signalType = signal.type;
@@ -432,9 +414,7 @@ W.decisionEngine = (() => {
         li.appendChild(fallback);
       }
 
-      // Confidence bar — only rendered when confidence is genuinely known.
-      // When null, show an honest "evidence incomplete" note instead of
-      // a fabricated 50% bar. See WEAVER_CONSTITUTION §2.9.
+      // Confidence bar
       const confidence =
         item.assessment?.confidence !== undefined &&
         item.assessment?.confidence !== null
@@ -468,7 +448,6 @@ W.decisionEngine = (() => {
         confBar.appendChild(pctSpan);
         li.appendChild(confBar);
 
-        // Uncertainty note
         if (confidence < 0.6) {
           const uncertainty = document.createElement("div");
           uncertainty.className = "small muted";

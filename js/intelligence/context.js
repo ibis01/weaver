@@ -18,7 +18,7 @@
 //
 // NO-EVIDENCE NOTE: when there is no evidence at all, confidence
 // must be `null`, never `0.5`. A fabricated "middle" value implies
-// certainty that does not exist. See WEAVER_CONSTITUTION §2.9.1.
+// certainty that does not exist. See WEAVER_CONSTITUTION §2.9.
 // ===============================================================
 
 window.W = window.W || {};
