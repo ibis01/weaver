@@ -5,13 +5,18 @@ describe("Privacy-Safe Logger", () => {
     const input = "from 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1 failed";
     const out = global.W.logger.scrub(input);
     expect(out).to.not.include("0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1");
-    expect(out).to.include("…");
+    // The mask preserves the first 6 and last 4 characters. Assert on
+    // those rather than the separator glyph ("..." or "…").
+    expect(out).to.include("0x742d");
+    expect(out).to.include("bEb1");
   });
 
   it("masks Solana addresses", () => {
     const input = "wallet DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263 received";
     const out = global.W.logger.scrub(input);
     expect(out).to.not.include("DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263");
+    expect(out).to.include("DezXAZ");
+    expect(out).to.include("B263");
   });
 
   it("redacts Telegram bot tokens", () => {
