@@ -83,14 +83,14 @@ W.optimizer = (() => {
                 (r) => `
               <tr>
                 <td class="coin-cell">
-                  <img src="${r.image || r.img || ""}" alt="${escapeHTML(r.name)}" style="width:24px;height:24px;border-radius:50%;">
+                  <img src="${r.image || r.img || ""}" alt="${escapeHTML(r.name)}" class="icon-24">
                   <b>${escapeHTML(r.name)}</b>
                   <span class="muted small">${r.symbol.toUpperCase()}</span>
                 </td>
                 <td class="num">${W.fmt.money(r.value)}</td>
                 <td class="num">${totals.value ? ((r.value / totals.value) * 100).toFixed(1) : 0}%</td>
                 <td class="num">
-                  <input type="number" step="0.1" min="0" max="100" data-target="${r.coinId}" style="width:80px;text-align:right;" value="${+targets[r.coinId].toFixed(1)}">
+                  <input type="number" step="0.1" min="0" max="100" data-target="${r.coinId}" class="w-80-right" value="${+targets[r.coinId].toFixed(1)}">
                 </td>
                 <td data-trade="${r.coinId}"></td>
               </tr>

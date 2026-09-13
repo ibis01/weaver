@@ -74,7 +74,11 @@ W.market = (() => {
                 ? "#9be15d"
                 : "#2ee6a8";
       view.querySelector("#m-cards").innerHTML = `
-        ${card("Fear & Greed Index", `<span style="color:${fgColor}">${fg.value}</span>`, fg.value_classification)}
+        ${card(
+          "Fear & Greed Index",
+          `<span class="${fg.value > 50 ? "text-up" : fg.value < 25 ? "text-down" : "text-muted"}">${fg.value}</span>`,
+          fg.value_classification,
+        )}
         ${card("BTC Dominance", d.market_cap_percentage.btc.toFixed(1) + "%", "of total market cap")}
         ${card("Total Market Cap", W.fmt.money(d.total_market_cap[W.currency()], { compact: true }), W.fmt.pct(d.market_cap_change_percentage_24h_usd))}
         ${card("Total Volume (24h)", W.fmt.money(d.total_volume[W.currency()], { compact: true }), "all markets")}

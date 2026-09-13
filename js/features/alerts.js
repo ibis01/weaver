@@ -53,7 +53,8 @@ W.alerts = (() => {
       <div class="card">
         <h3>🚨 Create Alert</h3>
         <form id="a-form" class="alert-form">
-          <div id="a-picker" style="grid-column:1/-1;"></div>
+          <div id="a-picker" class="grid-full"></div>
+
           <label>Condition
             <select name="cond">
               <option value="above">Price goes above</option>

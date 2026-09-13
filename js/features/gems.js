@@ -1,4 +1,4 @@
-// – Gem Agent: Token Hunter
+// js/features/gems.js – Gem Agent: Token Hunter
 
 window.W = window.W || {};
 
@@ -20,6 +20,8 @@ W.gems = (() => {
     arbitrum: "🔺",
     polygon: "🟪",
     avalanche: "❄️",
+    ton: "💎",
+    blast: "💥",
   };
 
   // Bump this whenever score()'s weights/logic change. Alerts and cards
@@ -258,8 +260,14 @@ W.gems = (() => {
         const addr = g.pair.baseToken.address;
         if (g.analysis.score >= 70 && !seen[addr]) {
           const shield = await checkShield(addr, g.pair.chainId);
+          // Constitution §2.2 — never ship a bare score with no explanation.
+          const reasonLines = (g.analysis.reasons || [])
+            .slice(0, 4)
+            .map((r) => "• " + r)
+            .join("\n");
           const msg =
             `🤖 <b>Gem detected:</b> ${g.pair.baseToken.symbol} on ${g.pair.chainId} — score ${g.analysis.score} (${g.analysis.scoreVersion})\n` +
+            (reasonLines ? reasonLines + "\n" : "") +
             shieldSummary(shield);
           W.ui.toast(
             `Gem detected: ${g.pair.baseToken.symbol} — score ${g.analysis.score}`,

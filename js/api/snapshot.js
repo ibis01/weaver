@@ -1,4 +1,3 @@
-
 // js/api/snapshot.js – Fallback Snapshot Cache
 
 // This module provides local snapshot fallbacks when live APIs are unreachable.
@@ -26,6 +25,57 @@ window.W = window.W || {};
   let topSnapshot = null;
   let globalSnapshot = null;
   let fngSnapshot = null;
+  const snapshotTimes = {};
+
+  function saveStored(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify({ value, savedAt: Date.now() }));
+    } catch (e) {}
+  }
+
+  function readStored(key) {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(key));
+      if (parsed && parsed.value !== undefined) return parsed;
+      return parsed
+        ? { value: parsed, savedAt: Date.now() - 31 * 60 * 1000 }
+        : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function acceptSnapshot(name, value) {
+    if (!W.schemas) return value;
+    if (name === "top") return W.schemas.markets(value);
+    if (name === "global") return W.schemas.global(value);
+    if (name === "fng") return W.schemas.fearGreed(value);
+    return value;
+  }
+
+  function markSnapshot(name, source, observedAt) {
+    snapshotTimes[name] = observedAt || Date.now();
+    W.dataHealth?.mark(
+      name === "fng"
+        ? "fear-greed"
+        : name === "global"
+          ? "global-market"
+          : "markets",
+      {
+        source,
+        observedAt: snapshotTimes[name],
+        staleAfter: 30 * 60 * 1000,
+      },
+    );
+  }
+
+  function markFallback(resource, snapshotName) {
+    W.dataHealth?.mark(resource, {
+      source: "snapshot",
+      observedAt: snapshotTimes[snapshotName] || Date.now() - 31 * 60 * 1000,
+      staleAfter: 30 * 60 * 1000,
+    });
+  }
 
   // ── Load snapshots ─────────────────────────────────────
   async function loadSnapshots() {
@@ -38,39 +88,50 @@ window.W = window.W || {};
       ]);
 
       if (topRes.status === "fulfilled" && topRes.value.ok) {
-        topSnapshot = await topRes.value.json();
-        try {
-          localStorage.setItem("snapshot-top", JSON.stringify(topSnapshot));
-        } catch (e) {}
+        topSnapshot = acceptSnapshot("top", await topRes.value.json());
+        saveStored("snapshot-top", topSnapshot);
+        markSnapshot("top", "snapshot", Date.now());
       } else {
         // Fallback to localStorage
-        const stored = localStorage.getItem("snapshot-top");
-        if (stored) topSnapshot = JSON.parse(stored);
+        const stored = readStored("snapshot-top");
+        if (stored) {
+          topSnapshot = acceptSnapshot("top", stored.value);
+          markSnapshot("top", "local-cache", stored.savedAt);
+        }
       }
 
       if (globalRes.status === "fulfilled" && globalRes.value.ok) {
-        globalSnapshot = await globalRes.value.json();
-        try {
-          localStorage.setItem(
-            "snapshot-global",
-            JSON.stringify(globalSnapshot),
-          );
-        } catch (e) {}
+        globalSnapshot = acceptSnapshot("global", await globalRes.value.json());
+        saveStored("snapshot-global", globalSnapshot);
+        markSnapshot("global", "snapshot", Date.now());
       } else {
-        const stored = localStorage.getItem("snapshot-global");
-        if (stored) globalSnapshot = JSON.parse(stored);
-        else globalSnapshot = SNAPSHOT_GLOBAL;
+        const stored = readStored("snapshot-global");
+        if (stored) {
+          globalSnapshot = acceptSnapshot("global", stored.value);
+          markSnapshot("global", "local-cache", stored.savedAt);
+        } else {
+          globalSnapshot = SNAPSHOT_GLOBAL;
+          markSnapshot(
+            "global",
+            "built-in-fallback",
+            Date.now() - 31 * 60 * 1000,
+          );
+        }
       }
 
       if (fngRes.status === "fulfilled" && fngRes.value.ok) {
-        fngSnapshot = await fngRes.value.json();
-        try {
-          localStorage.setItem("snapshot-fng", JSON.stringify(fngSnapshot));
-        } catch (e) {}
+        fngSnapshot = acceptSnapshot("fng", await fngRes.value.json());
+        saveStored("snapshot-fng", fngSnapshot);
+        markSnapshot("fng", "snapshot", Date.now());
       } else {
-        const stored = localStorage.getItem("snapshot-fng");
-        if (stored) fngSnapshot = JSON.parse(stored);
-        else fngSnapshot = SNAPSHOT_FNG;
+        const stored = readStored("snapshot-fng");
+        if (stored) {
+          fngSnapshot = acceptSnapshot("fng", stored.value);
+          markSnapshot("fng", "local-cache", stored.savedAt);
+        } else {
+          fngSnapshot = SNAPSHOT_FNG;
+          markSnapshot("fng", "built-in-fallback", Date.now() - 31 * 60 * 1000);
+        }
       }
     } catch (e) {
       console.warn("[Snapshot] Load error:", e);
@@ -78,6 +139,9 @@ window.W = window.W || {};
       topSnapshot = topSnapshot || [];
       globalSnapshot = globalSnapshot || SNAPSHOT_GLOBAL;
       fngSnapshot = fngSnapshot || SNAPSHOT_FNG;
+      markSnapshot("top", "built-in-fallback", Date.now() - 31 * 60 * 1000);
+      markSnapshot("global", "built-in-fallback", Date.now() - 31 * 60 * 1000);
+      markSnapshot("fng", "built-in-fallback", Date.now() - 31 * 60 * 1000);
     }
 
     // Ensure we have arrays
@@ -108,6 +172,7 @@ window.W = window.W || {};
           const idArray = typeof ids === "string" ? ids.split(",") : ids;
           const result = topSnapshot.filter((c) => idArray.includes(c.id));
           api.source = "snapshot";
+          markFallback("markets", "top");
           return result.length ? result : topSnapshot.slice(0, idArray.length);
         }
       };
@@ -124,6 +189,7 @@ window.W = window.W || {};
           if (!topSnapshot || !topSnapshot.length)
             throw new Error("No snapshot data");
           api.source = "snapshot";
+          markFallback("markets", "top");
           return topSnapshot.slice(0, limit);
         }
       };
@@ -138,6 +204,7 @@ window.W = window.W || {};
         } catch (e) {
           console.warn("[Snapshot] Global fallback:", e.message);
           api.source = "snapshot";
+          markFallback("global-market", "global");
           return globalSnapshot || SNAPSHOT_GLOBAL;
         }
       };
@@ -152,6 +219,7 @@ window.W = window.W || {};
         } catch (e) {
           console.warn("[Snapshot] FearGreed fallback:", e.message);
           api.source = "snapshot";
+          markFallback("fear-greed", "fng");
           const fg = fngSnapshot?.data?.[0] || SNAPSHOT_FNG;
           return fg;
         }
@@ -171,6 +239,7 @@ window.W = window.W || {};
           const coin = topSnapshot.find((c) => c.id === id);
           if (coin?.sparkline_in_7d?.price) {
             api.source = "snapshot";
+            markFallback("chart", "top");
             const prices = coin.sparkline_in_7d.price;
             const now = Date.now();
             return prices.map((v, i) => [
@@ -202,6 +271,7 @@ window.W = window.W || {};
             )
             .slice(0, 10);
           api.source = "snapshot";
+          markFallback("markets", "top");
           return {
             coins: results.map((c) => ({
               id: c.id,
@@ -228,6 +298,7 @@ window.W = window.W || {};
           const coin = topSnapshot.find((c) => c.id === id);
           if (!coin) throw new Error("Coin not found in snapshot");
           api.source = "snapshot";
+          markFallback("markets", "top");
           return {
             id: coin.id,
             symbol: coin.symbol,

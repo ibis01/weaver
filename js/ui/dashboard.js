@@ -267,6 +267,7 @@ W.dashboard = (() => {
 
   async function render(view) {
     view.innerHTML = `
+      <div id="d-data-health" aria-live="polite"></div>
       <div class="cards" id="d-stats"></div>
       <div class="grid-2">
         <div id="what-matters-now-container"></div>
@@ -328,6 +329,15 @@ W.dashboard = (() => {
     const rows = pf.status === "fulfilled" ? pf.value.rows : [];
     const totals = pf.status === "fulfilled" ? pf.value.totals : null;
     const g = globR.status === "fulfilled" ? globR.value.data : null;
+
+    const healthEl = view.querySelector("#d-data-health");
+    if (healthEl && W.ui.renderDataStatus) {
+      W.ui.renderDataStatus(healthEl, [
+        "markets",
+        "global-market",
+        "fear-greed",
+      ]);
+    }
 
     const statsEl = view.querySelector("#d-stats");
     if (statsEl) {

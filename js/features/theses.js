@@ -99,8 +99,8 @@ W.theses = W.theses || {};
 
             return `
           <div class="card" data-thesis-id="${t.id}">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <h4 style="margin:0;">${W.fmt.escapeHTML(t.asset)} ${badgeHtml}</h4>
+           <div class="flex-between">
+            <h4 class="m-0">${W.fmt.escapeHTML(t.asset)} ${badgeHtml}</h4>
             </div>
             <p class="small"><b>Statement:</b> ${W.fmt.escapeHTML(t.statement)}</p>
             <p class="small muted"><b>Horizon:</b> ${W.fmt.escapeHTML(t.horizon)} | <b>Target:</b> ${t.target ? "$" + t.target : "N/A"}</p>
@@ -109,7 +109,7 @@ W.theses = W.theses || {};
             <!-- Hook for health details (injected below) -->
             <div class="thesis-health-details" data-details-id="${t.id}" style="margin-top: 12px;"></div>
 
-            <div style="margin-top:10px; display:flex; gap:10px;">
+            <div class="flex-gap-10-mt-10">
               <button class="btn tiny warn" data-action="invalidate" data-id="${t.id}">Mark Invalidated</button>
               <button class="btn tiny" data-action="delete" data-id="${t.id}">Delete</button>
             </div>
@@ -128,7 +128,7 @@ W.theses = W.theses || {};
           <textarea id="t-statement" placeholder="Core Thesis Statement (Why are you buying?)" required class="input" rows="3"></textarea>
           <textarea id="t-signals" placeholder="Expected confirming signals" class="input" rows="2"></textarea>
           <textarea id="t-invalidation" placeholder="What would prove this thesis wrong?" class="input" rows="2"></textarea>
-          <div style="grid-column: 1 / -1; display:flex; gap:10px;">
+          <div class="grid-full-flex-gap-10">
             <button type="submit" class="btn primary">Save Thesis</button>
             <button type="button" class="btn" id="btn-cancel-thesis">Cancel</button>
           </div>

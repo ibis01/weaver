@@ -576,7 +576,7 @@ W.learn = (() => {
       title: `${l.icon} ${escapeHTML(l.title)}`,
       body: `
         <span class="tag rank">${escapeHTML(l.category)}</span>
-        <div style="line-height:1.7;margin-top:12px;">${l.body}</div>
+        <div class="lh-17 mt-12">${l.body}</div>
         <div class="mt">
           <b>Quiz:</b> ${escapeHTML(l.quiz.q)}
           ${l.quiz.a

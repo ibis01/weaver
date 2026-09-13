@@ -15,7 +15,10 @@ global.localStorage = dom.window.localStorage;
 global.HTMLElement = dom.window.HTMLElement;
 global.location = global.window.location;
 
-// Initialize Weaver namespace with ALL required mocks for unit testing
+// Initialize Weaver namespace with mocks for modules that the unit
+// tests deliberately isolate. Do NOT mock modules that the tests
+// exercise as real code — those are required at the bottom of this
+// file so they attach to the same global.W the tests read.
 global.W = {
   store: {
     _data: {},
@@ -103,27 +106,6 @@ global.W = {
           : null,
     },
   },
-  decisionEngine: {
-    computePersonalContext: () => ({
-      portfolioWeight: 0.5,
-      behavioralRisk: "NONE",
-    }),
-    computeAssessment: () => ({
-      relevance: 0.8,
-      impact: 0.7,
-      urgency: 0.6,
-      confidence: 0.9,
-    }),
-    computeDecisionPriority: (signal, assessment) => ({
-      signalId: signal.id,
-      score:
-        assessment.relevance *
-        assessment.impact *
-        assessment.urgency *
-        assessment.confidence,
-      recommendedAction: "REVIEW_THESIS",
-    }),
-  },
   portfolio: {
     _holdings: [],
     add: function (holding) {
@@ -153,24 +135,26 @@ global.W = {
       this._holdings = [];
     },
   },
+  // NOTE: decisionEngine is intentionally NOT mocked. Integration
+  // tests load the real module via require() below. If a future
+  // unit test needs an isolated decision engine, mock it locally
+  // inside that test file, not globally here.
 };
 
-// ── Load real modules that the unit tests exercise directly ────
-// These are loaded AFTER the mock block so they can attach to
-// global.W without being overwritten by the mocks above.
-//
-// W.api is stubbed so the real asset module has something to call.
-// The stub returns empty results, forcing the module's fallback
-// path — which is exactly what the "fallback AssetId" test checks.
+// ── Load real modules that the tests exercise directly ─────────
+// These are required AFTER the mock block so they attach to the
+// same global.W the tests read. `window.W` is bridged to `global.W`
+// because JSDOM's window is a different object in Node.
 global.W.api = {
   search: async () => ({ coins: [] }),
   markets: async () => [],
 };
 
-// asset.js assigns to `window.W.asset`. In Node, `window` is the
-// JSDOM window, but the mocks live on the Node global. Bridge them
-// so the real module attaches to the same object the tests read.
 global.window.W = global.W;
+
 require("../js/models/asset.js");
+require("../js/utils/logger.js");  
+require("../js/intelligence/decision-engine.js");
+require("../js/intelligence/calibration.js"); 
 
 console.log("✅ Test environment initialized with JSDOM and W namespace.");

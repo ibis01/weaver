@@ -102,12 +102,17 @@ W.delta = (() => {
       card.appendChild(p);
     } else {
       const list = document.createElement("ul");
-      list.style.cssText = "list-style:none; padding:0; margin:0;";
+      list.style.listStyle = "none";
+      list.style.padding = "0";
+      list.style.margin = "0";
 
       deltas.forEach((d) => {
         const li = document.createElement("li");
-        li.style.cssText =
-          "padding: 8px 0; border-bottom: 1px solid var(--border, #30363d); display:flex; justify-content:space-between; align-items:center;";
+        li.style.padding = "8px 0";
+        li.style.borderBottom = "1px solid var(--border, #30363d)";
+        li.style.display = "flex";
+        li.style.justifyContent = "space-between";
+        li.style.alignItems = "center";
 
         const label = document.createElement("span");
         label.textContent = d.metric; // SAFE: textContent

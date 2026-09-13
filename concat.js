@@ -17,6 +17,7 @@ const files = [
   "js/storage/storage.js",
   "js/lib/crypto/secure.js",
   "js/lib/crypto/secure-session.js",
+  "js/lib/sentry-init.js",
   "js/utils/format.js",
   "js/utils/finance.js",
   "js/utils/debounce.js",
@@ -26,9 +27,12 @@ const files = [
   // ── UI Core ──────────────────────────────────────────────────
   "js/ui/theme.js",
   "js/ui/ui.js",
+  "js/ui/data-status.js",
   "js/ui/dashboard.js",
 
   // ── API Layer ─────────────────────────────────────────────────
+  "js/api/schemas.js",
+  "js/api/request-guard.js",
   "js/api/prices.js",
   "js/api/snapshot.js",
 
@@ -51,6 +55,7 @@ const files = [
   "js/intelligence/thesis-health.js",
   "js/intelligence/opportunities.js",
   "js/intelligence/decision-replay.js",
+  "js/intelligence/calibration.js",
 
   // ── Intelligence Contracts & Engine ─────────────────────────
   "js/intelligence/types.js",

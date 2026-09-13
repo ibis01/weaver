@@ -2,7 +2,7 @@
 //         Evidence Engine for Weaver Intelligence
 // ===============================================================
 //
-// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9.1):
+// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9):
 //   - A missing or invalid confidence is recorded as `null`,
 //     never defaulted to 0.5.
 //   - `null` confidence marks the record `incomplete`.

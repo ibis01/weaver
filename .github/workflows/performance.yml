@@ -1,0 +1,30 @@
+name: Performance
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Deployed proxy/frontend URL"
+        required: true
+        type: string
+  schedule:
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  k6:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BASE_URL: ${{ inputs.base_url || secrets.PERFORMANCE_BASE_URL }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Validate target configuration
+        run: test -n "$BASE_URL"
+      - name: Run k6 benchmark
+        uses: grafana/k6-action@v0.3.1
+        with:
+          filename: performance/k6-proxy.js

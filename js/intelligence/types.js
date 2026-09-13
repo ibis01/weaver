@@ -107,14 +107,34 @@ W.intelligence.freshnessWindows = {
 };
 
 // ── Compute confidence from evidence components ─────────────
+// sourceReliability and dataFreshness are always computable — the
+// former is a documented per-source constant (see sourceReliability
+// map above), the latter is real elapsed-time math. dataCompleteness
+// and interpretationConfidence are NOT given defaults here: if a
+// caller genuinely hasn't supplied them, that means we don't actually
+// know how complete the data is or how confident the interpretation
+// is — and inventing 0.8/0.7 to fill that gap is exactly the
+// synthetic-confidence problem WEAVER_CONSTITUTION §2.7 and §2.9
+// exist to prevent. Missing means the overall confidence is null,
+// not a plausible-looking number.
 function computeConfidence(evidence) {
   const {
     sourceReliability = 0.5,
     dataFreshness = 0.8,
     corroborationCount = 1,
-    dataCompleteness = 0.8,
-    interpretationConfidence = 0.7,
+    dataCompleteness,
+    interpretationConfidence,
   } = evidence;
+
+  if (dataCompleteness === null || dataCompleteness === undefined) {
+    return null;
+  }
+  if (
+    interpretationConfidence === null ||
+    interpretationConfidence === undefined
+  ) {
+    return null;
+  }
 
   const clamp = (v) => Math.max(0, Math.min(1, v));
   const sr = clamp(sourceReliability);

@@ -116,10 +116,12 @@ W.behavior = (() => {
 
     if (result.pattern !== "none") {
       const rec = document.createElement("div");
-      rec.style.cssText =
-        "margin-top:10px; padding:10px; background:rgba(255, 92, 122, 0.1); border-radius:6px;";
+      rec.style.marginTop = "10px";
+      rec.style.padding = "10px";
+      rec.style.background = "rgba(255, 92, 122, 0.1)";
+      rec.style.borderRadius = "6px";
       // SAFE: escapeHTML used for dynamic text injected via innerHTML
-      rec.innerHTML = `<b class="small" style="color:var(--down)">⚠️ Recommendation:</b> <span class="small">${W.fmt.escapeHTML(result.recommendation)}</span>`;
+      rec.innerHTML = `<b class="small text-down">⚠️ Recommendation:</b> <span class="small">${W.fmt.escapeHTML(result.recommendation)}</span>`;
       card.appendChild(rec);
     }
 

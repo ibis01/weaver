@@ -53,6 +53,12 @@ W.ai.providers = (() => {
     }
 
     const data = await response.json();
+    if (W.schemas) W.schemas.validate("llm", data);
+    W.dataHealth?.mark("llm", {
+      source: providerName,
+      observedAt: Date.now(),
+      staleAfter: 15 * 60 * 1000,
+    });
     return provider.parseResponse(data);
   }
 

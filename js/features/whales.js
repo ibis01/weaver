@@ -32,7 +32,7 @@ W.whales = W.whales || {};
           .map(
             (w) => `
           <div class="card">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
+           <div class="flex-between">
               <h4>${W.fmt.escapeHTML(w.chain)}</h4>
               <span class="tag ${w.type === "inflow" ? "sell" : "buy"}">${w.type}</span>
             </div>

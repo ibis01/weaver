@@ -1,5 +1,5 @@
 // ================================================================
-// Token Shield (Contract Security Auditor)
+// js/features/shield.js – Token Shield (Contract Security Auditor)
 // ================================================================
 
 window.W = window.W || {};
@@ -88,12 +88,51 @@ W.shield = (() => {
     return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
   }
 
+  // ── Own CORS proxy (Cloudflare Worker) ─────────────────
+  // Set this after deploying cf-worker/ (see cf-worker/README.md).
+  // Left blank, Shield falls back to the public-proxy chain below,
+  // so this can be filled in whenever without breaking anything.
+  const WORKER_PROXY_BASE = "";
+
+  async function fetchViaOwnWorker(kind, chainId, address) {
+    if (!WORKER_PROXY_BASE) return null;
+    const path =
+      kind === "solana" ? "/goplus/solana" : `/goplus/evm/${chainId}`;
+    const addrParam = kind === "solana" ? address : address.toLowerCase();
+    const url = `${WORKER_PROXY_BASE}${path}?contract_addresses=${encodeURIComponent(addrParam)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      if (data.code !== 1) throw new Error(data.message || "API error");
+      return data;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   // ── Fetch from GoPlus ─────────────────────────────────
 
   async function fetchTokenSecurity(chainId, address) {
     // Check cache first
     const cached = getCached(chainId, address);
     if (cached) return cached;
+
+    // Prefer our own worker — reliable, no third-party dependency.
+    try {
+      const viaWorker = await fetchViaOwnWorker("evm", chainId, address);
+      if (viaWorker) {
+        setCache(chainId, address, viaWorker);
+        return viaWorker;
+      }
+    } catch (e) {
+      console.warn(
+        "[Shield] Own worker failed, falling back to public proxies:",
+        e.message,
+      );
+    }
 
     const url = `${GOPLUS_API}/${chainId}?contract_addresses=${address.toLowerCase()}`;
 
@@ -139,6 +178,20 @@ W.shield = (() => {
   async function fetchSolanaTokenSecurity(address) {
     const cached = getCached("solana", address);
     if (cached) return cached;
+
+    // Prefer our own worker — reliable, no third-party dependency.
+    try {
+      const viaWorker = await fetchViaOwnWorker("solana", null, address);
+      if (viaWorker) {
+        setCache("solana", address, viaWorker);
+        return viaWorker;
+      }
+    } catch (e) {
+      console.warn(
+        "[Shield] Own worker failed, falling back to public proxies:",
+        e.message,
+      );
+    }
 
     // Address case matters for Solana — never lowercase it.
     const url = `${GOPLUS_SOLANA_API}?contract_addresses=${address}`;

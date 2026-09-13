@@ -33,7 +33,7 @@ W.tokenAnalysis = (async () => {
         bearishEvidence: [],
         contradictions: [],
         verdict: "Insufficient data",
-        confidence: 0,
+        confidence: null,
         explanation: "No recent signals for this asset.",
       };
     }
@@ -82,7 +82,15 @@ W.tokenAnalysis = (async () => {
     }
 
     // 5. Compute scores (weighted by confidence and impact)
-    const weightSum = (list) => list.reduce((sum, i) => sum + i.confidence, 0);
+    // Items with unknown confidence (null) can't meaningfully weight a
+    // score — excluding them from the weighted sum is honest; treating
+    // null as 0 would silently claim "definitely no confidence," which
+    // is a different, unsupported claim. They still appear in the
+    // evidence lists below, just not in the numeric weighting.
+    const weightSum = (list) =>
+      list
+        .filter((i) => i.confidence !== null && i.confidence !== undefined)
+        .reduce((sum, i) => sum + i.confidence, 0);
     const bullishWeight = weightSum(bullish);
     const bearishWeight = weightSum(bearish);
     const totalWeight = bullishWeight + bearishWeight || 1;
@@ -95,13 +103,18 @@ W.tokenAnalysis = (async () => {
     // We'll refine later.
     const contradictionItems = [];
     if (bullish.length > 0 && bearish.length > 0) {
-      // Take the strongest bull and bear signal and present them as contradiction
-      const strongestBull = bullish.reduce((a, b) =>
-        a.confidence > b.confidence ? a : b,
-      );
-      const strongestBear = bearish.reduce((a, b) =>
-        a.confidence > b.confidence ? a : b,
-      );
+      // Take the strongest bull and bear signal and present them as
+      // contradiction — "strongest" only makes sense among items with
+      // a known confidence; fall back to the first item if every entry
+      // in a list has unknown confidence.
+      const knownBull = bullish.filter((i) => i.confidence !== null);
+      const knownBear = bearish.filter((i) => i.confidence !== null);
+      const strongestBull = knownBull.length
+        ? knownBull.reduce((a, b) => (a.confidence > b.confidence ? a : b))
+        : bullish[0];
+      const strongestBear = knownBear.length
+        ? knownBear.reduce((a, b) => (a.confidence > b.confidence ? a : b))
+        : bearish[0];
       contradictionItems.push({
         bull: strongestBull.title,
         bear: strongestBear.title,
@@ -109,11 +122,17 @@ W.tokenAnalysis = (async () => {
       });
     }
 
-    // 7. Overall confidence = average confidence of all evidence
+    // 7. Overall evidence strength = average confidence of evidence with
+    // a known confidence. If nothing has a known confidence, this is
+    // honestly null (displayed as "N/A"), not a fabricated number.
     const allEvidence = [...bullish, ...bearish];
-    const avgConfidence =
-      allEvidence.reduce((sum, e) => sum + e.confidence, 0) /
-      (allEvidence.length || 1);
+    const knownConfidenceEvidence = allEvidence.filter(
+      (e) => e.confidence !== null && e.confidence !== undefined,
+    );
+    const avgConfidence = knownConfidenceEvidence.length
+      ? knownConfidenceEvidence.reduce((sum, e) => sum + e.confidence, 0) /
+        knownConfidenceEvidence.length
+      : null;
 
     // 8. Verdict
     let verdict = "Balanced";
@@ -122,14 +141,18 @@ W.tokenAnalysis = (async () => {
     else verdict = "Mixed signals";
 
     // 9. Explanation (with personal context)
+    // Evidence-oriented language only — no directive/entry-point framing.
+    // WEAVER_CONSTITUTION §2.4 "Never Financial Advice" / "No Directive
+    // Laundering": this text must describe evidence, not suggest action.
     let explanation = `Based on ${allEvidence.length} signals, opportunity score is ${opportunityScore.toFixed(0)}/100 and risk score is ${riskScore.toFixed(0)}/100. `;
     if (verdict === "Bullish opportunity")
       explanation +=
-        "The evidence leans bullish – consider monitoring for entry.";
+        "Evidence leans positive, but risk remains part of the picture.";
     else if (verdict === "Elevated risk")
       explanation +=
-        "Risk factors outweigh opportunities – proceed with caution.";
-    else explanation += "Signals are mixed – wait for clearer evidence.";
+        "Risk factors outweigh opportunity signals; additional verification is warranted.";
+    else
+      explanation += "Signals are mixed. Additional verification is warranted.";
 
     // 10. Include personal context if requested
     let personalContext = null;
@@ -158,7 +181,8 @@ W.tokenAnalysis = (async () => {
       bearishEvidence: bearish.slice(0, 5),
       contradictions: contradictionItems,
       verdict,
-      confidence: Math.round(avgConfidence * 100),
+      confidence:
+        avgConfidence === null ? null : Math.round(avgConfidence * 100),
       explanation,
       signalsCount: allEvidence.length,
       personalContext,
@@ -212,8 +236,8 @@ W.tokenAnalysis = (async () => {
             <div class="stat-big" style="color:${result.riskScore > 60 ? "var(--down)" : "var(--warn)"}">${result.riskScore}/100</div>
           </div>
           <div class="card stat">
-            <div class="stat-label">Confidence</div>
-            <div class="stat-big">${result.confidence}%</div>
+            <div class="stat-label">Evidence Strength</div>
+            <div class="stat-big">${result.confidence === null ? "N/A" : result.confidence + "%"}</div>
           </div>
           <div class="card stat">
             <div class="stat-label">Signals Analyzed</div>

@@ -3,7 +3,7 @@
 // ===============================================================
 // CSP Compliant: Zero inline styles.
 //
-// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9.1):
+// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9):
 //   - If the user does not enter a confidence, it is stored as `null`.
 //   - It is never defaulted to 0.5.
 //   - The UI hides the confidence line when no value was recorded.

@@ -10,6 +10,26 @@ W.walletSync = (() => {
   const CACHE_KEY = "wallet_sync_cache";
   const CACHE_TTL = 300000; // 5 minutes
 
+  async function fetchJSON(url, options, schema) {
+    const response = W.requestGuard
+      ? await W.requestGuard.fetch(url, options, {
+          capacity: 8,
+          refillMs: 10000,
+          failureThreshold: 4,
+          cooldownMs: 30000,
+        })
+      : await fetch(url, options);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (W.schemas) W.schemas.validate(schema, data);
+    W.dataHealth?.mark("wallet-data", {
+      source: new URL(url).hostname,
+      observedAt: Date.now(),
+      staleAfter: CACHE_TTL * 2,
+    });
+    return data;
+  }
+
   // ── Chain configurations ──────────────────────────────
   const CHAINS = {
     btc: {
@@ -18,9 +38,11 @@ W.walletSync = (() => {
       icon: "₿",
       explorer: "https://mempool.space/address/",
       balance: async (addr) => {
-        const data = await fetch(
+        const data = await fetchJSON(
           `https://mempool.space/api/address/${addr}`,
-        ).then((r) => r.json());
+          undefined,
+          "bitcoinAddress",
+        );
         return (
           (data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum) /
           1e8
@@ -34,16 +56,20 @@ W.walletSync = (() => {
       icon: "⟠",
       explorer: "https://etherscan.io/address/",
       balance: async (addr) => {
-        const data = await fetch("https://cloudflare-eth.com", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "eth_getBalance",
-            params: [addr, "latest"],
-          }),
-        }).then((r) => r.json());
+        const data = await fetchJSON(
+          "https://cloudflare-eth.com",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "eth_getBalance",
+              params: [addr, "latest"],
+            }),
+          },
+          "jsonRpc",
+        );
         return parseInt(data.result || "0x0", 16) / 1e18;
       },
       tokens: async (addr) => {
@@ -73,22 +99,26 @@ W.walletSync = (() => {
         const results = [];
         for (const token of tokens) {
           try {
-            const data = await fetch("https://cloudflare-eth.com", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                jsonrpc: "2.0",
-                id: 1,
-                method: "eth_call",
-                params: [
-                  {
-                    to: token.address,
-                    data: "0x70a08231" + addr.slice(2).padStart(64, "0"),
-                  },
-                  "latest",
-                ],
-              }),
-            }).then((r) => r.json());
+            const data = await fetchJSON(
+              "https://cloudflare-eth.com",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: 1,
+                  method: "eth_call",
+                  params: [
+                    {
+                      to: token.address,
+                      data: "0x70a08231" + addr.slice(2).padStart(64, "0"),
+                    },
+                    "latest",
+                  ],
+                }),
+              },
+              "jsonRpc",
+            );
             const balance =
               parseInt(data.result || "0x0", 16) / Math.pow(10, token.decimals);
             if (balance > 1e-9) {
@@ -107,9 +137,11 @@ W.walletSync = (() => {
       icon: "🟡",
       explorer: "https://bscscan.com/address/",
       balance: async (addr) => {
-        const data = await fetch(
+        const data = await fetchJSON(
           `https://api.bscscan.com/api?module=account&action=balance&address=${addr}&tag=latest`,
-        ).then((r) => r.json());
+          undefined,
+          "bscscan",
+        );
         return parseInt(data.result || "0") / 1e18;
       },
       tokens: async (addr) => {
@@ -135,22 +167,26 @@ W.walletSync = (() => {
         const results = [];
         for (const token of tokens) {
           try {
-            const data = await fetch("https://bsc-dataseed.binance.org", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                jsonrpc: "2.0",
-                id: 1,
-                method: "eth_call",
-                params: [
-                  {
-                    to: token.address,
-                    data: "0x70a08231" + addr.slice(2).padStart(64, "0"),
-                  },
-                  "latest",
-                ],
-              }),
-            }).then((r) => r.json());
+            const data = await fetchJSON(
+              "https://bsc-dataseed.binance.org",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: 1,
+                  method: "eth_call",
+                  params: [
+                    {
+                      to: token.address,
+                      data: "0x70a08231" + addr.slice(2).padStart(64, "0"),
+                    },
+                    "latest",
+                  ],
+                }),
+              },
+              "jsonRpc",
+            );
             const balance =
               parseInt(data.result || "0x0", 16) / Math.pow(10, token.decimals);
             if (balance > 1e-9) {
@@ -169,16 +205,20 @@ W.walletSync = (() => {
       icon: "🟣",
       explorer: "https://solscan.io/account/",
       balance: async (addr) => {
-        const data = await fetch("https://api.mainnet-beta.solana.com", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "getBalance",
-            params: [addr],
-          }),
-        }).then((r) => r.json());
+        const data = await fetchJSON(
+          "https://api.mainnet-beta.solana.com",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "getBalance",
+              params: [addr],
+            }),
+          },
+          "jsonRpc",
+        );
         return (data.result?.value || 0) / 1e9;
       },
       tokens: async (addr) => {
@@ -198,20 +238,24 @@ W.walletSync = (() => {
         const results = [];
         for (const token of tokens) {
           try {
-            const data = await fetch("https://api.mainnet-beta.solana.com", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                jsonrpc: "2.0",
-                id: 1,
-                method: "getTokenAccountsByOwner",
-                params: [
-                  addr,
-                  { mint: token.mint },
-                  { encoding: "jsonParsed" },
-                ],
-              }),
-            }).then((r) => r.json());
+            const data = await fetchJSON(
+              "https://api.mainnet-beta.solana.com",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: 1,
+                  method: "getTokenAccountsByOwner",
+                  params: [
+                    addr,
+                    { mint: token.mint },
+                    { encoding: "jsonParsed" },
+                  ],
+                }),
+              },
+              "jsonRpc",
+            );
             let balance = 0;
             (data.result?.value || []).forEach((acc) => {
               const amount =

@@ -219,11 +219,15 @@ W.thesisHealth = (() => {
 
     if (healthData.reasons.length > 0) {
       const ul = document.createElement("ul");
-      ul.style.cssText =
-        "list-style: none; padding: 0; margin: 8px 0; font-size: 0.9em;";
+      ul.style.listStyle = "none";
+      ul.style.padding = "0";
+      ul.style.margin = "8px 0";
+      ul.style.fontSize = "0.9em";
       healthData.reasons.forEach((reason) => {
         const li = document.createElement("li");
-        li.style.cssText = "padding: 4px 0; color: var(--text-muted);";
+        li.style.padding = "4px 0";
+        li.style.color = "var(--text-muted)";
+
         li.textContent = `• ${reason}`;
         ul.appendChild(li);
       });
@@ -231,8 +235,12 @@ W.thesisHealth = (() => {
     }
 
     const rec = document.createElement("div");
-    rec.style.cssText =
-      "margin-top: 8px; padding: 8px; background: rgba(124, 92, 255, 0.05); border-left: 3px solid var(--primary); border-radius: 4px; font-size: 0.9em;";
+    rec.style.marginTop = "8px";
+    rec.style.padding = "8px";
+    rec.style.background = "rgba(124, 92, 255, 0.05)";
+    rec.style.borderLeft = "3px solid var(--primary)";
+    rec.style.borderRadius = "4px";
+    rec.style.fontSize = "0.9em";
     rec.textContent = `Recommendation: ${healthData.recommendation}`;
     container.appendChild(rec);
   }

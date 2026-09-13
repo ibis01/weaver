@@ -378,6 +378,118 @@ W.secureSession = (() => {
 })();
 
 console.log("[SecureSession] Module loaded.");
+// ---- js/lib/sentry-init.js ----
+// ===============================================================
+//         Sentry Integration (Opt-In, Privacy-First)
+// ===============================================================
+// Constitution §2.6: no external transmission without explicit
+// opt-in. This module does nothing unless the user enables error
+// reporting in Settings AND provides a DSN.
+//
+// All events pass through W.logger.scrub before transmission.
+// If scrubbing throws, the event is dropped rather than sent.
+// ===============================================================
+
+window.W = window.W || {};
+W.sentry = (() => {
+  let initialized = false;
+
+  function isDntEnabled() {
+    return (
+      navigator.doNotTrack === "1" ||
+      window.doNotTrack === "1" ||
+      navigator.msDoNotTrack === "1"
+    );
+  }
+
+  function beforeSend(event) {
+    try {
+      if (event.exception && event.exception.values) {
+        for (const ex of event.exception.values) {
+          if (ex.value) ex.value = W.logger.scrub(ex.value);
+        }
+      }
+      if (event.breadcrumbs && event.breadcrumbs.values) {
+        event.breadcrumbs.values = event.breadcrumbs.values.map((b) => ({
+          ...b,
+          message: b.message ? W.logger.scrub(b.message) : b.message,
+          data: b.data ? W.logger.scrub(b.data) : b.data,
+        }));
+      }
+      if (event.extra) event.extra = W.logger.scrub(event.extra);
+      if (event.tags) event.tags = W.logger.scrub(event.tags);
+
+      delete event.user;
+      delete event.request;
+
+      event.tags = event.tags || {};
+      event.tags.weaver_version = "2.0";
+
+      return event;
+    } catch (e) {
+      W.logger.warn("Sentry", "beforeSend scrubbing failed, dropping event");
+      return null;
+    }
+  }
+
+  async function init() {
+    if (initialized) return false;
+
+    const settings = W.store?.get("settings", {}) || {};
+    const cfg = settings.sentry || {};
+
+    if (!cfg.enabled) {
+      W.logger.info("Sentry", "Not enabled by user, skipping init");
+      return false;
+    }
+
+    if (!cfg.dsn || typeof cfg.dsn !== "string" || !/^https:\/\//.test(cfg.dsn)) {
+      W.logger.warn("Sentry", "No valid DSN configured, skipping init");
+      return false;
+    }
+
+    if (isDntEnabled()) {
+      W.logger.info("Sentry", "Do Not Track is set, skipping init");
+      return false;
+    }
+
+    if (typeof window.Sentry === "undefined") {
+      W.logger.warn("Sentry", "SDK not loaded, skipping init");
+      return false;
+    }
+
+    try {
+      window.Sentry.init({
+        dsn: cfg.dsn,
+        environment: settings.environment || "production",
+        release: "weaver@2.0.0",
+        tracesSampleRate: 0.1,
+        sendDefaultPii: false,
+        beforeSend,
+      });
+      initialized = true;
+      W.logger.info("Sentry", "Initialized with privacy-safe configuration");
+
+      const buf = window.W.sentryBuffer || [];
+      for (const entry of buf) {
+        window.Sentry.captureMessage(entry.message, {
+          level: entry.level,
+          tags: { tag: entry.tag },
+          extra: entry.data || {},
+        });
+      }
+      window.W.sentryBuffer = [];
+      return true;
+    } catch (e) {
+      W.logger.error("Sentry", "Initialization failed", e.message);
+      return false;
+    }
+  }
+
+  return { init, beforeSend, isInitialized: () => initialized };
+})();
+
+console.log("[Sentry] Privacy-safe observability module loaded.");
 // ---- js/utils/format.js ----
 // ===============================================================
 //         Formatting Utilities for Weaver
@@ -452,6 +564,17 @@ W.fmt = W.fmt || {};
     if (num >= 1e3) return `${(num / 1e3).toFixed(2)}K`;
     return num.toFixed(2);
   };
+
+    W.fmt.num = function (n) {
+      if (n == null || isNaN(n)) return "—";
+      const num = Number(n);
+      const abs = Math.abs(num);
+      if (abs >= 1e12) return `${(num / 1e12).toFixed(2)}T`;
+      if (abs >= 1e9) return `${(num / 1e9).toFixed(2)}B`;
+      if (abs >= 1e6) return `${(num / 1e6).toFixed(2)}M`;
+      if (abs >= 1e3) return `${(num / 1e3).toFixed(2)}K`;
+      return num.toLocaleString("en-US", { maximumFractionDigits: 2 });
+    };
 
   /**
    * Get currency symbol
@@ -846,45 +969,157 @@ W.throttleLeading = function (fn, ms = 300) {
 console.log("[Utils] Debounce module loaded.");
 // ---- js/utils/logger.js ----
 // ===============================================================
-//         Simple Logger – Unified Logging with Levels
+//         Weaver Logger
+// ===============================================================
+// Structured logging with automatic PII scrubbing.
+// Constitution §2.6: never log wallet addresses, API keys, seeds.
+//
+// Public API:
+//   W.logger.error/warn/info/debug/trace(msg, data)
+//   W.logger.setLevel("error"|"warn"|"info"|"debug"|"trace")
+//   W.logger.scrub(value)         — for direct use and testing
+//   W.logger.setEnabled(bool)
 // ===============================================================
 
-const LOG_LEVELS = {
-  error: 0,
-  warn: 1,
-  info: 2,
-  debug: 3,
-  trace: 4,
-};
+window.W = window.W || {};
 
-const currentLevel = (() => {
-  const env = localStorage.getItem("weaver_log_level") || "info";
-  return LOG_LEVELS[env] || LOG_LEVELS.info;
+(function () {
+  const LOG_LEVELS = { error: 0, warn: 1, info: 2, debug: 3, trace: 4 };
+  const DEFAULT_LEVEL = "info";
+
+  let currentLevel = (() => {
+    const saved = (() => {
+      try {
+        return localStorage.getItem("weaver_log_level");
+      } catch {
+        return null;
+      }
+    })();
+    return LOG_LEVELS[saved] !== undefined ? LOG_LEVELS[saved] : LOG_LEVELS[DEFAULT_LEVEL];
+  })();
+
+  let enabled = true;
+
+  // ── PII scrubbing ─────────────────────────────────────────
+  // Order matters. Wallet patterns are masked first because their
+  // shape would otherwise match the generic API-key rule.
+  function scrub(value) {
+    if (value === null || value === undefined) return value;
+
+    if (typeof value !== "string") {
+      const seen = new WeakSet();
+      const walk = (v) => {
+        if (v === null || typeof v !== "object") {
+          return typeof v === "string" ? scrub(v) : v;
+        }
+        if (seen.has(v)) return "[Circular]";
+        seen.add(v);
+        if (Array.isArray(v)) return v.map(walk);
+        const out = {};
+        for (const k of Object.keys(v)) {
+          if (/^(token|key|secret|password|passphrase|dsn|seed)$/i.test(k)) {
+            out[k] = "[REDACTED]";
+          } else {
+            out[k] = walk(v[k]);
+          }
+        }
+        return out;
+      };
+      try {
+        return walk(value);
+      } catch {
+        return "[unserializable]";
+      }
+    }
+
+    let s = value;
+
+    // 1. EVM addresses: 0x + 40 hex chars
+    s = s.replace(/\b0x[a-fA-F0-9]{40}\b/g, (m) =>
+      W.fmt?.maskAddress ? W.fmt.maskAddress(m) : m.slice(0, 6) + "…" + m.slice(-4),
+    );
+
+    // 2. Solana base58 addresses: 32–44 chars, no 0/O/I/l
+    s = s.replace(/\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g, (m) =>
+      m.slice(0, 6) + "…" + m.slice(-4),
+    );
+
+    // 3. Telegram bot tokens: <digits>:<35 chars>
+    s = s.replace(/\b\d{8,12}:[A-Za-z0-9_-]{35}\b/g, "[REDACTED_TG_TOKEN]");
+
+    // 4. Sentry DSNs
+    s = s.replace(/https:\/\/[a-f0-9]{32}@[^\s]+/gi, "[REDACTED_DSN]");
+
+    // 5. OpenAI/Anthropic/Stripe-style keys
+    s = s.replace(/\bsk-[A-Za-z0-9_-]{20,}\b/g, "[REDACTED_KEY]");
+    s = s.replace(/\bsk_live_[A-Za-z0-9]{20,}\b/g, "[REDACTED_KEY]");
+    s = s.replace(/\bsk_test_[A-Za-z0-9]{20,}\b/g, "[REDACTED_KEY]");
+
+    // 6. Seed phrases: 12+ lowercase words separated by spaces
+    s = s.replace(/\b([a-z]{3,8}\s+){11,23}[a-z]{3,8}\b/g, "[REDACTED_SEED]");
+
+    return s;
+  }
+
+  // ── Core log function ─────────────────────────────────────
+  function log(level, tag, msg, data) {
+    if (!enabled) return;
+    if (LOG_LEVELS[level] > currentLevel) return;
+
+    const prefix = "[" + new Date().toISOString() + "] [" + level.toUpperCase() + "] [" + tag + "]";
+    const cleanMsg = scrub(msg);
+    const cleanData = data !== undefined ? scrub(data) : undefined;
+
+    const fn =
+      level === "error"
+        ? console.error
+        : level === "warn"
+          ? console.warn
+          : level === "debug" || level === "trace"
+            ? console.debug
+            : console.log;
+
+    if (cleanData !== undefined) {
+      fn(prefix, cleanMsg, cleanData);
+    } else {
+      fn(prefix, cleanMsg);
+    }
+
+    if (level === "error" && window.W.sentryBuffer) {
+      window.W.sentryBuffer.push({
+        timestamp: new Date().toISOString(),
+        level,
+        tag,
+        message: cleanMsg,
+        data: cleanData,
+      });
+      if (window.W.sentryBuffer.length > 50) window.W.sentryBuffer.shift();
+    }
+  }
+
+  W.logger = {
+    error: (tag, msg, data) => log("error", tag, msg, data),
+    warn: (tag, msg, data) => log("warn", tag, msg, data),
+    info: (tag, msg, data) => log("info", tag, msg, data),
+    debug: (tag, msg, data) => log("debug", tag, msg, data),
+    trace: (tag, msg, data) => log("trace", tag, msg, data),
+    setLevel: (level) => {
+      if (LOG_LEVELS[level] === undefined) return;
+      currentLevel = LOG_LEVELS[level];
+      try {
+        localStorage.setItem("weaver_log_level", level);
+      } catch {
+        /* ignore quota errors */
+      }
+    },
+    setEnabled: (v) => {
+      enabled = !!v;
+    },
+    scrub,
+  };
 })();
 
-function log(level, module, message, data = null) {
-  if (LOG_LEVELS[level] > currentLevel) return;
-  const prefix = `[${new Date().toISOString()}] [${level.toUpperCase()}] [${module}]`;
-  if (data) {
-    console[level === "error" ? "error" : "log"](prefix, message, data);
-  } else {
-    console[level === "error" ? "error" : "log"](prefix, message);
-  }
-}
-
-window.W = window.W || {};
-W.logger = {
-  error: (module, msg, data) => log("error", module, msg, data),
-  warn: (module, msg, data) => log("warn", module, msg, data),
-  info: (module, msg, data) => log("info", module, msg, data),
-  debug: (module, msg, data) => log("debug", module, msg, data),
-  trace: (module, msg, data) => log("trace", module, msg, data),
-  setLevel: (level) => {
-    if (LOG_LEVELS[level] !== undefined) {
-      localStorage.setItem("weaver_log_level", level);
-    }
-  },
-};
+window.W.sentryBuffer = window.W.sentryBuffer || [];
 
 console.log("[Logger] Module loaded.");
 // ---- js/utils/performance.js ----
@@ -1517,6 +1752,67 @@ W.ui = {
 };
 
 console.log("[UI] Module loaded.");
+// ---- js/ui/data-status.js ----
+// ===============================================================
+// Data freshness status UI
+// ===============================================================
+
+window.W = window.W || {};
+W.ui = W.ui || {};
+
+W.ui.renderDataStatus = function (container, resources = []) {
+  if (!container) return;
+  container.replaceChildren();
+  const statuses = resources.map(
+    (resource) =>
+      W.dataHealth?.get(resource) || {
+        resource,
+        source: "unknown",
+        state: "unknown",
+        ageMs: null,
+      },
+  );
+  const stale = statuses.filter((item) => item.state === "stale");
+  const unknown = statuses.filter((item) => item.state === "unknown");
+  const wrapper = document.createElement("div");
+  wrapper.className = `data-status ${stale.length ? "data-status-stale" : "data-status-ok"}`;
+  const title = document.createElement("strong");
+  title.textContent = stale.length ? "⚠ Data may be stale" : "✓ Data freshness";
+  wrapper.appendChild(title);
+
+  const details = document.createElement("span");
+  details.className = "data-status-details";
+  details.textContent = statuses
+    .map((item) => {
+      const label = item.resource.replaceAll("-", " ");
+      if (item.state === "unknown") return `${label}: unavailable`;
+      const age = formatAge(item.ageMs);
+      return `${label}: ${age} (${item.source})`;
+    })
+    .join(" · ");
+  wrapper.appendChild(details);
+
+  if (unknown.length || stale.length) {
+    const note = document.createElement("span");
+    note.className = "data-status-note";
+    note.textContent = "Verify important decisions against a current source.";
+    wrapper.appendChild(note);
+  }
+  container.appendChild(wrapper);
+};
+
+function formatAge(ageMs) {
+  if (!Number.isFinite(ageMs)) return "unknown age";
+  const minutes = Math.floor(ageMs / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m old`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h old`;
+  return `${Math.floor(hours / 24)}d old`;
+}
+
+W.ui.formatDataAge = formatAge;
+console.log("[DataStatus] Freshness UI loaded.");
 // ---- js/ui/dashboard.js ----
 // ===============================================================
 //                     Weaver Dashboard UI
@@ -1787,6 +2083,7 @@ W.dashboard = (() => {
 
   async function render(view) {
     view.innerHTML = `
+      <div id="d-data-health" aria-live="polite"></div>
       <div class="cards" id="d-stats"></div>
       <div class="grid-2">
         <div id="what-matters-now-container"></div>
@@ -1848,6 +2145,15 @@ W.dashboard = (() => {
     const rows = pf.status === "fulfilled" ? pf.value.rows : [];
     const totals = pf.status === "fulfilled" ? pf.value.totals : null;
     const g = globR.status === "fulfilled" ? globR.value.data : null;
+
+    const healthEl = view.querySelector("#d-data-health");
+    if (healthEl && W.ui.renderDataStatus) {
+      W.ui.renderDataStatus(healthEl, [
+        "markets",
+        "global-market",
+        "fear-greed",
+      ]);
+    }
 
     const statsEl = view.querySelector("#d-stats");
     if (statsEl) {
@@ -1982,6 +2288,539 @@ W.dashboard = (() => {
 })();
 
 console.log("[Dashboard] Module loaded (CSP compliant).");
+// ---- js/api/schemas.js ----
+// ===============================================================
+// Runtime API schemas and freshness metadata
+// ===============================================================
+
+window.W = window.W || {};
+
+W.dataHealth = (() => {
+  const resources = {};
+  const DEFAULT_STALE_AFTER = 30 * 60 * 1000;
+
+  function mark(
+    resource,
+    {
+      source = "unknown",
+      observedAt = Date.now(),
+      staleAfter = DEFAULT_STALE_AFTER,
+    } = {},
+  ) {
+    const timestamp =
+      typeof observedAt === "number" ? observedAt : Date.parse(observedAt);
+    resources[resource] = {
+      resource,
+      source,
+      observedAt: Number.isFinite(timestamp) ? timestamp : Date.now(),
+      staleAfter,
+      updatedAt: Date.now(),
+    };
+    return resources[resource];
+  }
+
+  function get(resource) {
+    const item = resources[resource];
+    if (!item)
+      return {
+        resource,
+        source: "unknown",
+        state: "unknown",
+        ageMs: null,
+        observedAt: null,
+      };
+    const ageMs = Math.max(0, Date.now() - item.observedAt);
+    return {
+      ...item,
+      ageMs,
+      state: ageMs > item.staleAfter ? "stale" : "fresh",
+    };
+  }
+
+  function all() {
+    return Object.keys(resources).map(get);
+  }
+  function isStale(resource) {
+    return get(resource).state === "stale";
+  }
+  return { mark, get, all, isStale };
+})();
+
+W.schemas = (() => {
+  class SchemaValidationError extends Error {
+    constructor(name, message) {
+      super(`${name}: ${message}`);
+      this.name = "SchemaValidationError";
+      this.schema = name;
+    }
+  }
+
+  const isObject = (v) =>
+    v !== null && typeof v === "object" && !Array.isArray(v);
+  const isFiniteNumber = (v) => typeof v === "number" && Number.isFinite(v);
+  const optionalNumber = (v) =>
+    v === null || v === undefined || isFiniteNumber(v);
+  const requiredString = (v) => typeof v === "string" && v.length > 0;
+
+  function assert(name, condition, message) {
+    if (!condition) throw new SchemaValidationError(name, message);
+  }
+
+  function marketCoin(value, name = "market coin") {
+    assert(name, isObject(value), "expected an object");
+    assert(name, requiredString(value.id), "id must be a non-empty string");
+    assert(
+      name,
+      requiredString(value.symbol),
+      "symbol must be a non-empty string",
+    );
+    assert(
+      name,
+      isFiniteNumber(value.current_price),
+      "current_price must be a finite number",
+    );
+    assert(
+      name,
+      optionalNumber(value.market_cap),
+      "market_cap must be numeric or null",
+    );
+    return value;
+  }
+
+  function markets(value) {
+    assert(
+      "CoinGecko markets",
+      Array.isArray(value) && value.length > 0,
+      "expected a non-empty array",
+    );
+    value.forEach((coin, index) =>
+      marketCoin(coin, `CoinGecko markets[${index}]`),
+    );
+    return value;
+  }
+
+  function global(value) {
+    assert(
+      "CoinGecko global",
+      isObject(value) && isObject(value.data),
+      "data must be an object",
+    );
+    const data = value.data;
+    assert(
+      "CoinGecko global",
+      isObject(data.total_market_cap),
+      "total_market_cap is required",
+    );
+    assert(
+      "CoinGecko global",
+      optionalNumber(data.market_cap_change_percentage_24h_usd),
+      "market cap change must be numeric",
+    );
+    return value;
+  }
+
+  function fearGreed(value) {
+    assert(
+      "Fear and Greed",
+      isObject(value) && Array.isArray(value.data) && value.data.length > 0,
+      "data must be a non-empty array",
+    );
+    const item = value.data[0];
+    assert(
+      "Fear and Greed",
+      requiredString(String(item.value ?? "")),
+      "value is required",
+    );
+    assert(
+      "Fear and Greed",
+      requiredString(item.value_classification),
+      "value_classification is required",
+    );
+    return value;
+  }
+
+  function search(value) {
+    assert(
+      "CoinGecko search",
+      isObject(value) && Array.isArray(value.coins),
+      "coins must be an array",
+    );
+    value.coins.forEach((coin, index) => {
+      assert(
+        "CoinGecko search",
+        isObject(coin) && requiredString(coin.id),
+        `coins[${index}].id is required`,
+      );
+    });
+    return value;
+  }
+
+  function coin(value) {
+    assert(
+      "CoinGecko coin",
+      isObject(value) && requiredString(value.id),
+      "id is required",
+    );
+    assert(
+      "CoinGecko coin",
+      requiredString(value.symbol),
+      "symbol is required",
+    );
+    assert(
+      "CoinGecko coin",
+      isObject(value.market_data),
+      "market_data is required",
+    );
+    return value;
+  }
+
+  function chart(value) {
+    assert(
+      "CoinGecko chart",
+      isObject(value) && Array.isArray(value.prices),
+      "prices must be an array",
+    );
+    value.prices.forEach((point, index) => {
+      assert(
+        "CoinGecko chart",
+        Array.isArray(point) &&
+          point.length >= 2 &&
+          isFiniteNumber(point[0]) &&
+          isFiniteNumber(point[1]),
+        `prices[${index}] must be [timestamp, price]`,
+      );
+    });
+    return value;
+  }
+
+  function trending(value) {
+    assert(
+      "CoinGecko trending",
+      isObject(value) && Array.isArray(value.coins),
+      "coins must be an array",
+    );
+    return value;
+  }
+
+  function binanceTickers(value) {
+    assert(
+      "Binance tickers",
+      Array.isArray(value) && value.length > 0,
+      "expected a non-empty array",
+    );
+    value.forEach((item, index) => {
+      assert(
+        "Binance tickers",
+        isObject(item) && requiredString(item.symbol),
+        `tickers[${index}].symbol is required`,
+      );
+      assert(
+        "Binance tickers",
+        requiredString(item.lastPrice) &&
+          Number.isFinite(Number(item.lastPrice)),
+        `tickers[${index}].lastPrice must be numeric`,
+      );
+    });
+    return value;
+  }
+
+  function binanceKlines(value) {
+    assert("Binance klines", Array.isArray(value), "expected an array");
+    value.forEach((item, index) =>
+      assert(
+        "Binance klines",
+        Array.isArray(item) &&
+          item.length >= 5 &&
+          Number.isFinite(Number(item[0])) &&
+          Number.isFinite(Number(item[4])),
+        `klines[${index}] is invalid`,
+      ),
+    );
+    return value;
+  }
+
+  function goplus(value) {
+    assert(
+      "GoPlus security",
+      isObject(value) && Number(value.code) === 1,
+      "successful response code is required",
+    );
+    assert(
+      "GoPlus security",
+      isObject(value.result),
+      "result must be an object",
+    );
+    return value;
+  }
+
+  function blockscoutCollection(value) {
+    assert(
+      "Blockscout collection",
+      isObject(value) && Array.isArray(value.items),
+      "items must be an array",
+    );
+    return value;
+  }
+
+  function blockscoutToken(value) {
+    assert("Blockscout token", isObject(value), "expected an object");
+    return value;
+  }
+
+  function jsonRpc(value) {
+    assert(
+      "JSON-RPC",
+      isObject(value) && value.jsonrpc === "2.0",
+      "jsonrpc 2.0 response is required",
+    );
+    assert(
+      "JSON-RPC",
+      value.error === undefined || isObject(value.error),
+      "error must be an object when present",
+    );
+    assert(
+      "JSON-RPC",
+      value.result !== undefined || value.error !== undefined,
+      "result or error is required",
+    );
+    return value;
+  }
+
+  function bitcoinAddress(value) {
+    assert(
+      "Bitcoin address",
+      isObject(value) && isObject(value.chain_stats),
+      "chain_stats is required",
+    );
+    assert(
+      "Bitcoin address",
+      Number.isFinite(Number(value.chain_stats.funded_txo_sum)) &&
+        Number.isFinite(Number(value.chain_stats.spent_txo_sum)),
+      "chain stats must be numeric",
+    );
+    return value;
+  }
+
+  function telegram(value) {
+    assert(
+      "Telegram API",
+      isObject(value) && value.ok === true,
+      "successful Telegram response is required",
+    );
+    return value;
+  }
+
+  function llm(value) {
+    assert("LLM response", isObject(value), "expected an object");
+    assert(
+      "LLM response",
+      Array.isArray(value.choices) ||
+        Array.isArray(value.content) ||
+        typeof value.text === "string",
+      "no supported completion payload found",
+    );
+    return value;
+  }
+
+  function dexPairs(value) {
+    assert(
+      "DEX Screener",
+      isObject(value) && Array.isArray(value.pairs),
+      "pairs must be an array",
+    );
+    return value;
+  }
+
+  function categories(value) {
+    assert("CoinGecko categories", Array.isArray(value), "expected an array");
+    value.forEach((item, index) =>
+      assert(
+        "CoinGecko categories",
+        isObject(item) && requiredString(item.id),
+        `categories[${index}].id is required`,
+      ),
+    );
+    return value;
+  }
+
+  function bscscan(value) {
+    assert(
+      "BscScan",
+      isObject(value) &&
+        requiredString(String(value.status ?? "")) &&
+        value.result !== undefined,
+      "status and result are required",
+    );
+    return value;
+  }
+
+  function newsSnapshot(value) {
+    assert("News snapshot", Array.isArray(value), "expected an array");
+    value.forEach((item, index) =>
+      assert(
+        "News snapshot",
+        isObject(item) &&
+          requiredString(item.title) &&
+          requiredString(item.link),
+        `items[${index}] is invalid`,
+      ),
+    );
+    return value;
+  }
+
+  function validate(name, value) {
+    const validators = {
+      markets,
+      global,
+      fearGreed,
+      search,
+      coin,
+      chart,
+      trending,
+      binanceTickers,
+      binanceKlines,
+      goplus,
+      blockscoutCollection,
+      blockscoutToken,
+      jsonRpc,
+      bitcoinAddress,
+      telegram,
+      llm,
+      dexPairs,
+      categories,
+      bscscan,
+      newsSnapshot,
+    };
+    assert("Schema", validators[name], `unknown schema ${name}`);
+    return validators[name](value);
+  }
+
+  return {
+    SchemaValidationError,
+    validate,
+    markets,
+    global,
+    fearGreed,
+    search,
+    coin,
+    chart,
+    trending,
+    binanceTickers,
+    binanceKlines,
+    goplus,
+    blockscoutCollection,
+    blockscoutToken,
+    jsonRpc,
+    bitcoinAddress,
+    telegram,
+    llm,
+    dexPairs,
+    categories,
+    bscscan,
+    newsSnapshot,
+  };
+})();
+
+console.log("[Schemas] Runtime API schemas and freshness tracking loaded.");
+// ---- js/api/request-guard.js ----
+// ===============================================================
+// External request resilience: rate limiting and circuit breakers
+// ===============================================================
+
+window.W = window.W || {};
+
+W.requestGuard = (() => {
+  const buckets = new Map();
+  const circuits = new Map();
+  const DEFAULTS = {
+    capacity: 12,
+    refillMs: 10000,
+    failureThreshold: 5,
+    cooldownMs: 30000,
+  };
+
+  function originKey(url) {
+    try {
+      return new URL(url, window.location.href).origin;
+    } catch {
+      return "invalid-origin";
+    }
+  }
+
+  function consume(key, options = {}) {
+    const capacity = options.capacity || DEFAULTS.capacity;
+    const refillMs = options.refillMs || DEFAULTS.refillMs;
+    const now = Date.now();
+    const bucket = buckets.get(key) || { tokens: capacity, last: now };
+    bucket.tokens = Math.min(
+      capacity,
+      bucket.tokens + (now - bucket.last) / refillMs,
+    );
+    bucket.last = now;
+    if (bucket.tokens < 1) {
+      const waitMs = Math.ceil((1 - bucket.tokens) * refillMs);
+      throw new Error(`Rate limit exceeded for ${key}; retry in ${waitMs}ms`);
+    }
+    bucket.tokens -= 1;
+    buckets.set(key, bucket);
+  }
+
+  function before(key, options = {}) {
+    const circuit = circuits.get(key);
+    if (circuit && circuit.openUntil > Date.now()) {
+      throw new Error(`Circuit open for ${key}; retry after cooldown`);
+    }
+    if (circuit && circuit.openUntil <= Date.now()) {
+      circuits.delete(key);
+    }
+    consume(key, options);
+  }
+
+  function success(key) {
+    circuits.delete(key);
+  }
+
+  function failure(key, options = {}) {
+    const threshold = options.failureThreshold || DEFAULTS.failureThreshold;
+    const cooldownMs = options.cooldownMs || DEFAULTS.cooldownMs;
+    const current = circuits.get(key) || { failures: 0, openUntil: 0 };
+    current.failures += 1;
+    if (current.failures >= threshold)
+      current.openUntil = Date.now() + cooldownMs;
+    circuits.set(key, current);
+  }
+
+  async function fetch(url, options = {}, guardOptions = {}) {
+    const key = guardOptions.key || originKey(url);
+    before(key, guardOptions);
+    try {
+      const response = await window.fetch(url, options);
+      if (response.status >= 500 || response.status === 429)
+        failure(key, guardOptions);
+      else if (response.ok) success(key);
+      return response;
+    } catch (error) {
+      failure(key, guardOptions);
+      throw error;
+    }
+  }
+
+  function state(key) {
+    return {
+      bucket: buckets.get(key) || null,
+      circuit: circuits.get(key) || { failures: 0, openUntil: 0 },
+    };
+  }
+
+  function reset() {
+    buckets.clear();
+    circuits.clear();
+  }
+
+  return { fetch, before, success, failure, state, reset, originKey };
+})();
+
+console.log("[RequestGuard] Rate limiting and circuit breakers loaded.");
 // ---- js/api/prices.js ----
 // ===============================================================
 //                  Market Data API
@@ -2007,6 +2846,40 @@ W.api = (() => {
   // ── State ──────────────────────────────────────────────
   let source = "coingecko";
   let circuitBreaker = { failures: 0, until: 0 };
+
+  function schemaForUrl(url) {
+    if (url.includes("/coins/markets")) return "markets";
+    if (url.includes("/market_chart")) return "chart";
+    if (url.includes("/search/trending")) return "trending";
+    if (url.includes("/search?")) return "search";
+    if (url.endsWith("/global")) return "global";
+    if (url.includes("/coins/") && !url.includes("/coins/markets"))
+      return "coin";
+    if (url.includes("alternative.me/fng")) return "fearGreed";
+    if (url.includes("/ticker/24hr")) return "binanceTickers";
+    if (url.includes("/klines")) return "binanceKlines";
+    return null;
+  }
+
+  function resourceForUrl(url) {
+    if (url.includes("/coins/markets")) return "markets";
+    if (url.includes("/market_chart")) return "chart";
+    if (url.includes("/search/trending")) return "trending";
+    if (url.includes("/search?")) return "search";
+    if (url.endsWith("/global")) return "global-market";
+    if (url.includes("/coins/") && !url.includes("/coins/markets"))
+      return "coin";
+    if (url.includes("alternative.me/fng")) return "fear-greed";
+    if (url.includes("/ticker/24hr")) return "markets";
+    if (url.includes("/klines")) return "chart";
+    return "external-data";
+  }
+
+  function validateResponse(url, data) {
+    const schema = schemaForUrl(url);
+    if (schema && W.schemas) W.schemas.validate(schema, data);
+    return data;
+  }
 
   // ── Helpers ────────────────────────────────────────────
   function getCurrency() {
@@ -2058,6 +2931,11 @@ W.api = (() => {
     const cached = getCached(url, ttl);
     if (cached !== null) {
       source = "cache";
+      W.dataHealth?.mark(resourceForUrl(url), {
+        source: "cache",
+        observedAt: Date.now() - ttl / 2,
+        staleAfter: ttl,
+      });
       return cached;
     }
     if (isCircuitOpen()) {
@@ -2071,13 +2949,33 @@ W.api = (() => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
       try {
-        const response = await fetch(proxyUrl, {
-          signal: controller.signal,
-          headers: { "User-Agent": "Weaver/1.0", Accept: "application/json" },
-        });
+        const response = W.requestGuard
+          ? await W.requestGuard.fetch(
+              proxyUrl,
+              {
+                signal: controller.signal,
+                headers: {
+                  "User-Agent": "Weaver/1.0",
+                  Accept: "application/json",
+                },
+              },
+              {
+                capacity: 12,
+                refillMs: 10000,
+                failureThreshold: 5,
+                cooldownMs: 30000,
+              },
+            )
+          : await fetch(proxyUrl, {
+              signal: controller.signal,
+              headers: {
+                "User-Agent": "Weaver/1.0",
+                Accept: "application/json",
+              },
+            });
         clearTimeout(timer);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
+        const data = validateResponse(url, await response.json());
         setCached(url, data);
         resetCircuit();
         source =
@@ -2086,6 +2984,11 @@ W.api = (() => {
             : proxy === PROXIES[1]
               ? "direct"
               : "public-proxy";
+        W.dataHealth?.mark(resourceForUrl(url), {
+          source,
+          observedAt: Date.now(),
+          staleAfter: ttl * 2,
+        });
         return data;
       } catch (e) {
         lastError = e;
@@ -2266,7 +3169,6 @@ W.api = (() => {
 
 console.log("[Prices] Module loaded (improved error handling).");
 // ---- js/api/snapshot.js ----
-
 // js/api/snapshot.js – Fallback Snapshot Cache
 
 // This module provides local snapshot fallbacks when live APIs are unreachable.
@@ -2294,6 +3196,57 @@ window.W = window.W || {};
   let topSnapshot = null;
   let globalSnapshot = null;
   let fngSnapshot = null;
+  const snapshotTimes = {};
+
+  function saveStored(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify({ value, savedAt: Date.now() }));
+    } catch (e) {}
+  }
+
+  function readStored(key) {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(key));
+      if (parsed && parsed.value !== undefined) return parsed;
+      return parsed
+        ? { value: parsed, savedAt: Date.now() - 31 * 60 * 1000 }
+        : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function acceptSnapshot(name, value) {
+    if (!W.schemas) return value;
+    if (name === "top") return W.schemas.markets(value);
+    if (name === "global") return W.schemas.global(value);
+    if (name === "fng") return W.schemas.fearGreed(value);
+    return value;
+  }
+
+  function markSnapshot(name, source, observedAt) {
+    snapshotTimes[name] = observedAt || Date.now();
+    W.dataHealth?.mark(
+      name === "fng"
+        ? "fear-greed"
+        : name === "global"
+          ? "global-market"
+          : "markets",
+      {
+        source,
+        observedAt: snapshotTimes[name],
+        staleAfter: 30 * 60 * 1000,
+      },
+    );
+  }
+
+  function markFallback(resource, snapshotName) {
+    W.dataHealth?.mark(resource, {
+      source: "snapshot",
+      observedAt: snapshotTimes[snapshotName] || Date.now() - 31 * 60 * 1000,
+      staleAfter: 30 * 60 * 1000,
+    });
+  }
 
   // ── Load snapshots ─────────────────────────────────────
   async function loadSnapshots() {
@@ -2306,39 +3259,50 @@ window.W = window.W || {};
       ]);
 
       if (topRes.status === "fulfilled" && topRes.value.ok) {
-        topSnapshot = await topRes.value.json();
-        try {
-          localStorage.setItem("snapshot-top", JSON.stringify(topSnapshot));
-        } catch (e) {}
+        topSnapshot = acceptSnapshot("top", await topRes.value.json());
+        saveStored("snapshot-top", topSnapshot);
+        markSnapshot("top", "snapshot", Date.now());
       } else {
         // Fallback to localStorage
-        const stored = localStorage.getItem("snapshot-top");
-        if (stored) topSnapshot = JSON.parse(stored);
+        const stored = readStored("snapshot-top");
+        if (stored) {
+          topSnapshot = acceptSnapshot("top", stored.value);
+          markSnapshot("top", "local-cache", stored.savedAt);
+        }
       }
 
       if (globalRes.status === "fulfilled" && globalRes.value.ok) {
-        globalSnapshot = await globalRes.value.json();
-        try {
-          localStorage.setItem(
-            "snapshot-global",
-            JSON.stringify(globalSnapshot),
-          );
-        } catch (e) {}
+        globalSnapshot = acceptSnapshot("global", await globalRes.value.json());
+        saveStored("snapshot-global", globalSnapshot);
+        markSnapshot("global", "snapshot", Date.now());
       } else {
-        const stored = localStorage.getItem("snapshot-global");
-        if (stored) globalSnapshot = JSON.parse(stored);
-        else globalSnapshot = SNAPSHOT_GLOBAL;
+        const stored = readStored("snapshot-global");
+        if (stored) {
+          globalSnapshot = acceptSnapshot("global", stored.value);
+          markSnapshot("global", "local-cache", stored.savedAt);
+        } else {
+          globalSnapshot = SNAPSHOT_GLOBAL;
+          markSnapshot(
+            "global",
+            "built-in-fallback",
+            Date.now() - 31 * 60 * 1000,
+          );
+        }
       }
 
       if (fngRes.status === "fulfilled" && fngRes.value.ok) {
-        fngSnapshot = await fngRes.value.json();
-        try {
-          localStorage.setItem("snapshot-fng", JSON.stringify(fngSnapshot));
-        } catch (e) {}
+        fngSnapshot = acceptSnapshot("fng", await fngRes.value.json());
+        saveStored("snapshot-fng", fngSnapshot);
+        markSnapshot("fng", "snapshot", Date.now());
       } else {
-        const stored = localStorage.getItem("snapshot-fng");
-        if (stored) fngSnapshot = JSON.parse(stored);
-        else fngSnapshot = SNAPSHOT_FNG;
+        const stored = readStored("snapshot-fng");
+        if (stored) {
+          fngSnapshot = acceptSnapshot("fng", stored.value);
+          markSnapshot("fng", "local-cache", stored.savedAt);
+        } else {
+          fngSnapshot = SNAPSHOT_FNG;
+          markSnapshot("fng", "built-in-fallback", Date.now() - 31 * 60 * 1000);
+        }
       }
     } catch (e) {
       console.warn("[Snapshot] Load error:", e);
@@ -2346,6 +3310,9 @@ window.W = window.W || {};
       topSnapshot = topSnapshot || [];
       globalSnapshot = globalSnapshot || SNAPSHOT_GLOBAL;
       fngSnapshot = fngSnapshot || SNAPSHOT_FNG;
+      markSnapshot("top", "built-in-fallback", Date.now() - 31 * 60 * 1000);
+      markSnapshot("global", "built-in-fallback", Date.now() - 31 * 60 * 1000);
+      markSnapshot("fng", "built-in-fallback", Date.now() - 31 * 60 * 1000);
     }
 
     // Ensure we have arrays
@@ -2376,6 +3343,7 @@ window.W = window.W || {};
           const idArray = typeof ids === "string" ? ids.split(",") : ids;
           const result = topSnapshot.filter((c) => idArray.includes(c.id));
           api.source = "snapshot";
+          markFallback("markets", "top");
           return result.length ? result : topSnapshot.slice(0, idArray.length);
         }
       };
@@ -2392,6 +3360,7 @@ window.W = window.W || {};
           if (!topSnapshot || !topSnapshot.length)
             throw new Error("No snapshot data");
           api.source = "snapshot";
+          markFallback("markets", "top");
           return topSnapshot.slice(0, limit);
         }
       };
@@ -2406,6 +3375,7 @@ window.W = window.W || {};
         } catch (e) {
           console.warn("[Snapshot] Global fallback:", e.message);
           api.source = "snapshot";
+          markFallback("global-market", "global");
           return globalSnapshot || SNAPSHOT_GLOBAL;
         }
       };
@@ -2420,6 +3390,7 @@ window.W = window.W || {};
         } catch (e) {
           console.warn("[Snapshot] FearGreed fallback:", e.message);
           api.source = "snapshot";
+          markFallback("fear-greed", "fng");
           const fg = fngSnapshot?.data?.[0] || SNAPSHOT_FNG;
           return fg;
         }
@@ -2439,6 +3410,7 @@ window.W = window.W || {};
           const coin = topSnapshot.find((c) => c.id === id);
           if (coin?.sparkline_in_7d?.price) {
             api.source = "snapshot";
+            markFallback("chart", "top");
             const prices = coin.sparkline_in_7d.price;
             const now = Date.now();
             return prices.map((v, i) => [
@@ -2470,6 +3442,7 @@ window.W = window.W || {};
             )
             .slice(0, 10);
           api.source = "snapshot";
+          markFallback("markets", "top");
           return {
             coins: results.map((c) => ({
               id: c.id,
@@ -2496,6 +3469,7 @@ window.W = window.W || {};
           const coin = topSnapshot.find((c) => c.id === id);
           if (!coin) throw new Error("Coin not found in snapshot");
           api.source = "snapshot";
+          markFallback("markets", "top");
           return {
             id: coin.id,
             symbol: coin.symbol,
@@ -2735,6 +3709,12 @@ W.ai.providers = (() => {
     }
 
     const data = await response.json();
+    if (W.schemas) W.schemas.validate("llm", data);
+    W.dataHealth?.mark("llm", {
+      source: providerName,
+      observedAt: Date.now(),
+      staleAfter: 15 * 60 * 1000,
+    });
     return provider.parseResponse(data);
   }
 
@@ -2799,7 +3779,7 @@ console.log("[AI Providers] Registry initialized.");
 //         Evidence Engine for Weaver Intelligence
 // ===============================================================
 //
-// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9.1):
+// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9):
 //   - A missing or invalid confidence is recorded as `null`,
 //     never defaulted to 0.5.
 //   - `null` confidence marks the record `incomplete`.
@@ -2946,39 +3926,35 @@ W.evidence = W.evidence || {};
       corroborationCount = 1;
     }
 
-    // 4. Data completeness – how complete the data is (0–1)
+    // 4. Data completeness – how complete the data is (0–1).
+    // No default here: if the caller didn't supply it, we genuinely
+    // don't know how complete the underlying data is. Passing that
+    // through as null (rather than guessing 0.8) is what lets
+    // computeConfidence() honestly report "confidence unavailable"
+    // instead of a fabricated number. WEAVER_CONSTITUTION §2.7/§2.9.
     let dataCompleteness = options.dataCompleteness;
-    if (dataCompleteness === undefined || dataCompleteness === null) {
-      // If we have full price history, 0.9; if only a snapshot, 0.5.
-      // For now, we'll use a default of 0.8 if not provided.
-      dataCompleteness = 0.8;
+    if (dataCompleteness !== undefined && dataCompleteness !== null) {
+      dataCompleteness = Math.max(0, Math.min(1, dataCompleteness));
+    } else {
+      dataCompleteness = null;
     }
-    dataCompleteness = Math.max(0, Math.min(1, dataCompleteness));
 
-    // 5. Interpretation confidence – model‑specific confidence
+    // 5. Interpretation confidence – model‑specific confidence.
+    // Same principle: no invented per-signal-type defaults. A caller
+    // that has a genuine, derived interpretation confidence should
+    // supply it; otherwise this stays null.
     let interpretationConfidence = options.interpretationConfidence;
     if (
-      interpretationConfidence === undefined ||
-      interpretationConfidence === null
+      interpretationConfidence !== undefined &&
+      interpretationConfidence !== null
     ) {
-      // Default is 0.7, but we can derive from signal type:
-      if (signal.type === "PRICE_MOVE") {
-        // For price moves, use the consistency of the move with technicals
-        interpretationConfidence = 0.8;
-      } else if (signal.type === "REGIME_SHIFT") {
-        // Regime detection uses agreement ratio
-        interpretationConfidence = 0.75;
-      } else if (signal.type === "UNLOCK") {
-        // Unlock data is usually reliable if from a verified source
-        interpretationConfidence = 0.85;
-      } else {
-        interpretationConfidence = 0.7;
-      }
+      interpretationConfidence = Math.max(
+        0,
+        Math.min(1, interpretationConfidence),
+      );
+    } else {
+      interpretationConfidence = null;
     }
-    interpretationConfidence = Math.max(
-      0,
-      Math.min(1, interpretationConfidence),
-    );
 
     // 6. Compute overall confidence using the canonical model
     const evidence = {
@@ -2993,14 +3969,18 @@ W.evidence = W.evidence || {};
 
     evidence.confidence = computeConfidence
       ? computeConfidence(evidence)
-      : sourceReliability *
-        dataFreshness *
-        (1 + (corroborationCount - 1) * 0.1) *
-        dataCompleteness *
-        interpretationConfidence;
+      : dataCompleteness === null || interpretationConfidence === null
+        ? null
+        : sourceReliability *
+          dataFreshness *
+          (1 + (corroborationCount - 1) * 0.1) *
+          dataCompleteness *
+          interpretationConfidence;
 
-    // Clamp confidence
-    evidence.confidence = Math.max(0, Math.min(1, evidence.confidence));
+    // Clamp confidence (only if it was actually computed)
+    if (evidence.confidence !== null) {
+      evidence.confidence = Math.max(0, Math.min(1, evidence.confidence));
+    }
 
     // Add reasoning
     evidence.reasoning.push(
@@ -3009,13 +3989,19 @@ W.evidence = W.evidence || {};
     evidence.reasoning.push(`Freshness: ${(dataFreshness * 100).toFixed(0)}%`);
     evidence.reasoning.push(`Corroboration: ${corroborationCount} source(s)`);
     evidence.reasoning.push(
-      `Completeness: ${(dataCompleteness * 100).toFixed(0)}%`,
+      dataCompleteness === null
+        ? "Completeness: not available"
+        : `Completeness: ${(dataCompleteness * 100).toFixed(0)}%`,
     );
     evidence.reasoning.push(
-      `Interpretation: ${(interpretationConfidence * 100).toFixed(0)}%`,
+      interpretationConfidence === null
+        ? "Interpretation: not available"
+        : `Interpretation: ${(interpretationConfidence * 100).toFixed(0)}%`,
     );
     evidence.reasoning.push(
-      `Overall confidence: ${(evidence.confidence * 100).toFixed(0)}%`,
+      evidence.confidence === null
+        ? "Overall confidence: unavailable (evidence incomplete)"
+        : `Overall confidence: ${(evidence.confidence * 100).toFixed(0)}%`,
     );
 
     // Store the raw signal id for reference
@@ -3296,12 +4282,17 @@ W.delta = (() => {
       card.appendChild(p);
     } else {
       const list = document.createElement("ul");
-      list.style.cssText = "list-style:none; padding:0; margin:0;";
+      list.style.listStyle = "none";
+      list.style.padding = "0";
+      list.style.margin = "0";
 
       deltas.forEach((d) => {
         const li = document.createElement("li");
-        li.style.cssText =
-          "padding: 8px 0; border-bottom: 1px solid var(--border, #30363d); display:flex; justify-content:space-between; align-items:center;";
+        li.style.padding = "8px 0";
+        li.style.borderBottom = "1px solid var(--border, #30363d)";
+        li.style.display = "flex";
+        li.style.justifyContent = "space-between";
+        li.style.alignItems = "center";
 
         const label = document.createElement("span");
         label.textContent = d.metric; // SAFE: textContent
@@ -3446,10 +4437,12 @@ W.behavior = (() => {
 
     if (result.pattern !== "none") {
       const rec = document.createElement("div");
-      rec.style.cssText =
-        "margin-top:10px; padding:10px; background:rgba(255, 92, 122, 0.1); border-radius:6px;";
+      rec.style.marginTop = "10px";
+      rec.style.padding = "10px";
+      rec.style.background = "rgba(255, 92, 122, 0.1)";
+      rec.style.borderRadius = "6px";
       // SAFE: escapeHTML used for dynamic text injected via innerHTML
-      rec.innerHTML = `<b class="small" style="color:var(--down)">⚠️ Recommendation:</b> <span class="small">${W.fmt.escapeHTML(result.recommendation)}</span>`;
+      rec.innerHTML = `<b class="small text-down">⚠️ Recommendation:</b> <span class="small">${W.fmt.escapeHTML(result.recommendation)}</span>`;
       card.appendChild(rec);
     }
 
@@ -3481,7 +4474,7 @@ console.log("[Behavior] Pattern detection engine loaded.");
 //
 // NO-EVIDENCE NOTE: when there is no evidence at all, confidence
 // must be `null`, never `0.5`. A fabricated "middle" value implies
-// certainty that does not exist. See WEAVER_CONSTITUTION §2.9.1.
+// certainty that does not exist. See WEAVER_CONSTITUTION §2.9.
 // ===============================================================
 
 window.W = window.W || {};
@@ -3871,11 +4864,15 @@ W.thesisHealth = (() => {
 
     if (healthData.reasons.length > 0) {
       const ul = document.createElement("ul");
-      ul.style.cssText =
-        "list-style: none; padding: 0; margin: 8px 0; font-size: 0.9em;";
+      ul.style.listStyle = "none";
+      ul.style.padding = "0";
+      ul.style.margin = "8px 0";
+      ul.style.fontSize = "0.9em";
       healthData.reasons.forEach((reason) => {
         const li = document.createElement("li");
-        li.style.cssText = "padding: 4px 0; color: var(--text-muted);";
+        li.style.padding = "4px 0";
+        li.style.color = "var(--text-muted)";
+
         li.textContent = `• ${reason}`;
         ul.appendChild(li);
       });
@@ -3883,8 +4880,12 @@ W.thesisHealth = (() => {
     }
 
     const rec = document.createElement("div");
-    rec.style.cssText =
-      "margin-top: 8px; padding: 8px; background: rgba(124, 92, 255, 0.05); border-left: 3px solid var(--primary); border-radius: 4px; font-size: 0.9em;";
+    rec.style.marginTop = "8px";
+    rec.style.padding = "8px";
+    rec.style.background = "rgba(124, 92, 255, 0.05)";
+    rec.style.borderLeft = "3px solid var(--primary)";
+    rec.style.borderRadius = "4px";
+    rec.style.fontSize = "0.9em";
     rec.textContent = `Recommendation: ${healthData.recommendation}`;
     container.appendChild(rec);
   }
@@ -3987,12 +4988,16 @@ W.opportunities = (() => {
         type: "opportunity",
         symbol: "PORTFOLIO",
         title: "Regime Mismatch: Risk-Off Environment",
-        description: `Market regime is RISK-OFF (${(regimeData.confidence * 100).toFixed(0)}% confidence). Review exposure to speculative assets. ${DISCLAIMER}`,
+        description: `Market regime is RISK-OFF (${regimeData.confidence != null ? (regimeData.confidence * 100).toFixed(0) + "% confidence" : "confidence unavailable"}). Review exposure to speculative assets. ${DISCLAIMER}`,
         impactValue: 0.9,
         confidence: undefined,
         urgency: 0.8,
         source: "opportunity_scanner",
-        interpretationConfidence: regimeData.confidence || 0.7,
+        // Pass regime.js's actual computed confidence through as-is —
+        // no fallback. If it's genuinely missing, evidence-builder.js
+        // now correctly treats that as "confidence unavailable" rather
+        // than a fabricated 0.7 (WEAVER_CONSTITUTION §2.7/§2.9).
+        interpretationConfidence: regimeData.confidence,
         dataCompleteness: 0.8,
       });
     }
@@ -4010,7 +5015,7 @@ console.log("[Opportunities] Scanner engine loaded (no hardcoded confidence).");
 // ===============================================================
 // CSP Compliant: Zero inline styles used.
 //
-// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9.1):
+// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9):
 //   - Calibration is only computed when the user actually stated a
 //     confidence for the decision. If none was stated, calibration
 //     is reported as "unknown" rather than fabricated.
@@ -4227,6 +5232,181 @@ W.decisionReplay = (() => {
 console.log(
   "[DecisionReplay] Module loaded (multi‑dimensional evaluation, CSP compliant).",
 );
+// ---- js/intelligence/calibration.js ----
+// ===============================================================
+//         User Calibration Metric
+// ===============================================================
+// Measures how well the user's stated confidence on past decisions
+// matched outcomes. This is a DISPLAY METRIC, not a multiplier.
+// It NEVER modifies evidence.confidence.
+//
+// Design notes:
+//   - Bounded score [0, 1] using a Brier-style symmetric loss.
+//   - Minimum 10 evaluated decisions before reporting anything.
+//   - Recency-weighted, but each decision's weight is floored so
+//     a single old call cannot dominate.
+//   - Requires live prices for evaluation. If prices are missing,
+//     the metric reports "unavailable" rather than guessing.
+//
+// Constitution:
+//   §2.9  No False Precision — symmetric loss, bounded score.
+//   §3.8  Versioned Scoring  — tagged calibration-v1.
+//   §4.5  Outcome Learning   — preserves history, no hindsight.
+// ===============================================================
+
+window.W = window.W || {};
+W.calibration = (() => {
+  const VERSION = "calibration-v1";
+  const MIN_DECISIONS = 10;
+
+  function evaluateAll(decisions, currentPriceLookup) {
+    if (!W.decisionReplay || !W.decisionReplay.evaluate) return [];
+    const out = [];
+    for (const d of decisions) {
+      if (!d.price || !d.confidence) continue;
+      const current = currentPriceLookup ? currentPriceLookup(d) : null;
+      if (current == null) continue;
+      let result;
+      try {
+        result = W.decisionReplay.evaluate(d, { price: current });
+      } catch {
+        continue;
+      }
+      if (!result || result.outcome === "inconclusive") continue;
+      out.push({
+        stated: parseFloat(d.confidence),
+        outcome: result.outcome === "successful" ? 1 : 0,
+        timestamp: new Date(d.timestamp).getTime(),
+      });
+    }
+    return out;
+  }
+
+  // Brier-style symmetric score:
+  //   error = (outcome - stated)^2, in [0, 1]
+  //   score = 1 - mean(error)
+  // Perfect calibration -> 1. Always-0.9 confidence with 50% wins
+  // scores about 0.59. That is the honest read.
+  function brierScore(samples) {
+    if (!samples.length) return null;
+    let weightedError = 0;
+    let totalWeight = 0;
+    const now = Date.now();
+    for (const s of samples) {
+      const ageDays = (now - s.timestamp) / 86400000;
+      const w = Math.max(0.25, Math.pow(0.5, ageDays / 90));
+      weightedError += w * Math.pow(s.outcome - s.stated, 2);
+      totalWeight += w;
+    }
+    if (totalWeight === 0) return null;
+    const score = 1 - weightedError / totalWeight;
+    return Math.max(0, Math.min(1, score));
+  }
+
+  function summarize(samples) {
+    let over = 0;
+    let under = 0;
+    for (const s of samples) {
+      const stated = s.stated;
+      const hit = s.outcome;
+      if (stated >= 0.7 && hit === 0) over++;
+      else if (stated <= 0.3 && hit === 1) under++;
+    }
+    return { overconfident: over, underconfident: under };
+  }
+
+  function forAsset(assetId, currentPriceLookup) {
+    const symbol = (assetId && assetId.symbol ? assetId.symbol : assetId || "").toUpperCase();
+    if (!symbol) return { score: null, reason: "no_asset", version: VERSION };
+    if (!W.journal || !W.journal.all)
+      return { score: null, reason: "no_journal", version: VERSION };
+
+    const matching = W.journal
+      .all()
+      .filter(
+        (d) =>
+          (d.assetId && d.assetId.symbol ? d.assetId.symbol : d.asset || "").toUpperCase() === symbol,
+      );
+    if (matching.length < MIN_DECISIONS) {
+      return {
+        score: null,
+        reason: "insufficient_data",
+        sampleSize: matching.length,
+        minimumRequired: MIN_DECISIONS,
+        version: VERSION,
+      };
+    }
+
+    const samples = evaluateAll(matching, currentPriceLookup);
+    if (samples.length < MIN_DECISIONS) {
+      return {
+        score: null,
+        reason: "insufficient_evaluated_data",
+        evaluated: samples.length,
+        minimumRequired: MIN_DECISIONS,
+        version: VERSION,
+      };
+    }
+
+    const score = brierScore(samples);
+    const counts = summarize(samples);
+    return {
+      score,
+      sampleSize: samples.length,
+      overconfident: counts.overconfident,
+      underconfident: counts.underconfident,
+      reason: "ok",
+      version: VERSION,
+    };
+  }
+
+  function renderBadge(container, assetId, currentPriceLookup) {
+    if (!container) return;
+    const r = forAsset(assetId, currentPriceLookup);
+
+    const el = document.createElement("div");
+    el.className = "small muted mt-4";
+    el.style.fontStyle = "italic";
+
+    if (r.score == null) {
+      let reason;
+      if (r.reason === "insufficient_data") {
+        reason = "Only " + r.sampleSize + "/" + r.minimumRequired + " decisions logged on this asset.";
+      } else if (r.reason === "insufficient_evaluated_data") {
+        reason = r.evaluated + "/" + r.minimumRequired + " decisions have evaluable outcomes.";
+      } else {
+        reason = "Not enough data to calibrate.";
+      }
+      el.textContent = "📊 Your past calls on this asset: " + reason;
+    } else {
+      const pct = Math.round(r.score * 100);
+      const label =
+        r.score >= 0.75
+          ? "well-calibrated"
+          : r.score >= 0.5
+            ? "roughly calibrated"
+            : "poorly calibrated";
+      el.textContent =
+        "📊 Your past calls: " +
+        pct +
+        "% (" +
+        label +
+        ", " +
+        r.sampleSize +
+        " decisions, " +
+        r.overconfident +
+        " over, " +
+        r.underconfident +
+        " under)";
+    }
+
+    container.appendChild(el);
+  }
+
+  return { forAsset, renderBadge, VERSION, MIN_DECISIONS };
+})();
+
+console.log("[Calibration] User calibration metric loaded (calibration-v1).");
 // ---- js/intelligence/types.js ----
 // ===============================================================
 //              Canonical Intelligence Contracts
@@ -4337,14 +5517,34 @@ W.intelligence.freshnessWindows = {
 };
 
 // ── Compute confidence from evidence components ─────────────
+// sourceReliability and dataFreshness are always computable — the
+// former is a documented per-source constant (see sourceReliability
+// map above), the latter is real elapsed-time math. dataCompleteness
+// and interpretationConfidence are NOT given defaults here: if a
+// caller genuinely hasn't supplied them, that means we don't actually
+// know how complete the data is or how confident the interpretation
+// is — and inventing 0.8/0.7 to fill that gap is exactly the
+// synthetic-confidence problem WEAVER_CONSTITUTION §2.7 and §2.9
+// exist to prevent. Missing means the overall confidence is null,
+// not a plausible-looking number.
 function computeConfidence(evidence) {
   const {
     sourceReliability = 0.5,
     dataFreshness = 0.8,
     corroborationCount = 1,
-    dataCompleteness = 0.8,
-    interpretationConfidence = 0.7,
+    dataCompleteness,
+    interpretationConfidence,
   } = evidence;
+
+  if (dataCompleteness === null || dataCompleteness === undefined) {
+    return null;
+  }
+  if (
+    interpretationConfidence === null ||
+    interpretationConfidence === undefined
+  ) {
+    return null;
+  }
 
   const clamp = (v) => Math.max(0, Math.min(1, v));
   const sr = clamp(sourceReliability);
@@ -4390,16 +5590,23 @@ console.log("[Intelligence] Confidence model loaded.");
 // Uses user-centric impact, not market-cap buckets.
 // No REBALANCE action.
 //
-// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9.1):
+// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9):
 //   - Confidence is derived, never fabricated.
 //   - When confidence is unknown, it stays `null` end-to-end.
 //   - Nulls are never coerced to 0.5 for display or scoring.
 //   - Signals with no evidence are skipped, not defaulted.
 //
+// SCORING VERSION (§3.8):
+//   Every decision carries `scoreVersion` so historical results
+//   remain auditable against the scoring model that produced them.
+//   Bump this string whenever thresholds or weights change.
+//
 // ===============================================================
 
 window.W = window.W || {};
 W.decisionEngine = (() => {
+  const SCORE_VERSION = "decision-engine-v1";
+
   // ── Helper: Compute Personal Context (enriched) ─────────────
   function computePersonalContext(
     assetId,
@@ -4565,6 +5772,13 @@ W.decisionEngine = (() => {
 
   // ── Helper: Compute Decision Priority ──────────────────────
   function computeDecisionPriority(signal, assessment) {
+    // Tolerate partial assessments. A caller may pass an object
+    // without `reasoning` (unit tests do this deliberately). Never
+    // crash on a missing field — degrade to an empty explanation.
+    const reasoning = Array.isArray(assessment?.reasoning)
+      ? assessment.reasoning
+      : [];
+
     // If confidence is null, score is 0. The signal will not rank highly.
     const score =
       assessment.relevance *
@@ -4572,8 +5786,22 @@ W.decisionEngine = (() => {
       assessment.urgency *
       (assessment.confidence ?? 0);
 
+    // Priority is driven by two things: the signal's semantic type,
+    // and the numeric assessment. Type takes precedence because a
+    // "this thesis is deteriorating" signal is a risk signal by
+    // definition — its classification is the type, not the score.
     let recommendedAction = "MONITOR";
-    if (
+
+    const RISK_SIGNAL_TYPES = new Set([
+      "THESIS_DETERIORATION",
+      "SECURITY_RISK",
+    ]);
+
+    if (RISK_SIGNAL_TYPES.has(signal.type)) {
+      recommendedAction = "REVIEW_RISK";
+    } else if (signal.type === "REGIME_SHIFT" && assessment.relevance > 0.5) {
+      recommendedAction = "REVIEW_RISK";
+    } else if (
       assessment.relevance > 0.7 &&
       assessment.impact > 0.6 &&
       assessment.urgency > 0.5
@@ -4589,7 +5817,10 @@ W.decisionEngine = (() => {
       recommendedAction = "LOG_DECISION";
     }
 
-    const explanation = `Signal: ${signal.type} for ${signal.assetId.symbol}. Score: ${(score * 100).toFixed(0)}%. ${assessment.reasoning.join(". ")}`;
+    const explanation =
+      `Signal: ${signal.type} for ${signal.assetId.symbol}. ` +
+      `Score: ${(score * 100).toFixed(0)}%.` +
+      (reasoning.length ? ` ${reasoning.join(". ")}` : "");
 
     return {
       signalId: signal.id,
@@ -4597,6 +5828,8 @@ W.decisionEngine = (() => {
       score,
       recommendedAction,
       explanation,
+      methodologyVersion: SCORE_VERSION,
+      scoreVersion: SCORE_VERSION, 
     };
   }
 
@@ -4621,7 +5854,7 @@ W.decisionEngine = (() => {
     for (const signal of signals) {
       // 3. Build evidence using the Evidence Builder.
       //    If the builder is unavailable or fails, skip the signal entirely.
-      //    We never fabricate evidence — see WEAVER_CONSTITUTION §2.9.1.
+      //    We never fabricate evidence — see WEAVER_CONSTITUTION §2.9.
       if (!W.evidence || typeof W.evidence.build !== "function") {
         console.warn(
           "[DecisionEngine] Evidence builder unavailable; skipping signal:",
@@ -4691,16 +5924,14 @@ W.decisionEngine = (() => {
     card.appendChild(title);
 
     const list = document.createElement("ul");
-    list.style.cssText = "list-style:none; padding:0; margin:0;";
+    list.className = "decision-list";
 
     top.forEach((item) => {
       const li = document.createElement("li");
-      li.style.cssText =
-        "padding: 12px 0; border-bottom: 1px solid var(--border, #30363d);";
+      li.className = "decision-item";
 
       const header = document.createElement("div");
-      header.style.cssText =
-        "display:flex; justify-content:space-between; align-items:center; margin-bottom: 4px;";
+      header.className = "decision-header";
 
       const assetName = document.createElement("b");
       assetName.textContent = item._assetSymbol || "Asset";
@@ -4769,7 +6000,7 @@ W.decisionEngine = (() => {
 
       // Confidence bar — only rendered when confidence is genuinely known.
       // When null, show an honest "evidence incomplete" note instead of
-      // a fabricated 50% bar. See WEAVER_CONSTITUTION §2.9.1.
+      // a fabricated 50% bar. See WEAVER_CONSTITUTION §2.9.
       const confidence =
         item.assessment?.confidence !== undefined &&
         item.assessment?.confidence !== null
@@ -4778,23 +6009,22 @@ W.decisionEngine = (() => {
 
       if (confidence !== null) {
         const confBar = document.createElement("div");
-        confBar.style.cssText =
-          "margin-top: 8px; display: flex; align-items: center; gap: 8px;";
+        confBar.className = "decision-conf-bar";
         const confLabel = document.createElement("span");
         confLabel.className = "muted small";
         confLabel.textContent = "Evidence Strength:";
         const bar = document.createElement("div");
-        bar.style.cssText =
-          "flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;";
+        bar.className = "decision-bar";
         const fill = document.createElement("div");
         const confidencePct = (confidence * 100).toFixed(0);
-        fill.style.cssText = `width: ${confidencePct}%; height: 100%; background: ${
+        fill.className = "decision-bar-fill";
+        fill.style.width = `${confidencePct}%`;
+        fill.style.background =
           confidence > 0.7
             ? "var(--up, #2ee6a8)"
             : confidence > 0.4
               ? "var(--warn, #ffb35c)"
-              : "var(--down, #ff5c7a)"
-        }; border-radius: 2px;`;
+              : "var(--down, #ff5c7a)";
         bar.appendChild(fill);
         const pctSpan = document.createElement("span");
         pctSpan.className = "muted small";
@@ -4826,11 +6056,7 @@ W.decisionEngine = (() => {
 
       // Suggested action
       const action = document.createElement("div");
-      action.className = "small";
-      action.style.marginTop = "6px";
-      action.style.padding = "4px 8px";
-      action.style.background = "rgba(124, 92, 255, 0.1)";
-      action.style.borderRadius = "4px";
+      action.className = "small decision-action";
       const actionText = item.recommendedAction || "MONITOR";
       const actionMap = {
         MONITOR: "👀 Monitor",
@@ -4855,6 +6081,7 @@ W.decisionEngine = (() => {
     computePersonalContext,
     computeAssessment,
     computeDecisionPriority,
+    SCORE_VERSION,
   };
 })();
 
@@ -4911,10 +6138,20 @@ W.events = (() => {
       rawData: { ...raw, title },
     };
 
+    // No fabricated fallback here: if the signal source didn't supply
+    // a genuinely derived completeness/interpretation value, pass
+    // null through honestly rather than manufacturing 0.5. See
+    // js/intelligence/evidence-builder.js and types.js computeConfidence
+    // for how null propagates to an honest "confidence unavailable"
+    // instead of a fake number (WEAVER_CONSTITUTION §2.7/§2.9).
     signal._metadata = {
       corroborationCount: raw.corroborationCount || 1,
-      dataCompleteness: raw.dataCompleteness || 0.5,
-      interpretationConfidence: raw.interpretationConfidence || 0.5,
+      dataCompleteness:
+        raw.dataCompleteness === undefined ? null : raw.dataCompleteness,
+      interpretationConfidence:
+        raw.interpretationConfidence === undefined
+          ? null
+          : raw.interpretationConfidence,
     };
 
     return signal;
@@ -5565,7 +6802,7 @@ W.watchlist = (() => {
       <div class="card">
         <div class="watch-head">
           <h3>⭐ Watchlist</h3>
-          <div id="w-picker" style="min-width:280px;"></div>
+          <div id="w-picker" class="min-w-280"></div>
         </div>
         <div id="w-body">${W.ui.spinner()}</div>
       </div>
@@ -6060,7 +7297,8 @@ W.alerts = (() => {
       <div class="card">
         <h3>🚨 Create Alert</h3>
         <form id="a-form" class="alert-form">
-          <div id="a-picker" style="grid-column:1/-1;"></div>
+          <div id="a-picker" class="grid-full"></div>
+
           <label>Condition
             <select name="cond">
               <option value="above">Price goes above</option>
@@ -6235,7 +7473,15 @@ W.alerts = (() => {
 
 console.log("[Alerts] Module loaded.");
 // ---- js/features/news.js ----
-// js/features/news.js – Complete News Module
+
+// SECURITY: All RSS-derived content (title, description, link, pubDate)
+// is attacker-controllable. It MUST be escaped before insertion into
+// the DOM. Use W.fmt.escapeHTML or textContent — never innerHTML with
+// raw feed data.
+//
+// SNAPSHOT: The fallback snapshot is a fixed URL, not the result of
+// running an empty string through the proxy chain. Snapshot fetches
+// go directly to the known-good URL.
 
 const newsLog = (msg, data) => {
   console.log(`[News] ${msg}`, data || "");
@@ -6248,13 +7494,15 @@ const FEEDS = [
   ["Decrypt", "https://decrypt.co/feed"],
 ];
 
-// ── Proxy chain ─────────────────────────────────────────────────
+// ── Fixed snapshot URL (used only if live feeds fail) ──────────
+const SNAPSHOT_URL = "https://ibis01.github.io/weaver/data/news.json";
+
+// ── Proxy chain — builds a fetchable URL for a given target ────
 const PROX = [
   (u) => "http://localhost:3001/proxy?url=" + encodeURIComponent(u),
   (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
   (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u),
   (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
-  (u) => "https://ibis01.github.io/weaver/data/news.json",
 ];
 
 // ── Fetch with proxy fallback ──────────────────────────────────
@@ -6266,14 +7514,24 @@ async function via(url, asJSON = false) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 9000);
     try {
-      const resp = await fetch(proxyUrl, {
+      const requestOptions = {
         signal: controller.signal,
         headers: { "User-Agent": "Mozilla/5.0 (compatible; WeaverBot/1.0)" },
-      });
+      };
+      const resp = W.requestGuard
+        ? await W.requestGuard.fetch(proxyUrl, requestOptions, {
+            capacity: 6,
+            refillMs: 10000,
+            failureThreshold: 4,
+            cooldownMs: 30000,
+          })
+        : await fetch(proxyUrl, requestOptions);
       clearTimeout(timeout);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const text = await resp.text();
+      // Guard: if we asked for RSS and got HTML, this proxy failed.
       if (
+        !asJSON &&
         text.trim().startsWith("<") &&
         !text.includes("<rss") &&
         !text.includes("<feed")
@@ -6281,7 +7539,8 @@ async function via(url, asJSON = false) {
         throw new Error("HTML response (not RSS)");
       }
       newsLog(`✅ Proxy succeeded: ${proxyUrl}`);
-      return asJSON ? JSON.parse(text) : text;
+      const parsed = asJSON ? JSON.parse(text) : text;
+      return parsed;
     } catch (err) {
       clearTimeout(timeout);
       newsLog(`❌ Proxy failed: ${err.message}`);
@@ -6290,6 +7549,22 @@ async function via(url, asJSON = false) {
   }
   console.error("[News] All proxies failed.", lastErr);
   throw lastErr || new Error("All proxies failed");
+}
+
+// ── Fetch the fixed snapshot directly (no proxy chain) ─────────
+async function fetchSnapshot() {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const resp = await fetch(SNAPSHOT_URL, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    return Array.isArray(data) ? data : [];
+  } catch (e) {
+    newsLog(`Snapshot failed: ${e.message}`);
+    return [];
+  }
 }
 
 // ── Parse RSS XML ──────────────────────────────────────────────
@@ -6303,39 +7578,67 @@ function parseRSS(xml) {
     const link = item.querySelector("link")?.textContent || "#";
     const description = item.querySelector("description")?.textContent || "";
     const pubDate = item.querySelector("pubDate")?.textContent || "";
-    articles.push({ title, link, description, pubDate });
+    // Strip HTML entities that some feeds embed in description.
+    const plainDesc = description.replace(/<[^>]+>/g, "").trim();
+    articles.push({ title, link, description: plainDesc, pubDate });
   });
   return articles;
 }
 
-// ── Render articles into container ─────────────────────────────
-function renderArticles(articles) {
-  const container = document.getElementById("news-container");
+// ── Deduplicate and sort articles by date ──────────────────────
+function dedupeAndSort(articles) {
+  const seen = new Set();
+  const unique = [];
+  for (const a of articles) {
+    const key = a.link || a.title;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(a);
+  }
+  return unique.sort((a, b) => {
+    const ta = Date.parse(a.pubDate) || 0;
+    const tb = Date.parse(b.pubDate) || 0;
+    return tb - ta;
+  });
+}
+
+// ── Render articles into a specific container ──────────────────
+// Container is passed in, not looked up globally — avoids collisions
+// if more than one view ever renders at once.
+function renderArticles(container, articles) {
   if (!container) return;
   if (!articles || articles.length === 0) {
     container.innerHTML = '<div class="info">No articles available.</div>';
     return;
   }
+
+  const esc = W.fmt?.escapeHTML || ((s) => String(s ?? ""));
+
   const items = articles
     .slice(0, 20)
-    .map(
-      (a) => `
-    <div class="news-item">
-      <h3><a href="${a.link}" target="_blank" rel="noopener">${a.title}</a></h3>
-      <p>${a.description ? a.description.substring(0, 200) + "..." : ""}</p>
-      <small>${a.pubDate || ""}</small>
-    </div>
-  `,
-    )
+    .map((a) => {
+      const safeTitle = esc(a.title);
+      const safeLink = esc(a.link);
+      const safeDesc = esc(a.description || "");
+      const safeDate = esc(a.pubDate || "");
+      return `
+        <div class="news-item">
+          <h3><a href="${safeLink}" target="_blank" rel="noopener noreferrer">${safeTitle}</a></h3>
+          <p>${safeDesc ? safeDesc.substring(0, 200) + "…" : ""}</p>
+          <small>${safeDate}</small>
+        </div>
+      `;
+    })
     .join("");
+
   container.innerHTML = `<div class="news-list">${items}</div>`;
 }
 
 // ════════════════════════════════════════════════════════════════
-// ═══════ FIXED: Renders inside the view, not below it ═══════
+//         render(view) — called by the router
 // ════════════════════════════════════════════════════════════════
 async function render(view) {
-  // 1. Clear the view and set up the news page structure
+  // 1. Build the page structure with a locally-scoped container reference.
   view.innerHTML = `
     <div class="card">
       <h3>📰 Crypto News</h3>
@@ -6343,17 +7646,16 @@ async function render(view) {
     </div>
   `;
 
-  // 2. Get the container
-  const container = document.getElementById("news-container");
+  const container = view.querySelector("#news-container");
   if (!container) {
     console.warn("[News] Container not found after rendering");
     return;
   }
 
-  // 3. Show loading
   container.innerHTML = '<div class="loading">Loading news...</div>';
 
   try {
+    // 2. Fetch all feeds in parallel.
     const feedPromises = FEEDS.map(async ([name, url]) => {
       try {
         const xml = await via(url);
@@ -6364,25 +7666,39 @@ async function render(view) {
         return { name, articles: [], error: err.message };
       }
     });
+
     const results = await Promise.all(feedPromises);
-    const allArticles = results.flatMap((r) => r.articles);
+    const allArticles = dedupeAndSort(results.flatMap((r) => r.articles));
+
+    W.dataHealth?.mark?.("news", {
+      source: "rss",
+      observedAt: Date.now(),
+      staleAfter: 60 * 60 * 1000,
+    });
 
     if (allArticles.length === 0) {
       newsLog("No live articles, trying snapshot...");
-      const snapshot = await via("", true);
-      if (snapshot && snapshot.length) {
-        renderArticles(snapshot);
+      const snapshot = await fetchSnapshot();
+      const sorted = dedupeAndSort(snapshot);
+      if (sorted.length) {
+        W.dataHealth?.mark?.("news", {
+          source: "snapshot",
+          observedAt: Date.now() - 31 * 60 * 1000,
+          staleAfter: 60 * 60 * 1000,
+        });
+        renderArticles(container, sorted);
         return;
       }
       container.innerHTML =
         '<div class="error">Could not load news. Try again later.</div>';
       return;
     }
-    renderArticles(allArticles);
+
+    renderArticles(container, allArticles);
   } catch (err) {
     console.error("[News] Render error:", err);
-    container.innerHTML =
-      '<div class="error">Failed to load news. Check console.</div>';
+    const msg = W.fmt?.escapeHTML?.(err.message) || "unknown error";
+    container.innerHTML = `<div class="error">Failed to load news: ${msg}</div>`;
   }
 }
 
@@ -6406,6 +7722,30 @@ const AiModule = (() => {
   const MEMORY_KEY = "ai_memory";
   const INSIGHTS_KEY = "ai_insights";
   const MAX_HISTORY = 50;
+
+  async function fetchOnChainJSON(url) {
+    const response = W.requestGuard
+      ? await W.requestGuard.fetch(
+          url,
+          {},
+          {
+            capacity: 8,
+            refillMs: 10000,
+            failureThreshold: 4,
+            cooldownMs: 30000,
+          },
+        )
+      : await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (W.schemas) W.schemas.validate("blockscoutCollection", data);
+    W.dataHealth?.mark("on-chain", {
+      source: "blockscout",
+      observedAt: Date.now(),
+      staleAfter: 10 * 60 * 1000,
+    });
+    return data;
+  }
 
   let memory = W.store.get(MEMORY_KEY, { conversations: [], insights: [] });
   let insightsCache = W.store.get(INSIGHTS_KEY, []);
@@ -6530,9 +7870,9 @@ const AiModule = (() => {
       const coin = await W.api.coin(coinId);
       const contract = coin?.platforms?.ethereum;
       if (!contract) return null;
-      const txs = await fetch(
+      const txs = await fetchOnChainJSON(
         `https://eth.blockscout.com/api/v2/tokens/${contract}/transfers`,
-      ).then((r) => r.json());
+      );
       const price = coin?.market_data?.current_price?.usd || 0;
       return (txs.items || [])
         .filter(
@@ -6558,17 +7898,17 @@ const AiModule = (() => {
       const coin = await W.api.coin(coinId);
       const contract = coin?.platforms?.ethereum;
       if (!contract) return null;
-      const holders = await fetch(
+      const holders = await fetchOnChainJSON(
         `https://eth.blockscout.com/api/v2/tokens/${contract}/holders`,
-      ).then((r) => r.json());
+      );
       if (!holders?.items) return null;
       const top5 = holders.items.slice(0, 5);
       let accumulating = 0;
       for (const h of top5) {
         try {
-          const txs = await fetch(
+          const txs = await fetchOnChainJSON(
             `https://eth.blockscout.com/api/v2/addresses/${h.address.hash}/token-transfers?token=${contract}`,
-          ).then((r) => r.json());
+          );
           const weekAgo = Date.now() - 7 * 864e5;
           const recent = (txs.items || []).filter(
             (t) => new Date(t.timestamp).getTime() > weekAgo,
@@ -7090,8 +8430,8 @@ ${behaviorContext}
           insights.slice(0, 4).forEach((i) => {
             const div = document.createElement("div");
             div.className = "kv-row";
-            div.style.cssText =
-              "border-bottom:1px solid var(--border);padding:8px 0;";
+            div.style.borderBottom = "1px solid var(--border)";
+            div.style.padding = "8px 0";
             const left = document.createElement("span");
             left.innerHTML = `${i.icon || ""} <b>${W.fmt.escapeHTML(i.title)}</b><br><span class="muted small">${W.fmt.escapeHTML(i.message)}</span>`;
             const right = document.createElement("span");
@@ -7258,14 +8598,14 @@ W.optimizer = (() => {
                 (r) => `
               <tr>
                 <td class="coin-cell">
-                  <img src="${r.image || r.img || ""}" alt="${escapeHTML(r.name)}" style="width:24px;height:24px;border-radius:50%;">
+                  <img src="${r.image || r.img || ""}" alt="${escapeHTML(r.name)}" class="icon-24">
                   <b>${escapeHTML(r.name)}</b>
                   <span class="muted small">${r.symbol.toUpperCase()}</span>
                 </td>
                 <td class="num">${W.fmt.money(r.value)}</td>
                 <td class="num">${totals.value ? ((r.value / totals.value) * 100).toFixed(1) : 0}%</td>
                 <td class="num">
-                  <input type="number" step="0.1" min="0" max="100" data-target="${r.coinId}" style="width:80px;text-align:right;" value="${+targets[r.coinId].toFixed(1)}">
+                  <input type="number" step="0.1" min="0" max="100" data-target="${r.coinId}" class="w-80-right" value="${+targets[r.coinId].toFixed(1)}">
                 </td>
                 <td data-trade="${r.coinId}"></td>
               </tr>
@@ -8137,7 +9477,7 @@ W.trader = (() => {
         <h3>⚡ AI Trading Assistant</h3>
         <p class="muted small">RSI-14 + SMA 20/50 trend + momentum + Fear&Greed contrarian filter → Weaver Score → signal.</p>
         <div class="qa mt">
-          <div id="t-picker" style="min-width:260px;"></div>
+          <div id="t-picker" class="min-w-260"></div>
           <button class="btn primary" id="t-go">Analyze</button>
         </div>
         <div class="qa mt" id="t-quick"></div>
@@ -8243,7 +9583,7 @@ W.trader = (() => {
                   (a) => `
                 <tr>
                   <td class="coin-cell">
-                    <img src="${a.coin.image?.small || ""}" alt="${a.coin.name}" style="width:20px;height:20px;border-radius:50%;">
+                    <img src="${a.coin.image?.small || ""}" alt="${a.coin.name}" class="icon-20">
                     <b>${a.coin.name}</b>
                   </td>
                   <td><span class="tag ${a.cssClass}">${a.signal}</span></td>
@@ -8278,7 +9618,7 @@ W.trader = (() => {
 
 console.log("[Trader] Module loaded.");
 // ---- js/features/gems.js ----
-// – Gem Agent: Token Hunter
+// js/features/gems.js – Gem Agent: Token Hunter
 
 window.W = window.W || {};
 
@@ -8300,6 +9640,8 @@ W.gems = (() => {
     arbitrum: "🔺",
     polygon: "🟪",
     avalanche: "❄️",
+    ton: "💎",
+    blast: "💥",
   };
 
   // Bump this whenever score()'s weights/logic change. Alerts and cards
@@ -8538,8 +9880,14 @@ W.gems = (() => {
         const addr = g.pair.baseToken.address;
         if (g.analysis.score >= 70 && !seen[addr]) {
           const shield = await checkShield(addr, g.pair.chainId);
+          // Constitution §2.2 — never ship a bare score with no explanation.
+          const reasonLines = (g.analysis.reasons || [])
+            .slice(0, 4)
+            .map((r) => "• " + r)
+            .join("\n");
           const msg =
             `🤖 <b>Gem detected:</b> ${g.pair.baseToken.symbol} on ${g.pair.chainId} — score ${g.analysis.score} (${g.analysis.scoreVersion})\n` +
+            (reasonLines ? reasonLines + "\n" : "") +
             shieldSummary(shield);
           W.ui.toast(
             `Gem detected: ${g.pair.baseToken.symbol} — score ${g.analysis.score}`,
@@ -8673,7 +10021,7 @@ W.gems = (() => {
 console.log("[Gems] Module loaded.");
 // ---- js/features/shield.js ----
 // ================================================================
-// Token Shield (Contract Security Auditor)
+// js/features/shield.js – Token Shield (Contract Security Auditor)
 // ================================================================
 
 window.W = window.W || {};
@@ -8762,12 +10110,51 @@ W.shield = (() => {
     return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
   }
 
+  // ── Own CORS proxy (Cloudflare Worker) ─────────────────
+  // Set this after deploying cf-worker/ (see cf-worker/README.md).
+  // Left blank, Shield falls back to the public-proxy chain below,
+  // so this can be filled in whenever without breaking anything.
+  const WORKER_PROXY_BASE = "";
+
+  async function fetchViaOwnWorker(kind, chainId, address) {
+    if (!WORKER_PROXY_BASE) return null;
+    const path =
+      kind === "solana" ? "/goplus/solana" : `/goplus/evm/${chainId}`;
+    const addrParam = kind === "solana" ? address : address.toLowerCase();
+    const url = `${WORKER_PROXY_BASE}${path}?contract_addresses=${encodeURIComponent(addrParam)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      if (data.code !== 1) throw new Error(data.message || "API error");
+      return data;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   // ── Fetch from GoPlus ─────────────────────────────────
 
   async function fetchTokenSecurity(chainId, address) {
     // Check cache first
     const cached = getCached(chainId, address);
     if (cached) return cached;
+
+    // Prefer our own worker — reliable, no third-party dependency.
+    try {
+      const viaWorker = await fetchViaOwnWorker("evm", chainId, address);
+      if (viaWorker) {
+        setCache(chainId, address, viaWorker);
+        return viaWorker;
+      }
+    } catch (e) {
+      console.warn(
+        "[Shield] Own worker failed, falling back to public proxies:",
+        e.message,
+      );
+    }
 
     const url = `${GOPLUS_API}/${chainId}?contract_addresses=${address.toLowerCase()}`;
 
@@ -8813,6 +10200,20 @@ W.shield = (() => {
   async function fetchSolanaTokenSecurity(address) {
     const cached = getCached("solana", address);
     if (cached) return cached;
+
+    // Prefer our own worker — reliable, no third-party dependency.
+    try {
+      const viaWorker = await fetchViaOwnWorker("solana", null, address);
+      if (viaWorker) {
+        setCache("solana", address, viaWorker);
+        return viaWorker;
+      }
+    } catch (e) {
+      console.warn(
+        "[Shield] Own worker failed, falling back to public proxies:",
+        e.message,
+      );
+    }
 
     // Address case matters for Solana — never lowercase it.
     const url = `${GOPLUS_SOLANA_API}?contract_addresses=${address}`;
@@ -9509,7 +10910,14 @@ W.web3 = W.web3 || {};
           params: [address],
         }),
       });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
+      if (W.schemas) W.schemas.validate("jsonRpc", data);
+      W.dataHealth?.mark("wallet-data", {
+        source: "solana-rpc",
+        observedAt: Date.now(),
+        staleAfter: 10 * 60 * 1000,
+      });
       return data.result?.value !== undefined ? data.result.value / 1e9 : null;
     } catch (error) {
       console.error("[Web3] Solana balance error"); // SAFE: No raw address logged
@@ -9548,12 +10956,27 @@ W.web3 = W.web3 || {};
       }
 
       const modal = document.createElement("div");
-      modal.style.cssText =
-        "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);";
+      modal.style.position = "fixed";
+      modal.style.top = "0";
+      modal.style.left = "0";
+      modal.style.right = "0";
+      modal.style.bottom = "0";
+      modal.style.background = "rgba(0,0,0,0.85)";
+      modal.style.zIndex = "9999";
+      modal.style.display = "flex";
+      modal.style.alignItems = "center";
+      modal.style.justifyContent = "center";
+      modal.style.backdropFilter = "blur(4px)";
 
       const card = document.createElement("div");
-      card.style.cssText =
-        "background:var(--bg-card, #161b22);padding:24px;border-radius:12px;max-width:420px;width:90%;color:var(--text, #e6edf3);border:1px solid var(--border, #30363d);box-shadow:0 10px 30px rgba(0,0,0,0.5);";
+      card.style.background = "var(--bg-card, #161b22)";
+      card.style.padding = "24px";
+      card.style.borderRadius = "12px";
+      card.style.maxWidth = "420px";
+      card.style.width = "90%";
+      card.style.color = "var(--text, #e6edf3)";
+      card.style.border = "1px solid var(--border, #30363d)";
+      card.style.boxShadow = "0 10px 30px rgba(0,0,0,0.5)";
 
       const title = document.createElement("h3");
       title.style.marginTop = "0";
@@ -9591,7 +11014,9 @@ W.web3 = W.web3 || {};
       }
 
       const btnContainer = document.createElement("div");
-      btnContainer.style.cssText = "display:flex;gap:12px;margin-top:24px;";
+      btnContainer.style.display = "flex";
+      btnContainer.style.gap = "12px";
+      btnContainer.style.marginTop = "24px";
 
       const cancelBtn = document.createElement("button");
       cancelBtn.textContent = "Cancel";
@@ -10071,14 +11496,16 @@ W.misc = (() => {
                   .join("")}
               </ul>
               <div class="meter-bar">
-                <div style="width: ${(dk.length / d.tasks.length) * 100}%"></div>
+               <div class="progress-fill" data-width="${(dk.length / d.tasks.length) * 100}"></div>
               </div>
             </div>
           `;
         }).join("")}
       </div>
     `;
-
+    view.querySelectorAll("[data-width]").forEach((el) => {
+  el.style.width = `${el.dataset.width}%`;
+     });
     view.querySelectorAll('input[type="checkbox"][data-drop]').forEach((cb) => {
       cb.onchange = () => {
         const done = W.store.get(KEY, {});
@@ -10242,7 +11669,7 @@ W.misc = (() => {
           <input id="set-tgchat" placeholder="e.g. 7099096813" value="${escapeHTML(tg.chat || "")}">
         </label>
         <label class="small">
-          <input type="checkbox" id="set-tgon" ${tg.on ? "checked" : ""} style="width:auto">
+         <input type="checkbox" id="set-tgon" ${tg.on ? "checked" : ""} class="w-auto">
           Enable Telegram alerts
         </label>
         <div class="qa mt">
@@ -10451,7 +11878,7 @@ W.whales = W.whales || {};
           .map(
             (w) => `
           <div class="card">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
+           <div class="flex-between">
               <h4>${W.fmt.escapeHTML(w.chain)}</h4>
               <span class="tag ${w.type === "inflow" ? "sell" : "buy"}">${w.type}</span>
             </div>
@@ -10520,6 +11947,30 @@ W.smart = (() => {
     const div = document.createElement("div");
     div.textContent = str;
     return div.innerHTML;
+  }
+
+  async function fetchJSON(url, schema) {
+    const response = W.requestGuard
+      ? await W.requestGuard.fetch(
+          url,
+          {},
+          {
+            capacity: 8,
+            refillMs: 10000,
+            failureThreshold: 4,
+            cooldownMs: 30000,
+          },
+        )
+      : await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (W.schemas) W.schemas.validate(schema, data);
+    W.dataHealth?.mark("on-chain", {
+      source: "blockscout",
+      observedAt: Date.now(),
+      staleAfter: CACHE_TTL * 2,
+    });
+    return data;
   }
 
   // ── Price Map for Historical Dates ────────────────────
@@ -10637,9 +12088,10 @@ W.smart = (() => {
 
       // Fetch token info and holders
       const [tok, holders] = await Promise.all([
-        fetch(`${BLOCKSCOUT_API}/tokens/${contract}`).then((r) => r.json()),
-        fetch(`${BLOCKSCOUT_API}/tokens/${contract}/holders`).then((r) =>
-          r.json(),
+        fetchJSON(`${BLOCKSCOUT_API}/tokens/${contract}`, "blockscoutToken"),
+        fetchJSON(
+          `${BLOCKSCOUT_API}/tokens/${contract}/holders`,
+          "blockscoutCollection",
         ),
       ]);
 
@@ -10659,7 +12111,7 @@ W.smart = (() => {
       for (const h of topHolders) {
         try {
           const txUrl = `${BLOCKSCOUT_API}/addresses/${h.address.hash}/token-transfers?token=${contract}`;
-          const txs = await fetch(txUrl).then((r) => r.json());
+          const txs = await fetchJSON(txUrl, "blockscoutCollection");
           const analysis = analyzeWallet(
             txs.items || [],
             h.address.hash,
@@ -10829,7 +12281,7 @@ W.smart = (() => {
           <br><span class="tag rank">ERC-20 tokens on Ethereum</span>
         </p>
         <div class="qa mt">
-          <div id="sm-picker" style="min-width:280px;"></div>
+          <div id="sm-picker" class="min-w-280"></div>
           <button class="btn primary" id="sm-go">Scan Holders</button>
         </div>
       </div>
@@ -11269,9 +12721,30 @@ W.sectors = (() => {
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 9000);
       try {
-        const r = await fetch(wrap(url), { signal: ctrl.signal });
+        const target = wrap(url);
+        const r = W.requestGuard
+          ? await W.requestGuard.fetch(
+              target,
+              { signal: ctrl.signal },
+              {
+                capacity: 8,
+                refillMs: 10000,
+                failureThreshold: 4,
+                cooldownMs: 30000,
+              },
+            )
+          : await fetch(target, { signal: ctrl.signal });
         clearTimeout(t);
-        if (r.ok) return await r.json();
+        if (r.ok) {
+          const data = await r.json();
+          if (W.schemas) W.schemas.validate("categories", data);
+          W.dataHealth?.mark("categories", {
+            source: "coingecko",
+            observedAt: Date.now(),
+            staleAfter: 30 * 60 * 1000,
+          });
+          return data;
+        }
       } catch (e) {
         lastErr = e;
         clearTimeout(t);
@@ -12074,7 +13547,7 @@ W.learn = (() => {
       title: `${l.icon} ${escapeHTML(l.title)}`,
       body: `
         <span class="tag rank">${escapeHTML(l.category)}</span>
-        <div style="line-height:1.7;margin-top:12px;">${l.body}</div>
+        <div class="lh-17 mt-12">${l.body}</div>
         <div class="mt">
           <b>Quiz:</b> ${escapeHTML(l.quiz.q)}
           ${l.quiz.a
@@ -12690,10 +14163,16 @@ W.tg = (() => {
         return false;
       }
       const data = await response.json();
+      if (W.schemas) W.schemas.validate("telegram", data);
       if (!data.ok) {
         console.error("[Telegram] Error response:", data.description);
         return false;
       }
+      W.dataHealth?.mark("telegram", {
+        source: "telegram",
+        observedAt: Date.now(),
+        staleAfter: 60 * 60 * 1000,
+      });
       return true;
     } catch (e) {
       console.error("[Telegram] Network error:", e.message);
@@ -12786,6 +14265,26 @@ W.walletSync = (() => {
   const CACHE_KEY = "wallet_sync_cache";
   const CACHE_TTL = 300000; // 5 minutes
 
+  async function fetchJSON(url, options, schema) {
+    const response = W.requestGuard
+      ? await W.requestGuard.fetch(url, options, {
+          capacity: 8,
+          refillMs: 10000,
+          failureThreshold: 4,
+          cooldownMs: 30000,
+        })
+      : await fetch(url, options);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (W.schemas) W.schemas.validate(schema, data);
+    W.dataHealth?.mark("wallet-data", {
+      source: new URL(url).hostname,
+      observedAt: Date.now(),
+      staleAfter: CACHE_TTL * 2,
+    });
+    return data;
+  }
+
   // ── Chain configurations ──────────────────────────────
   const CHAINS = {
     btc: {
@@ -12794,9 +14293,11 @@ W.walletSync = (() => {
       icon: "₿",
       explorer: "https://mempool.space/address/",
       balance: async (addr) => {
-        const data = await fetch(
+        const data = await fetchJSON(
           `https://mempool.space/api/address/${addr}`,
-        ).then((r) => r.json());
+          undefined,
+          "bitcoinAddress",
+        );
         return (
           (data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum) /
           1e8
@@ -12810,16 +14311,20 @@ W.walletSync = (() => {
       icon: "⟠",
       explorer: "https://etherscan.io/address/",
       balance: async (addr) => {
-        const data = await fetch("https://cloudflare-eth.com", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "eth_getBalance",
-            params: [addr, "latest"],
-          }),
-        }).then((r) => r.json());
+        const data = await fetchJSON(
+          "https://cloudflare-eth.com",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "eth_getBalance",
+              params: [addr, "latest"],
+            }),
+          },
+          "jsonRpc",
+        );
         return parseInt(data.result || "0x0", 16) / 1e18;
       },
       tokens: async (addr) => {
@@ -12849,22 +14354,26 @@ W.walletSync = (() => {
         const results = [];
         for (const token of tokens) {
           try {
-            const data = await fetch("https://cloudflare-eth.com", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                jsonrpc: "2.0",
-                id: 1,
-                method: "eth_call",
-                params: [
-                  {
-                    to: token.address,
-                    data: "0x70a08231" + addr.slice(2).padStart(64, "0"),
-                  },
-                  "latest",
-                ],
-              }),
-            }).then((r) => r.json());
+            const data = await fetchJSON(
+              "https://cloudflare-eth.com",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: 1,
+                  method: "eth_call",
+                  params: [
+                    {
+                      to: token.address,
+                      data: "0x70a08231" + addr.slice(2).padStart(64, "0"),
+                    },
+                    "latest",
+                  ],
+                }),
+              },
+              "jsonRpc",
+            );
             const balance =
               parseInt(data.result || "0x0", 16) / Math.pow(10, token.decimals);
             if (balance > 1e-9) {
@@ -12883,9 +14392,11 @@ W.walletSync = (() => {
       icon: "🟡",
       explorer: "https://bscscan.com/address/",
       balance: async (addr) => {
-        const data = await fetch(
+        const data = await fetchJSON(
           `https://api.bscscan.com/api?module=account&action=balance&address=${addr}&tag=latest`,
-        ).then((r) => r.json());
+          undefined,
+          "bscscan",
+        );
         return parseInt(data.result || "0") / 1e18;
       },
       tokens: async (addr) => {
@@ -12911,22 +14422,26 @@ W.walletSync = (() => {
         const results = [];
         for (const token of tokens) {
           try {
-            const data = await fetch("https://bsc-dataseed.binance.org", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                jsonrpc: "2.0",
-                id: 1,
-                method: "eth_call",
-                params: [
-                  {
-                    to: token.address,
-                    data: "0x70a08231" + addr.slice(2).padStart(64, "0"),
-                  },
-                  "latest",
-                ],
-              }),
-            }).then((r) => r.json());
+            const data = await fetchJSON(
+              "https://bsc-dataseed.binance.org",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: 1,
+                  method: "eth_call",
+                  params: [
+                    {
+                      to: token.address,
+                      data: "0x70a08231" + addr.slice(2).padStart(64, "0"),
+                    },
+                    "latest",
+                  ],
+                }),
+              },
+              "jsonRpc",
+            );
             const balance =
               parseInt(data.result || "0x0", 16) / Math.pow(10, token.decimals);
             if (balance > 1e-9) {
@@ -12945,16 +14460,20 @@ W.walletSync = (() => {
       icon: "🟣",
       explorer: "https://solscan.io/account/",
       balance: async (addr) => {
-        const data = await fetch("https://api.mainnet-beta.solana.com", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "getBalance",
-            params: [addr],
-          }),
-        }).then((r) => r.json());
+        const data = await fetchJSON(
+          "https://api.mainnet-beta.solana.com",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "getBalance",
+              params: [addr],
+            }),
+          },
+          "jsonRpc",
+        );
         return (data.result?.value || 0) / 1e9;
       },
       tokens: async (addr) => {
@@ -12974,20 +14493,24 @@ W.walletSync = (() => {
         const results = [];
         for (const token of tokens) {
           try {
-            const data = await fetch("https://api.mainnet-beta.solana.com", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                jsonrpc: "2.0",
-                id: 1,
-                method: "getTokenAccountsByOwner",
-                params: [
-                  addr,
-                  { mint: token.mint },
-                  { encoding: "jsonParsed" },
-                ],
-              }),
-            }).then((r) => r.json());
+            const data = await fetchJSON(
+              "https://api.mainnet-beta.solana.com",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: 1,
+                  method: "getTokenAccountsByOwner",
+                  params: [
+                    addr,
+                    { mint: token.mint },
+                    { encoding: "jsonParsed" },
+                  ],
+                }),
+              },
+              "jsonRpc",
+            );
             let balance = 0;
             (data.result?.value || []).forEach((acc) => {
               const amount =
@@ -13525,8 +15048,8 @@ W.theses = W.theses || {};
 
             return `
           <div class="card" data-thesis-id="${t.id}">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <h4 style="margin:0;">${W.fmt.escapeHTML(t.asset)} ${badgeHtml}</h4>
+           <div class="flex-between">
+            <h4 class="m-0">${W.fmt.escapeHTML(t.asset)} ${badgeHtml}</h4>
             </div>
             <p class="small"><b>Statement:</b> ${W.fmt.escapeHTML(t.statement)}</p>
             <p class="small muted"><b>Horizon:</b> ${W.fmt.escapeHTML(t.horizon)} | <b>Target:</b> ${t.target ? "$" + t.target : "N/A"}</p>
@@ -13535,7 +15058,7 @@ W.theses = W.theses || {};
             <!-- Hook for health details (injected below) -->
             <div class="thesis-health-details" data-details-id="${t.id}" style="margin-top: 12px;"></div>
 
-            <div style="margin-top:10px; display:flex; gap:10px;">
+            <div class="flex-gap-10-mt-10">
               <button class="btn tiny warn" data-action="invalidate" data-id="${t.id}">Mark Invalidated</button>
               <button class="btn tiny" data-action="delete" data-id="${t.id}">Delete</button>
             </div>
@@ -13554,7 +15077,7 @@ W.theses = W.theses || {};
           <textarea id="t-statement" placeholder="Core Thesis Statement (Why are you buying?)" required class="input" rows="3"></textarea>
           <textarea id="t-signals" placeholder="Expected confirming signals" class="input" rows="2"></textarea>
           <textarea id="t-invalidation" placeholder="What would prove this thesis wrong?" class="input" rows="2"></textarea>
-          <div style="grid-column: 1 / -1; display:flex; gap:10px;">
+          <div class="grid-full-flex-gap-10">
             <button type="submit" class="btn primary">Save Thesis</button>
             <button type="button" class="btn" id="btn-cancel-thesis">Cancel</button>
           </div>
@@ -13644,7 +15167,7 @@ console.log("[Theses] Module loaded (with Health Monitor integration).");
 // ===============================================================
 // CSP Compliant: Zero inline styles.
 //
-// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9.1):
+// CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9):
 //   - If the user does not enter a confidence, it is stored as `null`.
 //   - It is never defaulted to 0.5.
 //   - The UI hides the confidence line when no value was recorded.
@@ -13913,7 +15436,7 @@ W.tokenAnalysis = (async () => {
         bearishEvidence: [],
         contradictions: [],
         verdict: "Insufficient data",
-        confidence: 0,
+        confidence: null,
         explanation: "No recent signals for this asset.",
       };
     }
@@ -13962,7 +15485,15 @@ W.tokenAnalysis = (async () => {
     }
 
     // 5. Compute scores (weighted by confidence and impact)
-    const weightSum = (list) => list.reduce((sum, i) => sum + i.confidence, 0);
+    // Items with unknown confidence (null) can't meaningfully weight a
+    // score — excluding them from the weighted sum is honest; treating
+    // null as 0 would silently claim "definitely no confidence," which
+    // is a different, unsupported claim. They still appear in the
+    // evidence lists below, just not in the numeric weighting.
+    const weightSum = (list) =>
+      list
+        .filter((i) => i.confidence !== null && i.confidence !== undefined)
+        .reduce((sum, i) => sum + i.confidence, 0);
     const bullishWeight = weightSum(bullish);
     const bearishWeight = weightSum(bearish);
     const totalWeight = bullishWeight + bearishWeight || 1;
@@ -13975,13 +15506,18 @@ W.tokenAnalysis = (async () => {
     // We'll refine later.
     const contradictionItems = [];
     if (bullish.length > 0 && bearish.length > 0) {
-      // Take the strongest bull and bear signal and present them as contradiction
-      const strongestBull = bullish.reduce((a, b) =>
-        a.confidence > b.confidence ? a : b,
-      );
-      const strongestBear = bearish.reduce((a, b) =>
-        a.confidence > b.confidence ? a : b,
-      );
+      // Take the strongest bull and bear signal and present them as
+      // contradiction — "strongest" only makes sense among items with
+      // a known confidence; fall back to the first item if every entry
+      // in a list has unknown confidence.
+      const knownBull = bullish.filter((i) => i.confidence !== null);
+      const knownBear = bearish.filter((i) => i.confidence !== null);
+      const strongestBull = knownBull.length
+        ? knownBull.reduce((a, b) => (a.confidence > b.confidence ? a : b))
+        : bullish[0];
+      const strongestBear = knownBear.length
+        ? knownBear.reduce((a, b) => (a.confidence > b.confidence ? a : b))
+        : bearish[0];
       contradictionItems.push({
         bull: strongestBull.title,
         bear: strongestBear.title,
@@ -13989,11 +15525,17 @@ W.tokenAnalysis = (async () => {
       });
     }
 
-    // 7. Overall confidence = average confidence of all evidence
+    // 7. Overall evidence strength = average confidence of evidence with
+    // a known confidence. If nothing has a known confidence, this is
+    // honestly null (displayed as "N/A"), not a fabricated number.
     const allEvidence = [...bullish, ...bearish];
-    const avgConfidence =
-      allEvidence.reduce((sum, e) => sum + e.confidence, 0) /
-      (allEvidence.length || 1);
+    const knownConfidenceEvidence = allEvidence.filter(
+      (e) => e.confidence !== null && e.confidence !== undefined,
+    );
+    const avgConfidence = knownConfidenceEvidence.length
+      ? knownConfidenceEvidence.reduce((sum, e) => sum + e.confidence, 0) /
+        knownConfidenceEvidence.length
+      : null;
 
     // 8. Verdict
     let verdict = "Balanced";
@@ -14002,14 +15544,18 @@ W.tokenAnalysis = (async () => {
     else verdict = "Mixed signals";
 
     // 9. Explanation (with personal context)
+    // Evidence-oriented language only — no directive/entry-point framing.
+    // WEAVER_CONSTITUTION §2.4 "Never Financial Advice" / "No Directive
+    // Laundering": this text must describe evidence, not suggest action.
     let explanation = `Based on ${allEvidence.length} signals, opportunity score is ${opportunityScore.toFixed(0)}/100 and risk score is ${riskScore.toFixed(0)}/100. `;
     if (verdict === "Bullish opportunity")
       explanation +=
-        "The evidence leans bullish – consider monitoring for entry.";
+        "Evidence leans positive, but risk remains part of the picture.";
     else if (verdict === "Elevated risk")
       explanation +=
-        "Risk factors outweigh opportunities – proceed with caution.";
-    else explanation += "Signals are mixed – wait for clearer evidence.";
+        "Risk factors outweigh opportunity signals; additional verification is warranted.";
+    else
+      explanation += "Signals are mixed. Additional verification is warranted.";
 
     // 10. Include personal context if requested
     let personalContext = null;
@@ -14038,7 +15584,8 @@ W.tokenAnalysis = (async () => {
       bearishEvidence: bearish.slice(0, 5),
       contradictions: contradictionItems,
       verdict,
-      confidence: Math.round(avgConfidence * 100),
+      confidence:
+        avgConfidence === null ? null : Math.round(avgConfidence * 100),
       explanation,
       signalsCount: allEvidence.length,
       personalContext,
@@ -14092,8 +15639,8 @@ W.tokenAnalysis = (async () => {
             <div class="stat-big" style="color:${result.riskScore > 60 ? "var(--down)" : "var(--warn)"}">${result.riskScore}/100</div>
           </div>
           <div class="card stat">
-            <div class="stat-label">Confidence</div>
-            <div class="stat-big">${result.confidence}%</div>
+            <div class="stat-label">Evidence Strength</div>
+            <div class="stat-big">${result.confidence === null ? "N/A" : result.confidence + "%"}</div>
           </div>
           <div class="card stat">
             <div class="stat-label">Signals Analyzed</div>
@@ -14347,6 +15894,14 @@ W.tokenAnalysis = (async () => {
 // ===============================================================
 // Purpose: Handle routing, navigation rendering, and app initialization.
 // Security Fix: Removed plaintext Telegram save handler (P0 Task 1).
+//
+// Router notes:
+//   - The view is cleared BEFORE dispatch, so a failed or empty
+//     render cannot leave stale content from the previous route.
+//   - Handlers are dispatched via safeRender(), which resolves the
+//     module method lazily (at call time, not at module-load time)
+//     and surfaces failures instead of firing false "not loaded"
+//     toasts when a render returns a falsy value.
 // ===============================================================
 
 window.W = window.W || {};
@@ -14419,89 +15974,67 @@ window.W = window.W || {};
 
   const ALL_NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
 
+  // ── Shared route dispatcher ────────────────────────────────
+  // Resolves the module method at dispatch time (not at script-load
+  // time, which matters because modules load in order). Catches
+  // failures and renders an honest error card instead of silently
+  // leaving the view empty or firing a false "not loaded" toast.
+  async function safeRender(view, name, getMethod) {
+    const method = getMethod();
+    if (typeof method !== "function") {
+      W.ui?.toast?.(`${name} module not loaded`, "warn");
+      view.innerHTML = `<div class="card"><p class="muted">${name} module not available.</p></div>`;
+      return;
+    }
+    try {
+      await method(view);
+    } catch (e) {
+      console.warn(`[Router] ${name} render failed:`, e);
+      view.innerHTML = `<div class="card"><p class="muted">Failed to load ${name}: ${W.fmt?.escapeHTML?.(e.message) || "unknown error"}</p></div>`;
+    }
+  }
+
   const routes = {
-    dashboard: (v) =>
-      W.dashboard?.render?.(v) ||
-      W.ui?.toast?.("Dashboard module not loaded", "warn"),
+    dashboard: (v) => safeRender(v, "dashboard", () => W.dashboard?.render),
     portfolio: (v) =>
-      W.dashboard?.renderPortfolio?.(v) ||
-      W.ui?.toast?.("Portfolio module not loaded", "warn"),
-    watchlist: (v) =>
-      W.watchlist?.render?.(v) ||
-      W.ui?.toast?.("Watchlist module not loaded", "warn"),
-    explorer: (v) =>
-      W.explorer?.render?.(v) ||
-      W.ui?.toast?.("Explorer module not loaded", "warn"),
-    alerts: (v) =>
-      W.alerts?.render?.(v) ||
-      W.ui?.toast?.("Alerts module not loaded", "warn"),
-    news: (v) =>
-      W.news?.render?.(v) || W.ui?.toast?.("News module not loaded", "warn"),
-    ai: (v) =>
-      W.ai?.render?.(v) || W.ui?.toast?.("AI module not loaded", "warn"),
-    optimizer: (v) =>
-      W.optimizer?.render?.(v) ||
-      W.ui?.toast?.("Optimizer module not loaded", "warn"),
-    time: (v) =>
-      W.time?.render?.(v) ||
-      W.ui?.toast?.("Time Machine module not loaded", "warn"),
-    trader: (v) =>
-      W.trader?.render?.(v) ||
-      W.ui?.toast?.("Trader module not loaded", "warn"),
-    gems: (v) =>
-      W.gems?.render?.(v) || W.ui?.toast?.("Gems module not loaded", "warn"),
-    shield: (v) =>
-      W.shield?.render?.(v) ||
-      W.ui?.toast?.("Shield module not loaded", "warn"),
-    web3: (v) =>
-      W.web3?.render?.(v) || W.ui?.toast?.("Web3 module not loaded", "warn"),
-    defi: (v) =>
-      W.misc?.renderDefi?.(v) ||
-      W.ui?.toast?.("DeFi module not loaded", "warn"),
-    airdrops: (v) =>
-      W.misc?.renderAirdrops?.(v) ||
-      W.ui?.toast?.("Airdrops module not loaded", "warn"),
-    market: (v) =>
-      W.market?.render?.(v) ||
-      W.ui?.toast?.("Market module not loaded", "warn"),
-    sectors: (v) =>
-      W.sectors?.render?.(v) ||
-      W.ui?.toast?.("Sectors module not loaded", "warn"),
-    whales: (v) =>
-      W.whales?.render?.(v) ||
-      W.ui?.toast?.("Whales module not loaded", "warn"),
-    smart: (v) =>
-      W.smart?.render?.(v) || W.ui?.toast?.("Smart module not loaded", "warn"),
-    unlocks: (v) =>
-      W.unlocks?.render?.(v) ||
-      W.ui?.toast?.("Unlocks module not loaded", "warn"),
-    learn: (v) =>
-      W.learn?.render?.(v) || W.ui?.toast?.("Learn module not loaded", "warn"),
-    profile: (v) =>
-      W.misc?.renderProfile?.(v) ||
-      W.ui?.toast?.("Profile module not loaded", "warn"),
-    pro: (v) =>
-      W.misc?.renderPro?.(v) || W.ui?.toast?.("Pro module not loaded", "warn"),
-    theses: (v) =>
-      W.theses?.render?.(v) ||
-      W.ui?.toast?.("Theses module not loaded", "warn"),
-    journal: (v) =>
-      W.journal?.render?.(v) ||
-      W.ui?.toast?.("Journal module not loaded", "warn"),
-    sync: (v) => {
-      if (W.sync?.render) W.sync.render(v);
-      else W.ui?.toast?.("Sync module not loaded", "warn");
-    },
-    settings: (v) =>
-      W.misc?.renderSettings?.(v) ||
-      W.ui?.toast?.("Settings module not loaded", "warn"),
+      safeRender(v, "portfolio", () => W.dashboard?.renderPortfolio),
+    watchlist: (v) => safeRender(v, "watchlist", () => W.watchlist?.render),
+    explorer: (v) => safeRender(v, "explorer", () => W.explorer?.render),
+    alerts: (v) => safeRender(v, "alerts", () => W.alerts?.render),
+    news: (v) => safeRender(v, "news", () => W.news?.render),
+    ai: (v) => safeRender(v, "ai", () => W.ai?.render),
+    optimizer: (v) => safeRender(v, "optimizer", () => W.optimizer?.render),
+    time: (v) => safeRender(v, "time", () => W.time?.render),
+    trader: (v) => safeRender(v, "trader", () => W.trader?.render),
+    gems: (v) => safeRender(v, "gems", () => W.gems?.render),
+    shield: (v) => safeRender(v, "shield", () => W.shield?.render),
+    web3: (v) => safeRender(v, "web3", () => W.web3?.render),
+    defi: (v) => safeRender(v, "defi", () => W.misc?.renderDefi),
+    airdrops: (v) => safeRender(v, "airdrops", () => W.misc?.renderAirdrops),
+    market: (v) => safeRender(v, "market", () => W.market?.render),
+    sectors: (v) => safeRender(v, "sectors", () => W.sectors?.render),
+    whales: (v) => safeRender(v, "whales", () => W.whales?.render),
+    smart: (v) => safeRender(v, "smart", () => W.smart?.render),
+    unlocks: (v) => safeRender(v, "unlocks", () => W.unlocks?.render),
+    learn: (v) => safeRender(v, "learn", () => W.learn?.render),
+    profile: (v) => safeRender(v, "profile", () => W.misc?.renderProfile),
+    pro: (v) => safeRender(v, "pro", () => W.misc?.renderPro),
+    theses: (v) => safeRender(v, "theses", () => W.theses?.render),
+    journal: (v) => safeRender(v, "journal", () => W.journal?.render),
+    sync: (v) => safeRender(v, "sync", () => W.sync?.render),
+    settings: (v) => safeRender(v, "settings", () => W.misc?.renderSettings),
     token: async (v) => {
       const param = getPageParam();
-      if (W.tokenAnalysis) {
-        if (param) await W.tokenAnalysis.render(v, param);
-        else await W.tokenAnalysis.render(v);
-      } else {
+      if (!W.tokenAnalysis?.render) {
         W.ui?.toast?.("Token Analysis module not loaded", "warn");
+        v.innerHTML = `<div class="card"><p class="muted">Token Analysis module not available.</p></div>`;
+        return;
+      }
+      try {
+        await W.tokenAnalysis.render(v, param || undefined);
+      } catch (e) {
+        console.warn("[Router] token render failed:", e);
+        v.innerHTML = `<div class="card"><p class="muted">Failed to load token analysis: ${W.fmt?.escapeHTML?.(e.message) || "unknown error"}</p></div>`;
       }
     },
   };
@@ -14532,6 +16065,11 @@ window.W = window.W || {};
       console.warn("[App] View element not found");
       return;
     }
+
+    // Clear previous route's DOM before dispatch. Without this, a
+    // failed or empty render leaves the previous route's content on
+    // screen (e.g. clicking News showed stale Sync content).
+    view.innerHTML = "";
 
     try {
       if (page === "coin" && param) {
