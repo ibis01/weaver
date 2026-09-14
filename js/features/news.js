@@ -171,7 +171,8 @@ function renderArticles(container, articles) {
 // ════════════════════════════════════════════════════════════════
 async function render(view) {
   const routeAtStart = location.hash;
-  const isCurrentRoute = () => location.hash === routeAtStart;
+  const isCurrentRoute = () =>
+    location.hash === routeAtStart && view.dataset.route === "news";
   // 1. Build the page structure with a locally-scoped container reference.
   view.innerHTML = `
     <div class="card">

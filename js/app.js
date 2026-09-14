@@ -185,6 +185,7 @@ window.W = window.W || {};
     // failed or empty render leaves the previous route's content on
     // screen (e.g. clicking News showed stale Sync content).
     view.innerHTML = "";
+    view.dataset.route = page;
 
     try {
       if (page === "coin" && param) {

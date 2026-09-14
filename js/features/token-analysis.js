@@ -4,7 +4,7 @@
 
 window.W = window.W || {};
 
-W.tokenAnalysis = (async () => {
+W.tokenAnalysis = (() => {
   /**
    * Analyze a token and return a structured decision report.
    * @param {string} assetId - Coingecko ID or symbol (e.g., 'bitcoin', 'BTC')

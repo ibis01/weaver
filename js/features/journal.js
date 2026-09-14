@@ -95,7 +95,7 @@ W.journal = W.journal || {};
           <div class="card">
             <div class="flex-between mb-8">
               <div>
-                <span class="${actionColor} font-bold text-2xl">${d.action.toUpperCase()}</span> 
+                <span class="${actionColor} font-bold text-2xl">${d.action.toUpperCase()}</span>
                 <b>${W.fmt.escapeHTML(d.asset)}</b>
                 <span class="replay-container" data-decision-id="${d.id}"></span>
                 <span class="text-muted small-text"> @ ${W.fmt.price(d.price)}</span>

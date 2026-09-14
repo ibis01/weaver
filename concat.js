@@ -68,6 +68,7 @@ const files = [
   "js/features/explorer.js",
   "js/features/alerts.js",
   "js/features/news.js",
+  "js/features/market.js",
   "js/features/ai.js",
   "js/features/optimizer.js",
   "js/features/timemachine.js",

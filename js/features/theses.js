@@ -105,7 +105,7 @@ W.theses = W.theses || {};
             <p class="small"><b>Statement:</b> ${W.fmt.escapeHTML(t.statement)}</p>
             <p class="small muted"><b>Horizon:</b> ${W.fmt.escapeHTML(t.horizon)} | <b>Target:</b> ${t.target ? "$" + t.target : "N/A"}</p>
             <p class="small muted"><b>Invalidation:</b> ${W.fmt.escapeHTML(t.invalidation)}</p>
-            
+
             <!-- Hook for health details (injected below) -->
             <div class="thesis-health-details" data-details-id="${t.id}" style="margin-top: 12px;"></div>
 
