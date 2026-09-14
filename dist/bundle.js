@@ -7533,7 +7533,10 @@ const FEEDS = [
 ];
 
 // ── Fixed snapshot URL (used only if live feeds fail) ──────────
-const SNAPSHOT_URL = "https://ibis01.github.io/weaver/data/news.json";
+const SNAPSHOT_URLS = [
+  "data/news.json",
+  "https://ibis01.github.io/weaver/data/news.json",
+];
 
 // ── Proxy chain — builds a fetchable URL for a given target ────
 const PROX = [
@@ -7591,18 +7594,22 @@ async function via(url, asJSON = false) {
 
 // ── Fetch the fixed snapshot directly (no proxy chain) ─────────
 async function fetchSnapshot() {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    const resp = await fetch(SNAPSHOT_URL, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
-    return Array.isArray(data) ? data : [];
-  } catch (e) {
-    newsLog(`Snapshot failed: ${e.message}`);
-    return [];
+  for (const snapshotUrl of SNAPSHOT_URLS) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      const resp = await fetch(snapshotUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      const articles = Array.isArray(data) ? data : data?.Data;
+      if (Array.isArray(articles) && articles.length) return articles;
+      throw new Error("snapshot is empty");
+    } catch (e) {
+      newsLog(`Snapshot failed (${snapshotUrl}): ${e.message}`);
+    }
   }
+  return [];
 }
 
 // ── Parse RSS XML ──────────────────────────────────────────────
@@ -14131,6 +14138,7 @@ async function restoreVault() {
 
 // ── RENDER FUNCTION ────────────────────────────────────
 function render(view) {
+  if (view?.dataset?.route && view.dataset.route !== "sync") return;
   // Get existing code or generate one
   let code = null;
   const storedHash = W.store.get("sync_code_hash", null);
@@ -16176,6 +16184,7 @@ window.W = window.W || {};
           route: "#/unlocks",
         },
         { id: "ai", icon: "🧠", label: "AI Insights", route: "#/ai" },
+        { id: "sync", icon: "☁️", label: "Encrypted Sync", route: "#/sync" },
         { id: "settings", icon: "⚙️", label: "Settings", route: "#/settings" },
       ],
     },
@@ -16191,6 +16200,7 @@ window.W = window.W || {};
   // leaving the view empty or firing a false "not loaded" toast.
   async function safeRender(view, name, getMethod) {
     const generation = routeGeneration;
+    if (view.dataset.route !== name) return;
     const method = getMethod();
     if (typeof method !== "function") {
       W.ui?.toast?.(`${name} module not loaded`, "warn");
@@ -16198,11 +16208,11 @@ window.W = window.W || {};
       return;
     }
     try {
-      if (generation !== routeGeneration) return;
+      if (generation !== routeGeneration || view.dataset.route !== name) return;
       await method(view);
-      if (generation !== routeGeneration) return;
+      if (generation !== routeGeneration || view.dataset.route !== name) return;
     } catch (e) {
-      if (generation !== routeGeneration) return;
+      if (generation !== routeGeneration || view.dataset.route !== name) return;
       console.warn(`[Router] ${name} render failed:`, e);
       view.innerHTML = `<div class="card"><p class="muted">Failed to load ${name}: ${W.fmt?.escapeHTML?.(e.message) || "unknown error"}</p></div>`;
     }

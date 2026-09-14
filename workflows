@@ -14,7 +14,7 @@ jobs:
           mkdir -p data
           curl -s "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&price_change_percentage=24h,7d,30d&sparkline=true" -o data/top.json
           curl -s "https://api.coingecko.com/api/v3/global" -o data/global.json
-          curl -s "https://min-api.cryptocompare.com/data/v2/news/?lang=EN" -o data/news.json
+          node scripts/refresh-news-snapshot.js
           curl -s "https://api.alternative.me/fng/?limit=1" -o data/fng.json
       - name: Commit snapshots
         run: |

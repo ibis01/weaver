@@ -76,6 +76,7 @@ window.W = window.W || {};
           route: "#/unlocks",
         },
         { id: "ai", icon: "🧠", label: "AI Insights", route: "#/ai" },
+        { id: "sync", icon: "☁️", label: "Encrypted Sync", route: "#/sync" },
         { id: "settings", icon: "⚙️", label: "Settings", route: "#/settings" },
       ],
     },
@@ -91,6 +92,7 @@ window.W = window.W || {};
   // leaving the view empty or firing a false "not loaded" toast.
   async function safeRender(view, name, getMethod) {
     const generation = routeGeneration;
+    if (view.dataset.route !== name) return;
     const method = getMethod();
     if (typeof method !== "function") {
       W.ui?.toast?.(`${name} module not loaded`, "warn");
@@ -98,11 +100,11 @@ window.W = window.W || {};
       return;
     }
     try {
-      if (generation !== routeGeneration) return;
+      if (generation !== routeGeneration || view.dataset.route !== name) return;
       await method(view);
-      if (generation !== routeGeneration) return;
+      if (generation !== routeGeneration || view.dataset.route !== name) return;
     } catch (e) {
-      if (generation !== routeGeneration) return;
+      if (generation !== routeGeneration || view.dataset.route !== name) return;
       console.warn(`[Router] ${name} render failed:`, e);
       view.innerHTML = `<div class="card"><p class="muted">Failed to load ${name}: ${W.fmt?.escapeHTML?.(e.message) || "unknown error"}</p></div>`;
     }

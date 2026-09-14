@@ -19,7 +19,10 @@ const FEEDS = [
 ];
 
 // ── Fixed snapshot URL (used only if live feeds fail) ──────────
-const SNAPSHOT_URL = "https://ibis01.github.io/weaver/data/news.json";
+const SNAPSHOT_URLS = [
+  "data/news.json",
+  "https://ibis01.github.io/weaver/data/news.json",
+];
 
 // ── Proxy chain — builds a fetchable URL for a given target ────
 const PROX = [
@@ -77,18 +80,22 @@ async function via(url, asJSON = false) {
 
 // ── Fetch the fixed snapshot directly (no proxy chain) ─────────
 async function fetchSnapshot() {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    const resp = await fetch(SNAPSHOT_URL, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
-    return Array.isArray(data) ? data : [];
-  } catch (e) {
-    newsLog(`Snapshot failed: ${e.message}`);
-    return [];
+  for (const snapshotUrl of SNAPSHOT_URLS) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      const resp = await fetch(snapshotUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      const articles = Array.isArray(data) ? data : data?.Data;
+      if (Array.isArray(articles) && articles.length) return articles;
+      throw new Error("snapshot is empty");
+    } catch (e) {
+      newsLog(`Snapshot failed (${snapshotUrl}): ${e.message}`);
+    }
   }
+  return [];
 }
 
 // ── Parse RSS XML ──────────────────────────────────────────────

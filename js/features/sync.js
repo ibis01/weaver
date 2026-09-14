@@ -306,6 +306,7 @@ async function restoreVault() {
 
 // ── RENDER FUNCTION ────────────────────────────────────
 function render(view) {
+  if (view?.dataset?.route && view.dataset.route !== "sync") return;
   // Get existing code or generate one
   let code = null;
   const storedHash = W.store.get("sync_code_hash", null);
