@@ -1,4 +1,3 @@
-
 // SECURITY: All RSS-derived content (title, description, link, pubDate)
 // is attacker-controllable. It MUST be escaped before insertion into
 // the DOM. Use W.fmt.escapeHTML or textContent — never innerHTML with
@@ -138,12 +137,20 @@ function renderArticles(container, articles) {
   }
 
   const esc = W.fmt?.escapeHTML || ((s) => String(s ?? ""));
+  const safeHref = (value) => {
+    try {
+      const url = new URL(String(value || ""), window.location.href);
+      return ["http:", "https:"].includes(url.protocol) ? url.href : "#";
+    } catch {
+      return "#";
+    }
+  };
 
   const items = articles
     .slice(0, 20)
     .map((a) => {
       const safeTitle = esc(a.title);
-      const safeLink = esc(a.link);
+      const safeLink = esc(safeHref(a.link));
       const safeDesc = esc(a.description || "");
       const safeDate = esc(a.pubDate || "");
       return `
@@ -163,6 +170,8 @@ function renderArticles(container, articles) {
 //         render(view) — called by the router
 // ════════════════════════════════════════════════════════════════
 async function render(view) {
+  const routeAtStart = location.hash;
+  const isCurrentRoute = () => location.hash === routeAtStart;
   // 1. Build the page structure with a locally-scoped container reference.
   view.innerHTML = `
     <div class="card">
@@ -193,6 +202,7 @@ async function render(view) {
     });
 
     const results = await Promise.all(feedPromises);
+    if (!isCurrentRoute()) return;
     const allArticles = dedupeAndSort(results.flatMap((r) => r.articles));
 
     W.dataHealth?.mark?.("news", {
@@ -204,6 +214,7 @@ async function render(view) {
     if (allArticles.length === 0) {
       newsLog("No live articles, trying snapshot...");
       const snapshot = await fetchSnapshot();
+      if (!isCurrentRoute()) return;
       const sorted = dedupeAndSort(snapshot);
       if (sorted.length) {
         W.dataHealth?.mark?.("news", {

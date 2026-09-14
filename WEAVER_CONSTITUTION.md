@@ -1,6 +1,6 @@
 # Weaver Constitution
 
-**Version:** 1.0
+**Version:** 2.0
 **Status:** Foundational
 **Applies to:** Every feature, module, scoring system, AI system, API, UI surface, automation, integration, pull request, and future extension of Weaver.
 

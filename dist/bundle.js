@@ -195,7 +195,7 @@ console.log("[Storage] Module loaded.");
 
 const SecureCrypto = {
   CONFIG: {
-    ITERATIONS: 120000,
+    ITERATIONS: 600000,
     HASH: "SHA-256",
     KEY_LENGTH: 256,
     AES_ALGORITHM: "AES-GCM",
@@ -7512,7 +7512,6 @@ W.alerts = (() => {
 
 console.log("[Alerts] Module loaded.");
 // ---- js/features/news.js ----
-
 // SECURITY: All RSS-derived content (title, description, link, pubDate)
 // is attacker-controllable. It MUST be escaped before insertion into
 // the DOM. Use W.fmt.escapeHTML or textContent — never innerHTML with
@@ -7652,12 +7651,20 @@ function renderArticles(container, articles) {
   }
 
   const esc = W.fmt?.escapeHTML || ((s) => String(s ?? ""));
+  const safeHref = (value) => {
+    try {
+      const url = new URL(String(value || ""), window.location.href);
+      return ["http:", "https:"].includes(url.protocol) ? url.href : "#";
+    } catch {
+      return "#";
+    }
+  };
 
   const items = articles
     .slice(0, 20)
     .map((a) => {
       const safeTitle = esc(a.title);
-      const safeLink = esc(a.link);
+      const safeLink = esc(safeHref(a.link));
       const safeDesc = esc(a.description || "");
       const safeDate = esc(a.pubDate || "");
       return `
@@ -7677,6 +7684,8 @@ function renderArticles(container, articles) {
 //         render(view) — called by the router
 // ════════════════════════════════════════════════════════════════
 async function render(view) {
+  const routeAtStart = location.hash;
+  const isCurrentRoute = () => location.hash === routeAtStart;
   // 1. Build the page structure with a locally-scoped container reference.
   view.innerHTML = `
     <div class="card">
@@ -7707,6 +7716,7 @@ async function render(view) {
     });
 
     const results = await Promise.all(feedPromises);
+    if (!isCurrentRoute()) return;
     const allArticles = dedupeAndSort(results.flatMap((r) => r.articles));
 
     W.dataHealth?.mark?.("news", {
@@ -7718,6 +7728,7 @@ async function render(view) {
     if (allArticles.length === 0) {
       newsLog("No live articles, trying snapshot...");
       const snapshot = await fetchSnapshot();
+      if (!isCurrentRoute()) return;
       const sorted = dedupeAndSort(snapshot);
       if (sorted.length) {
         W.dataHealth?.mark?.("news", {
@@ -13657,7 +13668,7 @@ console.log("[Learn] Module loaded.");
 //
 // This module provides:
 //   - Generation of secure sync codes (128-bit entropy)
-//   - PBKDF2 key derivation (120,000 iterations)
+//   - PBKDF2 key derivation (600,000 iterations)
 //   - AES-256-GCM encryption/decryption
 //   - UI for managing sync codes and vault operations
 //   - Secure storage: only salted hash of sync code is stored
@@ -13670,7 +13681,7 @@ console.log("[Learn] Module loaded.");
 
 // ── Constants ────────────────────────────────────────────────
 const CONFIG = {
-  ITERATIONS: 120000,
+  ITERATIONS: 600000,
   HASH: "SHA-256",
   KEY_LENGTH: 256,
   AES_ALGORITHM: "AES-GCM",
@@ -13987,7 +13998,7 @@ function render(view) {
     <div class="card">
       <h3>☁️ Encrypted Sync</h3>
       <p class="muted small">
-        Your data is encrypted with AES-256-GCM using PBKDF2 (120,000 iterations).
+        Your data is encrypted with AES-256-GCM using PBKDF2 (600,000 iterations).
         Never share your sync code or password with anyone.
       </p>
       <div class="kv-row">
@@ -14006,7 +14017,7 @@ function render(view) {
       <h3>🔐 Security Information</h3>
       <ul class="tx-list">
         <li>✅ 128-bit sync codes (WEVR-XXXX-XXXX-XXXX-XXXX)</li>
-        <li>✅ PBKDF2 with 120,000 iterations</li>
+        <li>✅ PBKDF2 with 600,000 iterations</li>
         <li>✅ AES-256-GCM authenticated encryption</li>
         <li>✅ Random salt and IV per encryption</li>
         <li>✅ Sync code stored only as salted hash</li>
@@ -16010,6 +16021,7 @@ window.W = window.W || {};
   ];
 
   const ALL_NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
+  let routeGeneration = 0;
 
   // ── Shared route dispatcher ────────────────────────────────
   // Resolves the module method at dispatch time (not at script-load
@@ -16017,6 +16029,7 @@ window.W = window.W || {};
   // failures and renders an honest error card instead of silently
   // leaving the view empty or firing a false "not loaded" toast.
   async function safeRender(view, name, getMethod) {
+    const generation = routeGeneration;
     const method = getMethod();
     if (typeof method !== "function") {
       W.ui?.toast?.(`${name} module not loaded`, "warn");
@@ -16024,8 +16037,11 @@ window.W = window.W || {};
       return;
     }
     try {
+      if (generation !== routeGeneration) return;
       await method(view);
+      if (generation !== routeGeneration) return;
     } catch (e) {
+      if (generation !== routeGeneration) return;
       console.warn(`[Router] ${name} render failed:`, e);
       view.innerHTML = `<div class="card"><p class="muted">Failed to load ${name}: ${W.fmt?.escapeHTML?.(e.message) || "unknown error"}</p></div>`;
     }
@@ -16085,6 +16101,7 @@ window.W = window.W || {};
   }
 
   function route() {
+    routeGeneration += 1;
     const hash = location.hash.slice(2) || "dashboard";
     const [page, param] = hash.split("/");
     const activeId = page === "coin" ? "explorer" : page;

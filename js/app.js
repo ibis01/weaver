@@ -82,6 +82,7 @@ window.W = window.W || {};
   ];
 
   const ALL_NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
+  let routeGeneration = 0;
 
   // ── Shared route dispatcher ────────────────────────────────
   // Resolves the module method at dispatch time (not at script-load
@@ -89,6 +90,7 @@ window.W = window.W || {};
   // failures and renders an honest error card instead of silently
   // leaving the view empty or firing a false "not loaded" toast.
   async function safeRender(view, name, getMethod) {
+    const generation = routeGeneration;
     const method = getMethod();
     if (typeof method !== "function") {
       W.ui?.toast?.(`${name} module not loaded`, "warn");
@@ -96,8 +98,11 @@ window.W = window.W || {};
       return;
     }
     try {
+      if (generation !== routeGeneration) return;
       await method(view);
+      if (generation !== routeGeneration) return;
     } catch (e) {
+      if (generation !== routeGeneration) return;
       console.warn(`[Router] ${name} render failed:`, e);
       view.innerHTML = `<div class="card"><p class="muted">Failed to load ${name}: ${W.fmt?.escapeHTML?.(e.message) || "unknown error"}</p></div>`;
     }
@@ -157,6 +162,7 @@ window.W = window.W || {};
   }
 
   function route() {
+    routeGeneration += 1;
     const hash = location.hash.slice(2) || "dashboard";
     const [page, param] = hash.split("/");
     const activeId = page === "coin" ? "explorer" : page;

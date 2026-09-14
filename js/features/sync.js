@@ -4,7 +4,7 @@
 //
 // This module provides:
 //   - Generation of secure sync codes (128-bit entropy)
-//   - PBKDF2 key derivation (120,000 iterations)
+//   - PBKDF2 key derivation (600,000 iterations)
 //   - AES-256-GCM encryption/decryption
 //   - UI for managing sync codes and vault operations
 //   - Secure storage: only salted hash of sync code is stored
@@ -17,7 +17,7 @@
 
 // ── Constants ────────────────────────────────────────────────
 const CONFIG = {
-  ITERATIONS: 120000,
+  ITERATIONS: 600000,
   HASH: "SHA-256",
   KEY_LENGTH: 256,
   AES_ALGORITHM: "AES-GCM",
@@ -334,7 +334,7 @@ function render(view) {
     <div class="card">
       <h3>☁️ Encrypted Sync</h3>
       <p class="muted small">
-        Your data is encrypted with AES-256-GCM using PBKDF2 (120,000 iterations).
+        Your data is encrypted with AES-256-GCM using PBKDF2 (600,000 iterations).
         Never share your sync code or password with anyone.
       </p>
       <div class="kv-row">
@@ -353,7 +353,7 @@ function render(view) {
       <h3>🔐 Security Information</h3>
       <ul class="tx-list">
         <li>✅ 128-bit sync codes (WEVR-XXXX-XXXX-XXXX-XXXX)</li>
-        <li>✅ PBKDF2 with 120,000 iterations</li>
+        <li>✅ PBKDF2 with 600,000 iterations</li>
         <li>✅ AES-256-GCM authenticated encryption</li>
         <li>✅ Random salt and IV per encryption</li>
         <li>✅ Sync code stored only as salted hash</li>

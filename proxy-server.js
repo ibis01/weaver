@@ -3,13 +3,8 @@
 // ===============================================================
 // Purpose: SSRF-hardened HTTP proxy for external crypto data APIs.
 //
-// State backend (rate limiting, circuit breaking):
-//   - Redis if REDIS_URL is set and the `redis` package is available
-//   - In-memory otherwise. The memory backend is real: it enforces
-//     the same rate limits and circuit-breaker semantics, scoped to
-//     this process. Single-instance deployments never need Redis.
-//
-// Set REQUIRE_REDIS=true in production to make Redis mandatory.
+// State backend (rate limiting, circuit breaking): Redis in production;
+// in-memory is available only during local development.
 // ===============================================================
 
 const express = require("express");
@@ -338,10 +333,8 @@ app.get("/health", async (_req, res) => {
 });
 
 // ── Ready ──────────────────────────────────────────────────────
-// In production, require Redis only if REQUIRE_REDIS=true was set.
-// Otherwise the memory backend is a legitimate readiness state.
 app.get("/ready", (_req, res) => {
-  const requiresRedis = isProduction && process.env.REQUIRE_REDIS === "true";
+  const requiresRedis = isProduction;
   const ready =
     !requiresRedis || (redisState && redisState.backend === "redis");
   res.status(ready ? 200 : 503).json({
@@ -353,7 +346,7 @@ app.get("/ready", (_req, res) => {
 async function start() {
   redisState = await createState({
     url: config.redisUrl,
-    required: isProduction && process.env.REQUIRE_REDIS === "true",
+    required: isProduction,
     namespace: config.redisNamespace,
   });
 

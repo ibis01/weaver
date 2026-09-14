@@ -18,6 +18,8 @@ function loadConfig(env = process.env) {
     throw new Error("ALLOWED_ORIGINS must be configured in production");
   if (production && !config.redisUrl)
     throw new Error("REDIS_URL must be configured in production");
+  if (production && !/^rediss:\/\//i.test(config.redisUrl))
+    throw new Error("REDIS_URL must use rediss:// TLS in production");
   if (
     config.alertWebhookUrl &&
     !config.alertWebhookUrl.startsWith("https://")

@@ -4,7 +4,7 @@
 
 const SecureCrypto = {
   CONFIG: {
-    ITERATIONS: 120000,
+    ITERATIONS: 600000,
     HASH: "SHA-256",
     KEY_LENGTH: 256,
     AES_ALGORITHM: "AES-GCM",
