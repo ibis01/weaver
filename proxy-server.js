@@ -135,8 +135,12 @@ function makePinnedAgent(url, addresses) {
   const selected = addresses[0];
   return new Agent({
     keepAlive: false,
-    lookup: (_host, _opts, callback) =>
-      callback(null, selected.address, selected.family),
+    lookup: (_host, options, callback) => {
+      // Node 22 may request all addresses for autoSelectFamily. Honor that
+      // callback contract while still returning only the DNS-pinned address.
+      if (options?.all) return callback(null, [selected]);
+      return callback(null, selected.address, selected.family);
+    },
   });
 }
 
