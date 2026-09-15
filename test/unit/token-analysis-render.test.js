@@ -58,7 +58,7 @@ describe("Token Analysis scenario UI", () => {
     return view.textContent;
   }
 
-  it("renders a bullish scenario with sufficient evidence and scenario levels", async () => {
+  it("renders a bullish scenario with partial evidence and limitation disclosure", async () => {
     const text = await renderWith({
       technical: baseTechnical(),
       coin: {
@@ -74,9 +74,8 @@ describe("Token Analysis scenario UI", () => {
       },
     });
     expect(text).to.include("Bullish scenario");
-    expect(text).to.include("Evidence quality: SUFFICIENT");
-    expect(text).to.include("Potential invalidation");
-    expect(text).to.include("Potential target zone");
+    expect(text).to.include("Evidence quality: PARTIAL");
+    expect(text).to.include("Limitations:");
   });
 
   it("renders neutral evidence limitations when data is partial", async () => {

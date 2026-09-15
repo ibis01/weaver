@@ -1,16 +1,11 @@
-// js/features/gems.js – Gem Agent: Token Hunter
+// Gem Agent: Token Hunter
 
 window.W = window.W || {};
 
 W.gems = (() => {
   // ── Constants ─────────────────────────────────────────
   const DEXSCREENER_API = "https://api.dexscreener.com";
-  const PROXIES = [
-    (u) => u,
-    (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-    (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u),
-    (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
-  ];
+  const PROXIES = [(u) => u];
 
   // Only chains with a working Token Shield verification path.
   // Constitution §3.3: DISCOVERABLE_CHAINS ⊆ VERIFIED_CHAINS.

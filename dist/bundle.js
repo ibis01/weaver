@@ -2835,12 +2835,12 @@ W.api = (() => {
   const CACHE_TTL = 60000; // 1 minute
   const LONG_CACHE_TTL = 300000; // 5 minutes
 
-  // ── Proxy chain ─────────────────────────────────────────
+  // ── Request routes ───────────────────────────────────────
+  // Public CORS proxies are intentionally not used: they add an
+  // uncontrolled third-party dependency and can expose market requests.
   const PROXIES = [
     (u) => "http://localhost:3001/proxy?url=" + encodeURIComponent(u),
     (u) => u,
-    (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-    (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
   ];
 
   // ── State ──────────────────────────────────────────────
@@ -2983,7 +2983,7 @@ W.api = (() => {
             ? "proxy"
             : proxy === PROXIES[1]
               ? "direct"
-              : "public-proxy";
+              : "direct";
         W.dataHealth?.mark(resourceForUrl(url), {
           source,
           observedAt: Date.now(),
@@ -7012,6 +7012,178 @@ W.technicalAnalysis = (() => {
 console.log(
   "[TechnicalAnalysis] OHLCV, ATR, RSI, BOS/CHOCH, and SMC engine loaded.",
 );
+// ---- js/intelligence/unified-verdict.js ----
+// ===============================================================
+// Unified Verdict – provenance-preserving composition layer
+// ===============================================================
+
+window.W = window.W || {};
+
+W.unifiedVerdict = (() => {
+  const VERSIONS = Object.freeze({
+    schema: "unified-verdict-v1",
+    methodology: "methodology-v1",
+    evidence: "evidence-gate-v1",
+    scenario: "scenario-v1",
+  });
+
+  const VALID_STATUSES = new Set([
+    "verified",
+    "available",
+    "partial",
+    "unavailable",
+    "stale",
+    "failed",
+    "unknown",
+  ]);
+  const normalizeDomain = (name, value) => {
+    const input = typeof value === "string" ? { status: value } : value || {};
+    const status = VALID_STATUSES.has(input.status) ? input.status : "unknown";
+    const reasons = Array.isArray(input.reasons)
+      ? input.reasons.slice(0, 5)
+      : [];
+    if (
+      !reasons.length &&
+      ["unavailable", "unknown", "stale", "failed", "partial"].includes(status)
+    )
+      reasons.push(`${name} evidence is ${status}.`);
+    return {
+      name,
+      status,
+      score: Number.isFinite(input.score)
+        ? Math.max(0, Math.min(100, input.score))
+        : null,
+      source: input.source || null,
+      asOf: input.asOf || null,
+      reasons,
+    };
+  };
+
+  function evidenceGate(domains) {
+    const values = Object.values(domains);
+    const reasons = values.flatMap((d) =>
+      d.reasons.map((reason) => `${d.name}: ${reason}`),
+    );
+    const hardFailure = [
+      domains.market,
+      domains.technical,
+      domains.security,
+    ].some((d) => ["failed"].includes(d.status));
+    const coreMissing = [domains.market, domains.technical].some((d) =>
+      ["unavailable", "unknown"].includes(d.status),
+    );
+    const incomplete = values.some((d) =>
+      ["partial", "unavailable", "stale", "unknown"].includes(d.status),
+    );
+    const status =
+      hardFailure || coreMissing
+        ? "INSUFFICIENT"
+        : incomplete
+          ? "PARTIAL"
+          : "SUFFICIENT";
+    const score =
+      status === "SUFFICIENT"
+        ? 100
+        : status === "PARTIAL"
+          ? Math.max(
+              25,
+              100 -
+                values.filter((d) =>
+                  ["partial", "unavailable", "stale", "unknown"].includes(
+                    d.status,
+                  ),
+                ).length *
+                  12,
+            )
+          : 0;
+    return { status, score, reasons };
+  }
+
+  function compose(input = {}) {
+    const raw = input.domains || {};
+    const domains = {
+      market: normalizeDomain(
+        "Market",
+        raw.market || {
+          status: input.technical ? "available" : "unavailable",
+          source: "market-api",
+        },
+      ),
+      technical: normalizeDomain(
+        "Technical",
+        raw.technical || {
+          status: input.technical ? "available" : "unavailable",
+          source: "ohlcv",
+        },
+      ),
+      security: normalizeDomain(
+        "Security",
+        raw.security || {
+          status: "unavailable",
+          reasons: ["Security verification was not supplied."],
+        },
+      ),
+      holders: normalizeDomain(
+        "Holders",
+        raw.holders || {
+          status: "unavailable",
+          reasons: ["Holder analysis was not supplied."],
+        },
+      ),
+      liquidity: normalizeDomain(
+        "Liquidity",
+        raw.liquidity || {
+          status: input.technical?.multiTimeframe?.liquidityZones?.length
+            ? "available"
+            : "partial",
+          source: "ohlcv-heuristic",
+          reasons: ["Liquidity zones are heuristic OHLCV levels."],
+        },
+      ),
+      freshness: normalizeDomain(
+        "Freshness",
+        raw.freshness || {
+          status: "unknown",
+          reasons: ["Freshness metadata was not supplied."],
+        },
+      ),
+    };
+    const evidence = evidenceGate(domains);
+    return {
+      schemaVersion: VERSIONS.schema,
+      scoreVersion: input.scoreVersion || "token-analysis-v1",
+      methodologyVersion: VERSIONS.methodology,
+      evidenceVersion: VERSIONS.evidence,
+      scenarioVersion: VERSIONS.scenario,
+      generatedAt: input.generatedAt || new Date().toISOString(),
+      asset: input.asset || null,
+      opportunity: {
+        score: Number.isFinite(input.opportunityScore)
+          ? input.opportunityScore
+          : null,
+        label: input.opportunityLabel || null,
+      },
+      risk: {
+        score: Number.isFinite(input.riskScore) ? input.riskScore : null,
+        label: input.riskLabel || null,
+      },
+      evidence,
+      domains,
+      scenario: {
+        label: input.scenario || "Neutral / insufficient evidence",
+        action: input.action || "HOLD",
+        levels: input.tradeLevels || null,
+      },
+      provenance: Array.isArray(input.provenance)
+        ? input.provenance.slice(0, 30)
+        : [],
+    };
+  }
+
+  return { VERSIONS, compose, evidenceGate, normalizeDomain };
+})();
+
+console.log("[UnifiedVerdict] Versioned composition layer loaded.");
 // ---- js/features/portfolio.js ----
 // ===============================================================
 //         Portfolio Management Module – Canonical AssetId
@@ -8539,12 +8711,9 @@ const SNAPSHOT_URLS = [
   "https://ibis01.github.io/weaver/data/news.json",
 ];
 
-// ── Proxy chain — builds a fetchable URL for a given target ────
+// ── Weaver proxy route — public CORS proxies are not trusted ───
 const PROX = [
   (u) => "http://localhost:3001/proxy?url=" + encodeURIComponent(u),
-  (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-  (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u),
-  (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
 ];
 
 // ── Fetch with proxy fallback ──────────────────────────────────
@@ -10849,19 +11018,14 @@ W.trader = (() => {
 
 console.log("[Trader] Module loaded.");
 // ---- js/features/gems.js ----
-// js/features/gems.js – Gem Agent: Token Hunter
+// Gem Agent: Token Hunter
 
 window.W = window.W || {};
 
 W.gems = (() => {
   // ── Constants ─────────────────────────────────────────
   const DEXSCREENER_API = "https://api.dexscreener.com";
-  const PROXIES = [
-    (u) => u,
-    (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-    (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u),
-    (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
-  ];
+  const PROXIES = [(u) => u];
 
   // Only chains with a working Token Shield verification path.
   // Constitution §3.3: DISCOVERABLE_CHAINS ⊆ VERIFIED_CHAINS.
@@ -11250,7 +11414,7 @@ W.gems = (() => {
 console.log("[Gems] Module loaded.");
 // ---- js/features/shield.js ----
 // ================================================================
-// js/features/shield.js – Token Shield (Contract Security Auditor)
+//              Token Shield (Contract Security Auditor)
 // ================================================================
 
 window.W = window.W || {};
@@ -11341,7 +11505,7 @@ W.shield = (() => {
 
   // ── Own CORS proxy (Cloudflare Worker) ─────────────────
   // Set this after deploying cf-worker/ (see cf-worker/README.md).
-  // Left blank, Shield falls back to the public-proxy chain below,
+  // Left blank, Shield falls back to the first-party worker path,
   // so this can be filled in whenever without breaking anything.
   const WORKER_PROXY_BASE = "";
 
@@ -11380,20 +11544,15 @@ W.shield = (() => {
       }
     } catch (e) {
       console.warn(
-        "[Shield] Own worker failed, falling back to public proxies:",
+        "[Shield] Own worker failed, using direct provider:",
         e.message,
       );
     }
 
     const url = `${GOPLUS_API}/${chainId}?contract_addresses=${address.toLowerCase()}`;
 
-    // Use proxy fallbacks
-    const proxies = [
-      (u) => u,
-      (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-      (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u),
-      (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
-    ];
+    // Use direct provider only
+    const proxies = [(u) => u];
 
     let lastError = null;
     for (const proxy of proxies) {
@@ -11439,7 +11598,7 @@ W.shield = (() => {
       }
     } catch (e) {
       console.warn(
-        "[Shield] Own worker failed, falling back to public proxies:",
+        "[Shield] Own worker failed, using direct provider:",
         e.message,
       );
     }
@@ -11447,12 +11606,7 @@ W.shield = (() => {
     // Address case matters for Solana — never lowercase it.
     const url = `${GOPLUS_SOLANA_API}?contract_addresses=${address}`;
 
-    const proxies = [
-      (u) => u,
-      (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-      (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u),
-      (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
-    ];
+    const proxies = [(u) => u];
 
     let lastError = null;
     for (const proxy of proxies) {
@@ -13921,7 +14075,7 @@ W.unlocks = (() => {
 console.log("[Unlocks] Module loaded.");
 // ---- js/features/sectors.js ----
 // ================================================================
-// js/features/sectors.js – Sector Rotation Heatmap
+//             Sector Rotation Heatmap
 // ================================================================
 
 window.W = window.W || {};
@@ -13936,11 +14090,7 @@ W.sectors = (() => {
     ch = 0;
 
   // ── API Helpers ──────────────────────────────────────────
-  const PROX = [
-    (u) => u,
-    (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-    (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
-  ];
+  const PROX = [(u) => u];
 
   async function fetchCategories() {
     const url =
@@ -16842,6 +16992,14 @@ W.tokenAnalysis = (() => {
         : "Neutral / insufficient evidence";
   }
 
+  function meterClass(value, tone = "up") {
+    const n = Number.isFinite(Number(value))
+      ? Math.max(0, Math.min(100, Number(value)))
+      : 0;
+    const bucket = Math.round(n / 10) * 10;
+    return `meter-fill meter-fill-${tone} meter-fill-${bucket}`;
+  }
+
   function decisionReport(
     technical,
     fundamentals,
@@ -17102,6 +17260,37 @@ W.tokenAnalysis = (() => {
       opportunityScore,
       riskScore,
     );
+    const localEvidenceQuality = evidenceSufficiency(technical, fundamentals);
+    const verdictInput = {
+      asset: asset.symbol,
+      opportunityScore: Math.round(opportunityScore),
+      riskScore: Math.round(riskScore),
+      technical,
+      fundamentals,
+      action: action.action,
+      scenario: scenarioLabel(action.action),
+      tradeLevels: null,
+      evidenceQuality: localEvidenceQuality,
+      domains: options.evidenceDomains,
+      provenance: [
+        { type: "technical", source: technical?.source || "ohlcv" },
+        {
+          type: "fundamentals",
+          source: fundamentals?.available ? "market-api" : null,
+        },
+      ],
+    };
+    const preliminaryVerdict = W.unifiedVerdict?.compose?.(verdictInput);
+    const evidenceQuality =
+      preliminaryVerdict?.evidence || localEvidenceQuality;
+    const tradePlan =
+      evidenceQuality.status === "SUFFICIENT"
+        ? tradeLevels(action.action, technical)
+        : null;
+    const unifiedVerdict = W.unifiedVerdict?.compose?.({
+      ...verdictInput,
+      tradeLevels: tradePlan,
+    });
 
     // 11. Return structured report
     return {
@@ -17119,12 +17308,10 @@ W.tokenAnalysis = (() => {
       actionConfidence: action.confidence,
       actionReasons: action.reasons,
       actionInterpretation: action.interpretation,
-      evidenceQuality: evidenceSufficiency(technical, fundamentals),
+      evidenceQuality,
       scenario: scenarioLabel(action.action),
-      tradeLevels:
-        evidenceSufficiency(technical, fundamentals).status === "SUFFICIENT"
-          ? tradeLevels(action.action, technical)
-          : null,
+      tradeLevels: tradePlan,
+      unifiedVerdict,
       fundamentals,
       signalsCount: allEvidence.length,
       personalContext,
@@ -17149,7 +17336,11 @@ W.tokenAnalysis = (() => {
     `;
       view.querySelector("#ta-go").onclick = () => {
         const input = view.querySelector("#ta-input").value.trim();
-        if (input) render(view, input);
+        if (input) {
+          // Keep the selected asset in the route so global auto-refreshes
+          // do not replace the report with the empty search form.
+          location.hash = `#/token/${encodeURIComponent(input)}`;
+        }
       };
       view.querySelector("#ta-input").addEventListener("keydown", (e) => {
         if (e.key === "Enter") view.querySelector("#ta-go").click();
@@ -17188,22 +17379,33 @@ W.tokenAnalysis = (() => {
           </div>
         </div>
         <div style="margin-top:12px;">
-          <div class="meter-bar"><div style="width:${result.opportunityScore}%; background:var(--up);"></div></div>
+          <div class="meter-bar"><div class="${meterClass(result.opportunityScore, "up")}"></div></div>
           <div class="meter-label">Opportunity Score</div>
         </div>
         <div style="margin-top:8px;">
-          <div class="meter-bar"><div style="width:${result.riskScore}%; background:var(--down);"></div></div>
+          <div class="meter-bar"><div class="${meterClass(result.riskScore, "down")}"></div></div>
           <div class="meter-label">Risk Score</div>
         </div>
         <div class="card" style="margin-top:16px; border:1px solid ${result.action === "BUY" ? "var(--up)" : result.action === "SELL" ? "var(--down)" : "var(--warn)"};">
           <h3>${result.scenario || "Neutral / insufficient evidence"}</h3>
           <p class="small">Evidence quality: <b>${result.evidenceQuality?.status || "UNAVAILABLE"}</b> · Scenario strength: ${result.actionConfidence ?? "N/A"}%</p>
+          ${
+            result.unifiedVerdict
+              ? `<p class="small muted">Domains: ${Object.values(
+                  result.unifiedVerdict.domains,
+                )
+                  .map((domain) => `${domain.name} ${domain.status}`)
+                  .join(
+                    " · ",
+                  )}</p><p class="small muted">Methodology ${result.unifiedVerdict.methodologyVersion} · Evidence ${result.unifiedVerdict.evidenceVersion}</p>`
+              : ""
+          }
           <p class="small muted">${result.actionInterpretation || "The available evidence does not support a directional scenario."}</p>
           ${result.actionReasons?.length ? `<p class="small muted">${result.actionReasons.join(" · ")}</p>` : ""}
           ${result.evidenceQuality?.reasons?.length ? `<p class="small muted">Limitations: ${result.evidenceQuality.reasons.join(" · ")}</p>` : ""}
           ${result.tradeLevels ? `<div class="grid-2" style="margin-top:10px;"><div class="kv-row"><span>Reference price</span><b>${result.tradeLevels.entry}</b></div><div class="kv-row"><span>Potential invalidation</span><b style="color:var(--down);">${result.tradeLevels.stopLoss}</b></div><div class="kv-row"><span>Potential target zone</span><b style="color:var(--up);">${result.tradeLevels.takeProfit}</b></div><div class="kv-row"><span>ATR risk distance</span><b>${result.tradeLevels.riskDistance}</b></div></div><p class="small muted">${result.tradeLevels.basis}. These are scenario levels derived from current OHLCV data, not instructions to trade.</p>` : ""}
         </div>
-        ${result.fundamentals ? `<div class="card" style="margin-top:12px;"><h4>Fundamental score breakdown</h4><div class="grid-2"><div class="kv-row"><span>Fundamental bias</span><b>${result.fundamentals.bias}</b></div><div class="kv-row"><span>Overall score</span><b>${result.fundamentals.score}/100</b></div></div>${(result.fundamentals.metrics || []).map((metric) => `<div style="margin-top:8px;"><div class="meter-label"><span>${metric.label}</span><b>${metric.detail}</b></div><div class="meter-bar"><div style="width:${metric.value == null ? 0 : metric.value}%; background:${metric.value == null ? "var(--muted)" : metric.value >= 60 ? "var(--up)" : "var(--warn)"};"></div></div></div>`).join("")}<p class="small muted">${[...(result.fundamentals.positives || []), ...(result.fundamentals.negatives || [])].join(" · ") || "Limited fundamental data available."}</p></div>` : ""}
+          ${result.fundamentals ? `<div class="card fundamental-breakdown"><h4>Fundamental score breakdown</h4><div class="grid-2"><div class="kv-row"><span>Fundamental bias</span><b>${result.fundamentals.bias}</b></div><div class="kv-row"><span>Overall score</span><b>${result.fundamentals.score}/100</b></div></div>${(result.fundamentals.metrics || []).map((metric) => `<div class="fundamental-metric"><div class="meter-label"><span>${metric.label}</span><b>${metric.detail}</b></div><div class="meter-bar"><div class="${meterClass(metric.value, metric.value == null ? "muted" : metric.value >= 60 ? "up" : "warn")}"></div></div></div>`).join("")}<p class="small muted">${[...(result.fundamentals.positives || []), ...(result.fundamentals.negatives || [])].join(" · ") || "Limited fundamental data available."}</p></div>` : ""}
         ${
           result.technical
             ? `
@@ -17613,20 +17815,12 @@ window.W = window.W || {};
     journal: (v) => safeRender(v, "journal", () => W.journal?.render),
     sync: (v) => safeRender(v, "sync", () => W.sync?.render),
     settings: (v) => safeRender(v, "settings", () => W.misc?.renderSettings),
-    token: async (v) => {
-      const param = getPageParam();
-      if (!W.tokenAnalysis?.render) {
-        W.ui?.toast?.("Token Analysis module not loaded", "warn");
-        v.innerHTML = `<div class="card"><p class="muted">Token Analysis module not available.</p></div>`;
-        return;
-      }
-      try {
-        await W.tokenAnalysis.render(v, param || undefined);
-      } catch (e) {
-        console.warn("[Router] token render failed:", e);
-        v.innerHTML = `<div class="card"><p class="muted">Failed to load token analysis: ${W.fmt?.escapeHTML?.(e.message) || "unknown error"}</p></div>`;
-      }
-    },
+    token: (v) =>
+      safeRender(v, "token", () => {
+        if (typeof W.tokenAnalysis?.render !== "function") return null;
+        const param = getPageParam();
+        return (view) => W.tokenAnalysis.render(view, param || undefined);
+      }),
   };
 
   function getCurrentPage() {
@@ -17634,7 +17828,12 @@ window.W = window.W || {};
   }
   function getPageParam() {
     const parts = location.hash.slice(2).split("/");
-    return parts.length > 1 ? parts[1] : null;
+    if (parts.length <= 1 || !parts[1]) return null;
+    try {
+      return decodeURIComponent(parts[1]);
+    } catch {
+      return parts[1];
+    }
   }
 
   function route() {
@@ -17945,8 +18144,15 @@ console.log("[App] Module loaded.");
 
     if (seconds > 0) {
       window._refreshInterval = setInterval(() => {
-        // Only refresh if no modal is open
-        if (!document.querySelector("#modal-root .modal")) {
+        // Keep refreshes off interactive and async report routes. The core
+        // router owns the same policy; this protects older boot paths that
+        // still initialize this compatibility interval.
+        const current = (location.hash || "#/dashboard").slice(2).split("/")[0];
+        const refreshable = ["dashboard", "watchlist", "market", "alerts"];
+        if (
+          refreshable.includes(current) &&
+          !document.querySelector("#modal-root .modal")
+        ) {
           if (W.refresh) W.refresh();
         }
       }, seconds * 1000);

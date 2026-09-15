@@ -24,12 +24,9 @@ const SNAPSHOT_URLS = [
   "https://ibis01.github.io/weaver/data/news.json",
 ];
 
-// ── Proxy chain — builds a fetchable URL for a given target ────
+// ── Weaver proxy route — public CORS proxies are not trusted ───
 const PROX = [
   (u) => "http://localhost:3001/proxy?url=" + encodeURIComponent(u),
-  (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-  (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u),
-  (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
 ];
 
 // ── Fetch with proxy fallback ──────────────────────────────────

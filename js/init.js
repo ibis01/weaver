@@ -85,8 +85,15 @@
 
     if (seconds > 0) {
       window._refreshInterval = setInterval(() => {
-        // Only refresh if no modal is open
-        if (!document.querySelector("#modal-root .modal")) {
+        // Keep refreshes off interactive and async report routes. The core
+        // router owns the same policy; this protects older boot paths that
+        // still initialize this compatibility interval.
+        const current = (location.hash || "#/dashboard").slice(2).split("/")[0];
+        const refreshable = ["dashboard", "watchlist", "market", "alerts"];
+        if (
+          refreshable.includes(current) &&
+          !document.querySelector("#modal-root .modal")
+        ) {
           if (W.refresh) W.refresh();
         }
       }, seconds * 1000);

@@ -34,8 +34,6 @@ const ALLOWED_DOMAINS = [
   "api.coingecko.com",
   "api.binance.com",
   "api.alternative.me",
-  "api.allorigins.win",
-  "api.codetabs.com",
   "eth.blockscout.com",
   "api.mainnet-beta.solana.com",
   "api.bscscan.com",
@@ -289,27 +287,61 @@ app.get("/proxy", async (req, res) => {
   } catch (error) {
     let status = 500;
     let message = "Proxy request failed";
+    let code = "PROXY_REQUEST_FAILED";
+    let retryable = false;
 
     if (error.message.includes("Rate limit"))
-      [status, message] = [429, "Too many requests"];
+      [status, message, code, retryable] = [
+        429,
+        "Too many requests",
+        "RATE_LIMITED",
+        true,
+      ];
     else if (error.message.includes("Upstream circuit open"))
-      [status, message] = [503, "Upstream temporarily unavailable"];
+      [status, message, code, retryable] = [
+        503,
+        "Upstream temporarily unavailable",
+        "UPSTREAM_CIRCUIT_OPEN",
+        true,
+      ];
     else if (/not permitted|not allowed|Private|unresolved/.test(error.message))
-      [status, message] = [403, "Access denied"];
+      [status, message, code] = [403, "Access denied", "REQUEST_BLOCKED"];
     else if (/Invalid URL|Missing/.test(error.message))
-      [status, message] = [400, "Bad request"];
+      [status, message, code] = [400, "Bad request", "INVALID_REQUEST"];
     else if (error.response)
-      [status, message] = [
+      [status, message, code, retryable] = [
         error.response.status || 502,
         "Upstream service error",
+        "UPSTREAM_ERROR",
+        true,
       ];
     else if (error.message.includes("Origin not allowed"))
-      [status, message] = [403, "CORS origin not allowed"];
+      [status, message, code] = [
+        403,
+        "CORS origin not allowed",
+        "CORS_ORIGIN_BLOCKED",
+      ];
+    else if (
+      /timeout|timed out|ETIMEDOUT|ECONNRESET|ENETUNREACH|EAI_AGAIN/i.test(
+        error.message,
+      )
+    )
+      [status, message, code, retryable] = [
+        504,
+        "Upstream provider unavailable",
+        "UPSTREAM_UNAVAILABLE",
+        true,
+      ];
 
     console.error(
       JSON.stringify({ event: "proxy_error", status, message: error.message }),
     );
-    return res.set("Content-Type", "text/plain").status(status).send(message);
+    return res.status(status).json({
+      error: code,
+      message,
+      retryable,
+      requestId: req.headers["x-request-id"] || null,
+    });
   }
 });
 

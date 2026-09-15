@@ -139,20 +139,12 @@ window.W = window.W || {};
     journal: (v) => safeRender(v, "journal", () => W.journal?.render),
     sync: (v) => safeRender(v, "sync", () => W.sync?.render),
     settings: (v) => safeRender(v, "settings", () => W.misc?.renderSettings),
-    token: async (v) => {
-      const param = getPageParam();
-      if (!W.tokenAnalysis?.render) {
-        W.ui?.toast?.("Token Analysis module not loaded", "warn");
-        v.innerHTML = `<div class="card"><p class="muted">Token Analysis module not available.</p></div>`;
-        return;
-      }
-      try {
-        await W.tokenAnalysis.render(v, param || undefined);
-      } catch (e) {
-        console.warn("[Router] token render failed:", e);
-        v.innerHTML = `<div class="card"><p class="muted">Failed to load token analysis: ${W.fmt?.escapeHTML?.(e.message) || "unknown error"}</p></div>`;
-      }
-    },
+    token: (v) =>
+      safeRender(v, "token", () => {
+        if (typeof W.tokenAnalysis?.render !== "function") return null;
+        const param = getPageParam();
+        return (view) => W.tokenAnalysis.render(view, param || undefined);
+      }),
   };
 
   function getCurrentPage() {
@@ -160,7 +152,12 @@ window.W = window.W || {};
   }
   function getPageParam() {
     const parts = location.hash.slice(2).split("/");
-    return parts.length > 1 ? parts[1] : null;
+    if (parts.length <= 1 || !parts[1]) return null;
+    try {
+      return decodeURIComponent(parts[1]);
+    } catch {
+      return parts[1];
+    }
   }
 
   function route() {

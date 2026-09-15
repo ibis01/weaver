@@ -209,6 +209,14 @@ W.tokenAnalysis = (() => {
         : "Neutral / insufficient evidence";
   }
 
+  function meterClass(value, tone = "up") {
+    const n = Number.isFinite(Number(value))
+      ? Math.max(0, Math.min(100, Number(value)))
+      : 0;
+    const bucket = Math.round(n / 10) * 10;
+    return `meter-fill meter-fill-${tone} meter-fill-${bucket}`;
+  }
+
   function decisionReport(
     technical,
     fundamentals,
@@ -469,6 +477,37 @@ W.tokenAnalysis = (() => {
       opportunityScore,
       riskScore,
     );
+    const localEvidenceQuality = evidenceSufficiency(technical, fundamentals);
+    const verdictInput = {
+      asset: asset.symbol,
+      opportunityScore: Math.round(opportunityScore),
+      riskScore: Math.round(riskScore),
+      technical,
+      fundamentals,
+      action: action.action,
+      scenario: scenarioLabel(action.action),
+      tradeLevels: null,
+      evidenceQuality: localEvidenceQuality,
+      domains: options.evidenceDomains,
+      provenance: [
+        { type: "technical", source: technical?.source || "ohlcv" },
+        {
+          type: "fundamentals",
+          source: fundamentals?.available ? "market-api" : null,
+        },
+      ],
+    };
+    const preliminaryVerdict = W.unifiedVerdict?.compose?.(verdictInput);
+    const evidenceQuality =
+      preliminaryVerdict?.evidence || localEvidenceQuality;
+    const tradePlan =
+      evidenceQuality.status === "SUFFICIENT"
+        ? tradeLevels(action.action, technical)
+        : null;
+    const unifiedVerdict = W.unifiedVerdict?.compose?.({
+      ...verdictInput,
+      tradeLevels: tradePlan,
+    });
 
     // 11. Return structured report
     return {
@@ -486,12 +525,10 @@ W.tokenAnalysis = (() => {
       actionConfidence: action.confidence,
       actionReasons: action.reasons,
       actionInterpretation: action.interpretation,
-      evidenceQuality: evidenceSufficiency(technical, fundamentals),
+      evidenceQuality,
       scenario: scenarioLabel(action.action),
-      tradeLevels:
-        evidenceSufficiency(technical, fundamentals).status === "SUFFICIENT"
-          ? tradeLevels(action.action, technical)
-          : null,
+      tradeLevels: tradePlan,
+      unifiedVerdict,
       fundamentals,
       signalsCount: allEvidence.length,
       personalContext,
@@ -516,7 +553,11 @@ W.tokenAnalysis = (() => {
     `;
       view.querySelector("#ta-go").onclick = () => {
         const input = view.querySelector("#ta-input").value.trim();
-        if (input) render(view, input);
+        if (input) {
+          // Keep the selected asset in the route so global auto-refreshes
+          // do not replace the report with the empty search form.
+          location.hash = `#/token/${encodeURIComponent(input)}`;
+        }
       };
       view.querySelector("#ta-input").addEventListener("keydown", (e) => {
         if (e.key === "Enter") view.querySelector("#ta-go").click();
@@ -555,22 +596,33 @@ W.tokenAnalysis = (() => {
           </div>
         </div>
         <div style="margin-top:12px;">
-          <div class="meter-bar"><div style="width:${result.opportunityScore}%; background:var(--up);"></div></div>
+          <div class="meter-bar"><div class="${meterClass(result.opportunityScore, "up")}"></div></div>
           <div class="meter-label">Opportunity Score</div>
         </div>
         <div style="margin-top:8px;">
-          <div class="meter-bar"><div style="width:${result.riskScore}%; background:var(--down);"></div></div>
+          <div class="meter-bar"><div class="${meterClass(result.riskScore, "down")}"></div></div>
           <div class="meter-label">Risk Score</div>
         </div>
         <div class="card" style="margin-top:16px; border:1px solid ${result.action === "BUY" ? "var(--up)" : result.action === "SELL" ? "var(--down)" : "var(--warn)"};">
           <h3>${result.scenario || "Neutral / insufficient evidence"}</h3>
           <p class="small">Evidence quality: <b>${result.evidenceQuality?.status || "UNAVAILABLE"}</b> · Scenario strength: ${result.actionConfidence ?? "N/A"}%</p>
+          ${
+            result.unifiedVerdict
+              ? `<p class="small muted">Domains: ${Object.values(
+                  result.unifiedVerdict.domains,
+                )
+                  .map((domain) => `${domain.name} ${domain.status}`)
+                  .join(
+                    " · ",
+                  )}</p><p class="small muted">Methodology ${result.unifiedVerdict.methodologyVersion} · Evidence ${result.unifiedVerdict.evidenceVersion}</p>`
+              : ""
+          }
           <p class="small muted">${result.actionInterpretation || "The available evidence does not support a directional scenario."}</p>
           ${result.actionReasons?.length ? `<p class="small muted">${result.actionReasons.join(" · ")}</p>` : ""}
           ${result.evidenceQuality?.reasons?.length ? `<p class="small muted">Limitations: ${result.evidenceQuality.reasons.join(" · ")}</p>` : ""}
           ${result.tradeLevels ? `<div class="grid-2" style="margin-top:10px;"><div class="kv-row"><span>Reference price</span><b>${result.tradeLevels.entry}</b></div><div class="kv-row"><span>Potential invalidation</span><b style="color:var(--down);">${result.tradeLevels.stopLoss}</b></div><div class="kv-row"><span>Potential target zone</span><b style="color:var(--up);">${result.tradeLevels.takeProfit}</b></div><div class="kv-row"><span>ATR risk distance</span><b>${result.tradeLevels.riskDistance}</b></div></div><p class="small muted">${result.tradeLevels.basis}. These are scenario levels derived from current OHLCV data, not instructions to trade.</p>` : ""}
         </div>
-        ${result.fundamentals ? `<div class="card" style="margin-top:12px;"><h4>Fundamental score breakdown</h4><div class="grid-2"><div class="kv-row"><span>Fundamental bias</span><b>${result.fundamentals.bias}</b></div><div class="kv-row"><span>Overall score</span><b>${result.fundamentals.score}/100</b></div></div>${(result.fundamentals.metrics || []).map((metric) => `<div style="margin-top:8px;"><div class="meter-label"><span>${metric.label}</span><b>${metric.detail}</b></div><div class="meter-bar"><div style="width:${metric.value == null ? 0 : metric.value}%; background:${metric.value == null ? "var(--muted)" : metric.value >= 60 ? "var(--up)" : "var(--warn)"};"></div></div></div>`).join("")}<p class="small muted">${[...(result.fundamentals.positives || []), ...(result.fundamentals.negatives || [])].join(" · ") || "Limited fundamental data available."}</p></div>` : ""}
+          ${result.fundamentals ? `<div class="card fundamental-breakdown"><h4>Fundamental score breakdown</h4><div class="grid-2"><div class="kv-row"><span>Fundamental bias</span><b>${result.fundamentals.bias}</b></div><div class="kv-row"><span>Overall score</span><b>${result.fundamentals.score}/100</b></div></div>${(result.fundamentals.metrics || []).map((metric) => `<div class="fundamental-metric"><div class="meter-label"><span>${metric.label}</span><b>${metric.detail}</b></div><div class="meter-bar"><div class="${meterClass(metric.value, metric.value == null ? "muted" : metric.value >= 60 ? "up" : "warn")}"></div></div></div>`).join("")}<p class="small muted">${[...(result.fundamentals.positives || []), ...(result.fundamentals.negatives || [])].join(" · ") || "Limited fundamental data available."}</p></div>` : ""}
         ${
           result.technical
             ? `

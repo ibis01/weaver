@@ -1477,6 +1477,25 @@ th.num {
   background: var(--primary, #7c5cff);
   border-radius: 2px;
 }
+/* CSP-safe dynamic meters: JS selects a bucket class; CSS owns the style. */
+.meter-fill { height: 100%; width: var(--meter-width, 0%); background: var(--meter-color, var(--brand)); border-radius: 2px; }
+.meter-fill-up { --meter-color: var(--up); }
+.meter-fill-down { --meter-color: var(--down); }
+.meter-fill-warn { --meter-color: var(--warn); }
+.meter-fill-muted { --meter-color: var(--muted); }
+.meter-fill-0 { --meter-width: 0%; }
+.meter-fill-10 { --meter-width: 10%; }
+.meter-fill-20 { --meter-width: 20%; }
+.meter-fill-30 { --meter-width: 30%; }
+.meter-fill-40 { --meter-width: 40%; }
+.meter-fill-50 { --meter-width: 50%; }
+.meter-fill-60 { --meter-width: 60%; }
+.meter-fill-70 { --meter-width: 70%; }
+.meter-fill-80 { --meter-width: 80%; }
+.meter-fill-90 { --meter-width: 90%; }
+.meter-fill-100 { --meter-width: 100%; }
+.fundamental-breakdown { margin-top: 12px; }
+.fundamental-metric { margin-top: 8px; }
 
 /* Opportunity strength badges.
    The old names (buy/live/triggered/sell) are kept as aliases so any

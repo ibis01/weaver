@@ -1,5 +1,5 @@
 // ================================================================
-// js/features/sectors.js – Sector Rotation Heatmap
+//             Sector Rotation Heatmap
 // ================================================================
 
 window.W = window.W || {};
@@ -14,11 +14,7 @@ W.sectors = (() => {
     ch = 0;
 
   // ── API Helpers ──────────────────────────────────────────
-  const PROX = [
-    (u) => u,
-    (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-    (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
-  ];
+  const PROX = [(u) => u];
 
   async function fetchCategories() {
     const url =

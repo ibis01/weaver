@@ -11,12 +11,12 @@ W.api = (() => {
   const CACHE_TTL = 60000; // 1 minute
   const LONG_CACHE_TTL = 300000; // 5 minutes
 
-  // ── Proxy chain ─────────────────────────────────────────
+  // ── Request routes ───────────────────────────────────────
+  // Public CORS proxies are intentionally not used: they add an
+  // uncontrolled third-party dependency and can expose market requests.
   const PROXIES = [
     (u) => "http://localhost:3001/proxy?url=" + encodeURIComponent(u),
     (u) => u,
-    (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-    (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
   ];
 
   // ── State ──────────────────────────────────────────────
@@ -159,7 +159,7 @@ W.api = (() => {
             ? "proxy"
             : proxy === PROXIES[1]
               ? "direct"
-              : "public-proxy";
+              : "direct";
         W.dataHealth?.mark(resourceForUrl(url), {
           source,
           observedAt: Date.now(),

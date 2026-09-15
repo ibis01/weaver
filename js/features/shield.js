@@ -1,5 +1,5 @@
 // ================================================================
-// js/features/shield.js – Token Shield (Contract Security Auditor)
+//              Token Shield (Contract Security Auditor)
 // ================================================================
 
 window.W = window.W || {};
@@ -90,7 +90,7 @@ W.shield = (() => {
 
   // ── Own CORS proxy (Cloudflare Worker) ─────────────────
   // Set this after deploying cf-worker/ (see cf-worker/README.md).
-  // Left blank, Shield falls back to the public-proxy chain below,
+  // Left blank, Shield falls back to the first-party worker path,
   // so this can be filled in whenever without breaking anything.
   const WORKER_PROXY_BASE = "";
 
@@ -129,20 +129,15 @@ W.shield = (() => {
       }
     } catch (e) {
       console.warn(
-        "[Shield] Own worker failed, falling back to public proxies:",
+        "[Shield] Own worker failed, using direct provider:",
         e.message,
       );
     }
 
     const url = `${GOPLUS_API}/${chainId}?contract_addresses=${address.toLowerCase()}`;
 
-    // Use proxy fallbacks
-    const proxies = [
-      (u) => u,
-      (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-      (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u),
-      (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
-    ];
+    // Use direct provider only
+    const proxies = [(u) => u];
 
     let lastError = null;
     for (const proxy of proxies) {
@@ -188,7 +183,7 @@ W.shield = (() => {
       }
     } catch (e) {
       console.warn(
-        "[Shield] Own worker failed, falling back to public proxies:",
+        "[Shield] Own worker failed, using direct provider:",
         e.message,
       );
     }
@@ -196,12 +191,7 @@ W.shield = (() => {
     // Address case matters for Solana — never lowercase it.
     const url = `${GOPLUS_SOLANA_API}?contract_addresses=${address}`;
 
-    const proxies = [
-      (u) => u,
-      (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-      (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u),
-      (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
-    ];
+    const proxies = [(u) => u];
 
     let lastError = null;
     for (const proxy of proxies) {
