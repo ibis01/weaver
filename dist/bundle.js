@@ -6750,6 +6750,74 @@ W.technicalAnalysis = (() => {
     };
   }
 
+  function liquidityZones(input, timeframe) {
+    const candles = normalizeCandles(input),
+      points = detectSwingPoints(candles),
+      atrValue = atr(candles) || 0;
+    const tolerance = Math.max(
+      atrValue * 0.2,
+      (candles[candles.length - 1]?.close || 0) * 0.001,
+    );
+    const zones = [];
+    function cluster(items, type) {
+      items.forEach((item) => {
+        const zone = zones.find(
+          (z) => Math.abs(z.level - item.price) <= tolerance && z.type === type,
+        );
+        if (zone) {
+          zone.touches += 1;
+          zone.level =
+            (zone.level * (zone.touches - 1) + item.price) / zone.touches;
+          zone.strength = clamp(50 + zone.touches * 12, 0, 95);
+        } else
+          zones.push({
+            type,
+            timeframe,
+            level: item.price,
+            range: [item.price - tolerance, item.price + tolerance],
+            touches: 1,
+            strength: 62,
+          });
+      });
+    }
+    cluster(points.highs.slice(-12), "buy-side-liquidity");
+    cluster(points.lows.slice(-12), "sell-side-liquidity");
+    const last = candles[candles.length - 1];
+    zones.forEach((zone) => {
+      zone.swept =
+        zone.type === "buy-side-liquidity"
+          ? last.high > zone.range[1] && last.close < zone.level
+          : last.low < zone.range[0] && last.close > zone.level;
+      zone.level = round(zone.level);
+      zone.range = zone.range.map((n) => round(n));
+    });
+    return zones.sort((a, b) => b.strength - a.strength).slice(0, 20);
+  }
+
+  function aggregateLiquidity(timeframeResults) {
+    const combined = Object.entries(timeframeResults).flatMap(
+      ([timeframe, result]) =>
+        (result.liquidityZones || []).map((zone) => ({ ...zone, timeframe })),
+    );
+    const tolerance = combined.length
+      ? Math.max(...combined.map((z) => Math.abs(z.range[1] - z.range[0])))
+      : 0;
+    const merged = [];
+    combined.forEach((zone) => {
+      const match = merged.find(
+        (z) =>
+          z.type === zone.type && Math.abs(z.level - zone.level) <= tolerance,
+      );
+      if (match) {
+        match.timeframes = [...new Set([...match.timeframes, zone.timeframe])];
+        match.touches += zone.touches;
+        match.strength = clamp(match.strength + zone.strength * 0.15, 0, 100);
+        match.swept ||= zone.swept;
+      } else merged.push({ ...zone, timeframes: [zone.timeframe] });
+    });
+    return merged.sort((a, b) => b.strength - a.strength);
+  }
+
   function analyzeCandles(input) {
     const candles = normalizeCandles(input);
     if (candles.length < 20)
@@ -6864,6 +6932,7 @@ W.technicalAnalysis = (() => {
       swingPoints: points,
       structure,
       smc,
+      liquidityZones: liquidityZones(candles, "1h"),
       support: round(support),
       resistance: round(resistance),
       confluence: `${Math.abs(confluence)}/5 signals agree`,
@@ -6878,15 +6947,46 @@ W.technicalAnalysis = (() => {
   function analyzeSeries(series) {
     return analyzeCandles(series);
   }
+  async function analyzeMultiTimeframe(assetId) {
+    if (!W.api?.ohlcv) throw new Error("OHLCV market API unavailable");
+    const configs = { "1d": 300, "4h": 500, "1h": 500, "15m": 500 };
+    const entries = await Promise.all(
+      Object.entries(configs).map(async ([timeframe, limit]) => {
+        const candles = await W.api.ohlcv(assetId, timeframe, limit);
+        return [timeframe, candles, analyzeCandles(candles)];
+      }),
+    );
+    const timeframes = Object.fromEntries(
+      entries.map(([timeframe, , result]) => [timeframe, result]),
+    );
+    entries.forEach(([timeframe, candles, result]) => {
+      result.liquidityZones = liquidityZones(candles, timeframe);
+    });
+    return {
+      primary: timeframes["1h"],
+      timeframes,
+      liquidityZones: aggregateLiquidity(timeframes),
+      timeframeAlignment:
+        Object.values(timeframes).filter(
+          (r) => r.bias === timeframes["1h"].bias,
+        ).length + "/4",
+    };
+  }
   async function analyze(assetId, days = 90) {
     if (W.api?.ohlcv) {
       try {
-        return analyzeCandles(
-          await W.api.ohlcv(assetId, "1h", Math.min(1000, days * 24)),
-        );
+        const multi = await analyzeMultiTimeframe(assetId);
+        return {
+          ...multi.primary,
+          multiTimeframe: {
+            timeframes: multi.timeframes,
+            liquidityZones: multi.liquidityZones,
+            timeframeAlignment: multi.timeframeAlignment,
+          },
+        };
       } catch (e) {
         console.warn(
-          "[TechnicalAnalysis] OHLCV unavailable, using chart fallback:",
+          "[TechnicalAnalysis] Multi-timeframe OHLCV unavailable, using single timeframe:",
           e.message,
         );
       }
@@ -6896,12 +6996,15 @@ W.technicalAnalysis = (() => {
   }
   return {
     analyze,
+    analyzeMultiTimeframe,
     analyzeCandles,
     analyzeSeries,
     normalizeCandles,
     atr,
     detectSwingPoints,
     marketStructure,
+    liquidityZones,
+    aggregateLiquidity,
     rsi,
     ema,
   };
@@ -16535,6 +16638,193 @@ console.log("[Journal] Decision module loaded (CSP compliant).");
 window.W = window.W || {};
 
 W.tokenAnalysis = (() => {
+  function fundamentalReport(data) {
+    const market = data?.market_data || {};
+    const cap = Number(market.market_cap?.usd),
+      volume = Number(market.total_volume?.usd);
+    const rank = Number(data?.market_cap_rank),
+      circulating = Number(market.circulating_supply),
+      total = Number(market.total_supply);
+    const ath = Number(market.ath?.usd),
+      current = Number(market.current_price?.usd);
+    const positives = [],
+      negatives = [],
+      factors = [];
+    let score = 50;
+    if (Number.isFinite(rank)) {
+      score += rank <= 20 ? 15 : rank <= 100 ? 7 : -5;
+      factors.push(`Market-cap rank ${rank}`);
+    }
+    if (cap > 0 && volume >= cap * 0.05) {
+      score += 10;
+      positives.push("Healthy 24h volume relative to market cap");
+    } else if (cap > 0 && volume < cap * 0.01) {
+      score -= 8;
+      negatives.push("Low 24h volume relative to market cap");
+    }
+    if (circulating > 0 && total > 0) {
+      const ratio = circulating / total;
+      score += ratio >= 0.7 ? 8 : ratio < 0.3 ? -8 : 0;
+      factors.push(`${Math.round(ratio * 100)}% of known supply circulating`);
+    }
+    if (ath > 0 && current > 0) {
+      const drawdown = (1 - current / ath) * 100;
+      if (drawdown > 85)
+        negatives.push(`Deep ATH drawdown (${Math.round(drawdown)}%)`);
+      else if (drawdown < 35)
+        positives.push(`Near prior ATH (${Math.round(drawdown)}% drawdown)`);
+    }
+    score = Math.max(0, Math.min(100, score));
+    const volumeRatio =
+      cap > 0 && Number.isFinite(volume) ? volume / cap : null;
+    const supplyRatio =
+      circulating > 0 && total > 0 ? circulating / total : null;
+    const athRetention = ath > 0 && current > 0 ? current / ath : null;
+    return {
+      score,
+      bias: score >= 60 ? "supportive" : score <= 40 ? "cautionary" : "neutral",
+      positives,
+      negatives,
+      factors,
+      available: Boolean(data?.market_data),
+      metrics: [
+        {
+          label: "Market-cap rank",
+          value: Number.isFinite(rank)
+            ? Math.max(
+                0,
+                Math.min(100, rank <= 20 ? 90 : rank <= 100 ? 70 : 40),
+              )
+            : null,
+          detail: Number.isFinite(rank) ? `#${rank}` : "N/A",
+        },
+        {
+          label: "Volume / market cap",
+          value:
+            volumeRatio == null
+              ? null
+              : Math.max(0, Math.min(100, volumeRatio * 1000)),
+          detail:
+            volumeRatio == null ? "N/A" : `${Math.round(volumeRatio * 100)}%`,
+        },
+        {
+          label: "Circulating supply",
+          value: supplyRatio == null ? null : supplyRatio * 100,
+          detail:
+            supplyRatio == null ? "N/A" : `${Math.round(supplyRatio * 100)}%`,
+        },
+        {
+          label: "Price retained from ATH",
+          value: athRetention == null ? null : athRetention * 100,
+          detail:
+            athRetention == null ? "N/A" : `${Math.round(athRetention * 100)}%`,
+        },
+      ],
+    };
+  }
+
+  function tradeLevels(action, technical) {
+    if (
+      !technical ||
+      !Number.isFinite(Number(technical.current)) ||
+      !Number.isFinite(Number(technical.atr)) ||
+      action === "HOLD"
+    )
+      return null;
+    const entry = Number(technical.current),
+      atr = Number(technical.atr),
+      risk = atr * 1.5;
+    const zones =
+      technical.multiTimeframe?.liquidityZones ||
+      technical.liquidityZones ||
+      [];
+    const below = zones
+      .filter((z) => z.level < entry)
+      .sort((a, b) => b.level - a.level);
+    const above = zones
+      .filter((z) => z.level > entry)
+      .sort((a, b) => a.level - b.level);
+    if (action === "BUY")
+      return {
+        entry,
+        stopLoss:
+          Math.round(
+            Math.min(entry - risk, below[0]?.range?.[0] ?? entry - risk) * 100,
+          ) / 100,
+        takeProfit:
+          Math.round(
+            Math.max(entry + atr * 3, above[0]?.range?.[1] ?? entry + atr * 3) *
+              100,
+          ) / 100,
+        riskDistance: Math.round(risk * 100) / 100,
+        basis: "1.5× ATR stop with liquidity-zone-aware target",
+      };
+    return {
+      entry,
+      stopLoss:
+        Math.round(
+          Math.max(entry + risk, above[0]?.range?.[1] ?? entry + risk) * 100,
+        ) / 100,
+      takeProfit:
+        Math.round(
+          Math.min(entry - atr * 3, below[0]?.range?.[0] ?? entry - atr * 3) *
+            100,
+        ) / 100,
+      riskDistance: Math.round(risk * 100) / 100,
+      basis: "1.5× ATR stop with liquidity-zone-aware target",
+    };
+  }
+
+  function decisionReport(
+    technical,
+    fundamentals,
+    opportunityScore,
+    riskScore,
+  ) {
+    const alignment =
+      Number.parseInt(
+        technical?.multiTimeframe?.timeframeAlignment || "0",
+        10,
+      ) || 0;
+    const gap = opportunityScore - riskScore,
+      confidence = technical?.confidence || 0;
+    const buy =
+      technical?.bias === "bullish" &&
+      gap >= 15 &&
+      confidence >= 55 &&
+      alignment >= 3 &&
+      (!fundamentals?.available || fundamentals.score >= 45);
+    const sell =
+      technical?.bias === "bearish" &&
+      gap <= -15 &&
+      confidence >= 55 &&
+      alignment >= 3 &&
+      (!fundamentals?.available || fundamentals.score <= 55);
+    const action = buy ? "BUY" : sell ? "SELL" : "HOLD";
+    const reasons = [
+      `Technical bias: ${technical?.bias || "unavailable"}`,
+      `MTF alignment: ${technical?.multiTimeframe?.timeframeAlignment || "unavailable"}`,
+      `Evidence gap: ${Math.round(gap)}`,
+    ];
+    if (fundamentals?.available)
+      reasons.push(
+        `Fundamentals: ${fundamentals.bias} (${fundamentals.score}/100)`,
+      );
+    return {
+      action,
+      reasons,
+      confidence: Math.round(
+        Math.min(90, confidence * 0.65 + Math.abs(gap) * 0.35),
+      ),
+      interpretation:
+        action === "BUY"
+          ? "Evidence supports an immediate bullish setup, subject to your risk limits."
+          : action === "SELL"
+            ? "Evidence supports reducing exposure or avoiding a bullish entry; this is not a short-sale instruction."
+            : "Signals are mixed, insufficiently aligned, or too weak for an immediate directional decision.",
+    };
+  }
+
   /**
    * Analyze a token and return a structured decision report.
    * @param {string} assetId - Coingecko ID or symbol (e.g., 'bitcoin', 'BTC')
@@ -16560,6 +16850,15 @@ W.tokenAnalysis = (() => {
       console.warn("[TokenAnalysis] Technical data unavailable:", e.message);
     }
 
+    let fundamentals = null;
+    try {
+      fundamentals = fundamentalReport(
+        await W.api?.coin?.(asset.coingeckoId || asset.symbol.toLowerCase()),
+      );
+    } catch (e) {
+      console.warn("[TokenAnalysis] Fundamental data unavailable:", e.message);
+    }
+
     // 2. Collect signals
     let allSignals = [];
     try {
@@ -16580,6 +16879,8 @@ W.tokenAnalysis = (() => {
         verdict: "Insufficient data",
         confidence: null,
         explanation: "No recent signals for this asset.",
+        action: "HOLD",
+        fundamentals,
         technical: null,
       };
     }
@@ -16728,6 +17029,13 @@ W.tokenAnalysis = (() => {
       }
     }
 
+    const action = decisionReport(
+      technical,
+      fundamentals,
+      opportunityScore,
+      riskScore,
+    );
+
     // 11. Return structured report
     return {
       asset: asset.symbol,
@@ -16740,6 +17048,12 @@ W.tokenAnalysis = (() => {
       confidence:
         avgConfidence === null ? null : Math.round(avgConfidence * 100),
       explanation,
+      action: action.action,
+      actionConfidence: action.confidence,
+      actionReasons: action.reasons,
+      actionInterpretation: action.interpretation,
+      tradeLevels: tradeLevels(action.action, technical),
+      fundamentals,
       signalsCount: allEvidence.length,
       personalContext,
       technical,
@@ -16809,6 +17123,14 @@ W.tokenAnalysis = (() => {
           <div class="meter-bar"><div style="width:${result.riskScore}%; background:var(--down);"></div></div>
           <div class="meter-label">Risk Score</div>
         </div>
+        <div class="card" style="margin-top:16px; border:1px solid ${result.action === "BUY" ? "var(--up)" : result.action === "SELL" ? "var(--down)" : "var(--warn)"};">
+          <h3>Current decision: ${result.action || "HOLD"}</h3>
+          <p class="small">Decision confidence: ${result.actionConfidence ?? "N/A"}%</p>
+          <p class="small muted">${result.actionInterpretation || "Insufficient alignment for a directional decision."}</p>
+          ${result.actionReasons?.length ? `<p class="small muted">${result.actionReasons.join(" · ")}</p>` : ""}
+          ${result.tradeLevels ? `<div class="grid-2" style="margin-top:10px;"><div class="kv-row"><span>Entry reference</span><b>${result.tradeLevels.entry}</b></div><div class="kv-row"><span>Stop-loss</span><b style="color:var(--down);">${result.tradeLevels.stopLoss}</b></div><div class="kv-row"><span>Take-profit</span><b style="color:var(--up);">${result.tradeLevels.takeProfit}</b></div><div class="kv-row"><span>Risk distance</span><b>${result.tradeLevels.riskDistance}</b></div></div><p class="small muted">${result.tradeLevels.basis}. Levels are references, not guarantees.</p>` : ""}
+        </div>
+        ${result.fundamentals ? `<div class="card" style="margin-top:12px;"><h4>Fundamental score breakdown</h4><div class="grid-2"><div class="kv-row"><span>Fundamental bias</span><b>${result.fundamentals.bias}</b></div><div class="kv-row"><span>Overall score</span><b>${result.fundamentals.score}/100</b></div></div>${(result.fundamentals.metrics || []).map((metric) => `<div style="margin-top:8px;"><div class="meter-label"><span>${metric.label}</span><b>${metric.detail}</b></div><div class="meter-bar"><div style="width:${metric.value == null ? 0 : metric.value}%; background:${metric.value == null ? "var(--muted)" : metric.value >= 60 ? "var(--up)" : "var(--warn)"};"></div></div></div>`).join("")}<p class="small muted">${[...(result.fundamentals.positives || []), ...(result.fundamentals.negatives || [])].join(" · ") || "Limited fundamental data available."}</p></div>` : ""}
         ${
           result.technical
             ? `
@@ -16816,13 +17138,17 @@ W.tokenAnalysis = (() => {
           <h4>📐 Market-derived technical analysis</h4>
           <div class="grid-2" style="margin-top:10px;">
             <div class="kv-row"><span>RSI (14)</span><b>${result.technical.rsi} · ${result.technical.rsiBias}</b></div>
+            <div class="kv-row"><span>ATR (14)</span><b>${result.technical.atr}</b></div>
             <div class="kv-row"><span>Trend</span><b>${result.technical.trend}</b></div>
             <div class="kv-row"><span>EMA 20 / EMA 50</span><b>${result.technical.ema20} / ${result.technical.ema50 ?? "N/A"}</b></div>
             <div class="kv-row"><span>MACD bias</span><b>${result.technical.macd >= 0 ? "positive" : "negative"} (${result.technical.macd})</b></div>
             <div class="kv-row"><span>Bollinger position</span><b>${result.technical.bollingerPosition}%</b></div>
             <div class="kv-row"><span>Market structure</span><b>${result.technical.structure.label}</b></div>
             <div class="kv-row"><span>Structure event</span><b>${result.technical.structure.breakOfStructure}</b></div>
+            <div class="kv-row"><span>CHOCH</span><b>${result.technical.structure.choch?.direction || "None confirmed"}</b></div>
             <div class="kv-row"><span>SMC / liquidity</span><b>${result.technical.smc.liquidity}</b></div>
+            <div class="kv-row"><span>Relative volume</span><b>${result.technical.relativeVolume == null ? "N/A" : result.technical.relativeVolume + "x"}</b></div>
+            ${result.technical.multiTimeframe ? `<div class="kv-row"><span>MTF alignment</span><b>${result.technical.multiTimeframe.timeframeAlignment}</b></div><div class="kv-row"><span>Liquidity zones</span><b>${result.technical.multiTimeframe.liquidityZones.length}</b></div>` : ""}
             <div class="kv-row"><span>Support / resistance</span><b>${result.technical.support} / ${result.technical.resistance}</b></div>
             <div class="kv-row"><span>Technical confidence</span><b>${result.technical.confidence}%</b></div>
           </div>
@@ -16877,7 +17203,7 @@ W.tokenAnalysis = (() => {
   console.log("[TokenAnalysis] Module loaded.");
 
   // expose API
-  return { analyze, render };
+  return { analyze, render, decisionReport, fundamentalReport, tradeLevels };
 })();
 // ---- js/ui/particles.js ----
 // ================================================================
