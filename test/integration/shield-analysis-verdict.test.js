@@ -15,7 +15,7 @@ describe("Gem → Shield → Token Analysis → Unified Verdict", () => {
     W.shield.check = async () => ({
       riskScore: 12,
       risks: ["Owner not renounced"],
-      riskLevel: ["✅ LOOKS SAFE", "buy"],
+      riskLevel: ["🟢 No identified risk indicators", "no-identified-risk"],
       scoreVersion: "shield-evm-v1",
       flags: { isHoneypot: false, isMintable: false, isProxy: false },
     });

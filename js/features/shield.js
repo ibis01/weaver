@@ -303,10 +303,10 @@ W.shield = (() => {
 
     const riskLevel =
       riskScore >= 40
-        ? ["🚨 EXTREME RUG RISK", "sell"]
+        ? ["🔴 High identified risk indicators", "high-risk"]
         : riskScore >= 20
-          ? ["⚠️ CAUTION", "triggered"]
-          : ["✅ LOOKS SAFE", "buy"];
+          ? ["🟡 Risk indicators detected", "caution"]
+          : ["🟢 No identified risk indicators", "no-identified-risk"];
 
     return {
       riskScore,
@@ -526,10 +526,10 @@ W.shield = (() => {
 
     const riskLevel =
       riskScore >= 40
-        ? ["🚨 EXTREME RUG RISK", "sell"]
+        ? ["🔴 High identified risk indicators", "high-risk"]
         : riskScore >= 20
-          ? ["⚠️ CAUTION", "triggered"]
-          : ["✅ LOOKS SAFE", "buy"];
+          ? ["🟡 Risk indicators detected", "caution"]
+          : ["🟢 No identified risk indicators", "no-identified-risk"];
 
     return {
       riskScore,

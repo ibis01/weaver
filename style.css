@@ -730,17 +730,18 @@ code {
   background: rgba(154, 163, 178, 0.1);
   color: var(--muted);
 }
-.tag.buy,
+.tag.no-identified-risk,
 .tag.live,
 .tag.bullish {
   background: rgba(16, 185, 129, 0.1);
   color: var(--up);
 }
-.tag.sell,
+.tag.high-risk,
 .tag.bearish {
   background: rgba(239, 68, 68, 0.1);
   color: var(--down);
 }
+.tag.caution,
 .tag.triggered,
 .tag.lock {
   background: rgba(245, 158, 11, 0.1);

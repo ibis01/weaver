@@ -42,3 +42,34 @@ describe("Gem Agent verdict language", () => {
     expect(global.W.gems.SCORE_VERSION).to.be.a("string");
   });
 });
+
+describe("Token Shield risk language", () => {
+  it("uses qualified risk-indicator classifications", () => {
+    const low = W.shield.assessEvmRisk({
+      is_honeypot: "0",
+      is_mintable: "0",
+      is_proxy: "0",
+      owner_change: "1",
+      buy_tax: "0",
+      sell_tax: "0",
+      lp_holders: [{ is_locked: 1 }],
+    });
+    const high = W.shield.assessEvmRisk({
+      is_honeypot: "1",
+      is_mintable: "1",
+      is_proxy: "1",
+      owner_change: "0",
+      buy_tax: "0.10",
+      sell_tax: "0.10",
+      lp_holders: [],
+    });
+    expect(low.riskLevel[0]).to.include("No identified risk indicators");
+    expect(low.riskLevel[1]).to.equal("no-identified-risk");
+    expect(high.riskLevel[0]).to.include("High identified risk indicators");
+    expect(high.riskLevel[1]).to.equal("high-risk");
+    expect([low.riskLevel[1], high.riskLevel[1]]).to.not.include.members([
+      "buy",
+      "sell",
+    ]);
+  });
+});
