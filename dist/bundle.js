@@ -16724,24 +16724,42 @@ W.tokenAnalysis = (() => {
   }
 
   function tradeLevels(action, technical) {
-    if (
-      !technical ||
-      !Number.isFinite(Number(technical.current)) ||
-      !Number.isFinite(Number(technical.atr)) ||
-      action === "HOLD"
-    )
-      return null;
+    if (!technical || !["BUY", "SELL"].includes(action)) return null;
     const entry = Number(technical.current),
       atr = Number(technical.atr),
       risk = atr * 1.5;
-    const zones =
+    if (
+      !Number.isFinite(entry) ||
+      entry <= 0 ||
+      !Number.isFinite(atr) ||
+      atr <= 0 ||
+      atr > entry * 100
+    )
+      return null;
+    const zones = (
       technical.multiTimeframe?.liquidityZones ||
       technical.liquidityZones ||
-      [];
-    const below = zones
+      []
+    ).filter(
+      (z) =>
+        Number.isFinite(Number(z?.level)) &&
+        Array.isArray(z?.range) &&
+        z.range.length >= 2 &&
+        Number.isFinite(Number(z.range[0])) &&
+        Number.isFinite(Number(z.range[1])),
+    );
+    const normalizedZones = zones.map((z) => ({
+      ...z,
+      level: Number(z.level),
+      range: [
+        Math.min(Number(z.range[0]), Number(z.range[1])),
+        Math.max(Number(z.range[0]), Number(z.range[1])),
+      ],
+    }));
+    const below = normalizedZones
       .filter((z) => z.level < entry)
       .sort((a, b) => b.level - a.level);
-    const above = zones
+    const above = normalizedZones
       .filter((z) => z.level > entry)
       .sort((a, b) => a.level - b.level);
     if (action === "BUY")
@@ -16773,6 +16791,55 @@ W.tokenAnalysis = (() => {
       riskDistance: Math.round(risk * 100) / 100,
       basis: "1.5× ATR stop with liquidity-zone-aware target",
     };
+  }
+
+  function evidenceSufficiency(technical, fundamentals) {
+    if (!technical)
+      return {
+        status: "INSUFFICIENT",
+        reasons: ["Technical market data is unavailable."],
+        score: 0,
+      };
+    const reasons = [],
+      alignment =
+        Number.parseInt(
+          technical.multiTimeframe?.timeframeAlignment || "0",
+          10,
+        ) || 0;
+    if (!fundamentals?.available)
+      reasons.push("Fundamental market data is unavailable.");
+    if (!technical.multiTimeframe)
+      reasons.push("Multi-timeframe confirmation is unavailable.");
+    else if (alignment < 3)
+      reasons.push(
+        `Only ${technical.multiTimeframe.timeframeAlignment} timeframes align.`,
+      );
+    if (
+      !Number.isFinite(Number(technical.atr)) ||
+      !Number.isFinite(Number(technical.current))
+    )
+      reasons.push("ATR or reference price is unavailable.");
+    const status =
+      technical.multiTimeframe &&
+      alignment >= 3 &&
+      fundamentals?.available &&
+      reasons.length === 0
+        ? "SUFFICIENT"
+        : "PARTIAL";
+    return {
+      status,
+      reasons,
+      score:
+        status === "SUFFICIENT" ? 100 : Math.max(25, 100 - reasons.length * 25),
+    };
+  }
+
+  function scenarioLabel(action) {
+    return action === "BUY"
+      ? "Bullish scenario"
+      : action === "SELL"
+        ? "Bearish scenario"
+        : "Neutral / insufficient evidence";
   }
 
   function decisionReport(
@@ -17052,7 +17119,12 @@ W.tokenAnalysis = (() => {
       actionConfidence: action.confidence,
       actionReasons: action.reasons,
       actionInterpretation: action.interpretation,
-      tradeLevels: tradeLevels(action.action, technical),
+      evidenceQuality: evidenceSufficiency(technical, fundamentals),
+      scenario: scenarioLabel(action.action),
+      tradeLevels:
+        evidenceSufficiency(technical, fundamentals).status === "SUFFICIENT"
+          ? tradeLevels(action.action, technical)
+          : null,
       fundamentals,
       signalsCount: allEvidence.length,
       personalContext,
@@ -17124,11 +17196,12 @@ W.tokenAnalysis = (() => {
           <div class="meter-label">Risk Score</div>
         </div>
         <div class="card" style="margin-top:16px; border:1px solid ${result.action === "BUY" ? "var(--up)" : result.action === "SELL" ? "var(--down)" : "var(--warn)"};">
-          <h3>Current decision: ${result.action || "HOLD"}</h3>
-          <p class="small">Decision confidence: ${result.actionConfidence ?? "N/A"}%</p>
-          <p class="small muted">${result.actionInterpretation || "Insufficient alignment for a directional decision."}</p>
+          <h3>${result.scenario || "Neutral / insufficient evidence"}</h3>
+          <p class="small">Evidence quality: <b>${result.evidenceQuality?.status || "UNAVAILABLE"}</b> · Scenario strength: ${result.actionConfidence ?? "N/A"}%</p>
+          <p class="small muted">${result.actionInterpretation || "The available evidence does not support a directional scenario."}</p>
           ${result.actionReasons?.length ? `<p class="small muted">${result.actionReasons.join(" · ")}</p>` : ""}
-          ${result.tradeLevels ? `<div class="grid-2" style="margin-top:10px;"><div class="kv-row"><span>Entry reference</span><b>${result.tradeLevels.entry}</b></div><div class="kv-row"><span>Stop-loss</span><b style="color:var(--down);">${result.tradeLevels.stopLoss}</b></div><div class="kv-row"><span>Take-profit</span><b style="color:var(--up);">${result.tradeLevels.takeProfit}</b></div><div class="kv-row"><span>Risk distance</span><b>${result.tradeLevels.riskDistance}</b></div></div><p class="small muted">${result.tradeLevels.basis}. Levels are references, not guarantees.</p>` : ""}
+          ${result.evidenceQuality?.reasons?.length ? `<p class="small muted">Limitations: ${result.evidenceQuality.reasons.join(" · ")}</p>` : ""}
+          ${result.tradeLevels ? `<div class="grid-2" style="margin-top:10px;"><div class="kv-row"><span>Reference price</span><b>${result.tradeLevels.entry}</b></div><div class="kv-row"><span>Potential invalidation</span><b style="color:var(--down);">${result.tradeLevels.stopLoss}</b></div><div class="kv-row"><span>Potential target zone</span><b style="color:var(--up);">${result.tradeLevels.takeProfit}</b></div><div class="kv-row"><span>ATR risk distance</span><b>${result.tradeLevels.riskDistance}</b></div></div><p class="small muted">${result.tradeLevels.basis}. These are scenario levels derived from current OHLCV data, not instructions to trade.</p>` : ""}
         </div>
         ${result.fundamentals ? `<div class="card" style="margin-top:12px;"><h4>Fundamental score breakdown</h4><div class="grid-2"><div class="kv-row"><span>Fundamental bias</span><b>${result.fundamentals.bias}</b></div><div class="kv-row"><span>Overall score</span><b>${result.fundamentals.score}/100</b></div></div>${(result.fundamentals.metrics || []).map((metric) => `<div style="margin-top:8px;"><div class="meter-label"><span>${metric.label}</span><b>${metric.detail}</b></div><div class="meter-bar"><div style="width:${metric.value == null ? 0 : metric.value}%; background:${metric.value == null ? "var(--muted)" : metric.value >= 60 ? "var(--up)" : "var(--warn)"};"></div></div></div>`).join("")}<p class="small muted">${[...(result.fundamentals.positives || []), ...(result.fundamentals.negatives || [])].join(" · ") || "Limited fundamental data available."}</p></div>` : ""}
         ${
@@ -17153,7 +17226,7 @@ W.tokenAnalysis = (() => {
             <div class="kv-row"><span>Technical confidence</span><b>${result.technical.confidence}%</b></div>
           </div>
           <p class="muted small" style="margin-top:10px;">Confluence: ${result.technical.confluence}. Annualized close-to-close volatility: ${result.technical.volatility}%.</p>
-          <p class="muted small" style="margin-top:10px;">${result.technical.smc.orderBlock}. ${result.technical.smc.limitation}</p>
+          <p class="muted small" style="margin-top:10px;">${result.technical.smc.orderBlock}. ${result.technical.smc.limitation} Liquidity zones are heuristics derived from OHLCV; they are not direct order-book or on-chain observations.</p>
         </div>`
             : ""
         }
@@ -17203,7 +17276,15 @@ W.tokenAnalysis = (() => {
   console.log("[TokenAnalysis] Module loaded.");
 
   // expose API
-  return { analyze, render, decisionReport, fundamentalReport, tradeLevels };
+  return {
+    analyze,
+    render,
+    decisionReport,
+    fundamentalReport,
+    tradeLevels,
+    evidenceSufficiency,
+    scenarioLabel,
+  };
 })();
 // ---- js/ui/particles.js ----
 // ================================================================

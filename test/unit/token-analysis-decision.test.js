@@ -118,4 +118,37 @@ describe("Token Analysis action thresholds", () => {
       W.tokenAnalysis.tradeLevels("SELL", { current: 100, atr: 10001 }),
     ).to.equal(null);
   });
+
+  it("marks complete technical and fundamental inputs as sufficient", () => {
+    const quality = W.tokenAnalysis.evidenceSufficiency(
+      technical("bullish"),
+      fundamentals,
+    );
+    expect(quality.status).to.equal("SUFFICIENT");
+  });
+
+  it("marks missing fundamentals or weak alignment as partial", () => {
+    expect(
+      W.tokenAnalysis.evidenceSufficiency(technical("bullish"), null).status,
+    ).to.equal("PARTIAL");
+    expect(
+      W.tokenAnalysis.evidenceSufficiency(
+        technical("bullish", "2/4"),
+        fundamentals,
+      ).status,
+    ).to.equal("PARTIAL");
+  });
+
+  it("marks missing technical data as insufficient", () => {
+    const quality = W.tokenAnalysis.evidenceSufficiency(null, fundamentals);
+    expect(quality.status).to.equal("INSUFFICIENT");
+  });
+
+  it("exposes scenario labels without changing internal compatibility actions", () => {
+    expect(W.tokenAnalysis.scenarioLabel("BUY")).to.equal("Bullish scenario");
+    expect(W.tokenAnalysis.scenarioLabel("SELL")).to.equal("Bearish scenario");
+    expect(W.tokenAnalysis.scenarioLabel("HOLD")).to.equal(
+      "Neutral / insufficient evidence",
+    );
+  });
 });

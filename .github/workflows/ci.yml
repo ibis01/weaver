@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
     branches: [main]
 
@@ -51,6 +51,15 @@ jobs:
 
       - name: Build production bundle
         run: npm run build && npm run minify
+
+      - name: Upload production bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: weaver-browser-bundle-${{ github.sha }}
+          path: |
+            dist/bundle.js
+            dist/bundle.min.js
+          if-no-files-found: error
 
       - name: Upload Playwright report on failure
         if: failure()
