@@ -268,6 +268,23 @@ W.api = (() => {
         return arr.map((k) => [k[0], parseFloat(k[4])]);
       });
     },
+    ohlcv: (id, interval = "1h", limit = 500) => {
+      const symbol = getSymbol(id) + "USDT";
+      return fetchWithProxy(
+        `${BINANCE_API}/klines?symbol=${symbol}&interval=${interval}&limit=${Math.min(1000, Math.max(20, limit))}`,
+        LONG_CACHE_TTL,
+      ).then((data) =>
+        (Array.isArray(data) ? data : []).map((k) => ({
+          timestamp: Number(k[0]),
+          open: Number(k[1]),
+          high: Number(k[2]),
+          low: Number(k[3]),
+          close: Number(k[4]),
+          volume: Number(k[5]),
+          quoteVolume: Number(k[7]),
+        })),
+      );
+    },
   };
 
   // ── API with smart failover ────────────────────────────
@@ -320,6 +337,15 @@ W.api = (() => {
       return withFailover("markets", idArray);
     },
     chart: (id, days = 30) => withFailover("chart", id, days),
+    ohlcv: (id, interval = "1h", limit = 500) => {
+      const symbol = getSymbol(id) + "USDT";
+      return binance
+        .ohlcv(symbol.replace(/USDT$/, ""), interval, limit)
+        .then((data) => {
+          source = "binance";
+          return data;
+        });
+    },
     top: (limit = 100) => {
       if (limit <= 50) return getTopCached(limit);
       return withFailover("top", limit);

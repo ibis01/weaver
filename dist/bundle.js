@@ -3092,6 +3092,23 @@ W.api = (() => {
         return arr.map((k) => [k[0], parseFloat(k[4])]);
       });
     },
+    ohlcv: (id, interval = "1h", limit = 500) => {
+      const symbol = getSymbol(id) + "USDT";
+      return fetchWithProxy(
+        `${BINANCE_API}/klines?symbol=${symbol}&interval=${interval}&limit=${Math.min(1000, Math.max(20, limit))}`,
+        LONG_CACHE_TTL,
+      ).then((data) =>
+        (Array.isArray(data) ? data : []).map((k) => ({
+          timestamp: Number(k[0]),
+          open: Number(k[1]),
+          high: Number(k[2]),
+          low: Number(k[3]),
+          close: Number(k[4]),
+          volume: Number(k[5]),
+          quoteVolume: Number(k[7]),
+        })),
+      );
+    },
   };
 
   // ── API with smart failover ────────────────────────────
@@ -3144,6 +3161,15 @@ W.api = (() => {
       return withFailover("markets", idArray);
     },
     chart: (id, days = 30) => withFailover("chart", id, days),
+    ohlcv: (id, interval = "1h", limit = 500) => {
+      const symbol = getSymbol(id) + "USDT";
+      return binance
+        .ohlcv(symbol.replace(/USDT$/, ""), interval, limit)
+        .then((data) => {
+          source = "binance";
+          return data;
+        });
+    },
     top: (limit = 100) => {
       if (limit <= 50) return getTopCached(limit);
       return withFailover("top", limit);
@@ -6528,7 +6554,7 @@ console.log(
 );
 // ---- js/intelligence/technical-analysis.js ----
 // ===============================================================
-// Technical Analysis — deterministic market-derived indicators
+// Technical Analysis — OHLCV indicators and market structure
 // ===============================================================
 window.W = window.W || {};
 
@@ -6536,14 +6562,47 @@ W.technicalAnalysis = (() => {
   const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
   const round = (n, digits = 2) => Number(Number(n).toFixed(digits));
 
+  function normalizeCandles(input) {
+    return (Array.isArray(input) ? input : [])
+      .map((candle) => {
+        if (Array.isArray(candle)) {
+          return {
+            timestamp: Number(candle[0]),
+            open: Number(candle[1]),
+            high: Number(candle[2] ?? candle[1]),
+            low: Number(candle[3] ?? candle[1]),
+            close: Number(candle[4] ?? candle[1]),
+            volume: Number(candle[5] ?? 0),
+            quoteVolume: Number(candle[7] ?? 0),
+          };
+        }
+        return {
+          timestamp: Number(candle.timestamp),
+          open: Number(candle.open),
+          high: Number(candle.high),
+          low: Number(candle.low),
+          close: Number(candle.close),
+          volume: Number(candle.volume ?? 0),
+          quoteVolume: Number(candle.quoteVolume ?? 0),
+        };
+      })
+      .filter(
+        (c) =>
+          [c.timestamp, c.open, c.high, c.low, c.close].every(
+            Number.isFinite,
+          ) &&
+          c.high >= c.low &&
+          c.volume >= 0,
+      );
+  }
+
   function ema(values, period) {
     if (!values.length) return null;
-    const k = 2 / (period + 1);
+    const seedLength = Math.min(period, values.length);
     let value =
-      values
-        .slice(0, Math.min(period, values.length))
-        .reduce((a, b) => a + b, 0) / Math.min(period, values.length);
-    for (let i = Math.min(period, values.length); i < values.length; i++)
+      values.slice(0, seedLength).reduce((a, b) => a + b, 0) / seedLength;
+    const k = 2 / (period + 1);
+    for (let i = seedLength; i < values.length; i++)
       value = values[i] * k + value * (1 - k);
     return value;
   }
@@ -6553,114 +6612,167 @@ W.technicalAnalysis = (() => {
     let gains = 0,
       losses = 0;
     for (let i = 1; i <= period; i++) {
-      const delta = values[i] - values[i - 1];
-      if (delta >= 0) gains += delta;
-      else losses -= delta;
+      const d = values[i] - values[i - 1];
+      if (d >= 0) gains += d;
+      else losses -= d;
     }
-    let avgGain = gains / period,
-      avgLoss = losses / period;
+    let gain = gains / period,
+      loss = losses / period;
     for (let i = period + 1; i < values.length; i++) {
-      const delta = values[i] - values[i - 1];
-      avgGain = (avgGain * (period - 1) + Math.max(delta, 0)) / period;
-      avgLoss = (avgLoss * (period - 1) + Math.max(-delta, 0)) / period;
+      const d = values[i] - values[i - 1];
+      gain = (gain * (period - 1) + Math.max(d, 0)) / period;
+      loss = (loss * (period - 1) + Math.max(-d, 0)) / period;
     }
-    if (avgLoss === 0) return 100;
-    return 100 - 100 / (1 + avgGain / avgLoss);
+    return loss === 0 ? 100 : 100 - 100 / (1 + gain / loss);
+  }
+
+  function atr(candles, period = 14) {
+    if (candles.length <= period) return null;
+    const ranges = candles
+      .slice(1)
+      .map((c, i) =>
+        Math.max(
+          c.high - c.low,
+          Math.abs(c.high - candles[i].close),
+          Math.abs(c.low - candles[i].close),
+        ),
+      );
+    let value = ranges.slice(0, period).reduce((a, b) => a + b, 0) / period;
+    for (let i = period; i < ranges.length; i++)
+      value = (value * (period - 1) + ranges[i]) / period;
+    return value;
   }
 
   function stddev(values) {
     const mean = values.reduce((a, b) => a + b, 0) / values.length;
     return Math.sqrt(
-      values.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
-        values.length,
+      values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length,
     );
   }
 
-  function swings(values, lookback = 2) {
+  function detectSwingPoints(candles, lookback = 2) {
     const highs = [],
       lows = [];
-    for (let i = lookback; i < values.length - lookback; i++) {
-      const left = values.slice(i - lookback, i),
-        right = values.slice(i + 1, i + lookback + 1);
-      if (values[i] > Math.max(...left, ...right))
-        highs.push({ index: i, value: values[i] });
-      if (values[i] < Math.min(...left, ...right))
-        lows.push({ index: i, value: values[i] });
+    for (let i = lookback; i < candles.length - lookback; i++) {
+      const left = candles.slice(i - lookback, i),
+        right = candles.slice(i + 1, i + lookback + 1);
+      if (
+        candles[i].high >
+        Math.max(...left.map((c) => c.high), ...right.map((c) => c.high))
+      )
+        highs.push({
+          index: i,
+          price: candles[i].high,
+          timestamp: candles[i].timestamp,
+        });
+      if (
+        candles[i].low <
+        Math.min(...left.map((c) => c.low), ...right.map((c) => c.low))
+      )
+        lows.push({
+          index: i,
+          price: candles[i].low,
+          timestamp: candles[i].timestamp,
+        });
     }
     return { highs, lows };
   }
 
-  function structure(values, swingData) {
-    const { highs, lows } = swingData;
+  function marketStructure(candles, points, atrValue = 0) {
+    const highs = points.highs,
+      lows = points.lows;
     const lastHighs = highs.slice(-2),
       lastLows = lows.slice(-2);
     const higherHigh =
-      lastHighs.length === 2 && lastHighs[1].value > lastHighs[0].value;
+      lastHighs.length === 2 && lastHighs[1].price > lastHighs[0].price;
     const higherLow =
-      lastLows.length === 2 && lastLows[1].value > lastLows[0].value;
+      lastLows.length === 2 && lastLows[1].price > lastLows[0].price;
     const lowerHigh =
-      lastHighs.length === 2 && lastHighs[1].value < lastHighs[0].value;
+      lastHighs.length === 2 && lastHighs[1].price < lastHighs[0].price;
     const lowerLow =
-      lastLows.length === 2 && lastLows[1].value < lastLows[0].value;
-    const bullish = higherHigh && higherLow;
-    const bearish = lowerHigh && lowerLow;
-    const last = values[values.length - 1];
-    const priorHigh = highs.length ? highs[highs.length - 1].value : last;
-    const priorLow = lows.length ? lows[lows.length - 1].value : last;
+      lastLows.length === 2 && lastLows[1].price < lastLows[0].price;
+    const bias =
+      higherHigh && higherLow
+        ? "bullish"
+        : lowerHigh && lowerLow
+          ? "bearish"
+          : "neutral";
+    const last = candles[candles.length - 1];
+    const recentHigh = highs[highs.length - 1],
+      recentLow = lows[lows.length - 1];
+    const threshold = atrValue * 0.1;
+    const bullishBreak =
+      recentHigh && last.close > recentHigh.price + threshold;
+    const bearishBreak = recentLow && last.close < recentLow.price - threshold;
+    const priorBias =
+      higherHigh || higherLow
+        ? "bullish"
+        : lowerHigh || lowerLow
+          ? "bearish"
+          : "neutral";
+    const choch =
+      bullishBreak && priorBias === "bearish"
+        ? "bullish"
+        : bearishBreak && priorBias === "bullish"
+          ? "bearish"
+          : null;
     return {
-      label: bullish
-        ? "Bullish structure (HH + HL)"
-        : bearish
-          ? "Bearish structure (LH + LL)"
-          : "Range / mixed structure",
-      bias: bullish ? "bullish" : bearish ? "bearish" : "neutral",
-      breakOfStructure:
-        last > priorHigh
-          ? "Bullish break of structure"
-          : last < priorLow
-            ? "Bearish break of structure"
-            : "No confirmed break of structure",
+      bias,
+      label:
+        bias === "bullish"
+          ? "Bullish structure (HH + HL)"
+          : bias === "bearish"
+            ? "Bearish structure (LH + LL)"
+            : "Range / mixed structure",
       higherHigh,
       higherLow,
       lowerHigh,
       lowerLow,
+      bos: bullishBreak
+        ? {
+            direction: "bullish",
+            level: recentHigh.price,
+            timestamp: last.timestamp,
+          }
+        : bearishBreak
+          ? {
+              direction: "bearish",
+              level: recentLow.price,
+              timestamp: last.timestamp,
+            }
+          : null,
+      choch: choch ? { direction: choch, timestamp: last.timestamp } : null,
+      breakOfStructure: bullishBreak
+        ? "Bullish break of structure"
+        : bearishBreak
+          ? "Bearish break of structure"
+          : "No confirmed break of structure",
     };
   }
 
-  function analyzeSeries(series) {
-    const values = series
-      .map((point) => (Array.isArray(point) ? Number(point[1]) : Number(point)))
-      .filter(Number.isFinite);
-    if (values.length < 20)
+  function analyzeCandles(input) {
+    const candles = normalizeCandles(input);
+    if (candles.length < 20)
       throw new Error(
-        "At least 20 price points are required for technical analysis",
+        "At least 20 OHLCV candles are required for technical analysis",
       );
-    const current = values[values.length - 1];
-    const ema20 = ema(values, 20),
-      ema50 = ema(values, 50);
-    const rsiValue = rsi(values);
-    const ema12 = ema(values, 12),
-      ema26 = ema(values, 26);
-    const macd = ema12 - ema26;
-    const bandValues = values.slice(-20);
-    const bandMid = bandValues.reduce((a, b) => a + b, 0) / bandValues.length;
-    const bandWidth = stddev(bandValues) * 2;
-    const bollingerPosition = bandWidth
-      ? (current - (bandMid - bandWidth)) / (bandWidth * 2)
+    const closes = candles.map((c) => c.close),
+      current = candles[candles.length - 1].close;
+    const atrValue = atr(candles),
+      ema20 = ema(closes, 20),
+      ema50 = ema(closes, 50),
+      rsiValue = rsi(closes);
+    const ema12 = ema(closes, 12),
+      ema26 = ema(closes, 26),
+      macd = ema12 - ema26;
+    const bands = closes.slice(-20),
+      mid = bands.reduce((a, b) => a + b, 0) / bands.length,
+      width = stddev(bands) * 2;
+    const bollingerPosition = width
+      ? (current - (mid - width)) / (width * 2)
       : 0.5;
-    const returns = values
-      .slice(1)
-      .map((value, i) => (value - values[i]) / values[i]);
-    const volatility = stddev(returns) * Math.sqrt(365) * 100;
-    const swingData = swings(values);
-    const marketStructure = structure(values, swingData);
-    const recent = values.slice(-20);
-    const rangeHigh = Math.max(...recent),
-      rangeLow = Math.min(...recent);
-    const displacement =
-      ((current - values[Math.max(0, values.length - 6)]) /
-        values[Math.max(0, values.length - 6)]) *
-      100;
+    const points = detectSwingPoints(candles),
+      structure = marketStructure(candles, points, atrValue || 0);
     const trend =
       current > ema20 && ema20 > (ema50 ?? ema20)
         ? "uptrend"
@@ -6675,48 +6787,67 @@ W.technicalAnalysis = (() => {
           : rsiValue >= 50
             ? "bullish momentum"
             : "bearish momentum";
-    const nearestSupport =
-      swingData.lows.filter((x) => x.value < current).slice(-1)[0]?.value ??
+    const recent = candles.slice(-20),
+      rangeHigh = Math.max(...recent.map((c) => c.high)),
+      rangeLow = Math.min(...recent.map((c) => c.low));
+    const displacement =
+      ((current - closes[Math.max(0, closes.length - 6)]) /
+        closes[Math.max(0, closes.length - 6)]) *
+      100;
+    const volumeAvg =
+      candles.slice(-21, -1).reduce((s, c) => s + c.volume, 0) /
+      Math.max(1, Math.min(20, candles.length - 1));
+    const relativeVolume = volumeAvg
+      ? candles[candles.length - 1].volume / volumeAvg
+      : null;
+    const support =
+      points.lows.filter((x) => x.price < current).slice(-1)[0]?.price ??
       rangeLow;
-    const nearestResistance =
-      swingData.highs.filter((x) => x.value > current).slice(-1)[0]?.value ??
+    const resistance =
+      points.highs.filter((x) => x.price > current).slice(-1)[0]?.price ??
       rangeHigh;
-    const sweptHigh = current > rangeHigh * 0.998 && displacement < 0;
-    const sweptLow = current < rangeLow * 1.002 && displacement > 0;
+    const sweptHigh =
+      candles[candles.length - 1].high > rangeHigh &&
+      current < rangeHigh &&
+      displacement < 0;
+    const sweptLow =
+      candles[candles.length - 1].low < rangeLow &&
+      current > rangeLow &&
+      displacement > 0;
     const smc = {
-      bias: marketStructure.bias,
+      bias: structure.bias,
       orderBlock:
-        marketStructure.bias === "bullish"
-          ? `Demand zone near ${round(nearestSupport)}`
-          : marketStructure.bias === "bearish"
-            ? `Supply zone near ${round(nearestResistance)}`
-            : "No high-confidence order block from close-only data",
+        structure.bias === "bullish"
+          ? `Demand zone near ${round(support)}`
+          : structure.bias === "bearish"
+            ? `Supply zone near ${round(resistance)}`
+            : "No high-confidence order block",
       liquidity: sweptHigh
-        ? "Possible buy-side liquidity sweep"
+        ? "Buy-side liquidity sweep"
         : sweptLow
-          ? "Possible sell-side liquidity sweep"
+          ? "Sell-side liquidity sweep"
           : "No confirmed liquidity sweep",
       displacement: round(displacement),
+      relativeVolume: relativeVolume == null ? null : round(relativeVolume),
       limitation:
-        "SMC zones are inferred from swing closes; true candle order blocks require OHLC volume data.",
+        "Order-block classification is simplified; validate with full multi-timeframe context.",
     };
-    const macdBias = macd > 0 ? 1 : -1;
-    const bandBias =
-      bollingerPosition > 0.8 ? -1 : bollingerPosition < 0.2 ? 1 : 0;
     const confluence =
       (trend === "uptrend" ? 1 : trend === "downtrend" ? -1 : 0) +
       (rsiValue >= 50 ? 1 : -1) +
-      macdBias +
-      (marketStructure.bias === "bullish"
+      (macd > 0 ? 1 : -1) +
+      (structure.bias === "bullish"
         ? 1
-        : marketStructure.bias === "bearish"
+        : structure.bias === "bearish"
           ? -1
           : 0) +
-      bandBias;
+      (bollingerPosition > 0.8 ? -1 : bollingerPosition < 0.2 ? 1 : 0);
     const score = clamp(50 + confluence * 10, 0, 100);
     return {
-      points: values.length,
+      source: "ohlcv",
+      points: candles.length,
       current: round(current),
+      atr: round(atrValue),
       rsi: round(rsiValue),
       rsiBias,
       ema20: round(ema20),
@@ -6724,29 +6855,59 @@ W.technicalAnalysis = (() => {
       trend,
       macd: round(macd),
       bollingerPosition: round(bollingerPosition * 100),
-      volatility: round(volatility),
-      confluence: `${Math.abs(confluence)}/5 independent close-price signals agree`,
-      structure: marketStructure,
+      volatility: round(
+        stddev(closes.slice(1).map((v, i) => (v - closes[i]) / closes[i])) *
+          Math.sqrt(365) *
+          100,
+      ),
+      relativeVolume: relativeVolume == null ? null : round(relativeVolume),
+      swingPoints: points,
+      structure,
       smc,
-      support: round(nearestSupport),
-      resistance: round(nearestResistance),
+      support: round(support),
+      resistance: round(resistance),
+      confluence: `${Math.abs(confluence)}/5 signals agree`,
       bias: score >= 60 ? "bullish" : score <= 40 ? "bearish" : "neutral",
       score: round(score),
       confidence: round(
-        clamp(45 + Math.min(35, values.length / 4) + (ema50 ? 10 : 0), 0, 90),
+        clamp(45 + Math.min(35, candles.length / 4) + (ema50 ? 10 : 0), 0, 90),
       ),
     };
   }
 
-  async function analyze(assetId, days = 90) {
-    if (!W.api?.chart) throw new Error("Market chart API unavailable");
-    const series = await W.api.chart(assetId, days);
-    return analyzeSeries(series);
+  function analyzeSeries(series) {
+    return analyzeCandles(series);
   }
-  return { analyze, analyzeSeries, rsi, ema };
+  async function analyze(assetId, days = 90) {
+    if (W.api?.ohlcv) {
+      try {
+        return analyzeCandles(
+          await W.api.ohlcv(assetId, "1h", Math.min(1000, days * 24)),
+        );
+      } catch (e) {
+        console.warn(
+          "[TechnicalAnalysis] OHLCV unavailable, using chart fallback:",
+          e.message,
+        );
+      }
+    }
+    if (!W.api?.chart) throw new Error("Market chart API unavailable");
+    return analyzeCandles(await W.api.chart(assetId, days));
+  }
+  return {
+    analyze,
+    analyzeCandles,
+    analyzeSeries,
+    normalizeCandles,
+    atr,
+    detectSwingPoints,
+    marketStructure,
+    rsi,
+    ema,
+  };
 })();
 console.log(
-  "[TechnicalAnalysis] RSI, trend, structure, and SMC engine loaded.",
+  "[TechnicalAnalysis] OHLCV, ATR, RSI, BOS/CHOCH, and SMC engine loaded.",
 );
 // ---- js/features/portfolio.js ----
 // ===============================================================

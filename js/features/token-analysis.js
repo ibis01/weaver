@@ -286,13 +286,17 @@ W.tokenAnalysis = (() => {
           <h4>📐 Market-derived technical analysis</h4>
           <div class="grid-2" style="margin-top:10px;">
             <div class="kv-row"><span>RSI (14)</span><b>${result.technical.rsi} · ${result.technical.rsiBias}</b></div>
+            <div class="kv-row"><span>ATR (14)</span><b>${result.technical.atr}</b></div>
             <div class="kv-row"><span>Trend</span><b>${result.technical.trend}</b></div>
             <div class="kv-row"><span>EMA 20 / EMA 50</span><b>${result.technical.ema20} / ${result.technical.ema50 ?? "N/A"}</b></div>
             <div class="kv-row"><span>MACD bias</span><b>${result.technical.macd >= 0 ? "positive" : "negative"} (${result.technical.macd})</b></div>
             <div class="kv-row"><span>Bollinger position</span><b>${result.technical.bollingerPosition}%</b></div>
             <div class="kv-row"><span>Market structure</span><b>${result.technical.structure.label}</b></div>
             <div class="kv-row"><span>Structure event</span><b>${result.technical.structure.breakOfStructure}</b></div>
+            <div class="kv-row"><span>CHOCH</span><b>${result.technical.structure.choch?.direction || "None confirmed"}</b></div>
             <div class="kv-row"><span>SMC / liquidity</span><b>${result.technical.smc.liquidity}</b></div>
+            <div class="kv-row"><span>Relative volume</span><b>${result.technical.relativeVolume == null ? "N/A" : result.technical.relativeVolume + "x"}</b></div>
+            ${result.technical.multiTimeframe ? `<div class="kv-row"><span>MTF alignment</span><b>${result.technical.multiTimeframe.timeframeAlignment}</b></div><div class="kv-row"><span>Liquidity zones</span><b>${result.technical.multiTimeframe.liquidityZones.length}</b></div>` : ""}
             <div class="kv-row"><span>Support / resistance</span><b>${result.technical.support} / ${result.technical.resistance}</b></div>
             <div class="kv-row"><span>Technical confidence</span><b>${result.technical.confidence}%</b></div>
           </div>

@@ -1,0 +1,1214 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: weaver.spec.js >> Weaver E2E >> should load dashboard
+- Location: test/e2e/weaver.spec.js:18:3
+
+# Error details
+
+```
+Test timeout of 30000ms exceeded while running "beforeEach" hook.
+```
+
+```
+Error: page.goto: Test timeout of 30000ms exceeded.
+Call log:
+  - navigating to "http://127.0.0.1:8000/", waiting until "load"
+
+```
+
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - navigation "Main navigation" [ref=e3]:
+      - generic [ref=e4]:
+        - img "Weaver logo" [ref=e5]
+        - generic [ref=e6]: Weaver
+      - menubar [ref=e7]:
+        - generic [ref=e8]: PRIMARY
+        - link "📊 Dashboard" [ref=e9] [cursor=pointer]:
+          - /url: "#/dashboard"
+          - generic [ref=e10]: 📊
+          - generic [ref=e11]: Dashboard
+        - link "🔍 Discover" [ref=e12] [cursor=pointer]:
+          - /url: "#/explorer"
+          - generic [ref=e13]: 🔍
+          - generic [ref=e14]: Discover
+        - link "📈 Analyze" [ref=e15] [cursor=pointer]:
+          - /url: "#/token"
+          - generic [ref=e16]: 📈
+          - generic [ref=e17]: Analyze
+        - link "💼 Portfolio" [ref=e18] [cursor=pointer]:
+          - /url: "#/portfolio"
+          - generic [ref=e19]: 💼
+          - generic [ref=e20]: Portfolio
+        - generic [ref=e21]: MONITOR
+        - link "⭐ Watchlist" [ref=e22] [cursor=pointer]:
+          - /url: "#/watchlist"
+          - generic [ref=e23]: ⭐
+          - generic [ref=e24]: Watchlist
+        - link "🚨 Alerts" [ref=e25] [cursor=pointer]:
+          - /url: "#/alerts"
+          - generic [ref=e26]: 🚨
+          - generic [ref=e27]: Alerts
+        - link "📡 Signals" [ref=e28] [cursor=pointer]:
+          - /url: "#/market"
+          - generic [ref=e29]: 📡
+          - generic [ref=e30]: Signals
+        - generic [ref=e31]: INTELLIGENCE
+        - link "📰 News" [ref=e32] [cursor=pointer]:
+          - /url: "#/news"
+          - generic [ref=e33]: 📰
+          - generic [ref=e34]: News
+        - link "🐋 Whale Tracker" [ref=e35] [cursor=pointer]:
+          - /url: "#/whales"
+          - generic [ref=e36]: 🐋
+          - generic [ref=e37]: Whale Tracker
+        - link "🧠 Smart Money" [ref=e38] [cursor=pointer]:
+          - /url: "#/smart"
+          - generic [ref=e39]: 🧠
+          - generic [ref=e40]: Smart Money
+        - link "🎯 Theses" [ref=e41] [cursor=pointer]:
+          - /url: "#/theses"
+          - generic [ref=e42]: 🎯
+          - generic [ref=e43]: Theses
+        - link "📓 Journal" [ref=e44] [cursor=pointer]:
+          - /url: "#/journal"
+          - generic [ref=e45]: 📓
+          - generic [ref=e46]: Journal
+        - generic [ref=e47]: TOOLS
+        - link "🛡️ Token Shield" [ref=e48] [cursor=pointer]:
+          - /url: "#/shield"
+          - generic [ref=e49]: 🛡️
+          - generic [ref=e50]: Token Shield
+        - link "🧮 Optimizer" [ref=e51] [cursor=pointer]:
+          - /url: "#/optimizer"
+          - generic [ref=e52]: 🧮
+          - generic [ref=e53]: Optimizer
+        - link "🔓 Token Unlocks" [ref=e54] [cursor=pointer]:
+          - /url: "#/unlocks"
+          - generic [ref=e55]: 🔓
+          - generic [ref=e56]: Token Unlocks
+        - link "🧠 AI Insights" [ref=e57] [cursor=pointer]:
+          - /url: "#/ai"
+          - generic [ref=e58]: 🧠
+          - generic [ref=e59]: AI Insights
+        - link "☁️ Encrypted Sync" [ref=e60] [cursor=pointer]:
+          - /url: "#/sync"
+          - generic [ref=e61]: ☁️
+          - generic [ref=e62]: Encrypted Sync
+        - link "⚙️ Settings" [ref=e63] [cursor=pointer]:
+          - /url: "#/settings"
+          - generic [ref=e64]: ⚙️
+          - generic [ref=e65]: Settings
+    - main [ref=e66]:
+      - banner [ref=e67]:
+        - heading "Dashboard" [level=1] [ref=e68]
+        - generic [ref=e69]:
+          - generic [ref=e70]: 7:32:35 AM
+          - combobox "Select currency" [ref=e71]:
+            - option "USD" [selected]
+            - option "NGN"
+            - option "EUR"
+            - option "GBP"
+            - option "INR"
+            - option "JPY"
+            - option "AUD"
+            - option "CAD"
+          - button "Sync your encrypted vault" [ref=e72] [cursor=pointer]: 🔄
+      - main [ref=e73]:
+        - generic [ref=e75]:
+          - strong [ref=e76]: ✓ Data freshness
+          - generic [ref=e77]: "markets: just now (proxy) · global market: just now (proxy) · fear greed: just now (proxy)"
+        - generic [ref=e78]:
+          - generic [ref=e79]:
+            - generic [ref=e80]: Total Balance
+            - generic [ref=e81]: —
+            - generic [ref=e82]: Add holdings to get started
+          - generic [ref=e83]:
+            - generic [ref=e84]: Global Market Cap
+            - generic [ref=e85]: $2,656,008,282,249
+            - generic [ref=e86]: "-1.97%"
+        - generic [ref=e87]:
+          - paragraph [ref=e90]: Intelligence feed temporarily unavailable.
+          - generic [ref=e92]:
+            - heading "📊 What Changed" [level=3] [ref=e93]
+            - paragraph [ref=e94]: Add holdings to your portfolio to start tracking value changes over time.
+        - generic [ref=e95]:
+          - heading "Next Steps" [level=3] [ref=e96]
+          - generic [ref=e97]:
+            - link "🔍 Analyze a Token" [ref=e98] [cursor=pointer]:
+              - /url: "#/token"
+            - button "+ Add Holding" [ref=e99] [cursor=pointer]
+            - button "👛 Sync Wallets" [ref=e100] [cursor=pointer]
+        - generic [ref=e101]:
+          - generic [ref=e102]:
+            - heading "🌐 Markets Terminal" [level=3] [ref=e103]
+            - generic [ref=e104]:
+              - button "🔥 Trending" [ref=e105] [cursor=pointer]
+              - button "🏆 Top" [ref=e106] [cursor=pointer]
+              - button "📈 Gainers" [ref=e107] [cursor=pointer]
+              - button "📉 Losers" [ref=e108] [cursor=pointer]
+          - generic [ref=e111]:
+            - generic [ref=e112]:
+              - generic [ref=e113]: BTC
+              - generic [ref=e114]: $77397.00
+              - text: "-0.09%"
+            - generic [ref=e115]:
+              - generic [ref=e116]: ETH
+              - generic [ref=e117]: $2488.87
+              - text: "-0.91%"
+            - generic [ref=e118]:
+              - generic [ref=e119]: USDT
+              - generic [ref=e120]: $0.9998
+              - text: +0.02%
+            - generic [ref=e121]:
+              - generic [ref=e122]: BNB
+              - generic [ref=e123]: $719.40
+              - text: "-0.50%"
+            - generic [ref=e124]:
+              - generic [ref=e125]: XRP
+              - generic [ref=e126]: $1.40
+              - text: +1.68%
+            - generic [ref=e127]:
+              - generic [ref=e128]: USDC
+              - generic [ref=e129]: $0.9999
+              - text: +0.01%
+            - generic [ref=e130]:
+              - generic [ref=e131]: SOL
+              - generic [ref=e132]: $101.04
+              - text: "-0.23%"
+            - generic [ref=e133]:
+              - generic [ref=e134]: TRX
+              - generic [ref=e135]: $0.3376
+              - text: "-0.55%"
+            - generic [ref=e136]:
+              - generic [ref=e137]: FIGR_HELOC
+              - generic [ref=e138]: $1.03
+              - text: 0.00%
+            - generic [ref=e139]:
+              - generic [ref=e140]: ZEC
+              - generic [ref=e141]: $1146.20
+              - text: +1.69%
+            - generic [ref=e142]:
+              - generic [ref=e143]: HYPE
+              - generic [ref=e144]: $79.32
+              - text: "-0.47%"
+            - generic [ref=e145]:
+              - generic [ref=e146]: DOGE
+              - generic [ref=e147]: $0.0829
+              - text: "-1.57%"
+            - generic [ref=e148]:
+              - generic [ref=e149]: USDS
+              - generic [ref=e150]: $0.9998
+              - text: +0.01%
+            - generic [ref=e151]:
+              - generic [ref=e152]: RAIN
+              - generic [ref=e153]: $0.0137
+              - text: "-9.20%"
+            - generic [ref=e154]:
+              - generic [ref=e155]: XMR
+              - generic [ref=e156]: $510.89
+              - text: "-0.08%"
+            - generic [ref=e157]:
+              - generic [ref=e158]: WBT
+              - generic [ref=e159]: $80.05
+              - text: "-0.42%"
+            - generic [ref=e160]:
+              - generic [ref=e161]: LINK
+              - generic [ref=e162]: $11.43
+              - text: +0.16%
+            - generic [ref=e163]:
+              - generic [ref=e164]: LEO
+              - generic [ref=e165]: $8.96
+              - text: "-0.46%"
+            - generic [ref=e166]:
+              - generic [ref=e167]: ADA
+              - generic [ref=e168]: $0.2052
+              - text: "-1.50%"
+            - generic [ref=e169]:
+              - generic [ref=e170]: XLM
+              - generic [ref=e171]: $0.1934
+              - text: +5.54%
+            - generic [ref=e172]:
+              - generic [ref=e173]: BTC
+              - generic [ref=e174]: $77397.00
+              - text: "-0.09%"
+            - generic [ref=e175]:
+              - generic [ref=e176]: ETH
+              - generic [ref=e177]: $2488.87
+              - text: "-0.91%"
+            - generic [ref=e178]:
+              - generic [ref=e179]: USDT
+              - generic [ref=e180]: $0.9998
+              - text: +0.02%
+            - generic [ref=e181]:
+              - generic [ref=e182]: BNB
+              - generic [ref=e183]: $719.40
+              - text: "-0.50%"
+            - generic [ref=e184]:
+              - generic [ref=e185]: XRP
+              - generic [ref=e186]: $1.40
+              - text: +1.68%
+            - generic [ref=e187]:
+              - generic [ref=e188]: USDC
+              - generic [ref=e189]: $0.9999
+              - text: +0.01%
+            - generic [ref=e190]:
+              - generic [ref=e191]: SOL
+              - generic [ref=e192]: $101.04
+              - text: "-0.23%"
+            - generic [ref=e193]:
+              - generic [ref=e194]: TRX
+              - generic [ref=e195]: $0.3376
+              - text: "-0.55%"
+            - generic [ref=e196]:
+              - generic [ref=e197]: FIGR_HELOC
+              - generic [ref=e198]: $1.03
+              - text: 0.00%
+            - generic [ref=e199]:
+              - generic [ref=e200]: ZEC
+              - generic [ref=e201]: $1146.20
+              - text: +1.69%
+            - generic [ref=e202]:
+              - generic [ref=e203]: HYPE
+              - generic [ref=e204]: $79.32
+              - text: "-0.47%"
+            - generic [ref=e205]:
+              - generic [ref=e206]: DOGE
+              - generic [ref=e207]: $0.0829
+              - text: "-1.57%"
+            - generic [ref=e208]:
+              - generic [ref=e209]: USDS
+              - generic [ref=e210]: $0.9998
+              - text: +0.01%
+            - generic [ref=e211]:
+              - generic [ref=e212]: RAIN
+              - generic [ref=e213]: $0.0137
+              - text: "-9.20%"
+            - generic [ref=e214]:
+              - generic [ref=e215]: XMR
+              - generic [ref=e216]: $510.89
+              - text: "-0.08%"
+            - generic [ref=e217]:
+              - generic [ref=e218]: WBT
+              - generic [ref=e219]: $80.05
+              - text: "-0.42%"
+            - generic [ref=e220]:
+              - generic [ref=e221]: LINK
+              - generic [ref=e222]: $11.43
+              - text: +0.16%
+            - generic [ref=e223]:
+              - generic [ref=e224]: LEO
+              - generic [ref=e225]: $8.96
+              - text: "-0.46%"
+            - generic [ref=e226]:
+              - generic [ref=e227]: ADA
+              - generic [ref=e228]: $0.2052
+              - text: "-1.50%"
+            - generic [ref=e229]:
+              - generic [ref=e230]: XLM
+              - generic [ref=e231]: $0.1934
+              - text: +5.54%
+          - table [ref=e233]:
+            - rowgroup [ref=e234]:
+              - row [ref=e235]:
+                - columnheader "#" [ref=e236]
+                - columnheader "Token" [ref=e237]
+                - columnheader "Price" [ref=e238]
+                - columnheader "24H" [ref=e239]
+                - columnheader "7d Chart" [ref=e240]
+            - rowgroup [ref=e241]:
+              - row [ref=e242] [cursor=pointer]:
+                - cell "1" [ref=e243]
+                - cell [ref=e244]:
+                  - img "Bitcoin" [ref=e245]
+                  - generic [ref=e246]: BTCBitcoin
+                - cell "$77397.00" [ref=e247]
+                - cell "-0.09%" [ref=e248]
+                - cell [ref=e249]
+              - row [ref=e251] [cursor=pointer]:
+                - cell "2" [ref=e252]
+                - cell [ref=e253]:
+                  - img "Ethereum" [ref=e254]
+                  - generic [ref=e255]: ETHEthereum
+                - cell "$2488.87" [ref=e256]
+                - cell "-0.91%" [ref=e257]
+                - cell [ref=e258]
+              - row [ref=e260] [cursor=pointer]:
+                - cell "3" [ref=e261]
+                - cell [ref=e262]:
+                  - img "Tether" [ref=e263]
+                  - generic [ref=e264]: USDTTether
+                - cell "$0.9998" [ref=e265]
+                - cell "+0.02%" [ref=e266]
+                - cell [ref=e267]
+              - row [ref=e269] [cursor=pointer]:
+                - cell "4" [ref=e270]
+                - cell [ref=e271]:
+                  - img "BNB" [ref=e272]
+                  - generic [ref=e273]: BNBBNB
+                - cell "$719.40" [ref=e274]
+                - cell "-0.50%" [ref=e275]
+                - cell [ref=e276]
+              - row [ref=e278] [cursor=pointer]:
+                - cell "5" [ref=e279]
+                - cell [ref=e280]:
+                  - img "XRP" [ref=e281]
+                  - generic [ref=e282]: XRPXRP
+                - cell "$1.40" [ref=e283]
+                - cell "+1.68%" [ref=e284]
+                - cell [ref=e285]
+              - row [ref=e287] [cursor=pointer]:
+                - cell "6" [ref=e288]
+                - cell [ref=e289]:
+                  - img "USDC" [ref=e290]
+                  - generic [ref=e291]: USDCUSDC
+                - cell "$0.9999" [ref=e292]
+                - cell "+0.01%" [ref=e293]
+                - cell [ref=e294]
+              - row [ref=e296] [cursor=pointer]:
+                - cell "7" [ref=e297]
+                - cell [ref=e298]:
+                  - img "Solana" [ref=e299]
+                  - generic [ref=e300]: SOLSolana
+                - cell "$101.04" [ref=e301]
+                - cell "-0.23%" [ref=e302]
+                - cell [ref=e303]
+              - row [ref=e305] [cursor=pointer]:
+                - cell "8" [ref=e306]
+                - cell [ref=e307]:
+                  - img "TRON" [ref=e308]
+                  - generic [ref=e309]: TRXTRON
+                - cell "$0.3376" [ref=e310]
+                - cell "-0.55%" [ref=e311]
+                - cell [ref=e312]
+              - row [ref=e314] [cursor=pointer]:
+                - cell "9" [ref=e315]
+                - cell [ref=e316]:
+                  - img "Figure Heloc" [ref=e317]
+                  - generic [ref=e318]: FIGR_HELOCFigure Heloc
+                - cell "$1.03" [ref=e319]
+                - cell "0.00%" [ref=e320]
+                - cell [ref=e321]
+              - row [ref=e323] [cursor=pointer]:
+                - cell "10" [ref=e324]
+                - cell [ref=e325]:
+                  - img "Zcash" [ref=e326]
+                  - generic [ref=e327]: ZECZcash
+                - cell "$1146.20" [ref=e328]
+                - cell "+1.69%" [ref=e329]
+                - cell [ref=e330]
+              - row [ref=e332] [cursor=pointer]:
+                - cell "11" [ref=e333]
+                - cell [ref=e334]:
+                  - img "Hyperliquid" [ref=e335]
+                  - generic [ref=e336]: HYPEHyperliquid
+                - cell "$79.32" [ref=e337]
+                - cell "-0.47%" [ref=e338]
+                - cell [ref=e339]
+              - row [ref=e341] [cursor=pointer]:
+                - cell "12" [ref=e342]
+                - cell [ref=e343]:
+                  - img "Dogecoin" [ref=e344]
+                  - generic [ref=e345]: DOGEDogecoin
+                - cell "$0.0829" [ref=e346]
+                - cell "-1.57%" [ref=e347]
+                - cell [ref=e348]
+              - row [ref=e350] [cursor=pointer]:
+                - cell "13" [ref=e351]
+                - cell [ref=e352]:
+                  - img "USDS" [ref=e353]
+                  - generic [ref=e354]: USDSUSDS
+                - cell "$0.9998" [ref=e355]
+                - cell "+0.01%" [ref=e356]
+                - cell [ref=e357]
+              - row [ref=e359] [cursor=pointer]:
+                - cell "14" [ref=e360]
+                - cell [ref=e361]:
+                  - img "Rain" [ref=e362]
+                  - generic [ref=e363]: RAINRain
+                - cell "$0.0137" [ref=e364]
+                - cell "-9.20%" [ref=e365]
+                - cell [ref=e366]
+              - row [ref=e368] [cursor=pointer]:
+                - cell "15" [ref=e369]
+                - cell [ref=e370]:
+                  - img "Monero" [ref=e371]
+                  - generic [ref=e372]: XMRMonero
+                - cell "$510.89" [ref=e373]
+                - cell "-0.08%" [ref=e374]
+                - cell [ref=e375]
+              - row [ref=e377] [cursor=pointer]:
+                - cell "16" [ref=e378]
+                - cell [ref=e379]:
+                  - img "WhiteBIT Coin" [ref=e380]
+                  - generic [ref=e381]: WBTWhiteBIT Coin
+                - cell "$80.05" [ref=e382]
+                - cell "-0.42%" [ref=e383]
+                - cell [ref=e384]
+              - row [ref=e386] [cursor=pointer]:
+                - cell "17" [ref=e387]
+                - cell [ref=e388]:
+                  - img "Chainlink" [ref=e389]
+                  - generic [ref=e390]: LINKChainlink
+                - cell "$11.43" [ref=e391]
+                - cell "+0.16%" [ref=e392]
+                - cell [ref=e393]
+              - row [ref=e395] [cursor=pointer]:
+                - cell "18" [ref=e396]
+                - cell [ref=e397]:
+                  - img "LEO Token" [ref=e398]
+                  - generic [ref=e399]: LEOLEO Token
+                - cell "$8.96" [ref=e400]
+                - cell "-0.46%" [ref=e401]
+                - cell [ref=e402]
+              - row [ref=e404] [cursor=pointer]:
+                - cell "19" [ref=e405]
+                - cell [ref=e406]:
+                  - img "Cardano" [ref=e407]
+                  - generic [ref=e408]: ADACardano
+                - cell "$0.2052" [ref=e409]
+                - cell "-1.50%" [ref=e410]
+                - cell [ref=e411]
+              - row [ref=e413] [cursor=pointer]:
+                - cell "20" [ref=e414]
+                - cell [ref=e415]:
+                  - img "Stellar" [ref=e416]
+                  - generic [ref=e417]: XLMStellar
+                - cell "$0.1934" [ref=e418]
+                - cell "+5.54%" [ref=e419]
+                - cell [ref=e420]
+              - row [ref=e422] [cursor=pointer]:
+                - cell "21" [ref=e423]
+                - cell [ref=e424]:
+                  - img "Ethena USDe" [ref=e425]
+                  - generic [ref=e426]: USDEEthena USDe
+                - cell "$0.9998" [ref=e427]
+                - cell "+0.02%" [ref=e428]
+                - cell [ref=e429]
+              - row [ref=e431] [cursor=pointer]:
+                - cell "22" [ref=e432]
+                - cell [ref=e433]:
+                  - img "Dai" [ref=e434]
+                  - generic [ref=e435]: DAIDai
+                - cell "$1.0000" [ref=e436]
+                - cell "+0.03%" [ref=e437]
+                - cell [ref=e438]
+              - row [ref=e440] [cursor=pointer]:
+                - cell "23" [ref=e441]
+                - cell [ref=e442]:
+                  - img "Bitcoin Cash" [ref=e443]
+                  - generic [ref=e444]: BCHBitcoin Cash
+                - cell "$221.92" [ref=e445]
+                - cell "-0.94%" [ref=e446]
+                - cell [ref=e447]
+              - row [ref=e449] [cursor=pointer]:
+                - cell "24" [ref=e450]
+                - cell [ref=e451]:
+                  - img "USD1" [ref=e452]
+                  - generic [ref=e453]: USD1USD1
+                - cell "$0.9996" [ref=e454]
+                - cell "+0.01%" [ref=e455]
+                - cell [ref=e456]
+              - row [ref=e458] [cursor=pointer]:
+                - cell "25" [ref=e459]
+                - cell [ref=e460]:
+                  - img "Uniswap" [ref=e461]
+                  - generic [ref=e462]: UNIUniswap
+                - cell "$6.67" [ref=e463]
+                - cell "+6.12%" [ref=e464]
+                - cell [ref=e465]
+              - row [ref=e467] [cursor=pointer]:
+                - cell "26" [ref=e468]
+                - cell [ref=e469]:
+                  - img "Litecoin" [ref=e470]
+                  - generic [ref=e471]: LTCLitecoin
+                - cell "$52.79" [ref=e472]
+                - cell "-2.58%" [ref=e473]
+                - cell [ref=e474]
+              - row [ref=e476] [cursor=pointer]:
+                - cell "27" [ref=e477]
+                - cell [ref=e478]:
+                  - img "Canton" [ref=e479]
+                  - generic [ref=e480]: CCCanton
+                - cell "$0.0954" [ref=e481]
+                - cell "-0.87%" [ref=e482]
+                - cell [ref=e483]
+              - row [ref=e485] [cursor=pointer]:
+                - cell "28" [ref=e486]
+                - cell [ref=e487]:
+                  - img "Gram (prev. Toncoin)" [ref=e488]
+                  - generic [ref=e489]: GRAMGram (prev. Toncoin)
+                - cell "$1.34" [ref=e490]
+                - cell "-0.70%" [ref=e491]
+                - cell [ref=e492]
+              - row [ref=e494] [cursor=pointer]:
+                - cell "29" [ref=e495]
+                - cell [ref=e496]:
+                  - img "Hedera" [ref=e497]
+                  - generic [ref=e498]: HBARHedera
+                - cell "$0.0768" [ref=e499]
+                - cell "+0.63%" [ref=e500]
+                - cell [ref=e501]
+              - row [ref=e503] [cursor=pointer]:
+                - cell "30" [ref=e504]
+                - cell [ref=e505]:
+                  - img "Avalanche" [ref=e506]
+                  - generic [ref=e507]: AVAXAvalanche
+                - cell "$7.50" [ref=e508]
+                - cell "+1.25%" [ref=e509]
+                - cell [ref=e510]
+              - row [ref=e512] [cursor=pointer]:
+                - cell "31" [ref=e513]
+                - cell [ref=e514]:
+                  - img "Global Dollar" [ref=e515]
+                  - generic [ref=e516]: USDGGlobal Dollar
+                - cell "$1.00" [ref=e517]
+                - cell "+0.02%" [ref=e518]
+                - cell [ref=e519]
+              - row [ref=e521] [cursor=pointer]:
+                - cell "32" [ref=e522]
+                - cell [ref=e523]:
+                  - img "NEAR Protocol" [ref=e524]
+                  - generic [ref=e525]: NEARNEAR Protocol
+                - cell "$2.41" [ref=e526]
+                - cell "-0.70%" [ref=e527]
+                - cell [ref=e528]
+              - row [ref=e530] [cursor=pointer]:
+                - cell "33" [ref=e531]
+                - cell [ref=e532]:
+                  - img "Shiba Inu" [ref=e533]
+                  - generic [ref=e534]: SHIBShiba Inu
+                - cell "$0.000005" [ref=e535]
+                - cell "-1.68%" [ref=e536]
+                - cell [ref=e537]
+              - row [ref=e539] [cursor=pointer]:
+                - cell "34" [ref=e540]
+                - cell [ref=e541]:
+                  - img "Sui" [ref=e542]
+                  - generic [ref=e543]: SUISui
+                - cell "$0.7084" [ref=e544]
+                - cell "-2.18%" [ref=e545]
+                - cell [ref=e546]
+              - row [ref=e548] [cursor=pointer]:
+                - cell "35" [ref=e549]
+                - cell [ref=e550]:
+                  - img "PayPal USD" [ref=e551]
+                  - generic [ref=e552]: PYUSDPayPal USD
+                - cell "$0.9999" [ref=e553]
+                - cell "+0.02%" [ref=e554]
+                - cell [ref=e555]
+              - row [ref=e557] [cursor=pointer]:
+                - cell "36" [ref=e558]
+                - cell [ref=e559]:
+                  - img "Cronos" [ref=e560]
+                  - generic [ref=e561]: CROCronos
+                - cell "$0.0570" [ref=e562]
+                - cell "-1.71%" [ref=e563]
+                - cell [ref=e564]
+              - row [ref=e566] [cursor=pointer]:
+                - cell "37" [ref=e567]
+                - cell [ref=e568]:
+                  - img "BlackRock USD Institutional Digital Liquidity Fund" [ref=e569]
+                  - generic [ref=e570]: BUIDLBlackRock USD Institutional Digital Liquidity Fund
+                - cell "$1.00" [ref=e571]
+                - cell "+0.00%" [ref=e572]
+                - cell [ref=e573]
+              - row [ref=e575] [cursor=pointer]:
+                - cell "38" [ref=e576]
+                - cell [ref=e577]:
+                  - img "Tether Gold" [ref=e578]
+                  - generic [ref=e579]: XAUTTether Gold
+                - cell "$4288.90" [ref=e580]
+                - cell "-0.98%" [ref=e581]
+                - cell [ref=e582]
+              - row [ref=e584] [cursor=pointer]:
+                - cell "39" [ref=e585]
+                - cell [ref=e586]:
+                  - img "Bittensor" [ref=e587]
+                  - generic [ref=e588]: TAOBittensor
+                - cell "$231.44" [ref=e589]
+                - cell "-1.01%" [ref=e590]
+                - cell [ref=e591]
+              - row [ref=e593] [cursor=pointer]:
+                - cell "40" [ref=e594]
+                - cell [ref=e595]:
+                  - img "Circle USYC" [ref=e596]
+                  - generic [ref=e597]: USYCCircle USYC
+                - cell "$1.14" [ref=e598]
+                - cell "+0.01%" [ref=e599]
+                - cell [ref=e600]
+              - row [ref=e602] [cursor=pointer]:
+                - cell "41" [ref=e603]
+                - cell [ref=e604]:
+                  - img "MemeCore" [ref=e605]
+                  - generic [ref=e606]: MMemeCore
+                - cell "$1.10" [ref=e607]
+                - cell "-4.25%" [ref=e608]
+                - cell [ref=e609]
+              - row [ref=e611] [cursor=pointer]:
+                - cell "42" [ref=e612]
+                - cell [ref=e613]:
+                  - img "Ripple USD" [ref=e614]
+                  - generic [ref=e615]: RLUSDRipple USD
+                - cell "$1.00" [ref=e616]
+                - cell "+0.01%" [ref=e617]
+                - cell [ref=e618]
+              - row [ref=e620] [cursor=pointer]:
+                - cell "43" [ref=e621]
+                - cell [ref=e622]:
+                  - img "OKB" [ref=e623]
+                  - generic [ref=e624]: OKBOKB
+                - cell "$112.80" [ref=e625]
+                - cell "-1.08%" [ref=e626]
+                - cell [ref=e627]
+              - row [ref=e629] [cursor=pointer]:
+                - cell "44" [ref=e630]
+                - cell [ref=e631]:
+                  - img "Ondo US Dollar Yield" [ref=e632]
+                  - generic [ref=e633]: USDYOndo US Dollar Yield
+                - cell "$1.14" [ref=e634]
+                - cell "-0.10%" [ref=e635]
+                - cell [ref=e636]
+              - row [ref=e638] [cursor=pointer]:
+                - cell "45" [ref=e639]
+                - cell [ref=e640]:
+                  - img "Aave" [ref=e641]
+                  - generic [ref=e642]: AAVEAave
+                - cell "$127.22" [ref=e643]
+                - cell "+1.05%" [ref=e644]
+                - cell [ref=e645]
+              - row [ref=e647] [cursor=pointer]:
+                - cell "46" [ref=e648]
+                - cell [ref=e649]:
+                  - img "Mantle" [ref=e650]
+                  - generic [ref=e651]: MNTMantle
+                - cell "$0.5750" [ref=e652]
+                - cell "+1.95%" [ref=e653]
+                - cell [ref=e654]
+              - row [ref=e656] [cursor=pointer]:
+                - cell "47" [ref=e657]
+                - cell [ref=e658]:
+                  - img "Bitway" [ref=e659]
+                  - generic [ref=e660]: BTWBitway
+                - cell "$0.7004" [ref=e661]
+                - cell "-7.74%" [ref=e662]
+                - cell [ref=e663]
+              - row [ref=e665] [cursor=pointer]:
+                - cell "48" [ref=e666]
+                - cell [ref=e667]:
+                  - img "Aster" [ref=e668]
+                  - generic [ref=e669]: ASTERAster
+                - cell "$0.6873" [ref=e670]
+                - cell "-1.42%" [ref=e671]
+                - cell [ref=e672]
+              - row [ref=e674] [cursor=pointer]:
+                - cell "49" [ref=e675]
+                - cell [ref=e676]:
+                  - img "PAX Gold" [ref=e677]
+                  - generic [ref=e678]: PAXGPAX Gold
+                - cell "$4291.33" [ref=e679]
+                - cell "-1.00%" [ref=e680]
+                - cell [ref=e681]
+              - row [ref=e683] [cursor=pointer]:
+                - cell "50" [ref=e684]
+                - cell [ref=e685]:
+                  - img "World Liberty Financial" [ref=e686]
+                  - generic [ref=e687]: WLFIWorld Liberty Financial
+                - cell "$0.0570" [ref=e688]
+                - cell "-1.29%" [ref=e689]
+                - cell [ref=e690]
+              - row [ref=e692] [cursor=pointer]:
+                - cell "51" [ref=e693]
+                - cell [ref=e694]:
+                  - img "Ondo" [ref=e695]
+                  - generic [ref=e696]: ONDOOndo
+                - cell "$0.3503" [ref=e697]
+                - cell "-1.29%" [ref=e698]
+                - cell [ref=e699]
+              - row [ref=e701] [cursor=pointer]:
+                - cell "52" [ref=e702]
+                - cell [ref=e703]:
+                  - img "Polkadot" [ref=e704]
+                  - generic [ref=e705]: DOTPolkadot
+                - cell "$0.9932" [ref=e706]
+                - cell "-2.77%" [ref=e707]
+                - cell [ref=e708]
+              - row [ref=e710] [cursor=pointer]:
+                - cell "53" [ref=e711]
+                - cell [ref=e712]:
+                  - img "Pump.fun" [ref=e713]
+                  - generic [ref=e714]: PUMPPump.fun
+                - cell "$0.003604" [ref=e715]
+                - cell "-0.80%" [ref=e716]
+                - cell [ref=e717]
+              - row [ref=e719] [cursor=pointer]:
+                - cell "54" [ref=e720]
+                - cell [ref=e721]:
+                  - img "USDD" [ref=e722]
+                  - generic [ref=e723]: USDDUSDD
+                - cell "$0.9993" [ref=e724]
+                - cell "+0.04%" [ref=e725]
+                - cell [ref=e726]
+              - row [ref=e728] [cursor=pointer]:
+                - cell "55" [ref=e729]
+                - cell [ref=e730]:
+                  - img "HTX DAO" [ref=e731]
+                  - generic [ref=e732]: HTXHTX DAO
+                - cell "$0.000002" [ref=e733]
+                - cell "+0.18%" [ref=e734]
+                - cell [ref=e735]
+              - row [ref=e737] [cursor=pointer]:
+                - cell "56" [ref=e738]
+                - cell [ref=e739]:
+                  - img "Morpho" [ref=e740]
+                  - generic [ref=e741]: MORPHOMorpho
+                - cell "$2.16" [ref=e742]
+                - cell "-2.56%" [ref=e743]
+                - cell [ref=e744]
+              - row [ref=e746] [cursor=pointer]:
+                - cell "57" [ref=e747]
+                - cell [ref=e748]:
+                  - img "Sky" [ref=e749]
+                  - generic [ref=e750]: SKYSky
+                - cell "$0.0635" [ref=e751]
+                - cell "+1.17%" [ref=e752]
+                - cell [ref=e753]
+              - row [ref=e755] [cursor=pointer]:
+                - cell "58" [ref=e756]
+                - cell [ref=e757]:
+                  - img "Internet Computer" [ref=e758]
+                  - generic [ref=e759]: ICPInternet Computer
+                - cell "$2.61" [ref=e760]
+                - cell "-6.79%" [ref=e761]
+                - cell [ref=e762]
+              - row [ref=e764] [cursor=pointer]:
+                - cell "59" [ref=e765]
+                - cell [ref=e766]:
+                  - img "Pepe" [ref=e767]
+                  - generic [ref=e768]: PEPEPepe
+                - cell "$0.000003" [ref=e769]
+                - cell "-1.01%" [ref=e770]
+                - cell [ref=e771]
+              - row [ref=e773] [cursor=pointer]:
+                - cell "60" [ref=e774]
+                - cell [ref=e775]:
+                  - img "Ethena" [ref=e776]
+                  - generic [ref=e777]: ENAEthena
+                - cell "$0.1409" [ref=e778]
+                - cell "+0.43%" [ref=e779]
+                - cell [ref=e780]
+              - row [ref=e782] [cursor=pointer]:
+                - cell "61" [ref=e783]
+                - cell [ref=e784]:
+                  - img "USDGO" [ref=e785]
+                  - generic [ref=e786]: USDGOUSDGO
+                - cell "$1.00" [ref=e787]
+                - cell "+0.02%" [ref=e788]
+                - cell [ref=e789]
+              - row [ref=e791] [cursor=pointer]:
+                - cell "62" [ref=e792]
+                - cell [ref=e793]:
+                  - img "Spiko Amundi Overnight Swap Fund (EUR)" [ref=e794]
+                  - generic [ref=e795]: EURSAFOSpiko Amundi Overnight Swap Fund (EUR)
+                - cell "$1.17" [ref=e796]
+                - cell "-0.24%" [ref=e797]
+                - cell [ref=e798]
+              - row [ref=e800] [cursor=pointer]:
+                - cell "63" [ref=e801]
+                - cell [ref=e802]:
+                  - img "Bitget Token" [ref=e803]
+                  - generic [ref=e804]: BGBBitget Token
+                - cell "$1.92" [ref=e805]
+                - cell "-0.42%" [ref=e806]
+                - cell [ref=e807]
+              - row [ref=e809] [cursor=pointer]:
+                - cell "64" [ref=e810]
+                - cell [ref=e811]:
+                  - img "Worldcoin" [ref=e812]
+                  - generic [ref=e813]: WLDWorldcoin
+                - cell "$0.3748" [ref=e814]
+                - cell "-2.64%" [ref=e815]
+                - cell [ref=e816]
+              - row [ref=e818] [cursor=pointer]:
+                - cell "65" [ref=e819]
+                - cell [ref=e820]:
+                  - img "Falcon USD" [ref=e821]
+                  - generic [ref=e822]: USDFFalcon USD
+                - cell "$0.9965" [ref=e823]
+                - cell "+0.01%" [ref=e824]
+                - cell [ref=e825]
+              - row [ref=e827] [cursor=pointer]:
+                - cell "66" [ref=e828]
+                - cell [ref=e829]:
+                  - img "United Stables" [ref=e830]
+                  - generic [ref=e831]: UUnited Stables
+                - cell "$0.9999" [ref=e832]
+                - cell "+0.04%" [ref=e833]
+                - cell [ref=e834]
+              - row [ref=e836] [cursor=pointer]:
+                - cell "67" [ref=e837]
+                - cell [ref=e838]:
+                  - img "BFUSD" [ref=e839]
+                  - generic [ref=e840]: BFUSDBFUSD
+                - cell "$0.9998" [ref=e841]
+                - cell "+0.02%" [ref=e842]
+                - cell [ref=e843]
+              - row [ref=e845] [cursor=pointer]:
+                - cell "68" [ref=e846]
+                - cell [ref=e847]:
+                  - img "Ethereum Classic" [ref=e848]
+                  - generic [ref=e849]: ETCEthereum Classic
+                - cell "$7.44" [ref=e850]
+                - cell "-2.56%" [ref=e851]
+                - cell [ref=e852]
+              - row [ref=e854] [cursor=pointer]:
+                - cell "69" [ref=e855]
+                - cell [ref=e856]:
+                  - img "Pi Network" [ref=e857]
+                  - generic [ref=e858]: PIPi Network
+                - cell "$0.0975" [ref=e859]
+                - cell "-0.26%" [ref=e860]
+                - cell [ref=e861]
+              - row [ref=e863] [cursor=pointer]:
+                - cell "70" [ref=e864]
+                - cell [ref=e865]:
+                  - img "Lighter" [ref=e866]
+                  - generic [ref=e867]: LITLighter
+                - cell "$4.35" [ref=e868]
+                - cell "-4.48%" [ref=e869]
+                - cell [ref=e870]
+              - row [ref=e872] [cursor=pointer]:
+                - cell "71" [ref=e873]
+                - cell [ref=e874]:
+                  - img "Venice Token" [ref=e875]
+                  - generic [ref=e876]: VVVVenice Token
+                - cell "$22.01" [ref=e877]
+                - cell "-2.79%" [ref=e878]
+                - cell [ref=e879]
+              - row [ref=e881] [cursor=pointer]:
+                - cell "72" [ref=e882]
+                - cell [ref=e883]:
+                  - img "POL (ex-MATIC)" [ref=e884]
+                  - generic [ref=e885]: POLPOL (ex-MATIC)
+                - cell "$0.0963" [ref=e886]
+                - cell "+0.20%" [ref=e887]
+                - cell [ref=e888]
+              - row [ref=e890] [cursor=pointer]:
+                - cell "73" [ref=e891]
+                - cell [ref=e892]:
+                  - img "Gate" [ref=e893]
+                  - generic [ref=e894]: GTGate
+                - cell "$9.36" [ref=e895]
+                - cell "+1.59%" [ref=e896]
+                - cell [ref=e897]
+              - row [ref=e899] [cursor=pointer]:
+                - cell "74" [ref=e900]
+                - cell [ref=e901]:
+                  - img "Blockchain Capital" [ref=e902]
+                  - generic [ref=e903]: BCAPBlockchain Capital
+                - cell "$106.54" [ref=e904]
+                - cell "+0.05%" [ref=e905]
+                - cell [ref=e906]
+              - row [ref=e908] [cursor=pointer]:
+                - cell "75" [ref=e909]
+                - cell [ref=e910]:
+                  - img "Kaspa" [ref=e911]
+                  - generic [ref=e912]: KASKaspa
+                - cell "$0.0349" [ref=e913]
+                - cell "+2.99%" [ref=e914]
+                - cell [ref=e915]
+              - row [ref=e917] [cursor=pointer]:
+                - cell "76" [ref=e918]
+                - cell [ref=e919]:
+                  - img "KuCoin" [ref=e920]
+                  - generic [ref=e921]: KCSKuCoin
+                - cell "$6.90" [ref=e922]
+                - cell "-0.28%" [ref=e923]
+                - cell [ref=e924]
+              - row [ref=e926] [cursor=pointer]:
+                - cell "77" [ref=e927]
+                - cell [ref=e928]:
+                  - img "JUST" [ref=e929]
+                  - generic [ref=e930]: JSTJUST
+                - cell "$0.1152" [ref=e931]
+                - cell "+1.36%" [ref=e932]
+                - cell [ref=e933]
+              - row [ref=e935] [cursor=pointer]:
+                - cell "78" [ref=e936]
+                - cell [ref=e937]:
+                  - img "Quant" [ref=e938]
+                  - generic [ref=e939]: QNTQuant
+                - cell "$63.77" [ref=e940]
+                - cell "-0.57%" [ref=e941]
+                - cell [ref=e942]
+              - row [ref=e944] [cursor=pointer]:
+                - cell "79" [ref=e945]
+                - cell [ref=e946]:
+                  - img "Arbitrum" [ref=e947]
+                  - generic [ref=e948]: ARBArbitrum
+                - cell "$0.1333" [ref=e949]
+                - cell "-2.23%" [ref=e950]
+                - cell [ref=e951]
+              - row [ref=e953] [cursor=pointer]:
+                - cell "80" [ref=e954]
+                - cell [ref=e955]:
+                  - img "Algorand" [ref=e956]
+                  - generic [ref=e957]: ALGOAlgorand
+                - cell "$0.0957" [ref=e958]
+                - cell "-1.41%" [ref=e959]
+                - cell [ref=e960]
+              - row [ref=e962] [cursor=pointer]:
+                - cell "81" [ref=e963]
+                - cell [ref=e964]:
+                  - img "Cosmos Hub" [ref=e965]
+                  - generic [ref=e966]: ATOMCosmos Hub
+                - cell "$1.58" [ref=e967]
+                - cell "-0.89%" [ref=e968]
+                - cell [ref=e969]
+              - row [ref=e971] [cursor=pointer]:
+                - cell "82" [ref=e972]
+                - cell [ref=e973]:
+                  - img "Spiko EU T-Bills Money Market Fund" [ref=e974]
+                  - generic [ref=e975]: EUTBLSpiko EU T-Bills Money Market Fund
+                - cell "$1.22" [ref=e976]
+                - cell "-0.24%" [ref=e977]
+                - cell [ref=e978]
+              - row [ref=e980] [cursor=pointer]:
+                - cell "83" [ref=e981]
+                - cell [ref=e982]:
+                  - img "NEXO" [ref=e983]
+                  - generic [ref=e984]: NEXONEXO
+                - cell "$0.8070" [ref=e985]
+                - cell "-2.02%" [ref=e986]
+                - cell [ref=e987]
+              - row [ref=e989] [cursor=pointer]:
+                - cell "84" [ref=e990]
+                - cell [ref=e991]:
+                  - img "Jupiter" [ref=e992]
+                  - generic [ref=e993]: JUPJupiter
+                - cell "$0.2365" [ref=e994]
+                - cell "-0.44%" [ref=e995]
+                - cell [ref=e996]
+              - row [ref=e998] [cursor=pointer]:
+                - cell "85" [ref=e999]
+                - cell [ref=e1000]:
+                  - img "Invesco Short Duration US Government Securities Fund" [ref=e1001]
+                  - generic [ref=e1002]: USTBInvesco Short Duration US Government Securities Fund
+                - cell "$11.21" [ref=e1003]
+                - cell "+0.01%" [ref=e1004]
+                - cell [ref=e1005]
+              - row [ref=e1007] [cursor=pointer]:
+                - cell "86" [ref=e1008]
+                - cell [ref=e1009]:
+                  - img "PancakeSwap" [ref=e1010]
+                  - generic [ref=e1011]: CAKEPancakeSwap
+                - cell "$2.31" [ref=e1012]
+                - cell "-0.01%" [ref=e1013]
+                - cell [ref=e1014]
+              - row [ref=e1016] [cursor=pointer]:
+                - cell "87" [ref=e1017]
+                - cell [ref=e1018]:
+                  - img "Filecoin" [ref=e1019]
+                  - generic [ref=e1020]: FILFilecoin
+                - cell "$0.8898" [ref=e1021]
+                - cell "-10.76%" [ref=e1022]
+                - cell [ref=e1023]
+              - row [ref=e1025] [cursor=pointer]:
+                - cell "88" [ref=e1026]
+                - cell [ref=e1027]:
+                  - img "Stable" [ref=e1028]
+                  - generic [ref=e1029]: STABLEStable
+                - cell "$0.0278" [ref=e1030]
+                - cell "-3.45%" [ref=e1031]
+                - cell [ref=e1032]
+              - row [ref=e1034] [cursor=pointer]:
+                - cell "89" [ref=e1035]
+                - cell [ref=e1036]:
+                  - img "Janus Henderson Anemoy AAA CLO Fund" [ref=e1037]
+                  - generic [ref=e1038]: JAAAJanus Henderson Anemoy AAA CLO Fund
+                - cell "$1.05" [ref=e1039]
+                - cell "+0.04%" [ref=e1040]
+                - cell [ref=e1041]
+              - row [ref=e1043] [cursor=pointer]:
+                - cell "90" [ref=e1044]
+                - cell [ref=e1045]:
+                  - img "Render" [ref=e1046]
+                  - generic [ref=e1047]: RENDERRender
+                - cell "$1.37" [ref=e1048]
+                - cell "-2.23%" [ref=e1049]
+                - cell [ref=e1050]
+              - row [ref=e1052] [cursor=pointer]:
+                - cell "91" [ref=e1053]
+                - cell [ref=e1054]:
+                  - img "Janus Henderson Anemoy Treasury Fund" [ref=e1055]
+                  - generic [ref=e1056]: JTRSYJanus Henderson Anemoy Treasury Fund
+                - cell "$1.12" [ref=e1057]
+                - cell "+0.02%" [ref=e1058]
+                - cell [ref=e1059]
+              - row [ref=e1061] [cursor=pointer]:
+                - cell "92" [ref=e1062]
+                - cell [ref=e1063]:
+                  - img "GHO" [ref=e1064]
+                  - generic [ref=e1065]: GHOGHO
+                - cell "$0.9989" [ref=e1066]
+                - cell "+0.04%" [ref=e1067]
+                - cell [ref=e1068]
+              - row [ref=e1070] [cursor=pointer]:
+                - cell "93" [ref=e1071]
+                - cell [ref=e1072]:
+                  - img "Dash" [ref=e1073]
+                  - generic [ref=e1074]: DASHDash
+                - cell "$53.02" [ref=e1075]
+                - cell "-1.93%" [ref=e1076]
+                - cell [ref=e1077]
+              - row [ref=e1079] [cursor=pointer]:
+                - cell "94" [ref=e1080]
+                - cell [ref=e1081]:
+                  - img "VeChain" [ref=e1082]
+                  - generic [ref=e1083]: VETVeChain
+                - cell "$0.007630" [ref=e1084]
+                - cell "-5.11%" [ref=e1085]
+                - cell [ref=e1086]
+              - row [ref=e1088] [cursor=pointer]:
+                - cell "95" [ref=e1089]
+                - cell [ref=e1090]:
+                  - img "Injective" [ref=e1091]
+                  - generic [ref=e1092]: INJInjective
+                - cell "$6.11" [ref=e1093]
+                - cell "-1.43%" [ref=e1094]
+                - cell [ref=e1095]
+              - row [ref=e1097] [cursor=pointer]:
+                - cell "96" [ref=e1098]
+                - cell [ref=e1099]:
+                  - img "Beldex" [ref=e1100]
+                  - generic [ref=e1101]: BDXBeldex
+                - cell "$0.0758" [ref=e1102]
+                - cell "-0.52%" [ref=e1103]
+                - cell [ref=e1104]
+              - row [ref=e1106] [cursor=pointer]:
+                - cell "97" [ref=e1107]
+                - cell [ref=e1108]:
+                  - img "Ether.fi" [ref=e1109]
+                  - generic [ref=e1110]: ETHFIEther.fi
+                - cell "$0.6132" [ref=e1111]
+                - cell "-6.99%" [ref=e1112]
+                - cell [ref=e1113]
+              - row [ref=e1115] [cursor=pointer]:
+                - cell "98" [ref=e1116]
+                - cell [ref=e1117]:
+                  - img "XDC Network" [ref=e1118]
+                  - generic [ref=e1119]: XDCXDC Network
+                - cell "$0.0290" [ref=e1120]
+                - cell "+4.54%" [ref=e1121]
+                - cell [ref=e1122]
+              - row [ref=e1124] [cursor=pointer]:
+                - cell "99" [ref=e1125]
+                - cell [ref=e1126]:
+                  - img "Flare" [ref=e1127]
+                  - generic [ref=e1128]: FLRFlare
+                - cell "$0.006580" [ref=e1129]
+                - cell "+1.43%" [ref=e1130]
+                - cell [ref=e1131]
+              - row [ref=e1133] [cursor=pointer]:
+                - cell "100" [ref=e1134]
+                - cell [ref=e1135]:
+                  - img "Curve DAO" [ref=e1136]
+                  - generic [ref=e1137]: CRVCurve DAO
+                - cell "$0.3532" [ref=e1138]
+                - cell "-2.46%" [ref=e1139]
+                - cell [ref=e1140]
+        - generic [ref=e1142]:
+          - heading "💼 Your Portfolio" [level=3] [ref=e1144]
+          - paragraph [ref=e1146]: No holdings yet. Click "+ Add Holding" above.
+  - alert
+```
+
+# Test source
+
+```ts
+  1  | // test/e2e/weaver.spec.js
+  2  | const { test, expect } = require("@playwright/test");
+  3  | 
+  4  | test.describe("Weaver E2E", () => {
+  5  |   test.beforeEach(async ({ page }) => {
+> 6  |     await page.goto("/");
+     |                ^ Error: page.goto: Test timeout of 30000ms exceeded.
+  7  |     await page.waitForSelector("#view", { state: "attached" });
+  8  |     // Wait for dashboard to finish loading (either live or snapshot fallback)
+  9  |     await page.waitForFunction(
+  10 |       () => {
+  11 |         const view = document.querySelector("#view");
+  12 |         return view && view.querySelector(".cards, .stat-label, .card");
+  13 |       },
+  14 |       { timeout: 20000 },
+  15 |     );
+  16 |   });
+  17 | 
+  18 |   test("should load dashboard", async ({ page }) => {
+  19 |     await expect(page.locator("#page-title")).toHaveText("Dashboard");
+  20 |     // Dashboard should render something – either stats or a fallback card
+  21 |     const cards = page.locator(".card");
+  22 |     await expect(cards.first()).toBeVisible({ timeout: 15000 });
+  23 |   });
+  24 | 
+  25 |   test("should add a holding and verify weighted-average UI", async ({
+  26 |     page,
+  27 |   }) => {
+  28 |     // Click "+ Add" button on dashboard
+  29 |     const addBtn = page.locator('button:has-text("+ Add")').first();
+  30 |     await addBtn.click({ timeout: 10000 });
+  31 | 
+  32 |     // The picker / form should appear
+  33 |     await page.waitForSelector("#h-form, .modal", { timeout: 10000 });
+  34 | 
+  35 |     // Since we simplified the flow, we can't easily complete it without a coin picker.
+  36 |     // Just verify the modal opened.
+  37 |     const modal = page.locator(".modal");
+  38 |     await expect(modal).toBeVisible();
+  39 |   });
+  40 | 
+  41 |   test("should log a decision and show replay badge", async ({ page }) => {
+  42 |     // Navigate to Journal
+  43 |     await page.goto("/#/journal");
+  44 |     await page.waitForSelector("#view");
+  45 | 
+  46 |     // Click "+ Log Decision"
+  47 |     const btn = page
+  48 |       .locator(
+  49 |         'button:has-text("Log Decision"), button:has-text("+ Log Decision")',
+  50 |       )
+  51 |       .first();
+  52 |     if (await btn.count()) {
+  53 |       await btn.click();
+  54 |       await page.waitForSelector("#decision-form-container:not(.hidden)", {
+  55 |         timeout: 5000,
+  56 |       });
+  57 | 
+  58 |       // Fill the form
+  59 |       await page.fill("#d-asset", "BTC");
+  60 |       await page.fill("#d-price", "60000");
+  61 |       await page.fill("#d-reasoning", "E2E test decision");
+  62 |       await page.click('button:has-text("Save Decision")');
+  63 | 
+  64 |       // Wait for the decision card to appear
+  65 |       await page.waitForSelector("[data-decision-id]", { timeout: 5000 });
+  66 |     }
+  67 | 
+  68 |     // If no decisions exist yet, this test can be skipped gracefully
+  69 |     const decisionCards = page.locator("[data-decision-id]");
+  70 |     if ((await decisionCards.count()) > 0) {
+  71 |       await expect(decisionCards.first()).toBeVisible();
+  72 |     }
+  73 |   });
+  74 | });
+  75 | 
+```
