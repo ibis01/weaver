@@ -1,4 +1,4 @@
-// Gem Agent: Token Hunter
+// js/features/gems.js – Gem Agent: Token Hunter
 
 window.W = window.W || {};
 
@@ -174,8 +174,14 @@ W.gems = (() => {
   // Ask Token Shield for a risk assessment before emitting an alert.
   // Chains not in Shield's CHAINS return { unsupported: true }; this
   // is honest degradation, not a silent skip.
-  async function checkShield(addr, chainKey) {
-    if (shieldCache[addr]) return shieldCache[addr];
+  async function checkShield(addr, chainKey, identity = {}) {
+    if (shieldCache[addr]) {
+      W.shield?.rememberEvidence?.(
+        { ...identity, address: addr, chain: chainKey },
+        shieldCache[addr],
+      );
+      return shieldCache[addr];
+    }
     if (!W.shield || !W.shield.CHAINS[chainKey]) {
       const result = { unsupported: true };
       shieldCache[addr] = result;
@@ -187,6 +193,10 @@ W.gems = (() => {
         ? { ...assessment, ok: true }
         : { noData: true };
       shieldCache[addr] = result;
+      W.shield?.rememberEvidence?.(
+        { ...identity, address: addr, chain: chainKey },
+        result,
+      );
       return result;
     } catch (e) {
       const result = { error: true, message: e.message };
@@ -254,7 +264,10 @@ W.gems = (() => {
       for (const g of results) {
         const addr = g.pair.baseToken.address;
         if (g.analysis.score >= 70 && !seen[addr]) {
-          const shield = await checkShield(addr, g.pair.chainId);
+          const shield = await checkShield(addr, g.pair.chainId, {
+            symbol: g.pair.baseToken.symbol,
+            name: g.pair.baseToken.name,
+          });
           const reasonLines = (g.analysis.reasons || [])
             .slice(0, 4)
             .map((r) => "• " + r)
@@ -289,7 +302,7 @@ W.gems = (() => {
             const shield = shieldCache[addr];
             const shieldSection = shield
               ? `<div class="kv-row"><span class="muted">Security</span><span>${escapeHTML(shieldSummary(shield))}</span></div>`
-              : `<button class="btn tiny mt" data-shield-check data-addr="${escapeHTML(addr)}" data-chain="${escapeHTML(p.chainId)}">🛡️ Verify Security</button>`;
+              : `<button class="btn tiny mt" data-shield-check data-addr="${escapeHTML(addr)}" data-symbol="${escapeHTML(t.symbol)}" data-chain="${escapeHTML(p.chainId)}">🛡️ Verify Security</button>`;
             return `
             <div class="card" data-gem-card="${escapeHTML(addr)}">
               <div class="watch-head">
@@ -312,6 +325,7 @@ W.gems = (() => {
                 .slice(0, 4)
                 .map((r) => `<li>${escapeHTML(r)}</li>`)
                 .join("")}</ul>
+              <a class="btn tiny mt" href="#/token/${encodeURIComponent(t.symbol)}">📈 Analyze ${escapeHTML(t.symbol)}</a>
               <a class="btn tiny mt" target="_blank" href="${p.url || "https://dexscreener.com/" + p.chainId + "/" + p.pairAddress}">📊 Open in DEX Screener ↗</a>
             </div>
           `;
@@ -325,6 +339,7 @@ W.gems = (() => {
             const shield = await checkShield(
               btn.dataset.addr,
               btn.dataset.chain,
+              { symbol: btn.dataset.symbol },
             );
             const slot = btn.closest(".shield-slot");
             if (slot) {
@@ -388,7 +403,7 @@ W.gems = (() => {
     await scan(view);
   }
 
-  return { render, CHAINS, SCORE_VERSION };
+  return { render, scan, checkShield, CHAINS, SCORE_VERSION };
 })();
 
 console.log("[Gems] Module loaded.");

@@ -478,6 +478,26 @@ W.tokenAnalysis = (() => {
       riskScore,
     );
     const localEvidenceQuality = evidenceSufficiency(technical, fundamentals);
+    const securityEvidence = W.shield?.getEvidence?.({
+      symbol: asset.symbol,
+      coingeckoId: asset.coingeckoId,
+    });
+    const evidenceDomains = {
+      ...(options.evidenceDomains || {}),
+      ...(securityEvidence
+        ? {
+            security: {
+              status: "verified",
+              score: Math.max(0, 100 - Number(securityEvidence.riskScore || 0)),
+              source: securityEvidence.source || "goplus",
+              asOf: new Date(securityEvidence.observedAt).toISOString(),
+              reasons: securityEvidence.risks?.length
+                ? securityEvidence.risks
+                : ["Token Shield verification completed."],
+            },
+          }
+        : {}),
+    };
     const verdictInput = {
       asset: asset.symbol,
       opportunityScore: Math.round(opportunityScore),
@@ -488,7 +508,7 @@ W.tokenAnalysis = (() => {
       scenario: scenarioLabel(action.action),
       tradeLevels: null,
       evidenceQuality: localEvidenceQuality,
-      domains: options.evidenceDomains,
+      domains: evidenceDomains,
       provenance: [
         { type: "technical", source: technical?.source || "ohlcv" },
         {
@@ -497,6 +517,15 @@ W.tokenAnalysis = (() => {
         },
       ],
     };
+    if (securityEvidence) {
+      verdictInput.provenance.push({
+        type: "security",
+        source: securityEvidence.source || "goplus",
+        address: securityEvidence.address,
+        chain: securityEvidence.chain,
+        asOf: securityEvidence.observedAt,
+      });
+    }
     const preliminaryVerdict = W.unifiedVerdict?.compose?.(verdictInput);
     const evidenceQuality =
       preliminaryVerdict?.evidence || localEvidenceQuality;

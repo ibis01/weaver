@@ -1,5 +1,5 @@
 // ================================================================
-//              Token Shield (Contract Security Auditor)
+// js/features/shield.js – Token Shield (Contract Security Auditor)
 // ================================================================
 
 window.W = window.W || {};
@@ -30,6 +30,40 @@ W.shield = (() => {
   // fields entirely — see Weaver Constitution §3.8.
   const SHIELD_SCORE_VERSION_EVM = "shield-evm-v1";
   const SHIELD_SCORE_VERSION_SOLANA = "shield-solana-v1";
+  const evidenceRegistry = new Map();
+
+  function evidenceKeys(identity = {}) {
+    return [identity.coingeckoId, identity.symbol, identity.address]
+      .filter((value) => typeof value === "string" && value.trim())
+      .map((value) => value.trim().toLowerCase());
+  }
+
+  function rememberEvidence(identity, assessment) {
+    if (
+      !assessment ||
+      assessment.error ||
+      assessment.noData ||
+      assessment.unsupported
+    )
+      return null;
+    const record = {
+      ...assessment,
+      address: identity.address || null,
+      chain: identity.chain || identity.chainKey || null,
+      source: "goplus",
+      observedAt: identity.observedAt || Date.now(),
+    };
+    evidenceKeys(identity).forEach((key) => evidenceRegistry.set(key, record));
+    return record;
+  }
+
+  function getEvidence(identity) {
+    for (const key of evidenceKeys(identity)) {
+      const record = evidenceRegistry.get(key);
+      if (record) return { ...record };
+    }
+    return null;
+  }
 
   // ── Helpers ────────────────────────────────────────────
 
@@ -789,6 +823,8 @@ W.shield = (() => {
     assessSolanaRisk,
     fetchTokenSecurity,
     fetchSolanaTokenSecurity,
+    rememberEvidence,
+    getEvidence,
     CHAINS,
   };
 })();
