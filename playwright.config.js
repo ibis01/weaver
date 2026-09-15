@@ -20,9 +20,11 @@ module.exports = defineConfig({
     },
   ],
   webServer: {
-    command: "python3 -m http.server 8000",
-    url: "http://127.0.0.1:8000",
+    command: process.env.CI
+      ? "npx --yes http-server -p 8000 -c-1 ."
+      : "python3 -m http.server 8000",
+    port: 8000,
     reuseExistingServer: !process.env.CI,
-    timeout: 30000,
+    timeout: 30000, // Increased from 10s to 30s for CI stability
   },
 });

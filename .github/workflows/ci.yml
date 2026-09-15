@@ -34,6 +34,13 @@ jobs:
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
 
+      # ── FIX: Build the bundle BEFORE running tests ──────────
+      # The E2E tests require dist/bundle.min.js to exist. Since dist/
+      # is typically gitignored, it must be generated in CI before
+      # Playwright attempts to load the application.
+      - name: Build production bundle
+        run: npm run build && npm run minify
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
@@ -49,11 +56,8 @@ jobs:
       - name: Run end-to-end tests
         run: npm run test:e2e -- --bail
 
-      - name: Build production bundle
-        run: npm run build && npm run minify
-
       - name: Upload production bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: weaver-browser-bundle-${{ github.sha }}
           path: |
@@ -63,7 +67,7 @@ jobs:
 
       - name: Upload Playwright report on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: playwright-report
           path: playwright-report/
