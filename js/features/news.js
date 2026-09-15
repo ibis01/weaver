@@ -80,6 +80,8 @@ async function via(url, asJSON = false) {
 
 // ── Fetch the fixed snapshot directly (no proxy chain) ─────────
 async function fetchSnapshot() {
+  const embedded = window.__WEAVER_NEWS_SNAPSHOT__;
+  if (Array.isArray(embedded) && embedded.length) return embedded;
   for (const snapshotUrl of SNAPSHOT_URLS) {
     try {
       const controller = new AbortController();
@@ -194,9 +196,28 @@ async function render(view) {
     return;
   }
 
-  container.innerHTML = '<div class="loading">Loading news...</div>';
+  const embeddedSnapshot = dedupeAndSort(window.__WEAVER_NEWS_SNAPSHOT__ || []);
+  if (embeddedSnapshot.length) {
+    renderArticles(container, embeddedSnapshot);
+  } else {
+    container.innerHTML = '<div class="loading">Loading news...</div>';
+  }
 
   try {
+    // Render the local snapshot first so the page is useful even when a
+    // proxy or RSS provider is slow, rate-limited, or unavailable.
+    const snapshot = embeddedSnapshot.length
+      ? embeddedSnapshot
+      : dedupeAndSort(await fetchSnapshot());
+    if (isCurrentRoute() && snapshot.length) {
+      W.dataHealth?.mark?.("news", {
+        source: "snapshot",
+        observedAt: Date.now() - 31 * 60 * 1000,
+        staleAfter: 60 * 60 * 1000,
+      });
+      renderArticles(container, snapshot);
+    }
+
     // 2. Fetch all feeds in parallel.
     const feedPromises = FEEDS.map(async ([name, url]) => {
       try {
@@ -221,16 +242,7 @@ async function render(view) {
 
     if (allArticles.length === 0) {
       newsLog("No live articles, trying snapshot...");
-      const snapshot = await fetchSnapshot();
-      if (!isCurrentRoute()) return;
-      const sorted = dedupeAndSort(snapshot);
-      if (sorted.length) {
-        W.dataHealth?.mark?.("news", {
-          source: "snapshot",
-          observedAt: Date.now() - 31 * 60 * 1000,
-          staleAfter: 60 * 60 * 1000,
-        });
-        renderArticles(container, sorted);
+      if (snapshot.length) {
         return;
       }
       container.innerHTML =

@@ -61,12 +61,14 @@ const files = [
   "js/intelligence/types.js",
   "js/intelligence/decision-engine.js",
   "js/intelligence/events.js",
+  "js/intelligence/technical-analysis.js",
 
   // ── Features ──────────────────────────────────────────────────
   "js/features/portfolio.js",
   "js/features/watchlist.js",
   "js/features/explorer.js",
   "js/features/alerts.js",
+  "js/data/news-snapshot.js",
   "js/features/news.js",
   "js/features/market.js",
   "js/features/ai.js",

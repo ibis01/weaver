@@ -20,11 +20,26 @@ W.tokenAnalysis = (() => {
       return { error: "Asset not found" };
     }
 
+    let technical = null;
+    try {
+      technical = await W.technicalAnalysis?.analyze(
+        asset.coingeckoId || asset.symbol.toLowerCase(),
+        90,
+      );
+    } catch (e) {
+      console.warn("[TokenAnalysis] Technical data unavailable:", e.message);
+    }
+
     // 2. Collect signals
-    const allSignals = await W.events.collectEvents();
+    let allSignals = [];
+    try {
+      allSignals = (await W.events?.collectEvents?.()) || [];
+    } catch (e) {
+      console.warn("[TokenAnalysis] Event collection unavailable:", e.message);
+    }
     const signals = allSignals.filter((s) => s.assetId.symbol === asset.symbol);
 
-    if (!signals.length) {
+    if (!signals.length && !technical) {
       return {
         asset: asset.symbol,
         opportunityScore: 0,
@@ -35,6 +50,7 @@ W.tokenAnalysis = (() => {
         verdict: "Insufficient data",
         confidence: null,
         explanation: "No recent signals for this asset.",
+        technical: null,
       };
     }
 
@@ -95,8 +111,18 @@ W.tokenAnalysis = (() => {
     const bearishWeight = weightSum(bearish);
     const totalWeight = bullishWeight + bearishWeight || 1;
 
-    const opportunityScore = Math.min(100, (bullishWeight / totalWeight) * 100);
-    const riskScore = Math.min(100, (bearishWeight / totalWeight) * 100);
+    let opportunityScore = Math.min(100, (bullishWeight / totalWeight) * 100);
+    let riskScore = Math.min(100, (bearishWeight / totalWeight) * 100);
+    if (technical) {
+      opportunityScore =
+        technical.bias === "bullish"
+          ? Math.max(opportunityScore, technical.score)
+          : Math.min(opportunityScore, technical.score);
+      riskScore =
+        technical.bias === "bearish"
+          ? Math.max(riskScore, 100 - technical.score)
+          : Math.min(riskScore, 100 - technical.score);
+    }
 
     // 6. Detect contradictions (e.g., bullish price, but bearish on-chain)
     // For now, we simply report signals that point in opposite directions.
@@ -186,6 +212,7 @@ W.tokenAnalysis = (() => {
       explanation,
       signalsCount: allEvidence.length,
       personalContext,
+      technical,
     };
   }
 
@@ -252,6 +279,28 @@ W.tokenAnalysis = (() => {
           <div class="meter-bar"><div style="width:${result.riskScore}%; background:var(--down);"></div></div>
           <div class="meter-label">Risk Score</div>
         </div>
+        ${
+          result.technical
+            ? `
+        <div class="card" style="margin-top:16px;">
+          <h4>📐 Market-derived technical analysis</h4>
+          <div class="grid-2" style="margin-top:10px;">
+            <div class="kv-row"><span>RSI (14)</span><b>${result.technical.rsi} · ${result.technical.rsiBias}</b></div>
+            <div class="kv-row"><span>Trend</span><b>${result.technical.trend}</b></div>
+            <div class="kv-row"><span>EMA 20 / EMA 50</span><b>${result.technical.ema20} / ${result.technical.ema50 ?? "N/A"}</b></div>
+            <div class="kv-row"><span>MACD bias</span><b>${result.technical.macd >= 0 ? "positive" : "negative"} (${result.technical.macd})</b></div>
+            <div class="kv-row"><span>Bollinger position</span><b>${result.technical.bollingerPosition}%</b></div>
+            <div class="kv-row"><span>Market structure</span><b>${result.technical.structure.label}</b></div>
+            <div class="kv-row"><span>Structure event</span><b>${result.technical.structure.breakOfStructure}</b></div>
+            <div class="kv-row"><span>SMC / liquidity</span><b>${result.technical.smc.liquidity}</b></div>
+            <div class="kv-row"><span>Support / resistance</span><b>${result.technical.support} / ${result.technical.resistance}</b></div>
+            <div class="kv-row"><span>Technical confidence</span><b>${result.technical.confidence}%</b></div>
+          </div>
+          <p class="muted small" style="margin-top:10px;">Confluence: ${result.technical.confluence}. Annualized close-to-close volatility: ${result.technical.volatility}%.</p>
+          <p class="muted small" style="margin-top:10px;">${result.technical.smc.orderBlock}. ${result.technical.smc.limitation}</p>
+        </div>`
+            : ""
+        }
         <div class="grid-2" style="margin-top:16px;">
           <div class="card">
             <h4 style="color:var(--up);">🟢 Bullish Evidence</h4>

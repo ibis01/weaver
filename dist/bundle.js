@@ -6526,6 +6526,228 @@ W.events = (() => {
 console.log(
   "[Events] Module loaded (thesis health integrated, defensible confidence, improved dedup).",
 );
+// ---- js/intelligence/technical-analysis.js ----
+// ===============================================================
+// Technical Analysis — deterministic market-derived indicators
+// ===============================================================
+window.W = window.W || {};
+
+W.technicalAnalysis = (() => {
+  const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+  const round = (n, digits = 2) => Number(Number(n).toFixed(digits));
+
+  function ema(values, period) {
+    if (!values.length) return null;
+    const k = 2 / (period + 1);
+    let value =
+      values
+        .slice(0, Math.min(period, values.length))
+        .reduce((a, b) => a + b, 0) / Math.min(period, values.length);
+    for (let i = Math.min(period, values.length); i < values.length; i++)
+      value = values[i] * k + value * (1 - k);
+    return value;
+  }
+
+  function rsi(values, period = 14) {
+    if (values.length <= period) return null;
+    let gains = 0,
+      losses = 0;
+    for (let i = 1; i <= period; i++) {
+      const delta = values[i] - values[i - 1];
+      if (delta >= 0) gains += delta;
+      else losses -= delta;
+    }
+    let avgGain = gains / period,
+      avgLoss = losses / period;
+    for (let i = period + 1; i < values.length; i++) {
+      const delta = values[i] - values[i - 1];
+      avgGain = (avgGain * (period - 1) + Math.max(delta, 0)) / period;
+      avgLoss = (avgLoss * (period - 1) + Math.max(-delta, 0)) / period;
+    }
+    if (avgLoss === 0) return 100;
+    return 100 - 100 / (1 + avgGain / avgLoss);
+  }
+
+  function stddev(values) {
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    return Math.sqrt(
+      values.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
+        values.length,
+    );
+  }
+
+  function swings(values, lookback = 2) {
+    const highs = [],
+      lows = [];
+    for (let i = lookback; i < values.length - lookback; i++) {
+      const left = values.slice(i - lookback, i),
+        right = values.slice(i + 1, i + lookback + 1);
+      if (values[i] > Math.max(...left, ...right))
+        highs.push({ index: i, value: values[i] });
+      if (values[i] < Math.min(...left, ...right))
+        lows.push({ index: i, value: values[i] });
+    }
+    return { highs, lows };
+  }
+
+  function structure(values, swingData) {
+    const { highs, lows } = swingData;
+    const lastHighs = highs.slice(-2),
+      lastLows = lows.slice(-2);
+    const higherHigh =
+      lastHighs.length === 2 && lastHighs[1].value > lastHighs[0].value;
+    const higherLow =
+      lastLows.length === 2 && lastLows[1].value > lastLows[0].value;
+    const lowerHigh =
+      lastHighs.length === 2 && lastHighs[1].value < lastHighs[0].value;
+    const lowerLow =
+      lastLows.length === 2 && lastLows[1].value < lastLows[0].value;
+    const bullish = higherHigh && higherLow;
+    const bearish = lowerHigh && lowerLow;
+    const last = values[values.length - 1];
+    const priorHigh = highs.length ? highs[highs.length - 1].value : last;
+    const priorLow = lows.length ? lows[lows.length - 1].value : last;
+    return {
+      label: bullish
+        ? "Bullish structure (HH + HL)"
+        : bearish
+          ? "Bearish structure (LH + LL)"
+          : "Range / mixed structure",
+      bias: bullish ? "bullish" : bearish ? "bearish" : "neutral",
+      breakOfStructure:
+        last > priorHigh
+          ? "Bullish break of structure"
+          : last < priorLow
+            ? "Bearish break of structure"
+            : "No confirmed break of structure",
+      higherHigh,
+      higherLow,
+      lowerHigh,
+      lowerLow,
+    };
+  }
+
+  function analyzeSeries(series) {
+    const values = series
+      .map((point) => (Array.isArray(point) ? Number(point[1]) : Number(point)))
+      .filter(Number.isFinite);
+    if (values.length < 20)
+      throw new Error(
+        "At least 20 price points are required for technical analysis",
+      );
+    const current = values[values.length - 1];
+    const ema20 = ema(values, 20),
+      ema50 = ema(values, 50);
+    const rsiValue = rsi(values);
+    const ema12 = ema(values, 12),
+      ema26 = ema(values, 26);
+    const macd = ema12 - ema26;
+    const bandValues = values.slice(-20);
+    const bandMid = bandValues.reduce((a, b) => a + b, 0) / bandValues.length;
+    const bandWidth = stddev(bandValues) * 2;
+    const bollingerPosition = bandWidth
+      ? (current - (bandMid - bandWidth)) / (bandWidth * 2)
+      : 0.5;
+    const returns = values
+      .slice(1)
+      .map((value, i) => (value - values[i]) / values[i]);
+    const volatility = stddev(returns) * Math.sqrt(365) * 100;
+    const swingData = swings(values);
+    const marketStructure = structure(values, swingData);
+    const recent = values.slice(-20);
+    const rangeHigh = Math.max(...recent),
+      rangeLow = Math.min(...recent);
+    const displacement =
+      ((current - values[Math.max(0, values.length - 6)]) /
+        values[Math.max(0, values.length - 6)]) *
+      100;
+    const trend =
+      current > ema20 && ema20 > (ema50 ?? ema20)
+        ? "uptrend"
+        : current < ema20 && ema20 < (ema50 ?? ema20)
+          ? "downtrend"
+          : "sideways / transition";
+    const rsiBias =
+      rsiValue >= 70
+        ? "overbought"
+        : rsiValue <= 30
+          ? "oversold"
+          : rsiValue >= 50
+            ? "bullish momentum"
+            : "bearish momentum";
+    const nearestSupport =
+      swingData.lows.filter((x) => x.value < current).slice(-1)[0]?.value ??
+      rangeLow;
+    const nearestResistance =
+      swingData.highs.filter((x) => x.value > current).slice(-1)[0]?.value ??
+      rangeHigh;
+    const sweptHigh = current > rangeHigh * 0.998 && displacement < 0;
+    const sweptLow = current < rangeLow * 1.002 && displacement > 0;
+    const smc = {
+      bias: marketStructure.bias,
+      orderBlock:
+        marketStructure.bias === "bullish"
+          ? `Demand zone near ${round(nearestSupport)}`
+          : marketStructure.bias === "bearish"
+            ? `Supply zone near ${round(nearestResistance)}`
+            : "No high-confidence order block from close-only data",
+      liquidity: sweptHigh
+        ? "Possible buy-side liquidity sweep"
+        : sweptLow
+          ? "Possible sell-side liquidity sweep"
+          : "No confirmed liquidity sweep",
+      displacement: round(displacement),
+      limitation:
+        "SMC zones are inferred from swing closes; true candle order blocks require OHLC volume data.",
+    };
+    const macdBias = macd > 0 ? 1 : -1;
+    const bandBias =
+      bollingerPosition > 0.8 ? -1 : bollingerPosition < 0.2 ? 1 : 0;
+    const confluence =
+      (trend === "uptrend" ? 1 : trend === "downtrend" ? -1 : 0) +
+      (rsiValue >= 50 ? 1 : -1) +
+      macdBias +
+      (marketStructure.bias === "bullish"
+        ? 1
+        : marketStructure.bias === "bearish"
+          ? -1
+          : 0) +
+      bandBias;
+    const score = clamp(50 + confluence * 10, 0, 100);
+    return {
+      points: values.length,
+      current: round(current),
+      rsi: round(rsiValue),
+      rsiBias,
+      ema20: round(ema20),
+      ema50: ema50 == null ? null : round(ema50),
+      trend,
+      macd: round(macd),
+      bollingerPosition: round(bollingerPosition * 100),
+      volatility: round(volatility),
+      confluence: `${Math.abs(confluence)}/5 independent close-price signals agree`,
+      structure: marketStructure,
+      smc,
+      support: round(nearestSupport),
+      resistance: round(nearestResistance),
+      bias: score >= 60 ? "bullish" : score <= 40 ? "bearish" : "neutral",
+      score: round(score),
+      confidence: round(
+        clamp(45 + Math.min(35, values.length / 4) + (ema50 ? 10 : 0), 0, 90),
+      ),
+    };
+  }
+
+  async function analyze(assetId, days = 90) {
+    if (!W.api?.chart) throw new Error("Market chart API unavailable");
+    const series = await W.api.chart(assetId, days);
+    return analyzeSeries(series);
+  }
+  return { analyze, analyzeSeries, rsi, ema };
+})();
+console.log(
+  "[TechnicalAnalysis] RSI, trend, structure, and SMC engine loaded.",
+);
 // ---- js/features/portfolio.js ----
 // ===============================================================
 //         Portfolio Management Module – Canonical AssetId
@@ -7511,6 +7733,521 @@ W.alerts = (() => {
 })();
 
 console.log("[Alerts] Module loaded.");
+// ---- js/data/news-snapshot.js ----
+window.__WEAVER_NEWS_SNAPSHOT__ = [
+  {
+    source: "Cointelegraph",
+    title: "Here’s what happened in crypto today",
+    link: "https://cointelegraph.com/news/what-happened-in-crypto-today?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "Need to know what happened in crypto today? Here is the latest news on daily trends and events impacting Bitcoin price, blockchain, DeFi, Web3 and crypto regulation.",
+    pubDate: "Mon, 14 Sep 2026 05:31:55 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title:
+      "King Charles to host AI chiefs amid industry call to slow development",
+    link: "https://cointelegraph.com/news/king-charles-host-ai-chiefs-amid-industry-call-slow-development?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "The gathering comes days after Dario Amodei and Sam Altman called for greater restraint at the AI frontier, warning that rapidly improving systems could pose increasingly difficult-to-control risks.",
+    pubDate: "Mon, 14 Sep 2026 05:16:59 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title:
+      "Robinhood CEO says issuers should not have veto over tokenized stocks",
+    link: "https://cointelegraph.com/news/robinhood-ceo-issuer-veto-tokenized-stocks?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "Robinhood CEO Vlad Tenev said issuers should be involved if tokenized products change shareholder rights or company obligations, but not when they create separate instruments backed by shares.",
+    pubDate: "Mon, 14 Sep 2026 04:55:28 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title: "US Republicans send ‘final’ CLARITY Act offer to Democrats",
+    link: "https://cointelegraph.com/news/us-republicans-send-final-clarity-act-offer-to-democrats?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "The 635-page revised proposal includes Trump-backed ethics provisions and comes just two days before a key procedural vote.",
+    pubDate: "Mon, 14 Sep 2026 03:22:49 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title: "Revolut attackers threaten daily customer data leaks",
+    link: "https://cointelegraph.com/news/revolut-attackers-threaten-daily-customer-data-leaks?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "Attackers reportedly published identity documents and selfies belonging to Revolut customers and threatened to release more data each day until the fintech pays.",
+    pubDate: "Mon, 14 Sep 2026 00:54:08 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title:
+      "Crypto’s biggest week ever? Swarm fears prompt AI slowdown: Hodler’s Digest",
+    link: "https://cointelegraph.com/magazine/cryptos-biggest-week-ever-swarm-fears-prompt-ai-slowdown-hodlers-digest?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "Crypto’s moment of CLARITY finally arrives with a key Senate vote on Tuesday. AI swarm fears prompt development slowdown, with some predicting big falls in AI stock prices.",
+    pubDate: "Mon, 14 Sep 2026 00:15:37 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title: "Is Clarity dead? A vibes-based analysis: State of Crypto",
+    link: "https://www.coindesk.com/policy/2026/09/13/is-clarity-dead-a-vibes-based-analysis-state-of-crypto",
+    description: "I dunno, flip a coin.",
+    pubDate: "Sun, 13 Sep 2026 18:45:08 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title: "Quantum-proof blockchain: why math, not machines, holds the key",
+    link: "https://www.coindesk.com/opinion/2026/09/13/quantum-proof-blockchain-why-math-not-machines-holds-the-key",
+    description:
+      "lockchains don’t need quantum computers to be quantum-safe, argues Optimum co-founder and MIT professor Muriel Médard. Classic math already gives us the tools.",
+    pubDate: "Sun, 13 Sep 2026 17:00:00 +0000",
+  },
+  {
+    source: "Decrypt",
+    title: "AI Agents Spending Money Online? New Research Says Not Really",
+    link: "https://decrypt.co/378103/ai-agents-spending-money-research",
+    description:
+      "TRM examined roughly $52.7 million across 198.9 million settlements using the x402 protocol. Most of it isn’t coming from AI agents, it says.",
+    pubDate: "Sun, 13 Sep 2026 13:01:03 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title: "Fed rate hike is about Wall Street, not inflation, says economist",
+    link: "https://www.coindesk.com/markets/2026/09/13/fed-rate-hike-is-about-wall-street-not-inflation-says-economist",
+    description:
+      "Goldman Sachs late Friday became the last of the major banks to retract its forecast of no rate hike next week.",
+    pubDate: "Sun, 13 Sep 2026 13:00:00 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title:
+      "Circle's $400M Tazapay deal buys emerging market links that take ‘years to build’",
+    link: "https://www.coindesk.com/business/2026/09/13/circle-s-usd400m-tazapay-deal-buys-emerging-market-links-that-take-years-to-build",
+    description:
+      "Stablecoins' “next battleground is in emerging markets,” one expert said, as Circle looks to expand USDC's reach where rival Tether has long been strong.",
+    pubDate: "Sun, 13 Sep 2026 13:00:00 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title:
+      "Crypto's Clarity Act is a Schrödinger's cat in life-death limbo as U.S. Senate returns",
+    link: "https://www.coindesk.com/news-analysis/2026/09/11/crypto-s-clarity-act-is-a-schroedinger-s-cat-in-life-death-limbo-as-u-s-senate-returns",
+    description:
+      "The crypto industry eagerly awaits a September 15 vote, though it might not happen. Or maybe it will. Or it might get delayed or reappear in some other form.",
+    pubDate: "Sun, 13 Sep 2026 12:00:00 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title: "Anthropic chief urges slowdown in AI development to safer pace",
+    link: "https://cointelegraph.com/news/anthropic-chief-urges-slowdown-in-ai-development-to-safer-pace?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "OpenAI CEO Sam Altman agrees with safety concerns regarding AI development, says no initial share sale this year.",
+    pubDate: "Sun, 13 Sep 2026 11:09:54 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title: "Revolut says customer data exposed through fake government email",
+    link: "https://cointelegraph.com/news/revolut-says-customer-data-exposed-through-fake-government-email?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "Passports, selfies and financial transaction histories of some customers were revealed to a fraudster using a government agency domain.",
+    pubDate: "Sun, 13 Sep 2026 09:27:21 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title: "OpenAI IPO won't happen this year, says Sam Altman",
+    link: "https://www.coindesk.com/markets/2026/09/12/openai-ipo-won-t-happen-this-year-says-sam-altman",
+    description:
+      '"Given everything happening with safety, right now would be an ill-advised moment to go public," OpenAI CEO Sam Altman told Fortune.',
+    pubDate: "Sat, 12 Sep 2026 21:09:31 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title:
+      "Bitcoin Suisse plans to cut up to half its Swiss jobs as it shifts work abroad",
+    link: "https://www.coindesk.com/business/2026/09/12/bitcoin-suisse-plans-to-cut-up-to-half-its-swiss-jobs-as-it-shifts-work-abroad",
+    description:
+      "The company is closing its Copenhagen IT site while maintaining Bratislava and opening a new hub in Vietnam to reduce costs.",
+    pubDate: "Sat, 12 Sep 2026 21:09:06 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title:
+      "Nigel Farage’s Reform UK lands $97 million donations from two crypto billionaires in 24 hours",
+    link: "https://www.coindesk.com/business/2026/09/12/nigel-farage-s-reform-uk-lands-usd97-million-donations-from-two-crypto-billionaires-in-24-hours",
+    description:
+      "The combined haul equals the largest individual political donations in U.K. history, sharply scaling up crypto industry backing.",
+    pubDate: "Sat, 12 Sep 2026 18:51:04 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title:
+      "Anthropic CEO calls for AI race to slow down citing safety. Musk and OpenAI's Altman agrees",
+    link: "https://www.coindesk.com/tech/2026/09/12/anthropic-ceo-calls-for-ai-race-to-slow-down-musk-and-openai-s-altman-agrees",
+    description:
+      "Anthropic’s Dario Amodei, OpenAI’s Sam Altman and Elon Musk have agreed on an unusual position: frontier AI development may need to slow as systems become capable of helping build their own successors.",
+    pubDate: "Sat, 12 Sep 2026 18:43:33 +0000",
+  },
+  {
+    source: "Decrypt",
+    title:
+      "Revolut Leaks Passports, Bitcoin Transaction Histories to Fake Government Request",
+    link: "https://decrypt.co/378114/revolut-passports-bitcoin-activity-data-breach",
+    description:
+      "The fintech company fulfilled a fraudulent information request sent from a government agency's own email domain, exposing ID documents and full crypto transaction histories for a &#34;limited&#34; number of users.",
+    pubDate: "Sat, 12 Sep 2026 17:01:04 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title:
+      "North Korea using foreign talent to help infiltrate US companies: Report",
+    link: "https://cointelegraph.com/news/north-korea-using-foreign-talent-to-help-infiltrate-us-companies-report?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "The DPRK has turned to third-country IT workers to pass job interviews, after which, the positions are usually taken over by North Korean operatives.",
+    pubDate: "Sat, 12 Sep 2026 16:08:29 +0000",
+  },
+  {
+    source: "Decrypt",
+    title:
+      "GPT-6 Astra Users Say OpenAI's Newest Model Got Dumber. It Happened Before, Too",
+    link: "https://decrypt.co/378101/gpt-6-astra-openai-model-dumber-nerfed",
+    description:
+      "A week after launch, complaints are rolling in from users that GPT-6 Astra has been nerfed. OpenAI's last model went through the same cycle in July.",
+    pubDate: "Sat, 12 Sep 2026 16:01:04 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title:
+      "Ripple stablecoin chief sees $13 trillion corporate treasury opportunity for RLUSD",
+    link: "https://www.coindesk.com/business/2026/09/12/ripple-stablecoin-chief-sees-usd13-trillion-corporate-treasury-opportunity-for-rlusd",
+    description:
+      "Payments and capital markets are driving growth for Ripple's $2.4 billion digital dollar as it looks to bring RLUSD to Europe under MiCA, the firm's Jack McDonald said.",
+    pubDate: "Sat, 12 Sep 2026 16:00:00 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title:
+      "Ditching bonds for bitcoin: How crypto can tackle the AI-heavy portfolio dilemma",
+    link: "https://www.coindesk.com/business/2026/09/12/ditching-bonds-for-bitcoin-how-crypto-can-tackle-the-ai-heavy-portfolio-dilemma",
+    description:
+      "Bitcoin Suisse says rising AI investment, government debt and weakening stock-bond diversification strengthen the case for adding bitcoin to traditional portfolios.",
+    pubDate: "Sat, 12 Sep 2026 16:00:00 +0000",
+  },
+  {
+    source: "Decrypt",
+    title: "Crypto Billionaires Hand Reform UK $97M in Record Donations",
+    link: "https://decrypt.co/378107/crypto-billionaires-hand-reform-uk-97m-in-record-donations",
+    description:
+      "Ben Delo and Christopher Harborne each gave £36 million, and between them beat what every UK party raised last year.",
+    pubDate: "Sat, 12 Sep 2026 15:51:15 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title: "Farage’s Reform UK gets $97M from two crypto billionaires",
+    link: "https://cointelegraph.com/news/farages-reform-uk-gets-biggest-donation-ever-from-crypto-billionaire-reports?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "Ben Delo, co-founder of BitMEX, donated almost $50 million to Nigel Farage’s Reform UK party, matched a day later by Christopher Harborne.",
+    pubDate: "Sat, 12 Sep 2026 15:50:14 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title:
+      "Nvidia considers $10B investment in potential record Anthropic IPO: Reuters",
+    link: "https://cointelegraph.com/news/nvidia-considers-10b-investment-in-anthropic-record-ipo-reuters?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "Anthropic is said to be seeking to raise as much as $100 billion in the offering, which could value the AI company at about $2 trillion.",
+    pubDate: "Sat, 12 Sep 2026 15:12:40 +0000",
+  },
+  {
+    source: "Decrypt",
+    title: "GTA Mod Adds Flock Cameras—And Lets Players Destroy Them",
+    link: "https://decrypt.co/377997/gta-mod-flock-cameras-players-destroy",
+    description:
+      "The surveillance mod on GTA V brings the privacy fight to Los Santos, where players can demolish the cameras tracking them.",
+    pubDate: "Sat, 12 Sep 2026 15:01:03 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title:
+      "Staked ether should be seen as the benchmark of the decentralized economy",
+    link: "https://www.coindesk.com/opinion/2026/09/12/staked-ether-should-be-seen-as-the-benchmark-of-the-decentralized-economy",
+    description:
+      "The yield-generating asset has a special place in the digital asset investor’s portfolio, argues GlobalStake’s Ryan Haczynski.",
+    pubDate: "Sat, 12 Sep 2026 14:00:00 +0000",
+  },
+  {
+    source: "Decrypt",
+    title: "ChatGPT Images 2.5 vs Nano Banana 2: Which One is Better?",
+    link: "https://decrypt.co/377998/chatgpt-images-2-5-vs-nano-banana-2-review",
+    description:
+      "OpenAI's new image model promises sharper detail and more precise editing. We ran it against Google's Nano Banana 2 across six categories to see how it compares.",
+    pubDate: "Sat, 12 Sep 2026 13:01:03 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title:
+      "Bitcoin activity, passports exposed after Revolut falls for fake government request",
+    link: "https://www.coindesk.com/tech/2026/09/12/bitcoin-activity-passports-exposed-after-revolut-falls-for-fake-government-request",
+    description:
+      "Passports, selfies and home addresses were also handed over after the digital bank treated a fraudulent request as legitimate, but no customer funds were lost.",
+    pubDate: "Sat, 12 Sep 2026 10:11:01 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title:
+      "Robinhood CEO says companies shouldn't get veto over stock tokens in AMC feud",
+    link: "https://www.coindesk.com/markets/2026/09/11/robinhood-ceo-says-companies-shouldn-t-get-veto-over-stock-tokens-in-amc-feud",
+    description:
+      "In a post on Friday, Vlad Tenev said securities issuers should control shareholder rights, but not separate products that track their publicly traded shares.",
+    pubDate: "Fri, 11 Sep 2026 23:47:51 +0000",
+  },
+  {
+    source: "Decrypt",
+    title:
+      "Cyberattacks on Law Firms Nearly Double as Stolen Documents Hit the Dark Web",
+    link: "https://decrypt.co/378094/cyberattacks-law-firms-stolen-documents-dark-web",
+    description:
+      "Greenberg Traurig said documents were posted to the dark web, while BakerHostetler recorded a near-doubling of law-firm incidents in 2025.",
+    pubDate: "Fri, 11 Sep 2026 21:45:05 +0000",
+  },
+  {
+    source: "Decrypt",
+    title: "Bitcoin Golden Cross Flickers Off as Rate-Hike Bets Firm Up",
+    link: "https://decrypt.co/378081/bitcoin-golden-cross-flickers-off",
+    description:
+      "A rapidly changing interest rates market has changed the near-term outlook on the Bitcoin chart. Here’s why.",
+    pubDate: "Fri, 11 Sep 2026 20:53:39 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title: "Bitcoin Suisse to shift up to half of Swiss jobs abroad",
+    link: "https://cointelegraph.com/news/bitcoin-suisse-to-shift-up-to-half-of-swiss-jobs-abroad?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "The Swiss crypto financial services firm plans to move back-office functions to lower-cost international hubs as it expands its global wealth and asset management business, according to Finews.",
+    pubDate: "Fri, 11 Sep 2026 19:46:24 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title: "Hyperliquid’s biggest risk is regulation, says Ran Neuner",
+    link: "https://cointelegraph.com/news/hyperliquids-biggest-risk-is-regulation-says-ran-neuner?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "The Crypto Banter founder said Hyperliquid’s network effects give it a strong competitive moat, but regulatory uncertainty remains its biggest threat.",
+    pubDate: "Fri, 11 Sep 2026 18:45:15 +0000",
+  },
+  {
+    source: "Decrypt",
+    title: "OpenAI Asks Congress Whether an AI Slowdown Would Be Legal",
+    link: "https://decrypt.co/377990/openai-congress-ai-slowdown-legal",
+    description:
+      "The company is seeking clarity on antitrust rules as researchers call for restraint and experts warn that competition encourages companies to overlook risks.",
+    pubDate: "Fri, 11 Sep 2026 18:16:04 +0000",
+  },
+  {
+    source: "Decrypt",
+    title: "Robinhood Crypto Trading Volume Jumps 61% in August",
+    link: "https://decrypt.co/377982/robinhoods-crypto-volume-jumps-august",
+    description:
+      "Fresh operating data shows crypto trading bouncing back, but the company's fastest-growing business these days isn't traditional trading at all.",
+    pubDate: "Fri, 11 Sep 2026 17:22:39 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title:
+      "The legal drama of imprisoned Sam Bankman-Fried is waiting on its last act",
+    link: "https://www.coindesk.com/news-analysis/2026/09/11/the-legal-drama-of-imprisoned-sam-bankman-fried-is-waiting-on-its-last-act",
+    description:
+      "The fallen leader of the former top exchange FTX is looking for answers from the U.S. Supreme Court.",
+    pubDate: "Fri, 11 Sep 2026 17:12:45 +0000",
+  },
+  {
+    source: "Decrypt",
+    title: "Bitwise to Close Dogecoin ETF Before Its First Anniversary",
+    link: "https://decrypt.co/377973/bitwise-shuts-dogecoin-etf",
+    description:
+      "BWOW will stop trading October 14, with cash payments to remaining shareholders expected October 22.",
+    pubDate: "Fri, 11 Sep 2026 16:16:05 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title:
+      "Anchorage Digital adds institutional access to Frgmnt’s fUSD stablecoin",
+    link: "https://cointelegraph.com/news/anchorage-digital-adds-institutional-access-to-frgmnts-fusd-stablecoin?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "The US federally chartered crypto bank will allow institutional clients to hold, mint, redeem and stake Frgmnt’s fUSD stablecoin through its custody platform.",
+    pubDate: "Fri, 11 Sep 2026 16:05:15 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title:
+      "Bitcoin spikes toward $80K as US CPI data delivers new 22-year high in bond yields",
+    link: "https://cointelegraph.com/markets/bitcoin-spikes-toward-80k-as-us-cpi-data-delivers-new-22-year-high-in-bond-yields?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "Bitcoin briefly rebounded past $79,000 and US stocks turned green as US CPI inflation data met expectations.",
+    pubDate: "Fri, 11 Sep 2026 16:03:37 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title: "With Fed rate hike all but assured, here's how markets might react",
+    link: "https://www.coindesk.com/markets/2026/09/11/hotter-cpi-complicates-fed-hold-as-warsh-s-preferred-inflation-gauge-tells-different-story",
+    description:
+      "Traders could look past an expected Fed hike and weigh what higher rates are signaling about the economy.",
+    pubDate: "Fri, 11 Sep 2026 15:45:56 +0000",
+  },
+  {
+    source: "Decrypt",
+    title:
+      "Bitcoin Rises as Markets Digest Inflation Data Ahead of Fed Rate Decision",
+    link: "https://decrypt.co/377962/bitcoin-price-cpi-inflation-fed-rate-decision",
+    description:
+      "Inflation held at 3.4% and core cooled annually, but a hot monthly core reading kept Fed hike odds near 62% while crypto markets rallied broadly.",
+    pubDate: "Fri, 11 Sep 2026 15:32:08 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title:
+      "India's richest state is exploring tokenizing its own assets to fund new infrastructure",
+    link: "https://www.coindesk.com/markets/2026/09/11/india-s-richest-state-is-exploring-tokenizing-its-own-assets-to-fund-new-infrastructure",
+    description:
+      "Maharashtra is drafting a policy to tokenize the state's assets, including the electricity transmission infrastructure.",
+    pubDate: "Fri, 11 Sep 2026 15:17:08 +0000",
+  },
+  {
+    source: "Decrypt",
+    title:
+      "Blockstream Refuses Ransom for Return of $47M in Bitcoin from Liquid Hack: 'It Is Theft'",
+    link: "https://decrypt.co/377959/blockstream-refuses-ransom-for-return-of-47m-in-bitcoin-from-liquid-hack-it-is-theft",
+    description:
+      "With 598.5 BTC still outstanding, the company says it will go to law enforcement should the funds not be returned.",
+    pubDate: "Fri, 11 Sep 2026 14:17:38 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title:
+      "Metaplanet cuts executive reward pool by 41%, extinguishes $220 million in value",
+    link: "https://www.coindesk.com/business/2026/09/11/metaplanet-cuts-executive-reward-pool-by-41-extinguishes-usd220-million-in-value",
+    description:
+      "The bitcoin treasury firm cut the potential Series 10 share pool to 188.2 million.",
+    pubDate: "Fri, 11 Sep 2026 13:46:51 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title:
+      "Metaplanet cuts Series 10 stock pool by 41%, plans Hong Kong subsidiary",
+    link: "https://cointelegraph.com/news/metaplanet-executive-stock-pool-hong-kong-subsidiary?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "Metaplanet will cut 131.3 million potential shares and form a $1 million Hong Kong subsidiary for trading in Bitcoin, equities and credit products.",
+    pubDate: "Fri, 11 Sep 2026 13:44:27 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title: "Zodia Custody CEO Julian Sawyer steps down, becomes adviser",
+    link: "https://www.coindesk.com/business/2026/09/11/zodia-custody-ceo-julian-sawyer-steps-down-becomes-adviser",
+    description:
+      "Sawyer will become a strategic adviser rather than take the helm of Zodia Solutions, as previously announced.",
+    pubDate: "Fri, 11 Sep 2026 13:32:52 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title: "Trading stocks against BONER is the latest trend for DeFi degens",
+    link: "https://cointelegraph.com/magazine/trading-stocks-against-boner-is-the-latest-trend-for-defi-degens?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "Why would anyone want to trade a healthcare stock for a memecoin like BONER? Why wouldn’t they, ask the degens on Robinhood Chain who are building a strange new corner of DeFi.",
+    pubDate: "Fri, 11 Sep 2026 13:30:00 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title:
+      "Bitcoin ETF outflows accelerate as investors pull $449M in three days",
+    link: "https://cointelegraph.com/markets/bitcoin-etfs-282m-biggest-outflow-july?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "ARK 21Shares accounted for $164 million of Thursday’s Bitcoin ETF withdrawals, while Ether and Solana funds also recorded net outflows.",
+    pubDate: "Fri, 11 Sep 2026 12:33:38 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title:
+      "Core CPI rose a faster-than-forecast 0.3% in August, setting up possible Fed rate hike",
+    link: "https://www.coindesk.com/markets/2026/09/11/core-cpi-rose-a-faster-than-forecast-0-3-in-august-setting-up-fed-rate-hike",
+    description:
+      "The August CPI report had taken on outsized importance after Fed Chair Kevin Warsh two weeks ago suggested the central bank may have to act if inflation doesn't soon slow.",
+    pubDate: "Fri, 11 Sep 2026 12:32:25 +0000",
+  },
+  {
+    source: "Decrypt",
+    title: "Morning Minute: AI Agents Cut BTC Quantum Attack Benchmark by 86%",
+    link: "https://decrypt.co/377948/morning-minute-ai-agents-cut-btc-quantum-attack-benchmark-by-86",
+    description:
+      "Crypto majors are shaky ahead of this morning’s CPI print, but onchain is heating up for another big potential weekend.",
+    pubDate: "Fri, 11 Sep 2026 12:10:23 +0000",
+  },
+  {
+    source: "Decrypt",
+    title:
+      "EU Regulator Says Prediction Markets Are 'Rife With Inside Trading'",
+    link: "https://decrypt.co/377947/eu-regulator-says-prediction-markets-are-rife-with-inside-trading",
+    description:
+      "ESMA also asks why Kalshi and Polymarket block some EU countries but not others, and notes VPNs get around the blocks.",
+    pubDate: "Fri, 11 Sep 2026 12:06:24 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title:
+      "Robinhood’s crypto volume increases 61% in August, still down 38% YoY",
+    link: "https://cointelegraph.com/news/robinhoods-crypto-volume-rebounds-august?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "Bitstamp accounted for $10.1 billion of Robinhood’s August crypto volume, while trading on the Robinhood app fell 46% from a year earlier.",
+    pubDate: "Fri, 11 Sep 2026 11:49:07 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title:
+      "UniCredit seeks infrastructure partner for crypto trading, custody: Report",
+    link: "https://cointelegraph.com/news/unicredit-infrastructure-partners-crypto-trading-custody?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "The Italian bank is reportedly seeking assistance in launching access to crypto trading, custody and tokenized investment products.",
+    pubDate: "Fri, 11 Sep 2026 11:35:27 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title:
+      "Rising yields, oil prices leave bitcoin vulnerable ahead of U.S. inflation report",
+    link: "https://www.coindesk.com/daybook-us/2026/09/11/rising-yields-oil-prices-leave-bitcoin-vulnerable-ahead-of-u-s-inflation-report",
+    description: "Your day-ahead look for Sept. 11, 2026",
+    pubDate: "Fri, 11 Sep 2026 11:20:26 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title:
+      "Live updates: Bitcoin gives up early gains, with markets moving to price in multiple rate hikes",
+    link: "https://www.coindesk.com/business/2026/09/11/live-updates-bitcoin-sinks-to-usd77-000-as-cpi-lands-with-hike-odds-near-70",
+    description:
+      "Core CPI rose a faster-than-forecast 0.3% in August, but the yearly pace of 2.4% was in line and the slowest rate since early 2021.",
+    pubDate: "Fri, 11 Sep 2026 11:04:12 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title:
+      "Bitcoin buyers wary of July sub-$58K floor amid onchain data ‘anomaly’",
+    link: "https://cointelegraph.com/markets/bitcoin-buyers-wary-of-july-sub-58k-floor-amid-onchain-data-anomaly?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "Bitcoin HODL waves data revealed an unusually muted reaction to Bitcoin’s drop below $58,000, raising questions over its status as a bear-market floor.",
+    pubDate: "Fri, 11 Sep 2026 10:53:55 +0000",
+  },
+  {
+    source: "CoinDesk",
+    title: "Bitcoin recovers toward $77,300 as zcash leverage unwinds",
+    link: "https://www.coindesk.com/markets/2026/09/11/bitcoin-recovers-toward-usd77-300-as-zcash-leverage-unwinds",
+    description:
+      "Bitcoin rose 0.7% since midnight UTC to around $77,200, and 68 of the CoinDesk 100 constituents gained, though the index remains 1.4% lower over 24 hours.",
+    pubDate: "Fri, 11 Sep 2026 10:50:47 +0000",
+  },
+  {
+    source: "Cointelegraph",
+    title: "Standard Chartered forecasts SKY rising fivefold to $0.325 by 2028",
+    link: "https://cointelegraph.com/news/sky-value-token-holders-standard-chartered?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+    description:
+      "The bank expects Sky to pass five times as much value to token holders by 2028 as USDS adoption and borrowing capacity continue to expand.",
+    pubDate: "Fri, 11 Sep 2026 10:44:28 +0000",
+  },
+];
 // ---- js/features/news.js ----
 // SECURITY: All RSS-derived content (title, description, link, pubDate)
 // is attacker-controllable. It MUST be escaped before insertion into
@@ -7594,6 +8331,8 @@ async function via(url, asJSON = false) {
 
 // ── Fetch the fixed snapshot directly (no proxy chain) ─────────
 async function fetchSnapshot() {
+  const embedded = window.__WEAVER_NEWS_SNAPSHOT__;
+  if (Array.isArray(embedded) && embedded.length) return embedded;
   for (const snapshotUrl of SNAPSHOT_URLS) {
     try {
       const controller = new AbortController();
@@ -7708,9 +8447,28 @@ async function render(view) {
     return;
   }
 
-  container.innerHTML = '<div class="loading">Loading news...</div>';
+  const embeddedSnapshot = dedupeAndSort(window.__WEAVER_NEWS_SNAPSHOT__ || []);
+  if (embeddedSnapshot.length) {
+    renderArticles(container, embeddedSnapshot);
+  } else {
+    container.innerHTML = '<div class="loading">Loading news...</div>';
+  }
 
   try {
+    // Render the local snapshot first so the page is useful even when a
+    // proxy or RSS provider is slow, rate-limited, or unavailable.
+    const snapshot = embeddedSnapshot.length
+      ? embeddedSnapshot
+      : dedupeAndSort(await fetchSnapshot());
+    if (isCurrentRoute() && snapshot.length) {
+      W.dataHealth?.mark?.("news", {
+        source: "snapshot",
+        observedAt: Date.now() - 31 * 60 * 1000,
+        staleAfter: 60 * 60 * 1000,
+      });
+      renderArticles(container, snapshot);
+    }
+
     // 2. Fetch all feeds in parallel.
     const feedPromises = FEEDS.map(async ([name, url]) => {
       try {
@@ -7735,16 +8493,7 @@ async function render(view) {
 
     if (allArticles.length === 0) {
       newsLog("No live articles, trying snapshot...");
-      const snapshot = await fetchSnapshot();
-      if (!isCurrentRoute()) return;
-      const sorted = dedupeAndSort(snapshot);
-      if (sorted.length) {
-        W.dataHealth?.mark?.("news", {
-          source: "snapshot",
-          observedAt: Date.now() - 31 * 60 * 1000,
-          staleAfter: 60 * 60 * 1000,
-        });
-        renderArticles(container, sorted);
+      if (snapshot.length) {
         return;
       }
       container.innerHTML =
@@ -15640,11 +16389,26 @@ W.tokenAnalysis = (() => {
       return { error: "Asset not found" };
     }
 
+    let technical = null;
+    try {
+      technical = await W.technicalAnalysis?.analyze(
+        asset.coingeckoId || asset.symbol.toLowerCase(),
+        90,
+      );
+    } catch (e) {
+      console.warn("[TokenAnalysis] Technical data unavailable:", e.message);
+    }
+
     // 2. Collect signals
-    const allSignals = await W.events.collectEvents();
+    let allSignals = [];
+    try {
+      allSignals = (await W.events?.collectEvents?.()) || [];
+    } catch (e) {
+      console.warn("[TokenAnalysis] Event collection unavailable:", e.message);
+    }
     const signals = allSignals.filter((s) => s.assetId.symbol === asset.symbol);
 
-    if (!signals.length) {
+    if (!signals.length && !technical) {
       return {
         asset: asset.symbol,
         opportunityScore: 0,
@@ -15655,6 +16419,7 @@ W.tokenAnalysis = (() => {
         verdict: "Insufficient data",
         confidence: null,
         explanation: "No recent signals for this asset.",
+        technical: null,
       };
     }
 
@@ -15715,8 +16480,18 @@ W.tokenAnalysis = (() => {
     const bearishWeight = weightSum(bearish);
     const totalWeight = bullishWeight + bearishWeight || 1;
 
-    const opportunityScore = Math.min(100, (bullishWeight / totalWeight) * 100);
-    const riskScore = Math.min(100, (bearishWeight / totalWeight) * 100);
+    let opportunityScore = Math.min(100, (bullishWeight / totalWeight) * 100);
+    let riskScore = Math.min(100, (bearishWeight / totalWeight) * 100);
+    if (technical) {
+      opportunityScore =
+        technical.bias === "bullish"
+          ? Math.max(opportunityScore, technical.score)
+          : Math.min(opportunityScore, technical.score);
+      riskScore =
+        technical.bias === "bearish"
+          ? Math.max(riskScore, 100 - technical.score)
+          : Math.min(riskScore, 100 - technical.score);
+    }
 
     // 6. Detect contradictions (e.g., bullish price, but bearish on-chain)
     // For now, we simply report signals that point in opposite directions.
@@ -15806,6 +16581,7 @@ W.tokenAnalysis = (() => {
       explanation,
       signalsCount: allEvidence.length,
       personalContext,
+      technical,
     };
   }
 
@@ -15872,6 +16648,28 @@ W.tokenAnalysis = (() => {
           <div class="meter-bar"><div style="width:${result.riskScore}%; background:var(--down);"></div></div>
           <div class="meter-label">Risk Score</div>
         </div>
+        ${
+          result.technical
+            ? `
+        <div class="card" style="margin-top:16px;">
+          <h4>📐 Market-derived technical analysis</h4>
+          <div class="grid-2" style="margin-top:10px;">
+            <div class="kv-row"><span>RSI (14)</span><b>${result.technical.rsi} · ${result.technical.rsiBias}</b></div>
+            <div class="kv-row"><span>Trend</span><b>${result.technical.trend}</b></div>
+            <div class="kv-row"><span>EMA 20 / EMA 50</span><b>${result.technical.ema20} / ${result.technical.ema50 ?? "N/A"}</b></div>
+            <div class="kv-row"><span>MACD bias</span><b>${result.technical.macd >= 0 ? "positive" : "negative"} (${result.technical.macd})</b></div>
+            <div class="kv-row"><span>Bollinger position</span><b>${result.technical.bollingerPosition}%</b></div>
+            <div class="kv-row"><span>Market structure</span><b>${result.technical.structure.label}</b></div>
+            <div class="kv-row"><span>Structure event</span><b>${result.technical.structure.breakOfStructure}</b></div>
+            <div class="kv-row"><span>SMC / liquidity</span><b>${result.technical.smc.liquidity}</b></div>
+            <div class="kv-row"><span>Support / resistance</span><b>${result.technical.support} / ${result.technical.resistance}</b></div>
+            <div class="kv-row"><span>Technical confidence</span><b>${result.technical.confidence}%</b></div>
+          </div>
+          <p class="muted small" style="margin-top:10px;">Confluence: ${result.technical.confluence}. Annualized close-to-close volatility: ${result.technical.volatility}%.</p>
+          <p class="muted small" style="margin-top:10px;">${result.technical.smc.orderBlock}. ${result.technical.smc.limitation}</p>
+        </div>`
+            : ""
+        }
         <div class="grid-2" style="margin-top:16px;">
           <div class="card">
             <h4 style="color:var(--up);">🟢 Bullish Evidence</h4>
