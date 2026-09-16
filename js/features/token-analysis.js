@@ -541,6 +541,7 @@ W.tokenAnalysis = (() => {
     // 11. Return structured report
     return {
       asset: asset.symbol,
+      assetId: asset,
       opportunityScore: Math.round(opportunityScore),
       riskScore: Math.round(riskScore),
       bullishEvidence: bullish.slice(0, 5),
@@ -713,10 +714,26 @@ W.tokenAnalysis = (() => {
             : ""
         }
         <div style="margin-top:12px;">
+          ${W.trackRecord ? '<button class="btn tiny primary" data-action="capture-track-record">Capture historical snapshot</button>' : ""}
           <button class="btn tiny" onclick="document.location.hash='#/token'">← New Analysis</button>
         </div>
       </div>
     `;
+      const captureButton = view.querySelector(
+        "[data-action='capture-track-record']",
+      );
+      if (captureButton) {
+        captureButton.onclick = () => {
+          try {
+            const record = W.trackRecord.capture(result);
+            captureButton.disabled = true;
+            captureButton.textContent = "Snapshot captured";
+            W.ui?.toast?.(`Historical ${record.asset} analysis captured`, "ok");
+          } catch (captureError) {
+            W.ui?.toast?.(captureError.message, "warn");
+          }
+        };
+      }
     } catch (e) {
       view.innerHTML = `<div class="card"><p class="muted">Analysis failed: ${e.message}</p></div>`;
     }

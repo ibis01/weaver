@@ -57,6 +57,12 @@ window.W = window.W || {};
         { id: "smart", icon: "🧠", label: "Smart Money", route: "#/smart" },
         { id: "theses", icon: "🎯", label: "Theses", route: "#/theses" },
         { id: "journal", icon: "📓", label: "Journal", route: "#/journal" },
+        {
+          id: "track-record",
+          icon: "🧾",
+          label: "Track Record",
+          route: "#/track-record",
+        },
       ],
     },
     {
@@ -137,6 +143,8 @@ window.W = window.W || {};
     pro: (v) => safeRender(v, "pro", () => W.misc?.renderPro),
     theses: (v) => safeRender(v, "theses", () => W.theses?.render),
     journal: (v) => safeRender(v, "journal", () => W.journal?.render),
+    "track-record": (v) =>
+      safeRender(v, "track-record", () => W.trackRecord?.render),
     sync: (v) => safeRender(v, "sync", () => W.sync?.render),
     settings: (v) => safeRender(v, "settings", () => W.misc?.renderSettings),
     token: (v) =>

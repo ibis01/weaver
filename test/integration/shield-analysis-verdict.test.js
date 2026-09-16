@@ -70,6 +70,12 @@ describe("Gem → Shield → Token Analysis → Unified Verdict", () => {
       ).to.equal(true);
       expect(report.unifiedVerdict.evidence.status).to.equal("PARTIAL");
       expect(report.unifiedVerdict.scenario.levels).to.equal(null);
+      const record = W.trackRecord.capture(report);
+      expect(record.weaverSnapshot.asset).to.equal("TEST");
+      expect(
+        record.weaverSnapshot.unifiedVerdict.domains.security.status,
+      ).to.equal("verified");
+      expect(record.userDecision.action).to.equal("UNSET");
     } finally {
       W.shield.check = originalCheck;
       W.asset.resolve = originalResolve;

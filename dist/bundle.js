@@ -16831,6 +16831,542 @@ W.journal = W.journal || {};
 })();
 
 console.log("[Journal] Decision module loaded (CSP compliant).");
+// ---- js/features/track-record.js ----
+// ===============================================================
+//         Track Record Module — Auditable Historical Analysis
+// ===============================================================
+// Constitution §2.3, §4.4, §6.4: Preserve what Weaver knew,
+// what the user decided, and what happened. Immutable snapshots.
+// ===============================================================
+
+window.W = window.W || {};
+
+W.trackRecord = (() => {
+  const STORAGE_KEY = "track_record";
+  const SCHEMA_VERSION = "track-record-v1";
+
+  const MUTABLE_FIELDS = new Set([
+    "userDecision.action",
+    "userDecision.notes",
+    "userDecision.decisionTimestamp",
+    "userDecision.linkedTransactionId",
+    "outcome.status",
+    "outcome.observedPriceAtOutcome",
+    "outcome.outcomeTimestamp",
+    "outcome.userEntryPrice",
+    "outcome.userExitPrice",
+    "outcome.positionSize",
+    "outcome.outcomeSource",
+  ]);
+
+  // ── Deep Clone (P0: Snapshot Immutability) ────────────────
+  function deepClone(obj) {
+    if (obj === null || obj === undefined) return obj;
+    try {
+      return structuredClone(obj);
+    } catch {
+      // Fallback for environments without structuredClone
+      return JSON.parse(JSON.stringify(obj));
+    }
+  }
+
+  // ── Safe Number Validation ────────────────────────────────
+  function safeFiniteNumber(val) {
+    if (val === null || val === undefined) return null;
+    const n = Number(val);
+    if (!Number.isFinite(n)) return null;
+    return n;
+  }
+
+  // ── Outcome Calculation (P1: Null-safe, no divide-by-zero) ─
+  function calculateOutcome(outcome) {
+    const entry = safeFiniteNumber(outcome.userEntryPrice);
+    const exit = safeFiniteNumber(outcome.userExitPrice);
+    const qty = safeFiniteNumber(outcome.positionSize);
+
+    const result = {
+      realizedResult: null,
+      realizedResultPct: null,
+      holdingDurationMs: null,
+    };
+
+    if (entry !== null && exit !== null && qty !== null && qty >= 0) {
+      result.realizedResult = (exit - entry) * qty;
+      // P1: Entry = 0 → null, never Infinity/NaN
+      if (entry !== 0) {
+        result.realizedResultPct = ((exit - entry) / entry) * 100;
+      }
+    }
+
+    if (outcome.outcomeTimestamp && outcome.decisionTimestamp) {
+      const duration = outcome.outcomeTimestamp - outcome.decisionTimestamp;
+      if (duration >= 0) result.holdingDurationMs = duration;
+    }
+
+    return result;
+  }
+
+  // ── Schema Validation ─────────────────────────────────────
+  function validateRecord(record) {
+    if (!record || typeof record !== "object") return null;
+    if (Array.isArray(record)) return null;
+    // Reject prototype pollution
+    if ("__proto__" in record || "constructor" in record) return null;
+    if (!record.recordId || !record.schemaVersion) return null;
+    if (!record.weaverSnapshot || !record.userDecision || !record.outcome)
+      return null;
+    return record;
+  }
+
+  // ── Load Records ──────────────────────────────────────────
+  function load() {
+    try {
+      const raw = W.store.get(STORAGE_KEY, []);
+      if (!Array.isArray(raw)) return [];
+      return raw.map(validateRecord).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
+  // ── Save Records (Storage Hardening) ──────────────────────
+  function save(records) {
+    try {
+      W.store.set(STORAGE_KEY, records);
+      return { ok: true };
+    } catch (e) {
+      const msg =
+        e?.name === "QuotaExceededError"
+          ? "Track Record could not be saved. Local storage is full."
+          : "Track Record could not be saved.";
+      if (W.ui && W.ui.toast) W.ui.toast(msg, "warn");
+      return { ok: false, error: msg };
+    }
+  }
+
+  // ── Create from Token Analysis (Deep Snapshot) ────────────
+  function createFromAnalysis(analysis, assetId) {
+    if (!analysis || !assetId) {
+      return { ok: false, error: "Missing analysis or assetId" };
+    }
+
+    const snapshot = deepClone(analysis);
+
+    const record = {
+      schemaVersion: SCHEMA_VERSION,
+      recordId:
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : Date.now().toString(36) + Math.random().toString(36).slice(2, 9),
+      assetId: deepClone(assetId),
+      displaySymbol: assetId.symbol || "UNKNOWN",
+      displayName: assetId.name || assetId.symbol || "Unknown",
+      createdAt: Date.now(),
+
+      weaverSnapshot: {
+        methodologyVersion:
+          snapshot.unifiedVerdict?.methodologyVersion ||
+          snapshot.methodologyVersion ||
+          null,
+        scoringVersion:
+          snapshot.scoringVersion ||
+          snapshot.unifiedVerdict?.scoreVersion ||
+          null,
+        evidenceBuilderVersion: snapshot.evidenceBuilderVersion || null,
+        analysisTimestamp: snapshot.analysisTimestamp || Date.now(),
+
+        unifiedVerdict: snapshot.unifiedVerdict || {
+          score: null,
+          confidence: null,
+          evidenceQuality: "UNKNOWN",
+          domains: [],
+        },
+        technicalAnalysis: snapshot.technical ||
+          snapshot.technicalAnalysis || {
+            score: null,
+            bias: null,
+            rsi: null,
+            trend: null,
+            confidence: null,
+            available: false,
+          },
+        fundamentalAssessment: snapshot.fundamentals ||
+          snapshot.fundamentalAssessment || {
+            score: null,
+            bias: null,
+            available: false,
+          },
+        securityAssessment: snapshot.securityEvidence ||
+          snapshot.securityAssessment || {
+            riskScore: null,
+            riskLevel: null,
+            source: null,
+            available: false,
+          },
+        scenario: snapshot.scenario || {
+          classification: "UNKNOWN",
+          strength: null,
+          reasoning: [],
+          limitations: [],
+        },
+        evidence: {
+          supporting:
+            snapshot.bullishEvidence || snapshot.evidence?.supporting || [],
+          contradicting:
+            snapshot.bearishEvidence || snapshot.evidence?.contradicting || [],
+          missing: snapshot.evidence?.missing || [],
+        },
+      },
+
+      userDecision: {
+        action: "NO_DECISION",
+        decisionTimestamp: null,
+        notes: "",
+        linkedTransactionId: null,
+        updatedAt: null,
+      },
+
+      outcome: {
+        status: "UNKNOWN",
+        observedPriceAtOutcome: null,
+        outcomeTimestamp: null,
+        userEntryPrice: null,
+        userExitPrice: null,
+        positionSize: null,
+        realizedResult: null,
+        realizedResultPct: null,
+        resultCurrency: null,
+        holdingDurationMs: null,
+        outcomeSource: "UNKNOWN",
+      },
+
+      revisions: [],
+    };
+
+    const records = load();
+    records.unshift(record);
+    const result = save(records);
+    if (!result.ok) return result;
+
+    if (W.ui && W.ui.toast) W.ui.toast("Track Record saved", "ok");
+    return { ok: true, record };
+  }
+
+  // ── Update (Immutable Weaver Snapshot Enforcement) ────────
+  function update(recordId, changes, reason) {
+    if (!reason || typeof reason !== "string" || !reason.trim()) {
+      return { ok: false, error: "Revision reason is required" };
+    }
+
+    const records = load();
+    const idx = records.findIndex((r) => r.recordId === recordId);
+    if (idx === -1) return { ok: false, error: "Record not found" };
+
+    const record = records[idx];
+
+    // Validate each change path against whitelist
+    for (const [path, newValue] of Object.entries(changes)) {
+      if (!MUTABLE_FIELDS.has(path)) {
+        return { ok: false, error: `Immutable field: ${path}` };
+      }
+    }
+
+    // Apply changes and record revisions
+    for (const [path, newValue] of Object.entries(changes)) {
+      const parts = path.split(".");
+      const section = parts[0];
+      const field = parts[1];
+
+      const previousValue = record[section]?.[field];
+
+      // Deep clone new value to prevent reference leakage
+      record[section][field] = deepClone(newValue);
+
+      record.revisions.push({
+        timestamp: Date.now(),
+        field: path,
+        previousValue: deepClone(previousValue),
+        newValue: deepClone(newValue),
+        reason: reason.trim(),
+      });
+    }
+
+    // Recalculate outcome if outcome fields changed
+    const outcomeChanged = Object.keys(changes).some((k) =>
+      k.startsWith("outcome."),
+    );
+    if (outcomeChanged) {
+      const calc = calculateOutcome({
+        ...record.outcome,
+        decisionTimestamp: record.userDecision.decisionTimestamp,
+      });
+      record.outcome.realizedResult = calc.realizedResult;
+      record.outcome.realizedResultPct = calc.realizedResultPct;
+      record.outcome.holdingDurationMs = calc.holdingDurationMs;
+    }
+
+    record.userDecision.updatedAt = Date.now();
+    records[idx] = record;
+
+    const result = save(records);
+    if (!result.ok) return result;
+
+    return { ok: true, record };
+  }
+
+  // ── Delete ────────────────────────────────────────────────
+  function remove(recordId) {
+    const records = load().filter((r) => r.recordId !== recordId);
+    return save(records);
+  }
+
+  // ── Get All ───────────────────────────────────────────────
+  function all() {
+    return load();
+  }
+
+  // ── CSV Export (Injection-Safe) ───────────────────────────
+  function escapeCSV(val) {
+    if (val === null || val === undefined) return "";
+    let s = String(val);
+    // CSV injection prevention
+    if (/^[=+\-@]/.test(s)) s = "'" + s;
+    // Standard CSV escaping
+    if (/[",\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+
+  function exportCSV() {
+    const records = load();
+    const headers = [
+      "Record ID",
+      "Asset",
+      "Symbol",
+      "Created At",
+      "Methodology Version",
+      "Scoring Version",
+      "Scenario",
+      "Evidence Quality",
+      "Confidence",
+      "User Decision",
+      "User Notes",
+      "Outcome Status",
+      "Entry Price",
+      "Exit Price",
+      "Realized Result",
+      "Result %",
+      "Outcome Source",
+    ];
+
+    const rows = records.map((r) =>
+      [
+        r.recordId,
+        r.displayName,
+        r.displaySymbol,
+        new Date(r.createdAt).toISOString(),
+        r.weaverSnapshot.methodologyVersion,
+        r.weaverSnapshot.scoringVersion,
+        r.weaverSnapshot.scenario?.classification,
+        r.weaverSnapshot.unifiedVerdict?.evidenceQuality,
+        r.weaverSnapshot.unifiedVerdict?.confidence,
+        r.userDecision.action,
+        r.userDecision.notes,
+        r.outcome.status,
+        r.outcome.userEntryPrice,
+        r.outcome.userExitPrice,
+        r.outcome.realizedResult,
+        r.outcome.realizedResultPct,
+        r.outcome.outcomeSource,
+      ].map(escapeCSV),
+    );
+
+    const csv = [
+      headers.map(escapeCSV).join(","),
+      ...rows.map((r) => r.join(",")),
+    ].join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `weaver-track-record-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ── Render Track Record View ──────────────────────────────
+  function render(view) {
+    const records = load();
+    const esc = W.fmt.escapeHTML || ((s) => s);
+
+    view.innerHTML = `
+      <div class="card">
+        <div class="flex-between mb-16">
+          <h3>📊 Track Record <span class="muted small">(${records.length})</span></h3>
+          <button class="btn tiny" id="tr-export">⬇ Export CSV</button>
+        </div>
+        <p class="muted small">Historical analysis preserved exactly as generated. User decisions and outcomes recorded separately.</p>
+      </div>
+      <div id="tr-list"></div>
+    `;
+
+    const list = view.querySelector("#tr-list");
+    const exportBtn = view.querySelector("#tr-export");
+    if (exportBtn) exportBtn.onclick = exportCSV;
+
+    if (!records.length) {
+      list.innerHTML =
+        '<div class="card"><p class="muted">No track records yet. Save an analysis from Token Analysis to begin.</p></div>';
+      return;
+    }
+
+    list.innerHTML = records
+      .map((r) => {
+        const snap = r.weaverSnapshot;
+        const conf = snap.unifiedVerdict?.confidence;
+        const confDisplay =
+          conf !== null && conf !== undefined
+            ? `${(conf * 100).toFixed(0)}%`
+            : "Unknown";
+        const scenario = snap.scenario?.classification || "UNKNOWN";
+        const eq = snap.unifiedVerdict?.evidenceQuality || "UNKNOWN";
+
+        return `
+        <div class="card tr-card" data-id="${esc(r.recordId)}">
+          <div class="flex-between tr-header" style="cursor:pointer">
+            <div>
+              <b>${esc(r.displaySymbol)}</b> <span class="muted small">${esc(r.displayName)}</span>
+              <span class="tag ml-8">${esc(scenario)}</span>
+              <span class="tag ml-8">${esc(eq)}</span>
+            </div>
+            <div class="muted small text-right">
+              <div>${esc(r.userDecision.action)}</div>
+              <div>${W.fmt.relativeTime ? W.fmt.relativeTime(r.createdAt) : new Date(r.createdAt).toLocaleDateString()}</div>
+              <div class="small">v${esc(snap.methodologyVersion || "?")}</div>
+            </div>
+          </div>
+          <div class="tr-detail hidden mt-8">
+            <div class="tr-tabs flex-center gap-16 mb-8">
+              <button class="btn tiny tr-tab active" data-tab="snapshot">Weaver's Analysis</button>
+              <button class="btn tiny tr-tab" data-tab="decision">Your Decision</button>
+              <button class="btn tiny tr-tab" data-tab="outcome">Outcome</button>
+              <button class="btn tiny tr-tab" data-tab="methodology">Methodology</button>
+            </div>
+            <div class="tr-panel tr-snapshot">
+              <p class="small muted italic">This analysis is immutable. It reflects exactly what Weaver generated at the time.</p>
+              <div class="kv-row"><span>Confidence</span><b>${esc(confDisplay)}</b></div>
+              <div class="kv-row"><span>Evidence Quality</span><b>${esc(eq)}</b></div>
+              <div class="kv-row"><span>Scenario</span><b>${esc(scenario)}</b></div>
+              ${(snap.scenario?.reasoning || []).map((r) => `<div class="small muted mt-4">• ${esc(r)}</div>`).join("")}
+              ${(snap.scenario?.limitations || []).length ? `<div class="small muted mt-8"><b>Limitations:</b> ${snap.scenario.limitations.map((l) => esc(l)).join(", ")}</div>` : ""}
+              ${(snap.evidence?.supporting || []).length ? `<div class="mt-8"><b class="small">Supporting Evidence</b>${snap.evidence.supporting.map((e) => `<div class="small muted mt-4">✓ ${esc(e.title || e.evidence || "")}</div>`).join("")}</div>` : ""}
+              ${(snap.evidence?.contradicting || []).length ? `<div class="mt-8"><b class="small">Contradicting Evidence</b>${snap.evidence.contradicting.map((e) => `<div class="small muted mt-4">✗ ${esc(e.title || e.evidence || "")}</div>`).join("")}</div>` : ""}
+              ${(snap.evidence?.missing || []).length ? `<div class="mt-8"><b class="small">Missing Evidence</b>${snap.evidence.missing.map((m) => `<div class="small muted mt-4">— ${esc(m)}</div>`).join("")}</div>` : ""}
+            </div>
+            <div class="tr-panel tr-decision hidden">
+              <label class="small">Decision
+                <select class="input tr-decision-action" data-field="userDecision.action">
+                  ${["NO_DECISION", "WATCH", "CONSIDER", "ENTERED", "EXITED", "SKIPPED"].map((a) => `<option value="${a}" ${r.userDecision.action === a ? "selected" : ""}>${a}</option>`).join("")}
+                </select>
+              </label>
+              <label class="small mt-8">Notes
+                <textarea class="input tr-decision-notes" data-field="userDecision.notes" rows="3">${esc(r.userDecision.notes)}</textarea>
+              </label>
+              <label class="small mt-8">Reason for change
+                <input class="input tr-revision-reason" placeholder="Why are you updating this?" />
+              </label>
+              <button class="btn tiny primary mt-8 tr-save-decision">Save Changes</button>
+            </div>
+            <div class="tr-panel tr-outcome hidden">
+              <div class="kv-row"><span>Status</span><b>${esc(r.outcome.status)}</b></div>
+              <div class="kv-row"><span>Entry Price</span><b>${r.outcome.userEntryPrice !== null ? esc(String(r.outcome.userEntryPrice)) : "Unknown"}</b></div>
+              <div class="kv-row"><span>Exit Price</span><b>${r.outcome.userExitPrice !== null ? esc(String(r.outcome.userExitPrice)) : "Unknown"}</b></div>
+              <div class="kv-row"><span>Realized Result</span><b>${r.outcome.realizedResult !== null ? esc(String(r.outcome.realizedResult)) : "Unknown"}</b></div>
+              <div class="kv-row"><span>Result %</span><b>${r.outcome.realizedResultPct !== null ? esc(r.outcome.realizedResultPct.toFixed(2) + "%") : "Unknown"}</b></div>
+              <div class="kv-row"><span>Source</span><b>${esc(r.outcome.outcomeSource)}</b></div>
+            </div>
+            <div class="tr-panel tr-methodology hidden">
+              <div class="kv-row"><span>Schema Version</span><b>${esc(r.schemaVersion)}</b></div>
+              <div class="kv-row"><span>Methodology Version</span><b>${esc(snap.methodologyVersion || "Unknown")}</b></div>
+              <div class="kv-row"><span>Scoring Version</span><b>${esc(snap.scoringVersion || "Unknown")}</b></div>
+              <div class="kv-row"><span>Evidence Builder Version</span><b>${esc(snap.evidenceBuilderVersion || "Unknown")}</b></div>
+              <div class="kv-row"><span>Analysis Timestamp</span><b>${new Date(snap.analysisTimestamp).toISOString()}</b></div>
+              <div class="kv-row"><span>Record Created</span><b>${new Date(r.createdAt).toISOString()}</b></div>
+            </div>
+          </div>
+        </div>
+      `;
+      })
+      .join("");
+
+    // Wire expand/collapse
+    list.querySelectorAll(".tr-header").forEach((h) => {
+      h.onclick = () => {
+        const detail = h.parentElement.querySelector(".tr-detail");
+        if (detail) detail.classList.toggle("hidden");
+      };
+    });
+
+    // Wire tabs
+    list.querySelectorAll(".tr-tab").forEach((tab) => {
+      tab.onclick = () => {
+        const card = tab.closest(".tr-card");
+        card
+          .querySelectorAll(".tr-tab")
+          .forEach((t) => t.classList.remove("active"));
+        tab.classList.add("active");
+        card
+          .querySelectorAll(".tr-panel")
+          .forEach((p) => p.classList.add("hidden"));
+        card.querySelector(`.tr-${tab.dataset.tab}`).classList.remove("hidden");
+      };
+    });
+
+    // Wire save decision
+    list.querySelectorAll(".tr-save-decision").forEach((btn) => {
+      btn.onclick = () => {
+        const card = btn.closest(".tr-card");
+        const id = card.dataset.id;
+        const action = card.querySelector(".tr-decision-action").value;
+        const notes = card.querySelector(".tr-decision-notes").value;
+        const reason = card.querySelector(".tr-revision-reason").value;
+
+        if (!reason.trim()) {
+          if (W.ui && W.ui.toast)
+            W.ui.toast("Please provide a reason for this change", "warn");
+          return;
+        }
+
+        const result = update(
+          id,
+          {
+            "userDecision.action": action,
+            "userDecision.notes": notes,
+            "userDecision.decisionTimestamp": Date.now(),
+          },
+          reason,
+        );
+
+        if (result.ok) {
+          if (W.ui && W.ui.toast) W.ui.toast("Decision updated", "ok");
+          render(view); // Re-render to reflect changes
+        }
+      };
+    });
+  }
+
+  return {
+    createFromAnalysis,
+    update,
+    remove,
+    all,
+    exportCSV,
+    render,
+    SCHEMA_VERSION,
+  };
+})();
+
+console.log("[TrackRecord] Module loaded (track-record-v1).");
 // ---- js/features/token-analysis.js ----
 // ===============================================================
 //         Token Analysis – Evidence‑Driven Decision Workflow
@@ -17205,11 +17741,6 @@ W.tokenAnalysis = (() => {
     }
 
     // 5. Compute scores (weighted by confidence and impact)
-    // Items with unknown confidence (null) can't meaningfully weight a
-    // score — excluding them from the weighted sum is honest; treating
-    // null as 0 would silently claim "definitely no confidence," which
-    // is a different, unsupported claim. They still appear in the
-    // evidence lists below, just not in the numeric weighting.
     const weightSum = (list) =>
       list
         .filter((i) => i.confidence !== null && i.confidence !== undefined)
@@ -17231,15 +17762,9 @@ W.tokenAnalysis = (() => {
           : Math.min(riskScore, 100 - technical.score);
     }
 
-    // 6. Detect contradictions (e.g., bullish price, but bearish on-chain)
-    // For now, we simply report signals that point in opposite directions.
-    // We'll refine later.
+    // 6. Detect contradictions
     const contradictionItems = [];
     if (bullish.length > 0 && bearish.length > 0) {
-      // Take the strongest bull and bear signal and present them as
-      // contradiction — "strongest" only makes sense among items with
-      // a known confidence; fall back to the first item if every entry
-      // in a list has unknown confidence.
       const knownBull = bullish.filter((i) => i.confidence !== null);
       const knownBear = bearish.filter((i) => i.confidence !== null);
       const strongestBull = knownBull.length
@@ -17255,9 +17780,7 @@ W.tokenAnalysis = (() => {
       });
     }
 
-    // 7. Overall evidence strength = average confidence of evidence with
-    // a known confidence. If nothing has a known confidence, this is
-    // honestly null (displayed as "N/A"), not a fabricated number.
+    // 7. Overall evidence strength
     const allEvidence = [...bullish, ...bearish];
     const knownConfidenceEvidence = allEvidence.filter(
       (e) => e.confidence !== null && e.confidence !== undefined,
@@ -17273,10 +17796,7 @@ W.tokenAnalysis = (() => {
     else if (riskScore - opportunityScore > 20) verdict = "Elevated risk";
     else verdict = "Mixed signals";
 
-    // 9. Explanation (with personal context)
-    // Evidence-oriented language only — no directive/entry-point framing.
-    // WEAVER_CONSTITUTION §2.4 "Never Financial Advice" / "No Directive
-    // Laundering": this text must describe evidence, not suggest action.
+    // 9. Explanation
     let explanation = `Based on ${allEvidence.length} signals, opportunity score is ${opportunityScore.toFixed(0)}/100 and risk score is ${riskScore.toFixed(0)}/100. `;
     if (verdict === "Bullish opportunity")
       explanation +=
@@ -17375,6 +17895,8 @@ W.tokenAnalysis = (() => {
     // 11. Return structured report
     return {
       asset: asset.symbol,
+      assetName: asset.name,
+      assetId: asset,
       opportunityScore: Math.round(opportunityScore),
       riskScore: Math.round(riskScore),
       bullishEvidence: bullish.slice(0, 5),
@@ -17399,7 +17921,7 @@ W.tokenAnalysis = (() => {
     };
   }
 
-  // Render function (unchanged from previous version, but improved UI)
+  // ── Render ─────────────────────────────────────────────────
   async function render(view, assetId) {
     // If no assetId, show the search input
     if (!assetId) {
@@ -17417,8 +17939,6 @@ W.tokenAnalysis = (() => {
       view.querySelector("#ta-go").onclick = () => {
         const input = view.querySelector("#ta-input").value.trim();
         if (input) {
-          // Keep the selected asset in the route so global auto-refreshes
-          // do not replace the report with the empty search form.
           location.hash = `#/token/${encodeURIComponent(input)}`;
         }
       };
@@ -17433,13 +17953,13 @@ W.tokenAnalysis = (() => {
     try {
       const result = await analyze(assetId, { includePersonalContext: true });
       if (result.error) {
-        view.innerHTML = `<div class="card"><p class="muted">${result.error}</p></div>`;
+        view.innerHTML = `<div class="card"><p class="muted">${W.fmt.escapeHTML(result.error)}</p></div>`;
         return;
       }
 
       view.innerHTML = `
       <div class="card">
-        <h3>📊 Token Analysis: ${result.asset}</h3>
+        <h3>📊 Token Analysis: ${W.fmt.escapeHTML(result.asset)}</h3>
         <div class="cards" style="margin-top:12px;">
           <div class="card stat">
             <div class="stat-label">Opportunity Score</div>
@@ -17467,59 +17987,62 @@ W.tokenAnalysis = (() => {
           <div class="meter-label">Risk Score</div>
         </div>
         <div class="card" style="margin-top:16px; border:1px solid ${result.action === "BUY" ? "var(--up)" : result.action === "SELL" ? "var(--down)" : "var(--warn)"};">
-          <h3>${result.scenario || "Neutral / insufficient evidence"}</h3>
-          <p class="small">Evidence quality: <b>${result.evidenceQuality?.status || "UNAVAILABLE"}</b> · Scenario strength: ${result.actionConfidence ?? "N/A"}%</p>
+          <h3>${W.fmt.escapeHTML(result.scenario || "Neutral / insufficient evidence")}</h3>
+          <p class="small">Evidence quality: <b>${W.fmt.escapeHTML(result.evidenceQuality?.status || "UNAVAILABLE")}</b> · Scenario strength: ${result.actionConfidence ?? "N/A"}%</p>
           ${
             result.unifiedVerdict
               ? `<p class="small muted">Domains: ${Object.values(
                   result.unifiedVerdict.domains,
                 )
-                  .map((domain) => `${domain.name} ${domain.status}`)
+                  .map(
+                    (domain) =>
+                      `${W.fmt.escapeHTML(domain.name)} ${W.fmt.escapeHTML(domain.status)}`,
+                  )
                   .join(
                     " · ",
-                  )}</p><p class="small muted">Methodology ${result.unifiedVerdict.methodologyVersion} · Evidence ${result.unifiedVerdict.evidenceVersion}</p>`
+                  )}</p><p class="small muted">Methodology ${W.fmt.escapeHTML(result.unifiedVerdict.methodologyVersion)} · Evidence ${W.fmt.escapeHTML(result.unifiedVerdict.evidenceVersion)}</p>`
               : ""
           }
-          <p class="small muted">${result.actionInterpretation || "The available evidence does not support a directional scenario."}</p>
-          ${result.actionReasons?.length ? `<p class="small muted">${result.actionReasons.join(" · ")}</p>` : ""}
-          ${result.evidenceQuality?.reasons?.length ? `<p class="small muted">Limitations: ${result.evidenceQuality.reasons.join(" · ")}</p>` : ""}
-          ${result.tradeLevels ? `<div class="grid-2" style="margin-top:10px;"><div class="kv-row"><span>Reference price</span><b>${result.tradeLevels.entry}</b></div><div class="kv-row"><span>Potential invalidation</span><b style="color:var(--down);">${result.tradeLevels.stopLoss}</b></div><div class="kv-row"><span>Potential target zone</span><b style="color:var(--up);">${result.tradeLevels.takeProfit}</b></div><div class="kv-row"><span>ATR risk distance</span><b>${result.tradeLevels.riskDistance}</b></div></div><p class="small muted">${result.tradeLevels.basis}. These are scenario levels derived from current OHLCV data, not instructions to trade.</p>` : ""}
+          <p class="small muted">${W.fmt.escapeHTML(result.actionInterpretation || "The available evidence does not support a directional scenario.")}</p>
+          ${result.actionReasons?.length ? `<p class="small muted">${result.actionReasons.map((r) => W.fmt.escapeHTML(r)).join(" · ")}</p>` : ""}
+          ${result.evidenceQuality?.reasons?.length ? `<p class="small muted">Limitations: ${result.evidenceQuality.reasons.map((r) => W.fmt.escapeHTML(r)).join(" · ")}</p>` : ""}
+          ${result.tradeLevels ? `<div class="grid-2" style="margin-top:10px;"><div class="kv-row"><span>Reference price</span><b>${result.tradeLevels.entry}</b></div><div class="kv-row"><span>Potential invalidation</span><b style="color:var(--down);">${result.tradeLevels.stopLoss}</b></div><div class="kv-row"><span>Potential target zone</span><b style="color:var(--up);">${result.tradeLevels.takeProfit}</b></div><div class="kv-row"><span>ATR risk distance</span><b>${result.tradeLevels.riskDistance}</b></div></div><p class="small muted">${W.fmt.escapeHTML(result.tradeLevels.basis)}. These are scenario levels derived from current OHLCV data, not instructions to trade.</p>` : ""}
         </div>
-          ${result.fundamentals ? `<div class="card fundamental-breakdown"><h4>Fundamental score breakdown</h4><div class="grid-2"><div class="kv-row"><span>Fundamental bias</span><b>${result.fundamentals.bias}</b></div><div class="kv-row"><span>Overall score</span><b>${result.fundamentals.score}/100</b></div></div>${(result.fundamentals.metrics || []).map((metric) => `<div class="fundamental-metric"><div class="meter-label"><span>${metric.label}</span><b>${metric.detail}</b></div><div class="meter-bar"><div class="${meterClass(metric.value, metric.value == null ? "muted" : metric.value >= 60 ? "up" : "warn")}"></div></div></div>`).join("")}<p class="small muted">${[...(result.fundamentals.positives || []), ...(result.fundamentals.negatives || [])].join(" · ") || "Limited fundamental data available."}</p></div>` : ""}
+          ${result.fundamentals ? `<div class="card fundamental-breakdown"><h4>Fundamental score breakdown</h4><div class="grid-2"><div class="kv-row"><span>Fundamental bias</span><b>${W.fmt.escapeHTML(result.fundamentals.bias)}</b></div><div class="kv-row"><span>Overall score</span><b>${result.fundamentals.score}/100</b></div></div>${(result.fundamentals.metrics || []).map((metric) => `<div class="fundamental-metric"><div class="meter-label"><span>${W.fmt.escapeHTML(metric.label)}</span><b>${W.fmt.escapeHTML(metric.detail)}</b></div><div class="meter-bar"><div class="${meterClass(metric.value, metric.value == null ? "muted" : metric.value >= 60 ? "up" : "warn")}"></div></div></div>`).join("")}<p class="small muted">${[...(result.fundamentals.positives || []), ...(result.fundamentals.negatives || [])].map((t) => W.fmt.escapeHTML(t)).join(" · ") || "Limited fundamental data available."}</p></div>` : ""}
         ${
           result.technical
             ? `
         <div class="card" style="margin-top:16px;">
           <h4>📐 Market-derived technical analysis</h4>
           <div class="grid-2" style="margin-top:10px;">
-            <div class="kv-row"><span>RSI (14)</span><b>${result.technical.rsi} · ${result.technical.rsiBias}</b></div>
+            <div class="kv-row"><span>RSI (14)</span><b>${result.technical.rsi} · ${W.fmt.escapeHTML(result.technical.rsiBias)}</b></div>
             <div class="kv-row"><span>ATR (14)</span><b>${result.technical.atr}</b></div>
-            <div class="kv-row"><span>Trend</span><b>${result.technical.trend}</b></div>
+            <div class="kv-row"><span>Trend</span><b>${W.fmt.escapeHTML(result.technical.trend)}</b></div>
             <div class="kv-row"><span>EMA 20 / EMA 50</span><b>${result.technical.ema20} / ${result.technical.ema50 ?? "N/A"}</b></div>
             <div class="kv-row"><span>MACD bias</span><b>${result.technical.macd >= 0 ? "positive" : "negative"} (${result.technical.macd})</b></div>
             <div class="kv-row"><span>Bollinger position</span><b>${result.technical.bollingerPosition}%</b></div>
-            <div class="kv-row"><span>Market structure</span><b>${result.technical.structure.label}</b></div>
-            <div class="kv-row"><span>Structure event</span><b>${result.technical.structure.breakOfStructure}</b></div>
-            <div class="kv-row"><span>CHOCH</span><b>${result.technical.structure.choch?.direction || "None confirmed"}</b></div>
-            <div class="kv-row"><span>SMC / liquidity</span><b>${result.technical.smc.liquidity}</b></div>
+            <div class="kv-row"><span>Market structure</span><b>${W.fmt.escapeHTML(result.technical.structure.label)}</b></div>
+            <div class="kv-row"><span>Structure event</span><b>${W.fmt.escapeHTML(result.technical.structure.breakOfStructure)}</b></div>
+            <div class="kv-row"><span>CHOCH</span><b>${W.fmt.escapeHTML(result.technical.structure.choch?.direction || "None confirmed")}</b></div>
+            <div class="kv-row"><span>SMC / liquidity</span><b>${W.fmt.escapeHTML(result.technical.smc.liquidity)}</b></div>
             <div class="kv-row"><span>Relative volume</span><b>${result.technical.relativeVolume == null ? "N/A" : result.technical.relativeVolume + "x"}</b></div>
-            ${result.technical.multiTimeframe ? `<div class="kv-row"><span>MTF alignment</span><b>${result.technical.multiTimeframe.timeframeAlignment}</b></div><div class="kv-row"><span>Liquidity zones</span><b>${result.technical.multiTimeframe.liquidityZones.length}</b></div>` : ""}
+            ${result.technical.multiTimeframe ? `<div class="kv-row"><span>MTF alignment</span><b>${W.fmt.escapeHTML(result.technical.multiTimeframe.timeframeAlignment)}</b></div><div class="kv-row"><span>Liquidity zones</span><b>${result.technical.multiTimeframe.liquidityZones.length}</b></div>` : ""}
             <div class="kv-row"><span>Support / resistance</span><b>${result.technical.support} / ${result.technical.resistance}</b></div>
             <div class="kv-row"><span>Technical confidence</span><b>${result.technical.confidence}%</b></div>
           </div>
-          <p class="muted small" style="margin-top:10px;">Confluence: ${result.technical.confluence}. Annualized close-to-close volatility: ${result.technical.volatility}%.</p>
-          <p class="muted small" style="margin-top:10px;">${result.technical.smc.orderBlock}. ${result.technical.smc.limitation} Liquidity zones are heuristics derived from OHLCV; they are not direct order-book or on-chain observations.</p>
+          <p class="muted small" style="margin-top:10px;">Confluence: ${W.fmt.escapeHTML(result.technical.confluence)}. Annualized close-to-close volatility: ${result.technical.volatility}%.</p>
+          <p class="muted small" style="margin-top:10px;">${W.fmt.escapeHTML(result.technical.smc.orderBlock)}. ${W.fmt.escapeHTML(result.technical.smc.limitation)} Liquidity zones are heuristics derived from OHLCV; they are not direct order-book or on-chain observations.</p>
         </div>`
             : ""
         }
         <div class="grid-2" style="margin-top:16px;">
           <div class="card">
             <h4 style="color:var(--up);">🟢 Bullish Evidence</h4>
-            ${result.bullishEvidence.length ? result.bullishEvidence.map((e) => `<div class="kv-row"><span>${e.title}</span><span class="small">${e.evidence}</span></div>`).join("") : '<p class="muted small">No bullish evidence found.</p>'}
+            ${result.bullishEvidence.length ? result.bullishEvidence.map((e) => `<div class="kv-row"><span>${W.fmt.escapeHTML(e.title)}</span><span class="small">${W.fmt.escapeHTML(e.evidence)}</span></div>`).join("") : '<p class="muted small">No bullish evidence found.</p>'}
           </div>
           <div class="card">
             <h4 style="color:var(--down);">🔴 Bearish Evidence</h4>
-            ${result.bearishEvidence.length ? result.bearishEvidence.map((e) => `<div class="kv-row"><span>${e.title}</span><span class="small">${e.evidence}</span></div>`).join("") : '<p class="muted small">No bearish evidence found.</p>'}
+            ${result.bearishEvidence.length ? result.bearishEvidence.map((e) => `<div class="kv-row"><span>${W.fmt.escapeHTML(e.title)}</span><span class="small">${W.fmt.escapeHTML(e.evidence)}</span></div>`).join("") : '<p class="muted small">No bearish evidence found.</p>'}
           </div>
         </div>
         ${
@@ -17527,37 +18050,86 @@ W.tokenAnalysis = (() => {
             ? `
           <div style="margin-top:12px; padding:12px; background:rgba(255,179,92,0.1); border-radius:8px;">
             <b>⚠️ Contradicting Evidence:</b>
-            ${result.contradictions.map((c) => `<div class="small">${c.bull} vs ${c.bear} — ${c.details}</div>`).join("")}
+            ${result.contradictions.map((c) => `<div class="small">${W.fmt.escapeHTML(c.bull)} vs ${W.fmt.escapeHTML(c.bear)} — ${W.fmt.escapeHTML(c.details)}</div>`).join("")}
           </div>
         `
             : ""
         }
         <div style="margin-top:16px; padding:12px; background:rgba(124,92,255,0.08); border-radius:8px;">
-          <b>Verdict:</b> ${result.verdict}
-          <p class="small muted" style="margin-top:4px;">${result.explanation}</p>
+          <b>Verdict:</b> ${W.fmt.escapeHTML(result.verdict)}
+          <p class="small muted" style="margin-top:4px;">${W.fmt.escapeHTML(result.explanation)}</p>
         </div>
         ${
           result.personalContext
             ? `
           <div style="margin-top:12px; padding:12px; background:rgba(46,230,168,0.08); border-radius:8px;">
             <b>👤 Your Position:</b>
-            ${result.personalContext.hasPosition ? `You hold ${result.personalContext.quantity} ${result.asset} at avg cost $${result.personalContext.avgCost.toFixed(2)} (current value $${result.personalContext.currentValue.toFixed(2)}).` : "You do not hold this asset."}
+            ${result.personalContext.hasPosition ? `You hold ${result.personalContext.quantity} ${W.fmt.escapeHTML(result.asset)} at avg cost $${result.personalContext.avgCost.toFixed(2)} (current value $${result.personalContext.currentValue.toFixed(2)}).` : "You do not hold this asset."}
           </div>
         `
             : ""
         }
-        <div style="margin-top:12px;">
-          <button class="btn tiny" onclick="document.location.hash='#/token'">← New Analysis</button>
+        <div class="qa mt-16">
+          <button class="btn tiny" id="ta-new-analysis">← New Analysis</button>
+          <button class="btn tiny primary" id="ta-save-track">📊 Save to Track Record</button>
         </div>
       </div>
     `;
+
+      // Wire navigation
+      const newBtn = view.querySelector("#ta-new-analysis");
+      if (newBtn)
+        newBtn.onclick = () => {
+          location.hash = "#/token";
+        };
+
+      // ── TRACK RECORD INTEGRATION ────────────────────────────
+      // Saves the CURRENT analysis result as an immutable snapshot.
+      // Does NOT re-fetch market data. Uses the exact result displayed.
+      const saveTrackBtn = view.querySelector("#ta-save-track");
+      if (saveTrackBtn) {
+        saveTrackBtn.onclick = async () => {
+          if (!W.trackRecord) {
+            return W.ui.toast("Track Record module not loaded", "warn");
+          }
+
+          // Resolve canonical asset identity for the record
+          let canonicalAssetId;
+          try {
+            canonicalAssetId = await W.asset.resolveAssetId(
+              result.assetId?.coingeckoId || result.asset,
+            );
+          } catch {
+            // Fallback if resolver fails — use what we have
+            canonicalAssetId = result.assetId || {
+              symbol: result.asset,
+              name: result.assetName || result.asset,
+              coingeckoId: null,
+              chainId: null,
+              contractAddress: null,
+            };
+          }
+
+          const saveResult = W.trackRecord.createFromAnalysis(
+            result,
+            canonicalAssetId,
+          );
+
+          if (saveResult.ok) {
+            // Disable button to prevent duplicate saves
+            saveTrackBtn.disabled = true;
+            saveTrackBtn.textContent = "✓ Saved";
+          }
+          // Error toast is handled inside createFromAnalysis
+        };
+      }
     } catch (e) {
-      view.innerHTML = `<div class="card"><p class="muted">Analysis failed: ${e.message}</p></div>`;
+      view.innerHTML = `<div class="card"><p class="muted">Analysis failed: ${W.fmt.escapeHTML(e.message)}</p></div>`;
     }
   }
+
   console.log("[TokenAnalysis] Module loaded.");
 
-  // expose API
   return {
     analyze,
     render,
@@ -17813,6 +18385,7 @@ window.W = window.W || {};
         { id: "smart", icon: "🧠", label: "Smart Money", route: "#/smart" },
         { id: "theses", icon: "🎯", label: "Theses", route: "#/theses" },
         { id: "journal", icon: "📓", label: "Journal", route: "#/journal" },
+        { id: "track", icon: "📊", label: "Track Record", route: "#/track" },
       ],
     },
     {
@@ -17893,6 +18466,9 @@ window.W = window.W || {};
     pro: (v) => safeRender(v, "pro", () => W.misc?.renderPro),
     theses: (v) => safeRender(v, "theses", () => W.theses?.render),
     journal: (v) => safeRender(v, "journal", () => W.journal?.render),
+    track: (v) =>
+      W.trackRecord?.render?.(v) ||
+      W.ui?.toast?.("Track Record module not loaded", "warn"),
     sync: (v) => safeRender(v, "sync", () => W.sync?.render),
     settings: (v) => safeRender(v, "settings", () => W.misc?.renderSettings),
     token: (v) =>

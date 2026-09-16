@@ -1505,3 +1505,11 @@ th.num {
 .tag.live,    .tag.emerging-opportunity { color: var(--warn); background: rgba(255, 179, 92, 0.12); }
 .tag.triggered, .tag.speculative { color: var(--text-muted); background: rgba(255, 255, 255, 0.06); }
 .tag.sell,    .tag.weak-opportunity { color: var(--down); background: rgba(255, 92, 122, 0.12); }
+/* ── Track Record ─────────────────────────────────── */
+.tr-card { cursor: pointer; }
+.tr-header { padding: 4px 0; }
+.tr-detail { border-top: 1px solid var(--border); padding-top: 12px; }
+.tr-tabs { flex-wrap: wrap; }
+.tr-tab.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+.tr-panel { margin-top: 8px; }
+.tr-snapshot, .tr-user, .tr-outcome, .tr-methodology { padding: 4px 0; }

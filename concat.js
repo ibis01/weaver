@@ -90,6 +90,7 @@ const files = [
   "js/features/walletsync.js",
   "js/features/theses.js",
   "js/features/journal.js",
+  "js/features/track-record.js",
   "js/features/token-analysis.js",
 
   // ── UI Enhancements ──────────────────────────────────────────

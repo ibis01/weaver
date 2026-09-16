@@ -181,5 +181,10 @@ try {
 } catch (e) {
   console.warn("[setup] gems.js load failed:", e.message);
 }
+try {
+  require("../js/features/track-record.js");
+} catch (e) {
+  console.warn("[setup] track-record.js load failed:", e.message);
+}
 
 console.log("✅ Test environment initialized with JSDOM and W namespace.");
