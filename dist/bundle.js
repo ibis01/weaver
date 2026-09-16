@@ -16833,10 +16833,20 @@ W.journal = W.journal || {};
 console.log("[Journal] Decision module loaded (CSP compliant).");
 // ---- js/features/track-record.js ----
 // ===============================================================
-//         Track Record Module — Auditable Historical Analysis
+//         Track Record Module — v2.1
 // ===============================================================
-// Constitution §2.3, §4.4, §6.4: Preserve what Weaver knew,
-// what the user decided, and what happened. Immutable snapshots.
+//
+// Purpose: Persist a historical, immutable snapshot of Weaver's
+// analysis alongside the user's own decision and the observed outcome.
+//
+// Constitution compliance:
+//   §2.2 reasoning visible       — snapshot preserves reasoning arrays
+//   §2.3 losses visible          — outcomes carry provenance, no cherry-pick
+//   §2.4 no financial directives — no "buy/sell" language
+//   §2.7 evidence provenance     — source/timestamp per snapshot
+//   §2.9 no false precision      — null stays null, never 0/0.5/50
+//   §3.8 versioned scoring       — methodologyVersion + scoringVersion stored
+//
 // ===============================================================
 
 window.W = window.W || {};
@@ -16844,532 +16854,934 @@ window.W = window.W || {};
 W.trackRecord = (() => {
   const STORAGE_KEY = "track_record";
   const SCHEMA_VERSION = "track-record-v1";
+  const MAX_REVISIONS = 100;
 
-  const MUTABLE_FIELDS = new Set([
-    "userDecision.action",
-    "userDecision.notes",
-    "userDecision.decisionTimestamp",
-    "userDecision.linkedTransactionId",
-    "outcome.status",
-    "outcome.observedPriceAtOutcome",
-    "outcome.outcomeTimestamp",
-    "outcome.userEntryPrice",
-    "outcome.userExitPrice",
-    "outcome.positionSize",
-    "outcome.outcomeSource",
-  ]);
+  // ── Enum whitelists (Phase 19) ─────────────────────────────
+  // UNSET represents a fresh record where the user has not yet
+  // engaged with the decision. NO_DECISION is retained for records
+  // where the user explicitly considered and chose not to decide.
+  const ACTIONS = [
+    "UNSET",
+    "NO_DECISION",
+    "WATCH",
+    "CONSIDER",
+    "ENTERED",
+    "EXITED",
+    "SKIPPED",
+  ];
+  const OUTCOME_STATUS = ["OPEN", "CLOSED", "UNKNOWN"];
+  const OUTCOME_SOURCE = [
+    "USER_ENTERED",
+    "PORTFOLIO_TRANSACTION",
+    "MARKET_OBSERVATION",
+    "UNKNOWN",
+  ];
+  const EVIDENCE_QUALITY = ["SUFFICIENT", "PARTIAL", "INSUFFICIENT", "UNKNOWN"];
+  const SCENARIO_CLASS = ["POSITIVE", "NEGATIVE", "NEUTRAL", "UNKNOWN"];
 
-  // ── Deep Clone (P0: Snapshot Immutability) ────────────────
-  function deepClone(obj) {
-    if (obj === null || obj === undefined) return obj;
-    try {
-      return structuredClone(obj);
-    } catch {
-      // Fallback for environments without structuredClone
-      return JSON.parse(JSON.stringify(obj));
+  // ── Deterministic string hash (FNV-1a, 32-bit) ─────────────
+  function stableHash(input) {
+    const str = String(input || "");
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
     }
+    return (h >>> 0).toString(16).padStart(8, "0");
   }
 
-  // ── Safe Number Validation ────────────────────────────────
-  function safeFiniteNumber(val) {
-    if (val === null || val === undefined) return null;
-    const n = Number(val);
-    if (!Number.isFinite(n)) return null;
-    return n;
+  // ── UUID generation ────────────────────────────────────────
+  function newId() {
+    if (
+      typeof crypto !== "undefined" &&
+      typeof crypto.randomUUID === "function"
+    ) {
+      return crypto.randomUUID();
+    }
+    return (
+      "tr-" +
+      Date.now().toString(36) +
+      "-" +
+      Math.random().toString(36).slice(2, 10)
+    );
   }
 
-  // ── Outcome Calculation (P1: Null-safe, no divide-by-zero) ─
-  function calculateOutcome(outcome) {
-    const entry = safeFiniteNumber(outcome.userEntryPrice);
-    const exit = safeFiniteNumber(outcome.userExitPrice);
-    const qty = safeFiniteNumber(outcome.positionSize);
+  // ── Enum validation ────────────────────────────────────────
+  function validEnum(value, whitelist, fallback) {
+    return whitelist.includes(value) ? value : fallback;
+  }
 
-    const result = {
-      realizedResult: null,
-      realizedResultPct: null,
-      holdingDurationMs: null,
+  // ── Analysis normalization ─────────────────────────────────
+  // Accepts a token-analysis() result of any shape and normalizes to
+  // the canonical weaverSnapshot. Missing fields stay null (Phase 5).
+  function normalizeAnalysis(analysis) {
+    const a = analysis || {};
+
+    const unified = a.unifiedVerdict || a.verdict || {};
+    const ta = a.technicalAnalysis || a.technicals || {};
+    const fa =
+      a.fundamentalAssessment || a.fundamental || a.fundamentalReport || {};
+    const sa = a.securityAssessment || a.shield || {};
+    const sc = a.scenario || {};
+    const ev = a.evidence || {};
+
+    // Preserve the composed verdict's domain OBJECT (not array).
+    // The unified-verdict.compose() output uses {market, technical,
+    // security, holders, liquidity, freshness}. Older code paths used
+    // an array — accept both, prefer object.
+    let domains = {};
+    if (
+      unified.domains &&
+      typeof unified.domains === "object" &&
+      !Array.isArray(unified.domains)
+    ) {
+      domains = { ...unified.domains };
+    } else if (Array.isArray(unified.domains)) {
+      // Legacy: array of {name, status, ...}. Re-key by name.
+      unified.domains.forEach((d) => {
+        if (d && typeof d === "object" && d.name) {
+          domains[String(d.name).toLowerCase()] = { ...d };
+        }
+      });
+    }
+
+    return {
+      // The raw asset identifier the analysis was performed on.
+      asset: typeof a.asset === "string" ? a.asset : null,
+
+      methodologyVersion: a.methodologyVersion ?? a.methodology ?? null,
+      scoringVersion: a.scoringVersion ?? a.scoreVersion ?? null,
+      evidenceBuilderVersion: a.evidenceBuilderVersion ?? null,
+      analysisTimestamp:
+        typeof a.analysisTimestamp === "number"
+          ? a.analysisTimestamp
+          : Date.now(),
+
+      unifiedVerdict: {
+        score:
+          typeof unified.score === "number"
+            ? unified.score
+            : typeof a.opportunityScore === "number"
+              ? a.opportunityScore
+              : typeof a.score === "number"
+                ? a.score
+                : null,
+        confidence:
+          typeof unified.confidence === "number"
+            ? unified.confidence
+            : typeof a.confidence === "number"
+              ? a.confidence
+              : null,
+        evidenceQuality: validEnum(
+          unified.evidenceQuality,
+          EVIDENCE_QUALITY,
+          "UNKNOWN",
+        ),
+        domains,
+      },
+
+      technicalAnalysis: {
+        score: typeof ta.score === "number" ? ta.score : null,
+        bias: typeof ta.bias === "string" ? ta.bias : null,
+        rsi: typeof ta.rsi === "number" ? ta.rsi : null,
+        trend: typeof ta.trend === "string" ? ta.trend : null,
+        confidence: typeof ta.confidence === "number" ? ta.confidence : null,
+        available:
+          typeof ta.available === "boolean" ? ta.available : ta.score != null,
+      },
+
+      fundamentalAssessment: {
+        score: typeof fa.score === "number" ? fa.score : null,
+        bias: typeof fa.bias === "string" ? fa.bias : null,
+        available:
+          typeof fa.available === "boolean" ? fa.available : fa.score != null,
+      },
+
+      securityAssessment: {
+        riskScore: typeof sa.riskScore === "number" ? sa.riskScore : null,
+        riskLevel:
+          typeof sa.riskLevel === "string"
+            ? sa.riskLevel
+            : Array.isArray(sa.riskLevel)
+              ? sa.riskLevel[0]
+              : null,
+        source: typeof sa.source === "string" ? sa.source : null,
+        available:
+          typeof sa.available === "boolean"
+            ? sa.available
+            : sa.riskScore != null,
+      },
+
+      scenario: {
+        classification: validEnum(sc.classification, SCENARIO_CLASS, "UNKNOWN"),
+        strength: typeof sc.strength === "number" ? sc.strength : null,
+        reasoning: Array.isArray(sc.reasoning) ? sc.reasoning.slice() : [],
+        limitations: Array.isArray(sc.limitations)
+          ? sc.limitations.slice()
+          : [],
+      },
+
+      evidence: {
+        supporting: Array.isArray(ev.supporting)
+          ? ev.supporting.slice()
+          : Array.isArray(a.bullishEvidence)
+            ? a.bullishEvidence.slice()
+            : [],
+        contradicting: Array.isArray(ev.contradicting)
+          ? ev.contradicting.slice()
+          : Array.isArray(a.bearishEvidence)
+            ? a.bearishEvidence.slice()
+            : [],
+        missing: Array.isArray(ev.missing) ? ev.missing.slice() : [],
+      },
     };
+  }
 
-    if (entry !== null && exit !== null && qty !== null && qty >= 0) {
-      result.realizedResult = (exit - entry) * qty;
-      // P1: Entry = 0 → null, never Infinity/NaN
-      if (entry !== 0) {
-        result.realizedResultPct = ((exit - entry) / entry) * 100;
+  // ── Asset ID normalization ─────────────────────────────────
+  function normalizeAssetId(asset) {
+    const a = asset || {};
+    return {
+      chainId: typeof a.chainId === "string" ? a.chainId : null,
+      contractAddress:
+        typeof a.contractAddress === "string" ? a.contractAddress : null,
+      symbol: typeof a.symbol === "string" ? a.symbol : null,
+      coingeckoId: typeof a.coingeckoId === "string" ? a.coingeckoId : null,
+      name: typeof a.name === "string" ? a.name : null,
+    };
+  }
+
+  // ── Immutable snapshot guard ───────────────────────────────
+  const IMMUTABLE_TOP = [
+    "recordId",
+    "createdAt",
+    "weaverSnapshot",
+    "schemaVersion",
+  ];
+
+  function patchRecord(record, patch) {
+    const next = { ...record };
+
+    for (const key of Object.keys(patch)) {
+      if (IMMUTABLE_TOP.includes(key)) {
+        console.warn(
+          `[TrackRecord] Rejected mutation of immutable field: ${key}`,
+        );
+        continue;
+      }
+      if (key === "userDecision") {
+        next.userDecision = normalizeDecision({
+          ...next.userDecision,
+          ...patch.userDecision,
+        });
+        continue;
+      }
+      if (key === "outcome") {
+        next.outcome = normalizeOutcome({ ...next.outcome, ...patch.outcome });
+        continue;
+      }
+      if (
+        [
+          "displaySymbol",
+          "displayName",
+          "assetId",
+          "revisions",
+          "migration",
+          "updatedAt",
+        ].includes(key)
+      ) {
+        next[key] = patch[key];
       }
     }
-
-    if (outcome.outcomeTimestamp && outcome.decisionTimestamp) {
-      const duration = outcome.outcomeTimestamp - outcome.decisionTimestamp;
-      if (duration >= 0) result.holdingDurationMs = duration;
-    }
-
-    return result;
+    return next;
   }
 
-  // ── Schema Validation ─────────────────────────────────────
-  function validateRecord(record) {
-    if (!record || typeof record !== "object") return null;
-    if (Array.isArray(record)) return null;
-    // Reject prototype pollution
-    if ("__proto__" in record || "constructor" in record) return null;
-    if (!record.recordId || !record.schemaVersion) return null;
-    if (!record.weaverSnapshot || !record.userDecision || !record.outcome)
-      return null;
-    return record;
+  // ── Decision normalization ─────────────────────────────────
+  // defaultAction distinguishes the "fresh record" case (UNSET)
+  // from the "user updated with an invalid value" case (NO_DECISION).
+  function normalizeDecision(d, defaultAction = "NO_DECISION") {
+    const x = d || {};
+    return {
+      action: validEnum(x.action, ACTIONS, defaultAction),
+      decisionTimestamp:
+        typeof x.decisionTimestamp === "number" ? x.decisionTimestamp : null,
+      notes: typeof x.notes === "string" ? x.notes : "",
+      linkedTransactionId:
+        typeof x.linkedTransactionId === "string"
+          ? x.linkedTransactionId
+          : null,
+      updatedAt: typeof x.updatedAt === "number" ? x.updatedAt : null,
+    };
   }
 
-  // ── Load Records ──────────────────────────────────────────
-  function load() {
-    try {
-      const raw = W.store.get(STORAGE_KEY, []);
-      if (!Array.isArray(raw)) return [];
-      return raw.map(validateRecord).filter(Boolean);
-    } catch {
-      return [];
-    }
+  // ── Outcome normalization ──────────────────────────────────
+  function normalizeOutcome(o) {
+    const x = o || {};
+    return {
+      status: validEnum(x.status, OUTCOME_STATUS, "UNKNOWN"),
+      observedPriceAtOutcome:
+        typeof x.observedPriceAtOutcome === "number"
+          ? x.observedPriceAtOutcome
+          : null,
+      outcomeTimestamp:
+        typeof x.outcomeTimestamp === "number" ? x.outcomeTimestamp : null,
+      userEntryPrice:
+        typeof x.userEntryPrice === "number" ? x.userEntryPrice : null,
+      userExitPrice:
+        typeof x.userExitPrice === "number" ? x.userExitPrice : null,
+      positionSize: typeof x.positionSize === "number" ? x.positionSize : null,
+      realizedResult:
+        typeof x.realizedResult === "number" ? x.realizedResult : null,
+      realizedResultPct:
+        typeof x.realizedResultPct === "number" ? x.realizedResultPct : null,
+      resultCurrency:
+        typeof x.resultCurrency === "string" ? x.resultCurrency : null,
+      holdingDurationMs:
+        typeof x.holdingDurationMs === "number" ? x.holdingDurationMs : null,
+      outcomeSource: validEnum(x.outcomeSource, OUTCOME_SOURCE, "UNKNOWN"),
+    };
   }
 
-  // ── Save Records (Storage Hardening) ──────────────────────
-  function save(records) {
-    try {
-      W.store.set(STORAGE_KEY, records);
-      return { ok: true };
-    } catch (e) {
-      const msg =
-        e?.name === "QuotaExceededError"
-          ? "Track Record could not be saved. Local storage is full."
-          : "Track Record could not be saved.";
-      if (W.ui && W.ui.toast) W.ui.toast(msg, "warn");
-      return { ok: false, error: msg };
+  // ── Recompute outcome only from known values (Phase 5) ─────
+  function recomputeOutcome(outcome) {
+    const o = { ...outcome };
+
+    if (
+      o.userEntryPrice == null ||
+      o.userExitPrice == null ||
+      o.userEntryPrice === 0
+    ) {
+      o.realizedResultPct = null;
+    } else {
+      o.realizedResultPct =
+        ((o.userExitPrice - o.userEntryPrice) / o.userEntryPrice) * 100;
     }
+
+    if (
+      o.userEntryPrice == null ||
+      o.userExitPrice == null ||
+      o.positionSize == null
+    ) {
+      o.realizedResult = null;
+    } else {
+      o.realizedResult = (o.userExitPrice - o.userEntryPrice) * o.positionSize;
+    }
+
+    if (o.outcomeTimestamp != null && o.entryTimestamp != null) {
+      o.holdingDurationMs = o.outcomeTimestamp - o.entryTimestamp;
+    } else if (o.outcomeTimestamp == null) {
+      o.holdingDurationMs = null;
+    }
+
+    return o;
   }
 
-  // ── Create from Token Analysis (Deep Snapshot) ────────────
-  function createFromAnalysis(analysis, assetId) {
-    if (!analysis || !assetId) {
-      return { ok: false, error: "Missing analysis or assetId" };
+  // ── Persistence ────────────────────────────────────────────
+  function loadAll() {
+    const raw = W.store.get(STORAGE_KEY, []);
+    if (!Array.isArray(raw)) return [];
+    return raw.filter(
+      (r) => r && typeof r === "object" && typeof r.recordId === "string",
+    );
+  }
+
+  function saveAll(records) {
+    W.store.set(STORAGE_KEY, records);
+  }
+
+  // ── Public API ─────────────────────────────────────────────
+
+  function createFromAnalysis(analysis, asset) {
+    if (!analysis || typeof analysis !== "object") {
+      throw new Error("createFromAnalysis requires an analysis object");
     }
 
-    const snapshot = deepClone(analysis);
+    const assetId = normalizeAssetId(asset);
+    const snapshot = normalizeAnalysis(analysis);
+    const now = Date.now();
 
     const record = {
       schemaVersion: SCHEMA_VERSION,
-      recordId:
-        typeof crypto !== "undefined" && crypto.randomUUID
-          ? crypto.randomUUID()
-          : Date.now().toString(36) + Math.random().toString(36).slice(2, 9),
-      assetId: deepClone(assetId),
-      displaySymbol: assetId.symbol || "UNKNOWN",
-      displayName: assetId.name || assetId.symbol || "Unknown",
-      createdAt: Date.now(),
-
-      weaverSnapshot: {
-        methodologyVersion:
-          snapshot.unifiedVerdict?.methodologyVersion ||
-          snapshot.methodologyVersion ||
-          null,
-        scoringVersion:
-          snapshot.scoringVersion ||
-          snapshot.unifiedVerdict?.scoreVersion ||
-          null,
-        evidenceBuilderVersion: snapshot.evidenceBuilderVersion || null,
-        analysisTimestamp: snapshot.analysisTimestamp || Date.now(),
-
-        unifiedVerdict: snapshot.unifiedVerdict || {
-          score: null,
-          confidence: null,
-          evidenceQuality: "UNKNOWN",
-          domains: [],
-        },
-        technicalAnalysis: snapshot.technical ||
-          snapshot.technicalAnalysis || {
-            score: null,
-            bias: null,
-            rsi: null,
-            trend: null,
-            confidence: null,
-            available: false,
-          },
-        fundamentalAssessment: snapshot.fundamentals ||
-          snapshot.fundamentalAssessment || {
-            score: null,
-            bias: null,
-            available: false,
-          },
-        securityAssessment: snapshot.securityEvidence ||
-          snapshot.securityAssessment || {
-            riskScore: null,
-            riskLevel: null,
-            source: null,
-            available: false,
-          },
-        scenario: snapshot.scenario || {
-          classification: "UNKNOWN",
-          strength: null,
-          reasoning: [],
-          limitations: [],
-        },
-        evidence: {
-          supporting:
-            snapshot.bullishEvidence || snapshot.evidence?.supporting || [],
-          contradicting:
-            snapshot.bearishEvidence || snapshot.evidence?.contradicting || [],
-          missing: snapshot.evidence?.missing || [],
-        },
-      },
-
-      userDecision: {
-        action: "NO_DECISION",
-        decisionTimestamp: null,
-        notes: "",
-        linkedTransactionId: null,
-        updatedAt: null,
-      },
-
-      outcome: {
-        status: "UNKNOWN",
-        observedPriceAtOutcome: null,
-        outcomeTimestamp: null,
-        userEntryPrice: null,
-        userExitPrice: null,
-        positionSize: null,
-        realizedResult: null,
-        realizedResultPct: null,
-        resultCurrency: null,
-        holdingDurationMs: null,
-        outcomeSource: "UNKNOWN",
-      },
-
+      recordId: newId(),
+      assetId,
+      displaySymbol:
+        assetId.symbol ||
+        (analysis.asset ? String(analysis.asset).toUpperCase() : "UNKNOWN"),
+      displayName: assetId.name || analysis.asset || "Unknown",
+      createdAt: now,
+      weaverSnapshot: snapshot,
+      // Fresh records use UNSET — the user has not engaged yet.
+      userDecision: normalizeDecision({}, "UNSET"),
+      outcome: normalizeOutcome({}),
       revisions: [],
     };
 
-    const records = load();
+    const records = loadAll();
     records.unshift(record);
-    const result = save(records);
-    if (!result.ok) return result;
+    saveAll(records);
 
-    if (W.ui && W.ui.toast) W.ui.toast("Track Record saved", "ok");
-    return { ok: true, record };
+    return record;
   }
 
-  // ── Update (Immutable Weaver Snapshot Enforcement) ────────
-  function update(recordId, changes, reason) {
-    if (!reason || typeof reason !== "string" || !reason.trim()) {
-      return { ok: false, error: "Revision reason is required" };
-    }
+  function getAll() {
+    return loadAll();
+  }
 
-    const records = load();
+  function getById(recordId) {
+    return loadAll().find((r) => r.recordId === recordId) || null;
+  }
+
+  function updateDecision(recordId, decisionPatch) {
+    const records = loadAll();
     const idx = records.findIndex((r) => r.recordId === recordId);
-    if (idx === -1) return { ok: false, error: "Record not found" };
+    if (idx === -1) return null;
 
-    const record = records[idx];
-
-    // Validate each change path against whitelist
-    for (const [path, newValue] of Object.entries(changes)) {
-      if (!MUTABLE_FIELDS.has(path)) {
-        return { ok: false, error: `Immutable field: ${path}` };
-      }
-    }
-
-    // Apply changes and record revisions
-    for (const [path, newValue] of Object.entries(changes)) {
-      const parts = path.split(".");
-      const section = parts[0];
-      const field = parts[1];
-
-      const previousValue = record[section]?.[field];
-
-      // Deep clone new value to prevent reference leakage
-      record[section][field] = deepClone(newValue);
-
-      record.revisions.push({
-        timestamp: Date.now(),
-        field: path,
-        previousValue: deepClone(previousValue),
-        newValue: deepClone(newValue),
-        reason: reason.trim(),
-      });
-    }
-
-    // Recalculate outcome if outcome fields changed
-    const outcomeChanged = Object.keys(changes).some((k) =>
-      k.startsWith("outcome."),
-    );
-    if (outcomeChanged) {
-      const calc = calculateOutcome({
-        ...record.outcome,
-        decisionTimestamp: record.userDecision.decisionTimestamp,
-      });
-      record.outcome.realizedResult = calc.realizedResult;
-      record.outcome.realizedResultPct = calc.realizedResultPct;
-      record.outcome.holdingDurationMs = calc.holdingDurationMs;
-    }
-
-    record.userDecision.updatedAt = Date.now();
-    records[idx] = record;
-
-    const result = save(records);
-    if (!result.ok) return result;
-
-    return { ok: true, record };
+    const existing = records[idx];
+    const patch = {
+      userDecision: {
+        ...existing.userDecision,
+        ...decisionPatch,
+        updatedAt: Date.now(),
+      },
+    };
+    records[idx] = patchRecord(existing, patch);
+    saveAll(records);
+    return records[idx];
   }
 
-  // ── Delete ────────────────────────────────────────────────
-  function remove(recordId) {
-    const records = load().filter((r) => r.recordId !== recordId);
-    return save(records);
+  function updateOutcome(recordId, outcomePatch) {
+    const records = loadAll();
+    const idx = records.findIndex((r) => r.recordId === recordId);
+    if (idx === -1) return null;
+
+    const existing = records[idx];
+    const mergedOutcome = recomputeOutcome({
+      ...existing.outcome,
+      ...outcomePatch,
+      outcomeTimestamp:
+        outcomePatch.outcomeTimestamp ??
+        existing.outcome.outcomeTimestamp ??
+        Date.now(),
+    });
+
+    records[idx] = patchRecord(existing, { outcome: mergedOutcome });
+    saveAll(records);
+    return records[idx];
   }
 
-  // ── Get All ───────────────────────────────────────────────
-  function all() {
-    return load();
+  function linkTransaction(recordId, transactionId) {
+    return updateDecision(recordId, { linkedTransactionId: transactionId });
   }
 
-  // ── CSV Export (Injection-Safe) ───────────────────────────
-  function escapeCSV(val) {
-    if (val === null || val === undefined) return "";
-    let s = String(val);
-    // CSV injection prevention
-    if (/^[=+\-@]/.test(s)) s = "'" + s;
-    // Standard CSV escaping
-    if (/[",\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
-    return s;
+  function deleteRecord(recordId) {
+    const records = loadAll().filter((r) => r.recordId !== recordId);
+    saveAll(records);
+    return true;
   }
 
   function exportCSV() {
-    const records = load();
+    const records = loadAll();
     const headers = [
-      "Record ID",
-      "Asset",
-      "Symbol",
-      "Created At",
-      "Methodology Version",
-      "Scoring Version",
-      "Scenario",
-      "Evidence Quality",
-      "Confidence",
-      "User Decision",
-      "User Notes",
-      "Outcome Status",
-      "Entry Price",
-      "Exit Price",
-      "Realized Result",
-      "Result %",
-      "Outcome Source",
+      "recordId",
+      "createdAt",
+      "symbol",
+      "name",
+      "verdict_score",
+      "verdict_confidence",
+      "evidence_quality",
+      "scenario_classification",
+      "decision_action",
+      "decision_notes",
+      "outcome_status",
+      "outcome_source",
+      "entry_price",
+      "exit_price",
+      "result",
+      "result_pct",
+      "methodology_version",
     ];
 
-    const rows = records.map((r) =>
-      [
-        r.recordId,
-        r.displayName,
-        r.displaySymbol,
-        new Date(r.createdAt).toISOString(),
-        r.weaverSnapshot.methodologyVersion,
-        r.weaverSnapshot.scoringVersion,
-        r.weaverSnapshot.scenario?.classification,
-        r.weaverSnapshot.unifiedVerdict?.evidenceQuality,
-        r.weaverSnapshot.unifiedVerdict?.confidence,
-        r.userDecision.action,
-        r.userDecision.notes,
-        r.outcome.status,
-        r.outcome.userEntryPrice,
-        r.outcome.userExitPrice,
-        r.outcome.realizedResult,
-        r.outcome.realizedResultPct,
-        r.outcome.outcomeSource,
-      ].map(escapeCSV),
-    );
+    const rows = records.map((r) => [
+      r.recordId,
+      new Date(r.createdAt).toISOString(),
+      r.displaySymbol,
+      r.displayName,
+      r.weaverSnapshot?.unifiedVerdict?.score,
+      r.weaverSnapshot?.unifiedVerdict?.confidence,
+      r.weaverSnapshot?.unifiedVerdict?.evidenceQuality,
+      r.weaverSnapshot?.scenario?.classification,
+      r.userDecision?.action,
+      r.userDecision?.notes || "",
+      r.outcome?.status,
+      r.outcome?.outcomeSource,
+      r.outcome?.userEntryPrice,
+      r.outcome?.userExitPrice,
+      r.outcome?.realizedResult,
+      r.outcome?.realizedResultPct,
+      r.weaverSnapshot?.methodologyVersion,
+    ]);
 
-    const csv = [
-      headers.map(escapeCSV).join(","),
-      ...rows.map((r) => r.join(",")),
-    ].join("\n");
+    const csvEscape = (v) => {
+      if (v == null) return "";
+      let s = String(v);
+      if (/^[=+\-@]/.test(s)) s = "'" + s;
+      if (/[",\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    };
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `weaver-track-record-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const lines = [headers.map(csvEscape).join(",")];
+    rows.forEach((row) => lines.push(row.map(csvEscape).join(",")));
+    return lines.join("\n");
   }
 
-  // ── Render Track Record View ──────────────────────────────
-  function render(view) {
-    const records = load();
-    const esc = W.fmt.escapeHTML || ((s) => s);
+  // ── Migration (Phases 7–13) ────────────────────────────────
+  const LEGACY_KEYS = [];
+
+  function migrate() {
+    const canonical = loadAll();
+    const canonicalById = new Map(canonical.map((r) => [r.recordId, r]));
+    const migrationSummary = {
+      migrated: 0,
+      conflicts: 0,
+      migratedLegacyId: 0,
+      quarantined: 0,
+      deduped: 0,
+    };
+
+    const legacyCandidates = [];
+    for (const key of LEGACY_KEYS) {
+      const data = W.store.get(key, null);
+      if (Array.isArray(data)) {
+        data.forEach((r) => legacyCandidates.push({ source: key, raw: r }));
+      }
+    }
+
+    for (const candidate of legacyCandidates) {
+      const { raw, source } = candidate;
+
+      if (!raw || typeof raw !== "object") {
+        canonical.push(quarantineRecord(raw, source, "INVALID_SCHEMA"));
+        migrationSummary.quarantined++;
+        continue;
+      }
+
+      let recordId = typeof raw.recordId === "string" ? raw.recordId : null;
+      let wasMissingId = false;
+      if (!recordId) {
+        const stableInput = [
+          raw.displaySymbol || raw.symbol || "",
+          raw.createdAt || "",
+          raw.weaverSnapshot?.analysisTimestamp || raw.analysisTimestamp || "",
+          source,
+        ].join("|");
+        recordId = "track-legacy-" + stableHash(stableInput);
+        wasMissingId = true;
+      }
+
+      const existing = canonicalById.get(recordId);
+      if (existing) {
+        const equivalent = sameImmutable(existing, raw);
+        if (equivalent) {
+          migrationSummary.deduped++;
+          continue;
+        }
+        const derivedId =
+          recordId +
+          "-legacy-" +
+          stableHash(
+            JSON.stringify({
+              s: raw.weaverSnapshot?.scoringVersion,
+              a: raw.weaverSnapshot?.analysisTimestamp,
+              v: raw.weaverSnapshot?.unifiedVerdict?.score,
+              c: raw.weaverSnapshot?.unifiedVerdict?.confidence,
+            }),
+          );
+        const preserved = normalizeLegacy(
+          raw,
+          derivedId,
+          source,
+          "CONFLICT",
+          recordId,
+        );
+        canonical.push(preserved);
+        migrationSummary.conflicts++;
+        continue;
+      }
+
+      const migrated = normalizeLegacy(
+        raw,
+        recordId,
+        source,
+        wasMissingId ? "MIGRATED_LEGACY_ID" : "MIGRATED",
+        null,
+      );
+      canonical.push(migrated);
+      canonicalById.set(recordId, migrated);
+      if (wasMissingId) migrationSummary.migratedLegacyId++;
+      else migrationSummary.migrated++;
+    }
+
+    saveAll(canonical);
+    return migrationSummary;
+  }
+
+  function sameImmutable(a, b) {
+    const av = a.weaverSnapshot || {};
+    const bv = b.weaverSnapshot || {};
+    return (
+      av.methodologyVersion === bv.methodologyVersion &&
+      av.scoringVersion === bv.scoringVersion &&
+      av.evidenceBuilderVersion === bv.evidenceBuilderVersion &&
+      av.analysisTimestamp === bv.analysisTimestamp &&
+      av.unifiedVerdict?.score === bv.unifiedVerdict?.score &&
+      av.unifiedVerdict?.confidence === bv.unifiedVerdict?.confidence
+    );
+  }
+
+  function normalizeLegacy(raw, recordId, source, status, originalId) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      recordId,
+      assetId: normalizeAssetId(raw.assetId || raw.asset),
+      displaySymbol: raw.displaySymbol || raw.symbol || "UNKNOWN",
+      displayName: raw.displayName || raw.name || "Unknown",
+      createdAt: typeof raw.createdAt === "number" ? raw.createdAt : Date.now(),
+      weaverSnapshot: normalizeAnalysis(raw.weaverSnapshot || raw),
+      userDecision: normalizeDecision(raw.userDecision || {}),
+      outcome: normalizeOutcome(raw.outcome || {}),
+      revisions: [],
+      migration: {
+        source,
+        migratedAt: Date.now(),
+        status,
+        originalRecordId: originalId,
+      },
+    };
+  }
+
+  function quarantineRecord(raw, source, reason) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      recordId: "track-quarantine-" + stableHash(JSON.stringify(raw) + source),
+      assetId: normalizeAssetId(null),
+      displaySymbol: "QUARANTINED",
+      displayName: "Unmigrated record",
+      createdAt: Date.now(),
+      weaverSnapshot: normalizeAnalysis(null),
+      userDecision: normalizeDecision({}),
+      outcome: normalizeOutcome({}),
+      revisions: [],
+      migration: {
+        source,
+        migratedAt: Date.now(),
+        status: "QUARANTINED",
+        originalRecordId: null,
+        reason,
+      },
+    };
+  }
+
+  // ── UI (Phase 16) ──────────────────────────────────────────
+  async function render(view) {
+    const records = loadAll();
+
+    if (records.length === 0) {
+      view.innerHTML = `
+        <div class="card">
+          <h2>Track Record</h2>
+          <p class="muted small">
+            Historical snapshots of Weaver's analysis alongside your decisions and observed outcomes.
+            Records are private, stored locally, and never sent anywhere.
+          </p>
+          <div class="empty-state">
+            <div class="icon">📓</div>
+            <div class="msg">No records yet</div>
+            <div class="sub">Save an analysis from the Token Analysis page to start a record.</div>
+          </div>
+        </div>
+      `;
+      return;
+    }
 
     view.innerHTML = `
       <div class="card">
-        <div class="flex-between mb-16">
-          <h3>📊 Track Record <span class="muted small">(${records.length})</span></h3>
-          <button class="btn tiny" id="tr-export">⬇ Export CSV</button>
+        <h2>Track Record</h2>
+        <p class="muted small">
+          Historical snapshots of Weaver's analysis alongside your decisions and observed outcomes.
+          Records are private, stored locally, and never sent anywhere.
+        </p>
+        <div class="qa mt">
+          <button class="btn tiny" id="tr-export">Export CSV</button>
         </div>
-        <p class="muted small">Historical analysis preserved exactly as generated. User decisions and outcomes recorded separately.</p>
       </div>
       <div id="tr-list"></div>
     `;
 
+    view.querySelector("#tr-export").onclick = () => {
+      const csv = exportCSV();
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `weaver-track-record-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
     const list = view.querySelector("#tr-list");
-    const exportBtn = view.querySelector("#tr-export");
-    if (exportBtn) exportBtn.onclick = exportCSV;
+    list.innerHTML = records.map(renderRecordCard).join("");
 
-    if (!records.length) {
-      list.innerHTML =
-        '<div class="card"><p class="muted">No track records yet. Save an analysis from Token Analysis to begin.</p></div>';
-      return;
-    }
-
-    list.innerHTML = records
-      .map((r) => {
-        const snap = r.weaverSnapshot;
-        const conf = snap.unifiedVerdict?.confidence;
-        const confDisplay =
-          conf !== null && conf !== undefined
-            ? `${(conf * 100).toFixed(0)}%`
-            : "Unknown";
-        const scenario = snap.scenario?.classification || "UNKNOWN";
-        const eq = snap.unifiedVerdict?.evidenceQuality || "UNKNOWN";
-
-        return `
-        <div class="card tr-card" data-id="${esc(r.recordId)}">
-          <div class="flex-between tr-header" style="cursor:pointer">
-            <div>
-              <b>${esc(r.displaySymbol)}</b> <span class="muted small">${esc(r.displayName)}</span>
-              <span class="tag ml-8">${esc(scenario)}</span>
-              <span class="tag ml-8">${esc(eq)}</span>
-            </div>
-            <div class="muted small text-right">
-              <div>${esc(r.userDecision.action)}</div>
-              <div>${W.fmt.relativeTime ? W.fmt.relativeTime(r.createdAt) : new Date(r.createdAt).toLocaleDateString()}</div>
-              <div class="small">v${esc(snap.methodologyVersion || "?")}</div>
-            </div>
-          </div>
-          <div class="tr-detail hidden mt-8">
-            <div class="tr-tabs flex-center gap-16 mb-8">
-              <button class="btn tiny tr-tab active" data-tab="snapshot">Weaver's Analysis</button>
-              <button class="btn tiny tr-tab" data-tab="decision">Your Decision</button>
-              <button class="btn tiny tr-tab" data-tab="outcome">Outcome</button>
-              <button class="btn tiny tr-tab" data-tab="methodology">Methodology</button>
-            </div>
-            <div class="tr-panel tr-snapshot">
-              <p class="small muted italic">This analysis is immutable. It reflects exactly what Weaver generated at the time.</p>
-              <div class="kv-row"><span>Confidence</span><b>${esc(confDisplay)}</b></div>
-              <div class="kv-row"><span>Evidence Quality</span><b>${esc(eq)}</b></div>
-              <div class="kv-row"><span>Scenario</span><b>${esc(scenario)}</b></div>
-              ${(snap.scenario?.reasoning || []).map((r) => `<div class="small muted mt-4">• ${esc(r)}</div>`).join("")}
-              ${(snap.scenario?.limitations || []).length ? `<div class="small muted mt-8"><b>Limitations:</b> ${snap.scenario.limitations.map((l) => esc(l)).join(", ")}</div>` : ""}
-              ${(snap.evidence?.supporting || []).length ? `<div class="mt-8"><b class="small">Supporting Evidence</b>${snap.evidence.supporting.map((e) => `<div class="small muted mt-4">✓ ${esc(e.title || e.evidence || "")}</div>`).join("")}</div>` : ""}
-              ${(snap.evidence?.contradicting || []).length ? `<div class="mt-8"><b class="small">Contradicting Evidence</b>${snap.evidence.contradicting.map((e) => `<div class="small muted mt-4">✗ ${esc(e.title || e.evidence || "")}</div>`).join("")}</div>` : ""}
-              ${(snap.evidence?.missing || []).length ? `<div class="mt-8"><b class="small">Missing Evidence</b>${snap.evidence.missing.map((m) => `<div class="small muted mt-4">— ${esc(m)}</div>`).join("")}</div>` : ""}
-            </div>
-            <div class="tr-panel tr-decision hidden">
-              <label class="small">Decision
-                <select class="input tr-decision-action" data-field="userDecision.action">
-                  ${["NO_DECISION", "WATCH", "CONSIDER", "ENTERED", "EXITED", "SKIPPED"].map((a) => `<option value="${a}" ${r.userDecision.action === a ? "selected" : ""}>${a}</option>`).join("")}
-                </select>
-              </label>
-              <label class="small mt-8">Notes
-                <textarea class="input tr-decision-notes" data-field="userDecision.notes" rows="3">${esc(r.userDecision.notes)}</textarea>
-              </label>
-              <label class="small mt-8">Reason for change
-                <input class="input tr-revision-reason" placeholder="Why are you updating this?" />
-              </label>
-              <button class="btn tiny primary mt-8 tr-save-decision">Save Changes</button>
-            </div>
-            <div class="tr-panel tr-outcome hidden">
-              <div class="kv-row"><span>Status</span><b>${esc(r.outcome.status)}</b></div>
-              <div class="kv-row"><span>Entry Price</span><b>${r.outcome.userEntryPrice !== null ? esc(String(r.outcome.userEntryPrice)) : "Unknown"}</b></div>
-              <div class="kv-row"><span>Exit Price</span><b>${r.outcome.userExitPrice !== null ? esc(String(r.outcome.userExitPrice)) : "Unknown"}</b></div>
-              <div class="kv-row"><span>Realized Result</span><b>${r.outcome.realizedResult !== null ? esc(String(r.outcome.realizedResult)) : "Unknown"}</b></div>
-              <div class="kv-row"><span>Result %</span><b>${r.outcome.realizedResultPct !== null ? esc(r.outcome.realizedResultPct.toFixed(2) + "%") : "Unknown"}</b></div>
-              <div class="kv-row"><span>Source</span><b>${esc(r.outcome.outcomeSource)}</b></div>
-            </div>
-            <div class="tr-panel tr-methodology hidden">
-              <div class="kv-row"><span>Schema Version</span><b>${esc(r.schemaVersion)}</b></div>
-              <div class="kv-row"><span>Methodology Version</span><b>${esc(snap.methodologyVersion || "Unknown")}</b></div>
-              <div class="kv-row"><span>Scoring Version</span><b>${esc(snap.scoringVersion || "Unknown")}</b></div>
-              <div class="kv-row"><span>Evidence Builder Version</span><b>${esc(snap.evidenceBuilderVersion || "Unknown")}</b></div>
-              <div class="kv-row"><span>Analysis Timestamp</span><b>${new Date(snap.analysisTimestamp).toISOString()}</b></div>
-              <div class="kv-row"><span>Record Created</span><b>${new Date(r.createdAt).toISOString()}</b></div>
-            </div>
-          </div>
-        </div>
-      `;
-      })
-      .join("");
-
-    // Wire expand/collapse
-    list.querySelectorAll(".tr-header").forEach((h) => {
-      h.onclick = () => {
-        const detail = h.parentElement.querySelector(".tr-detail");
-        if (detail) detail.classList.toggle("hidden");
-      };
-    });
-
-    // Wire tabs
-    list.querySelectorAll(".tr-tab").forEach((tab) => {
-      tab.onclick = () => {
-        const card = tab.closest(".tr-card");
-        card
-          .querySelectorAll(".tr-tab")
-          .forEach((t) => t.classList.remove("active"));
-        tab.classList.add("active");
-        card
-          .querySelectorAll(".tr-panel")
-          .forEach((p) => p.classList.add("hidden"));
-        card.querySelector(`.tr-${tab.dataset.tab}`).classList.remove("hidden");
-      };
-    });
-
-    // Wire save decision
-    list.querySelectorAll(".tr-save-decision").forEach((btn) => {
+    list.querySelectorAll("[data-expand]").forEach((btn) => {
       btn.onclick = () => {
-        const card = btn.closest(".tr-card");
-        const id = card.dataset.id;
-        const action = card.querySelector(".tr-decision-action").value;
-        const notes = card.querySelector(".tr-decision-notes").value;
-        const reason = card.querySelector(".tr-revision-reason").value;
-
-        if (!reason.trim()) {
-          if (W.ui && W.ui.toast)
-            W.ui.toast("Please provide a reason for this change", "warn");
-          return;
-        }
-
-        const result = update(
-          id,
-          {
-            "userDecision.action": action,
-            "userDecision.notes": notes,
-            "userDecision.decisionTimestamp": Date.now(),
-          },
-          reason,
-        );
-
-        if (result.ok) {
-          if (W.ui && W.ui.toast) W.ui.toast("Decision updated", "ok");
-          render(view); // Re-render to reflect changes
-        }
+        const recordId = btn.dataset.expand;
+        const record = getById(recordId);
+        if (!record) return;
+        openRecordModal(record);
       };
     });
   }
 
+  function renderRecordCard(record) {
+    const s = record.weaverSnapshot || {};
+    const verdict = s.unifiedVerdict || {};
+    const scenario = s.scenario || {};
+    const decision = record.userDecision || {};
+    const outcome = record.outcome || {};
+
+    return `
+      <div class="card" style="margin-bottom:12px;">
+        <div class="watch-head">
+          <div>
+            <b>${W.fmt.escapeHTML(record.displaySymbol)}</b>
+            <span class="muted small">${W.fmt.escapeHTML(record.displayName)}</span>
+            <br>
+            <span class="muted small">${new Date(record.createdAt).toLocaleString()}</span>
+          </div>
+          <button class="btn tiny" data-expand="${W.fmt.escapeHTML(record.recordId)}">View</button>
+        </div>
+        <div class="kv-row"><span class="muted">Scenario</span><span>${W.fmt.escapeHTML(scenario.classification || "UNKNOWN")}</span></div>
+        <div class="kv-row"><span class="muted">Evidence quality</span><span>${W.fmt.escapeHTML(verdict.evidenceQuality || "UNKNOWN")}</span></div>
+        <div class="kv-row"><span class="muted">Your decision</span><span>${W.fmt.escapeHTML(decision.action || "UNSET")}</span></div>
+        <div class="kv-row"><span class="muted">Outcome</span><span>${W.fmt.escapeHTML(outcome.status || "UNKNOWN")}</span></div>
+        <div class="kv-row"><span class="muted">Methodology</span><span class="small">${W.fmt.escapeHTML(s.methodologyVersion || "—")}</span></div>
+      </div>
+    `;
+  }
+
+  function openRecordModal(record) {
+    const m = W.ui.modal({
+      title: `Track Record — ${W.fmt.escapeHTML(record.displaySymbol)}`,
+      body: buildModalBody(record),
+      footer: `<button class="btn ghost" id="tr-close">Close</button>`,
+    });
+
+    m.el.querySelector("#tr-close").onclick = m.close;
+
+    m.el.querySelectorAll("[data-tab]").forEach((tab) => {
+      tab.onclick = () => {
+        m.el
+          .querySelectorAll("[data-tab]")
+          .forEach((t) => t.classList.remove("active"));
+        m.el
+          .querySelectorAll("[data-tab-panel]")
+          .forEach((p) => p.classList.add("hidden"));
+        tab.classList.add("active");
+        const panel = m.el.querySelector(
+          `[data-tab-panel="${tab.dataset.tab}"]`,
+        );
+        if (panel) panel.classList.remove("hidden");
+      };
+    });
+
+    const decisionForm = m.el.querySelector("#tr-decision-form");
+    if (decisionForm) {
+      decisionForm.onsubmit = (e) => {
+        e.preventDefault();
+        const action = m.el.querySelector("#tr-action").value;
+        const notes = m.el.querySelector("#tr-notes").value;
+        updateDecision(record.recordId, {
+          action,
+          notes,
+          decisionTimestamp: Date.now(),
+        });
+        W.ui.toast("Decision saved", "ok");
+        m.close();
+        W.refresh();
+      };
+    }
+
+    const outcomeForm = m.el.querySelector("#tr-outcome-form");
+    if (outcomeForm) {
+      outcomeForm.onsubmit = (e) => {
+        e.preventDefault();
+        const entry = m.el.querySelector("#tr-entry").value;
+        const exit = m.el.querySelector("#tr-exit").value;
+        const size = m.el.querySelector("#tr-size").value;
+        const status = m.el.querySelector("#tr-status").value;
+        const source = m.el.querySelector("#tr-source").value;
+
+        updateOutcome(record.recordId, {
+          userEntryPrice: entry === "" ? null : parseFloat(entry),
+          userExitPrice: exit === "" ? null : parseFloat(exit),
+          positionSize: size === "" ? null : parseFloat(size),
+          status,
+          outcomeSource: source,
+        });
+        W.ui.toast("Outcome saved", "ok");
+        m.close();
+        W.refresh();
+      };
+    }
+  }
+
+  function buildModalBody(record) {
+    const s = record.weaverSnapshot || {};
+    const v = s.unifiedVerdict || {};
+    const ta = s.technicalAnalysis || {};
+    const fa = s.fundamentalAssessment || {};
+    const sa = s.securityAssessment || {};
+    const sc = s.scenario || {};
+    const ev = s.evidence || {};
+    const d = record.userDecision || {};
+    const o = record.outcome || {};
+
+    const fmtNum = (n, digits = 2) =>
+      typeof n === "number" ? n.toFixed(digits) : "—";
+    const safe = W.fmt.escapeHTML;
+
+    return `
+      <div class="tabs">
+        <button class="tab active" data-tab="weaver">Weaver's Analysis</button>
+        <button class="tab" data-tab="decision">Your Decision</button>
+        <button class="tab" data-tab="outcome">Observed Outcome</button>
+        <button class="tab" data-tab="methodology">Methodology</button>
+      </div>
+
+      <div data-tab-panel="weaver">
+        <div class="kv-row"><span class="muted">Score</span><span>${fmtNum(v.score, 0)}</span></div>
+        <div class="kv-row"><span class="muted">Confidence</span><span>${v.confidence == null ? "—" : (v.confidence * 100).toFixed(0) + "%"}</span></div>
+        <div class="kv-row"><span class="muted">Evidence quality</span><span>${safe(v.evidenceQuality || "UNKNOWN")}</span></div>
+        <div class="kv-row"><span class="muted">Technical score</span><span>${fmtNum(ta.score, 0)}</span></div>
+        <div class="kv-row"><span class="muted">Fundamental score</span><span>${fmtNum(fa.score, 0)}</span></div>
+        <div class="kv-row"><span class="muted">Security risk score</span><span>${fmtNum(sa.riskScore, 0)}</span></div>
+        <div class="kv-row"><span class="muted">Scenario</span><span>${safe(sc.classification || "UNKNOWN")}</span></div>
+
+        <h4 class="mt">Supporting evidence</h4>
+        ${
+          (ev.supporting || []).length
+            ? ev.supporting
+                .map(
+                  (e) =>
+                    `<div class="small">• ${safe(typeof e === "string" ? e : e.title || e.evidence || JSON.stringify(e))}</div>`,
+                )
+                .join("")
+            : '<div class="muted small">None recorded</div>'
+        }
+
+        <h4 class="mt">Contradicting evidence</h4>
+        ${
+          (ev.contradicting || []).length
+            ? ev.contradicting
+                .map(
+                  (e) =>
+                    `<div class="small">• ${safe(typeof e === "string" ? e : e.title || e.evidence || JSON.stringify(e))}</div>`,
+                )
+                .join("")
+            : '<div class="muted small">None recorded</div>'
+        }
+
+        <h4 class="mt">Missing evidence</h4>
+        ${
+          (ev.missing || []).length
+            ? ev.missing
+                .map(
+                  (e) =>
+                    `<div class="small">• ${safe(typeof e === "string" ? e : JSON.stringify(e))}</div>`,
+                )
+                .join("")
+            : '<div class="muted small">None recorded</div>'
+        }
+      </div>
+
+      <div data-tab-panel="decision" class="hidden">
+        <form id="tr-decision-form">
+          <label>Action
+            <select id="tr-action">
+              ${ACTIONS.map((a) => `<option value="${a}" ${d.action === a ? "selected" : ""}>${a}</option>`).join("")}
+            </select>
+          </label>
+          <label>Notes
+            <textarea id="tr-notes" rows="4">${safe(d.notes || "")}</textarea>
+          </label>
+          <button class="btn primary mt" type="submit">Save Decision</button>
+        </form>
+      </div>
+
+      <div data-tab-panel="outcome" class="hidden">
+        <form id="tr-outcome-form">
+          <label>Status
+            <select id="tr-status">
+              ${OUTCOME_STATUS.map((sx) => `<option value="${sx}" ${o.status === sx ? "selected" : ""}>${sx}</option>`).join("")}
+            </select>
+          </label>
+          <label>Entry price
+            <input id="tr-entry" type="number" step="any" value="${o.userEntryPrice == null ? "" : o.userEntryPrice}">
+          </label>
+          <label>Exit price
+            <input id="tr-exit" type="number" step="any" value="${o.userExitPrice == null ? "" : o.userExitPrice}">
+          </label>
+          <label>Position size
+            <input id="tr-size" type="number" step="any" value="${o.positionSize == null ? "" : o.positionSize}">
+          </label>
+          <label>Outcome source
+            <select id="tr-source">
+              ${OUTCOME_SOURCE.map((sx) => `<option value="${sx}" ${o.outcomeSource === sx ? "selected" : ""}>${sx}</option>`).join("")}
+            </select>
+          </label>
+          <div class="mt small muted">
+            Calculated result:
+            <b>${o.realizedResult == null ? "—" : o.realizedResult.toFixed(2)}</b>
+            (${o.realizedResultPct == null ? "—" : o.realizedResultPct.toFixed(2) + "%"})
+          </div>
+          <button class="btn primary mt" type="submit">Save Outcome</button>
+        </form>
+      </div>
+
+      <div data-tab-panel="methodology" class="hidden">
+        <div class="kv-row"><span class="muted">Methodology version</span><span>${safe(s.methodologyVersion || "—")}</span></div>
+        <div class="kv-row"><span class="muted">Scoring version</span><span>${safe(s.scoringVersion || "—")}</span></div>
+        <div class="kv-row"><span class="muted">Evidence builder version</span><span>${safe(s.evidenceBuilderVersion || "—")}</span></div>
+        <div class="kv-row"><span class="muted">Analysis timestamp</span><span>${new Date(s.analysisTimestamp).toLocaleString()}</span></div>
+        <div class="kv-row"><span class="muted">Record created</span><span>${new Date(record.createdAt).toLocaleString()}</span></div>
+        <p class="muted small mt">
+          These values are immutable. They represent the exact methodology in effect
+          when this record was created.
+        </p>
+      </div>
+    `;
+  }
+
+  // ── Exports ────────────────────────────────────────────────
   return {
-    createFromAnalysis,
-    update,
-    remove,
-    all,
-    exportCSV,
     render,
-    SCHEMA_VERSION,
+    createFromAnalysis,
+    capture: createFromAnalysis,
+    getAll,
+    getById,
+    updateDecision,
+    updateOutcome,
+    linkTransaction,
+    deleteRecord,
+    exportCSV,
+    migrate,
+    _stableHash: stableHash,
+    _recomputeOutcome: recomputeOutcome,
   };
 })();
 
-console.log("[TrackRecord] Module loaded (track-record-v1).");
+console.log("[TrackRecord] Module loaded.");
 // ---- js/features/token-analysis.js ----
 // ===============================================================
-//         Token Analysis – Evidence‑Driven Decision Workflow
+//         Token Analysis – Evidence-Driven Decision Workflow
 // ===============================================================
 
 window.W = window.W || {};
@@ -17637,12 +18049,6 @@ W.tokenAnalysis = (() => {
     };
   }
 
-  /**
-   * Analyze a token and return a structured decision report.
-   * @param {string} assetId - Coingecko ID or symbol (e.g., 'bitcoin', 'BTC')
-   * @param {Object} options - { includeContradictions: true, includePersonalContext: true }
-   * @returns {Object} - { opportunityScore, riskScore, bullishEvidence, bearishEvidence, contradictions, verdict, confidence, explanation }
-   */
   async function analyze(assetId, options = {}) {
     // 1. Resolve asset
     let asset;
@@ -17807,7 +18213,7 @@ W.tokenAnalysis = (() => {
     else
       explanation += "Signals are mixed. Additional verification is warranted.";
 
-    // 10. Include personal context if requested
+    // 10. Personal context
     let personalContext = null;
     if (options.includePersonalContext && W.portfolio) {
       const portfolio = W.portfolio.all();
@@ -17832,10 +18238,17 @@ W.tokenAnalysis = (() => {
       riskScore,
     );
     const localEvidenceQuality = evidenceSufficiency(technical, fundamentals);
-    const securityEvidence = W.shield?.getEvidence?.({
-      symbol: asset.symbol,
-      coingeckoId: asset.coingeckoId,
-    });
+    let securityEvidence = null;
+    try {
+      if (W.shield && typeof W.shield.getEvidence === "function") {
+        securityEvidence = await W.shield.getEvidence({
+          symbol: asset.symbol,
+          coingeckoId: asset.coingeckoId,
+        });
+      }
+    } catch (e) {
+      console.warn("[TokenAnalysis] Shield evidence unavailable:", e.message);
+    }
     const evidenceDomains = {
       ...(options.evidenceDomains || {}),
       ...(securityEvidence
@@ -17892,10 +18305,8 @@ W.tokenAnalysis = (() => {
       tradeLevels: tradePlan,
     });
 
-    // 11. Return structured report
     return {
       asset: asset.symbol,
-      assetName: asset.name,
       assetId: asset,
       opportunityScore: Math.round(opportunityScore),
       riskScore: Math.round(riskScore),
@@ -17921,29 +18332,31 @@ W.tokenAnalysis = (() => {
     };
   }
 
-  // ── Render ─────────────────────────────────────────────────
+  // ────────────────────────────────────────────────────────────
+  // Render (CSP-compliant: no inline styles, no inline onclick)
+  // ────────────────────────────────────────────────────────────
   async function render(view, assetId) {
-    // If no assetId, show the search input
+    // Search view
     if (!assetId) {
       view.innerHTML = `
-      <div class="card">
-        <h3>🔍 Token Analysis</h3>
-        <p class="muted small">Get an evidence‑driven decision report for any crypto asset.</p>
-        <div class="qa mt">
-          <input type="text" id="ta-input" placeholder="Enter symbol or name (e.g., BTC, Ethereum)" class="input" style="flex:1;">
-          <button class="btn primary" id="ta-go">Analyze</button>
+        <div class="card">
+          <h3>🔍 Token Analysis</h3>
+          <p class="muted small">Get an evidence-driven decision report for any crypto asset.</p>
+          <div class="qa mt">
+            <input type="text" id="ta-input" placeholder="Enter symbol or name (e.g., BTC, Ethereum)" class="input">
+            <button class="btn primary" id="ta-go">Analyze</button>
+          </div>
+          <div id="ta-result"></div>
         </div>
-        <div id="ta-result"></div>
-      </div>
-    `;
-      view.querySelector("#ta-go").onclick = () => {
-        const input = view.querySelector("#ta-input").value.trim();
-        if (input) {
-          location.hash = `#/token/${encodeURIComponent(input)}`;
-        }
-      };
-      view.querySelector("#ta-input").addEventListener("keydown", (e) => {
-        if (e.key === "Enter") view.querySelector("#ta-go").click();
+      `;
+      const input = view.querySelector("#ta-input");
+      const goBtn = view.querySelector("#ta-go");
+      goBtn.addEventListener("click", () => {
+        const v = input.value.trim();
+        if (v) location.hash = `#/token/${encodeURIComponent(v)}`;
+      });
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") goBtn.click();
       });
       return;
     }
@@ -17957,171 +18370,242 @@ W.tokenAnalysis = (() => {
         return;
       }
 
+      // Dynamic class names (CSP-safe — no inline style)
+      const oppClass = result.opportunityScore > 60 ? "text-up" : "text-warn";
+      const riskClass = result.riskScore > 60 ? "text-down" : "text-warn";
+      const actionClass =
+        result.action === "BUY"
+          ? "card-action-buy"
+          : result.action === "SELL"
+            ? "card-action-sell"
+            : "card-action-hold";
+
+      const safeText = (s) => W.fmt.escapeHTML(String(s ?? ""));
+
       view.innerHTML = `
-      <div class="card">
-        <h3>📊 Token Analysis: ${W.fmt.escapeHTML(result.asset)}</h3>
-        <div class="cards" style="margin-top:12px;">
-          <div class="card stat">
-            <div class="stat-label">Opportunity Score</div>
-            <div class="stat-big" style="color:${result.opportunityScore > 60 ? "var(--up)" : "var(--warn)"}">${result.opportunityScore}/100</div>
+        <div class="card">
+          <h3>📊 Token Analysis: ${safeText(result.asset)}</h3>
+
+          <div class="cards mt-12">
+            <div class="card stat">
+              <div class="stat-label">Opportunity Score</div>
+              <div class="stat-big ${oppClass}">${result.opportunityScore}/100</div>
+            </div>
+            <div class="card stat">
+              <div class="stat-label">Risk Score</div>
+              <div class="stat-big ${riskClass}">${result.riskScore}/100</div>
+            </div>
+            <div class="card stat">
+              <div class="stat-label">Evidence Strength</div>
+              <div class="stat-big">${result.confidence === null ? "N/A" : result.confidence + "%"}</div>
+            </div>
+            <div class="card stat">
+              <div class="stat-label">Signals Analyzed</div>
+              <div class="stat-big">${result.signalsCount}</div>
+            </div>
           </div>
-          <div class="card stat">
-            <div class="stat-label">Risk Score</div>
-            <div class="stat-big" style="color:${result.riskScore > 60 ? "var(--down)" : "var(--warn)"}">${result.riskScore}/100</div>
+
+          <div class="mt-12">
+            <div class="meter-bar"><div class="${meterClass(result.opportunityScore, "up")}"></div></div>
+            <div class="meter-label">Opportunity Score</div>
           </div>
-          <div class="card stat">
-            <div class="stat-label">Evidence Strength</div>
-            <div class="stat-big">${result.confidence === null ? "N/A" : result.confidence + "%"}</div>
+          <div class="mt-8">
+            <div class="meter-bar"><div class="${meterClass(result.riskScore, "down")}"></div></div>
+            <div class="meter-label">Risk Score</div>
           </div>
-          <div class="card stat">
-            <div class="stat-label">Signals Analyzed</div>
-            <div class="stat-big">${result.signalsCount}</div>
-          </div>
-        </div>
-        <div style="margin-top:12px;">
-          <div class="meter-bar"><div class="${meterClass(result.opportunityScore, "up")}"></div></div>
-          <div class="meter-label">Opportunity Score</div>
-        </div>
-        <div style="margin-top:8px;">
-          <div class="meter-bar"><div class="${meterClass(result.riskScore, "down")}"></div></div>
-          <div class="meter-label">Risk Score</div>
-        </div>
-        <div class="card" style="margin-top:16px; border:1px solid ${result.action === "BUY" ? "var(--up)" : result.action === "SELL" ? "var(--down)" : "var(--warn)"};">
-          <h3>${W.fmt.escapeHTML(result.scenario || "Neutral / insufficient evidence")}</h3>
-          <p class="small">Evidence quality: <b>${W.fmt.escapeHTML(result.evidenceQuality?.status || "UNAVAILABLE")}</b> · Scenario strength: ${result.actionConfidence ?? "N/A"}%</p>
-          ${
-            result.unifiedVerdict
-              ? `<p class="small muted">Domains: ${Object.values(
-                  result.unifiedVerdict.domains,
-                )
-                  .map(
-                    (domain) =>
-                      `${W.fmt.escapeHTML(domain.name)} ${W.fmt.escapeHTML(domain.status)}`,
+
+          <div class="card mt-16 ${actionClass}">
+            <h3>${safeText(result.scenario || "Neutral / insufficient evidence")}</h3>
+            <p class="small">Evidence quality: <b>${safeText(result.evidenceQuality?.status || "UNAVAILABLE")}</b> · Scenario strength: ${result.actionConfidence ?? "N/A"}%</p>
+            ${
+              result.unifiedVerdict
+                ? `<p class="small muted">Domains: ${Object.values(
+                    result.unifiedVerdict.domains || {},
                   )
-                  .join(
-                    " · ",
-                  )}</p><p class="small muted">Methodology ${W.fmt.escapeHTML(result.unifiedVerdict.methodologyVersion)} · Evidence ${W.fmt.escapeHTML(result.unifiedVerdict.evidenceVersion)}</p>`
+                    .map((d) => `${safeText(d.name)} ${safeText(d.status)}`)
+                    .join(" · ")}</p>
+                   <p class="small muted">Methodology ${safeText(result.unifiedVerdict.methodologyVersion)} · Evidence ${safeText(result.unifiedVerdict.evidenceVersion)}</p>`
+                : ""
+            }
+            <p class="small muted">${safeText(result.actionInterpretation || "The available evidence does not support a directional scenario.")}</p>
+            ${result.actionReasons?.length ? `<p class="small muted">${result.actionReasons.map(safeText).join(" · ")}</p>` : ""}
+            ${result.evidenceQuality?.reasons?.length ? `<p class="small muted">Limitations: ${result.evidenceQuality.reasons.map(safeText).join(" · ")}</p>` : ""}
+            ${
+              result.tradeLevels
+                ? `<div class="grid-2 mt-10">
+                     <div class="kv-row"><span>Reference price</span><b>${result.tradeLevels.entry}</b></div>
+                     <div class="kv-row"><span>Potential invalidation</span><b class="text-down">${result.tradeLevels.stopLoss}</b></div>
+                     <div class="kv-row"><span>Potential target zone</span><b class="text-up">${result.tradeLevels.takeProfit}</b></div>
+                     <div class="kv-row"><span>ATR risk distance</span><b>${result.tradeLevels.riskDistance}</b></div>
+                   </div>
+                   <p class="small muted">${safeText(result.tradeLevels.basis)}. These are scenario levels derived from current OHLCV data, not instructions to trade.</p>`
+                : ""
+            }
+          </div>
+
+          ${
+            result.fundamentals
+              ? `<div class="card fundamental-breakdown">
+                   <h4>Fundamental score breakdown</h4>
+                   <div class="grid-2">
+                     <div class="kv-row"><span>Fundamental bias</span><b>${safeText(result.fundamentals.bias)}</b></div>
+                     <div class="kv-row"><span>Overall score</span><b>${result.fundamentals.score}/100</b></div>
+                   </div>
+                   ${(result.fundamentals.metrics || [])
+                     .map(
+                       (m) => `
+                       <div class="fundamental-metric">
+                         <div class="meter-label"><span>${safeText(m.label)}</span><b>${safeText(m.detail)}</b></div>
+                         <div class="meter-bar">
+                           <div class="${meterClass(m.value, m.value == null ? "muted" : m.value >= 60 ? "up" : "warn")}"></div>
+                         </div>
+                       </div>
+                     `,
+                     )
+                     .join("")}
+                   <p class="small muted">${[...(result.fundamentals.positives || []), ...(result.fundamentals.negatives || [])].map(safeText).join(" · ") || "Limited fundamental data available."}</p>
+                 </div>`
               : ""
           }
-          <p class="small muted">${W.fmt.escapeHTML(result.actionInterpretation || "The available evidence does not support a directional scenario.")}</p>
-          ${result.actionReasons?.length ? `<p class="small muted">${result.actionReasons.map((r) => W.fmt.escapeHTML(r)).join(" · ")}</p>` : ""}
-          ${result.evidenceQuality?.reasons?.length ? `<p class="small muted">Limitations: ${result.evidenceQuality.reasons.map((r) => W.fmt.escapeHTML(r)).join(" · ")}</p>` : ""}
-          ${result.tradeLevels ? `<div class="grid-2" style="margin-top:10px;"><div class="kv-row"><span>Reference price</span><b>${result.tradeLevels.entry}</b></div><div class="kv-row"><span>Potential invalidation</span><b style="color:var(--down);">${result.tradeLevels.stopLoss}</b></div><div class="kv-row"><span>Potential target zone</span><b style="color:var(--up);">${result.tradeLevels.takeProfit}</b></div><div class="kv-row"><span>ATR risk distance</span><b>${result.tradeLevels.riskDistance}</b></div></div><p class="small muted">${W.fmt.escapeHTML(result.tradeLevels.basis)}. These are scenario levels derived from current OHLCV data, not instructions to trade.</p>` : ""}
-        </div>
-          ${result.fundamentals ? `<div class="card fundamental-breakdown"><h4>Fundamental score breakdown</h4><div class="grid-2"><div class="kv-row"><span>Fundamental bias</span><b>${W.fmt.escapeHTML(result.fundamentals.bias)}</b></div><div class="kv-row"><span>Overall score</span><b>${result.fundamentals.score}/100</b></div></div>${(result.fundamentals.metrics || []).map((metric) => `<div class="fundamental-metric"><div class="meter-label"><span>${W.fmt.escapeHTML(metric.label)}</span><b>${W.fmt.escapeHTML(metric.detail)}</b></div><div class="meter-bar"><div class="${meterClass(metric.value, metric.value == null ? "muted" : metric.value >= 60 ? "up" : "warn")}"></div></div></div>`).join("")}<p class="small muted">${[...(result.fundamentals.positives || []), ...(result.fundamentals.negatives || [])].map((t) => W.fmt.escapeHTML(t)).join(" · ") || "Limited fundamental data available."}</p></div>` : ""}
-        ${
-          result.technical
-            ? `
-        <div class="card" style="margin-top:16px;">
-          <h4>📐 Market-derived technical analysis</h4>
-          <div class="grid-2" style="margin-top:10px;">
-            <div class="kv-row"><span>RSI (14)</span><b>${result.technical.rsi} · ${W.fmt.escapeHTML(result.technical.rsiBias)}</b></div>
-            <div class="kv-row"><span>ATR (14)</span><b>${result.technical.atr}</b></div>
-            <div class="kv-row"><span>Trend</span><b>${W.fmt.escapeHTML(result.technical.trend)}</b></div>
-            <div class="kv-row"><span>EMA 20 / EMA 50</span><b>${result.technical.ema20} / ${result.technical.ema50 ?? "N/A"}</b></div>
-            <div class="kv-row"><span>MACD bias</span><b>${result.technical.macd >= 0 ? "positive" : "negative"} (${result.technical.macd})</b></div>
-            <div class="kv-row"><span>Bollinger position</span><b>${result.technical.bollingerPosition}%</b></div>
-            <div class="kv-row"><span>Market structure</span><b>${W.fmt.escapeHTML(result.technical.structure.label)}</b></div>
-            <div class="kv-row"><span>Structure event</span><b>${W.fmt.escapeHTML(result.technical.structure.breakOfStructure)}</b></div>
-            <div class="kv-row"><span>CHOCH</span><b>${W.fmt.escapeHTML(result.technical.structure.choch?.direction || "None confirmed")}</b></div>
-            <div class="kv-row"><span>SMC / liquidity</span><b>${W.fmt.escapeHTML(result.technical.smc.liquidity)}</b></div>
-            <div class="kv-row"><span>Relative volume</span><b>${result.technical.relativeVolume == null ? "N/A" : result.technical.relativeVolume + "x"}</b></div>
-            ${result.technical.multiTimeframe ? `<div class="kv-row"><span>MTF alignment</span><b>${W.fmt.escapeHTML(result.technical.multiTimeframe.timeframeAlignment)}</b></div><div class="kv-row"><span>Liquidity zones</span><b>${result.technical.multiTimeframe.liquidityZones.length}</b></div>` : ""}
-            <div class="kv-row"><span>Support / resistance</span><b>${result.technical.support} / ${result.technical.resistance}</b></div>
-            <div class="kv-row"><span>Technical confidence</span><b>${result.technical.confidence}%</b></div>
-          </div>
-          <p class="muted small" style="margin-top:10px;">Confluence: ${W.fmt.escapeHTML(result.technical.confluence)}. Annualized close-to-close volatility: ${result.technical.volatility}%.</p>
-          <p class="muted small" style="margin-top:10px;">${W.fmt.escapeHTML(result.technical.smc.orderBlock)}. ${W.fmt.escapeHTML(result.technical.smc.limitation)} Liquidity zones are heuristics derived from OHLCV; they are not direct order-book or on-chain observations.</p>
-        </div>`
-            : ""
-        }
-        <div class="grid-2" style="margin-top:16px;">
-          <div class="card">
-            <h4 style="color:var(--up);">🟢 Bullish Evidence</h4>
-            ${result.bullishEvidence.length ? result.bullishEvidence.map((e) => `<div class="kv-row"><span>${W.fmt.escapeHTML(e.title)}</span><span class="small">${W.fmt.escapeHTML(e.evidence)}</span></div>`).join("") : '<p class="muted small">No bullish evidence found.</p>'}
-          </div>
-          <div class="card">
-            <h4 style="color:var(--down);">🔴 Bearish Evidence</h4>
-            ${result.bearishEvidence.length ? result.bearishEvidence.map((e) => `<div class="kv-row"><span>${W.fmt.escapeHTML(e.title)}</span><span class="small">${W.fmt.escapeHTML(e.evidence)}</span></div>`).join("") : '<p class="muted small">No bearish evidence found.</p>'}
-          </div>
-        </div>
-        ${
-          result.contradictions && result.contradictions.length
-            ? `
-          <div style="margin-top:12px; padding:12px; background:rgba(255,179,92,0.1); border-radius:8px;">
-            <b>⚠️ Contradicting Evidence:</b>
-            ${result.contradictions.map((c) => `<div class="small">${W.fmt.escapeHTML(c.bull)} vs ${W.fmt.escapeHTML(c.bear)} — ${W.fmt.escapeHTML(c.details)}</div>`).join("")}
-          </div>
-        `
-            : ""
-        }
-        <div style="margin-top:16px; padding:12px; background:rgba(124,92,255,0.08); border-radius:8px;">
-          <b>Verdict:</b> ${W.fmt.escapeHTML(result.verdict)}
-          <p class="small muted" style="margin-top:4px;">${W.fmt.escapeHTML(result.explanation)}</p>
-        </div>
-        ${
-          result.personalContext
-            ? `
-          <div style="margin-top:12px; padding:12px; background:rgba(46,230,168,0.08); border-radius:8px;">
-            <b>👤 Your Position:</b>
-            ${result.personalContext.hasPosition ? `You hold ${result.personalContext.quantity} ${W.fmt.escapeHTML(result.asset)} at avg cost $${result.personalContext.avgCost.toFixed(2)} (current value $${result.personalContext.currentValue.toFixed(2)}).` : "You do not hold this asset."}
-          </div>
-        `
-            : ""
-        }
-        <div class="qa mt-16">
-          <button class="btn tiny" id="ta-new-analysis">← New Analysis</button>
-          <button class="btn tiny primary" id="ta-save-track">📊 Save to Track Record</button>
-        </div>
-      </div>
-    `;
 
-      // Wire navigation
-      const newBtn = view.querySelector("#ta-new-analysis");
-      if (newBtn)
-        newBtn.onclick = () => {
-          location.hash = "#/token";
-        };
-
-      // ── TRACK RECORD INTEGRATION ────────────────────────────
-      // Saves the CURRENT analysis result as an immutable snapshot.
-      // Does NOT re-fetch market data. Uses the exact result displayed.
-      const saveTrackBtn = view.querySelector("#ta-save-track");
-      if (saveTrackBtn) {
-        saveTrackBtn.onclick = async () => {
-          if (!W.trackRecord) {
-            return W.ui.toast("Track Record module not loaded", "warn");
+          ${
+            result.technical
+              ? `<div class="card mt-16">
+                   <h4>📐 Market-derived technical analysis</h4>
+                   <div class="grid-2 mt-10">
+                     <div class="kv-row"><span>RSI (14)</span><b>${result.technical.rsi} · ${safeText(result.technical.rsiBias)}</b></div>
+                     <div class="kv-row"><span>ATR (14)</span><b>${result.technical.atr}</b></div>
+                     <div class="kv-row"><span>Trend</span><b>${safeText(result.technical.trend)}</b></div>
+                     <div class="kv-row"><span>EMA 20 / EMA 50</span><b>${result.technical.ema20} / ${result.technical.ema50 ?? "N/A"}</b></div>
+                     <div class="kv-row"><span>MACD bias</span><b>${result.technical.macd >= 0 ? "positive" : "negative"} (${result.technical.macd})</b></div>
+                     <div class="kv-row"><span>Bollinger position</span><b>${result.technical.bollingerPosition}%</b></div>
+                     <div class="kv-row"><span>Market structure</span><b>${safeText(result.technical.structure?.label)}</b></div>
+                     <div class="kv-row"><span>Structure event</span><b>${safeText(result.technical.structure?.breakOfStructure)}</b></div>
+                     <div class="kv-row"><span>CHOCH</span><b>${safeText(result.technical.structure?.choch?.direction || "None confirmed")}</b></div>
+                     <div class="kv-row"><span>SMC / liquidity</span><b>${safeText(result.technical.smc?.liquidity)}</b></div>
+                     <div class="kv-row"><span>Relative volume</span><b>${result.technical.relativeVolume == null ? "N/A" : result.technical.relativeVolume + "x"}</b></div>
+                     ${
+                       result.technical.multiTimeframe
+                         ? `<div class="kv-row"><span>MTF alignment</span><b>${safeText(result.technical.multiTimeframe.timeframeAlignment)}</b></div>
+                            <div class="kv-row"><span>Liquidity zones</span><b>${result.technical.multiTimeframe.liquidityZones?.length || 0}</b></div>`
+                         : ""
+                     }
+                     <div class="kv-row"><span>Support / resistance</span><b>${result.technical.support} / ${result.technical.resistance}</b></div>
+                     <div class="kv-row"><span>Technical confidence</span><b>${result.technical.confidence}%</b></div>
+                   </div>
+                   <p class="muted small mt-10">Confluence: ${safeText(result.technical.confluence)}. Annualized close-to-close volatility: ${result.technical.volatility}%.</p>
+                   <p class="muted small mt-10">${safeText(result.technical.smc?.orderBlock)}. ${safeText(result.technical.smc?.limitation)} Liquidity zones are heuristics derived from OHLCV; they are not direct order-book or on-chain observations.</p>
+                 </div>`
+              : ""
           }
 
-          // Resolve canonical asset identity for the record
-          let canonicalAssetId;
+          <div class="grid-2 mt-16">
+            <div class="card">
+              <h4 class="text-up">🟢 Bullish Evidence</h4>
+              ${
+                result.bullishEvidence.length
+                  ? result.bullishEvidence
+                      .map(
+                        (e) =>
+                          `<div class="kv-row"><span>${safeText(e.title)}</span><span class="small">${safeText(e.evidence)}</span></div>`,
+                      )
+                      .join("")
+                  : '<p class="muted small">No bullish evidence found.</p>'
+              }
+            </div>
+            <div class="card">
+              <h4 class="text-down">🔴 Bearish Evidence</h4>
+              ${
+                result.bearishEvidence.length
+                  ? result.bearishEvidence
+                      .map(
+                        (e) =>
+                          `<div class="kv-row"><span>${safeText(e.title)}</span><span class="small">${safeText(e.evidence)}</span></div>`,
+                      )
+                      .join("")
+                  : '<p class="muted small">No bearish evidence found.</p>'
+              }
+            </div>
+          </div>
+
+          ${
+            result.contradictions && result.contradictions.length
+              ? `<div class="card-warn">
+                   <b>⚠️ Contradicting Evidence:</b>
+                   ${result.contradictions
+                     .map(
+                       (c) =>
+                         `<div class="small">${safeText(c.bull)} vs ${safeText(c.bear)} — ${safeText(c.details)}</div>`,
+                     )
+                     .join("")}
+                 </div>`
+              : ""
+          }
+
+          <div class="card-verdict">
+            <b>Verdict:</b> ${safeText(result.verdict)}
+            <p class="small muted mt-4">${safeText(result.explanation)}</p>
+          </div>
+
+          ${
+            result.personalContext
+              ? `<div class="card-position">
+                   <b>👤 Your Position:</b>
+                   ${
+                     result.personalContext.hasPosition
+                       ? `You hold ${result.personalContext.quantity} ${safeText(result.asset)} at avg cost $${Number(result.personalContext.avgCost).toFixed(2)} (current value $${Number(result.personalContext.currentValue).toFixed(2)}).`
+                       : "You do not hold this asset."
+                   }
+                 </div>`
+              : ""
+          }
+
+          <div class="qa mt-12">
+            ${W.trackRecord ? '<button class="btn tiny primary" id="ta-save-track" data-action="capture-track-record">Capture historical snapshot</button>' : ""}
+            <button class="btn tiny" data-action="new-analysis">← New Analysis</button>
+          </div>
+        </div>
+      `;
+
+      // ── Event listeners (no inline onclick) ─────────────
+      const captureButton = view.querySelector(
+        "[data-action='capture-track-record']",
+      );
+      if (captureButton) {
+        captureButton.addEventListener("click", () => {
           try {
-            canonicalAssetId = await W.asset.resolveAssetId(
-              result.assetId?.coingeckoId || result.asset,
+            const tr = W.trackRecord;
+            let record;
+            // Support either API name (createFromAnalysis is the canonical one)
+            if (typeof tr.capture === "function") {
+              record = tr.capture(result);
+            } else if (typeof tr.createFromAnalysis === "function") {
+              record = tr.createFromAnalysis(
+                result,
+                result.assetId || { symbol: result.asset },
+              );
+            } else {
+              throw new Error(
+                "Track Record module does not expose a capture method",
+              );
+            }
+            captureButton.disabled = true;
+            captureButton.textContent = "Snapshot captured";
+            W.ui?.toast?.(
+              `Historical ${record.displaySymbol || result.asset} analysis captured`,
+              "ok",
             );
-          } catch {
-            // Fallback if resolver fails — use what we have
-            canonicalAssetId = result.assetId || {
-              symbol: result.asset,
-              name: result.assetName || result.asset,
-              coingeckoId: null,
-              chainId: null,
-              contractAddress: null,
-            };
+          } catch (captureError) {
+            W.ui?.toast?.(captureError.message, "warn");
           }
+        });
+      }
 
-          const saveResult = W.trackRecord.createFromAnalysis(
-            result,
-            canonicalAssetId,
-          );
-
-          if (saveResult.ok) {
-            // Disable button to prevent duplicate saves
-            saveTrackBtn.disabled = true;
-            saveTrackBtn.textContent = "✓ Saved";
-          }
-          // Error toast is handled inside createFromAnalysis
-        };
+      const newBtn = view.querySelector("[data-action='new-analysis']");
+      if (newBtn) {
+        newBtn.addEventListener("click", () => {
+          location.hash = "#/token";
+        });
       }
     } catch (e) {
       view.innerHTML = `<div class="card"><p class="muted">Analysis failed: ${W.fmt.escapeHTML(e.message)}</p></div>`;
@@ -18385,7 +18869,7 @@ window.W = window.W || {};
         { id: "smart", icon: "🧠", label: "Smart Money", route: "#/smart" },
         { id: "theses", icon: "🎯", label: "Theses", route: "#/theses" },
         { id: "journal", icon: "📓", label: "Journal", route: "#/journal" },
-        { id: "track", icon: "📊", label: "Track Record", route: "#/track" },
+        { id: "track-record", icon: "🧾", label: "Track Record",},
       ],
     },
     {
@@ -18466,9 +18950,8 @@ window.W = window.W || {};
     pro: (v) => safeRender(v, "pro", () => W.misc?.renderPro),
     theses: (v) => safeRender(v, "theses", () => W.theses?.render),
     journal: (v) => safeRender(v, "journal", () => W.journal?.render),
-    track: (v) =>
-      W.trackRecord?.render?.(v) ||
-      W.ui?.toast?.("Track Record module not loaded", "warn"),
+    "track-record": (v) =>
+      safeRender(v, "track-record", () => W.trackRecord?.render),
     sync: (v) => safeRender(v, "sync", () => W.sync?.render),
     settings: (v) => safeRender(v, "settings", () => W.misc?.renderSettings),
     token: (v) =>
@@ -18477,6 +18960,9 @@ window.W = window.W || {};
         const param = getPageParam();
         return (view) => W.tokenAnalysis.render(view, param || undefined);
       }),
+    track: (v) =>
+      W.trackRecord?.render?.(v) ||
+      W.ui?.toast?.("Track Record module not loaded", "warn"),
   };
 
   function getCurrentPage() {

@@ -1513,3 +1513,8 @@ th.num {
 .tr-tab.active { background: var(--brand); color: #fff; border-color: var(--brand); }
 .tr-panel { margin-top: 8px; }
 .tr-snapshot, .tr-user, .tr-outcome, .tr-methodology { padding: 4px 0; }
+
+/* ── Action card variants (border color reflects the current scenario) ── */
+.card-action-buy  { border-color: var(--up); }
+.card-action-sell { border-color: var(--down); }
+.card-action-hold { border-color: var(--warn); }

@@ -1,5 +1,5 @@
 // ===============================================================
-//         Token Analysis – Evidence‑Driven Decision Workflow
+//         Token Analysis – Evidence-Driven Decision Workflow
 // ===============================================================
 
 window.W = window.W || {};
@@ -267,12 +267,6 @@ W.tokenAnalysis = (() => {
     };
   }
 
-  /**
-   * Analyze a token and return a structured decision report.
-   * @param {string} assetId - Coingecko ID or symbol (e.g., 'bitcoin', 'BTC')
-   * @param {Object} options - { includeContradictions: true, includePersonalContext: true }
-   * @returns {Object} - { opportunityScore, riskScore, bullishEvidence, bearishEvidence, contradictions, verdict, confidence, explanation }
-   */
   async function analyze(assetId, options = {}) {
     // 1. Resolve asset
     let asset;
@@ -371,11 +365,6 @@ W.tokenAnalysis = (() => {
     }
 
     // 5. Compute scores (weighted by confidence and impact)
-    // Items with unknown confidence (null) can't meaningfully weight a
-    // score — excluding them from the weighted sum is honest; treating
-    // null as 0 would silently claim "definitely no confidence," which
-    // is a different, unsupported claim. They still appear in the
-    // evidence lists below, just not in the numeric weighting.
     const weightSum = (list) =>
       list
         .filter((i) => i.confidence !== null && i.confidence !== undefined)
@@ -397,15 +386,9 @@ W.tokenAnalysis = (() => {
           : Math.min(riskScore, 100 - technical.score);
     }
 
-    // 6. Detect contradictions (e.g., bullish price, but bearish on-chain)
-    // For now, we simply report signals that point in opposite directions.
-    // We'll refine later.
+    // 6. Detect contradictions
     const contradictionItems = [];
     if (bullish.length > 0 && bearish.length > 0) {
-      // Take the strongest bull and bear signal and present them as
-      // contradiction — "strongest" only makes sense among items with
-      // a known confidence; fall back to the first item if every entry
-      // in a list has unknown confidence.
       const knownBull = bullish.filter((i) => i.confidence !== null);
       const knownBear = bearish.filter((i) => i.confidence !== null);
       const strongestBull = knownBull.length
@@ -421,9 +404,7 @@ W.tokenAnalysis = (() => {
       });
     }
 
-    // 7. Overall evidence strength = average confidence of evidence with
-    // a known confidence. If nothing has a known confidence, this is
-    // honestly null (displayed as "N/A"), not a fabricated number.
+    // 7. Overall evidence strength
     const allEvidence = [...bullish, ...bearish];
     const knownConfidenceEvidence = allEvidence.filter(
       (e) => e.confidence !== null && e.confidence !== undefined,
@@ -439,10 +420,7 @@ W.tokenAnalysis = (() => {
     else if (riskScore - opportunityScore > 20) verdict = "Elevated risk";
     else verdict = "Mixed signals";
 
-    // 9. Explanation (with personal context)
-    // Evidence-oriented language only — no directive/entry-point framing.
-    // WEAVER_CONSTITUTION §2.4 "Never Financial Advice" / "No Directive
-    // Laundering": this text must describe evidence, not suggest action.
+    // 9. Explanation
     let explanation = `Based on ${allEvidence.length} signals, opportunity score is ${opportunityScore.toFixed(0)}/100 and risk score is ${riskScore.toFixed(0)}/100. `;
     if (verdict === "Bullish opportunity")
       explanation +=
@@ -453,7 +431,7 @@ W.tokenAnalysis = (() => {
     else
       explanation += "Signals are mixed. Additional verification is warranted.";
 
-    // 10. Include personal context if requested
+    // 10. Personal context
     let personalContext = null;
     if (options.includePersonalContext && W.portfolio) {
       const portfolio = W.portfolio.all();
@@ -478,10 +456,17 @@ W.tokenAnalysis = (() => {
       riskScore,
     );
     const localEvidenceQuality = evidenceSufficiency(technical, fundamentals);
-    const securityEvidence = W.shield?.getEvidence?.({
-      symbol: asset.symbol,
-      coingeckoId: asset.coingeckoId,
-    });
+    let securityEvidence = null;
+    try {
+      if (W.shield && typeof W.shield.getEvidence === "function") {
+        securityEvidence = await W.shield.getEvidence({
+          symbol: asset.symbol,
+          coingeckoId: asset.coingeckoId,
+        });
+      }
+    } catch (e) {
+      console.warn("[TokenAnalysis] Shield evidence unavailable:", e.message);
+    }
     const evidenceDomains = {
       ...(options.evidenceDomains || {}),
       ...(securityEvidence
@@ -538,7 +523,6 @@ W.tokenAnalysis = (() => {
       tradeLevels: tradePlan,
     });
 
-    // 11. Return structured report
     return {
       asset: asset.symbol,
       assetId: asset,
@@ -566,31 +550,31 @@ W.tokenAnalysis = (() => {
     };
   }
 
-  // Render function (unchanged from previous version, but improved UI)
+  // ────────────────────────────────────────────────────────────
+  // Render (CSP-compliant: no inline styles, no inline onclick)
+  // ────────────────────────────────────────────────────────────
   async function render(view, assetId) {
-    // If no assetId, show the search input
+    // Search view
     if (!assetId) {
       view.innerHTML = `
-      <div class="card">
-        <h3>🔍 Token Analysis</h3>
-        <p class="muted small">Get an evidence‑driven decision report for any crypto asset.</p>
-        <div class="qa mt">
-          <input type="text" id="ta-input" placeholder="Enter symbol or name (e.g., BTC, Ethereum)" class="input" style="flex:1;">
-          <button class="btn primary" id="ta-go">Analyze</button>
+        <div class="card">
+          <h3>🔍 Token Analysis</h3>
+          <p class="muted small">Get an evidence-driven decision report for any crypto asset.</p>
+          <div class="qa mt">
+            <input type="text" id="ta-input" placeholder="Enter symbol or name (e.g., BTC, Ethereum)" class="input">
+            <button class="btn primary" id="ta-go">Analyze</button>
+          </div>
+          <div id="ta-result"></div>
         </div>
-        <div id="ta-result"></div>
-      </div>
-    `;
-      view.querySelector("#ta-go").onclick = () => {
-        const input = view.querySelector("#ta-input").value.trim();
-        if (input) {
-          // Keep the selected asset in the route so global auto-refreshes
-          // do not replace the report with the empty search form.
-          location.hash = `#/token/${encodeURIComponent(input)}`;
-        }
-      };
-      view.querySelector("#ta-input").addEventListener("keydown", (e) => {
-        if (e.key === "Enter") view.querySelector("#ta-go").click();
+      `;
+      const input = view.querySelector("#ta-input");
+      const goBtn = view.querySelector("#ta-go");
+      goBtn.addEventListener("click", () => {
+        const v = input.value.trim();
+        if (v) location.hash = `#/token/${encodeURIComponent(v)}`;
+      });
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") goBtn.click();
       });
       return;
     }
@@ -600,147 +584,254 @@ W.tokenAnalysis = (() => {
     try {
       const result = await analyze(assetId, { includePersonalContext: true });
       if (result.error) {
-        view.innerHTML = `<div class="card"><p class="muted">${result.error}</p></div>`;
+        view.innerHTML = `<div class="card"><p class="muted">${W.fmt.escapeHTML(result.error)}</p></div>`;
         return;
       }
 
+      // Dynamic class names (CSP-safe — no inline style)
+      const oppClass = result.opportunityScore > 60 ? "text-up" : "text-warn";
+      const riskClass = result.riskScore > 60 ? "text-down" : "text-warn";
+      const actionClass =
+        result.action === "BUY"
+          ? "card-action-buy"
+          : result.action === "SELL"
+            ? "card-action-sell"
+            : "card-action-hold";
+
+      const safeText = (s) => W.fmt.escapeHTML(String(s ?? ""));
+
       view.innerHTML = `
-      <div class="card">
-        <h3>📊 Token Analysis: ${result.asset}</h3>
-        <div class="cards" style="margin-top:12px;">
-          <div class="card stat">
-            <div class="stat-label">Opportunity Score</div>
-            <div class="stat-big" style="color:${result.opportunityScore > 60 ? "var(--up)" : "var(--warn)"}">${result.opportunityScore}/100</div>
+        <div class="card">
+          <h3>📊 Token Analysis: ${safeText(result.asset)}</h3>
+
+          <div class="cards mt-12">
+            <div class="card stat">
+              <div class="stat-label">Opportunity Score</div>
+              <div class="stat-big ${oppClass}">${result.opportunityScore}/100</div>
+            </div>
+            <div class="card stat">
+              <div class="stat-label">Risk Score</div>
+              <div class="stat-big ${riskClass}">${result.riskScore}/100</div>
+            </div>
+            <div class="card stat">
+              <div class="stat-label">Evidence Strength</div>
+              <div class="stat-big">${result.confidence === null ? "N/A" : result.confidence + "%"}</div>
+            </div>
+            <div class="card stat">
+              <div class="stat-label">Signals Analyzed</div>
+              <div class="stat-big">${result.signalsCount}</div>
+            </div>
           </div>
-          <div class="card stat">
-            <div class="stat-label">Risk Score</div>
-            <div class="stat-big" style="color:${result.riskScore > 60 ? "var(--down)" : "var(--warn)"}">${result.riskScore}/100</div>
+
+          <div class="mt-12">
+            <div class="meter-bar"><div class="${meterClass(result.opportunityScore, "up")}"></div></div>
+            <div class="meter-label">Opportunity Score</div>
           </div>
-          <div class="card stat">
-            <div class="stat-label">Evidence Strength</div>
-            <div class="stat-big">${result.confidence === null ? "N/A" : result.confidence + "%"}</div>
+          <div class="mt-8">
+            <div class="meter-bar"><div class="${meterClass(result.riskScore, "down")}"></div></div>
+            <div class="meter-label">Risk Score</div>
           </div>
-          <div class="card stat">
-            <div class="stat-label">Signals Analyzed</div>
-            <div class="stat-big">${result.signalsCount}</div>
+
+          <div class="card mt-16 ${actionClass}">
+            <h3>${safeText(result.scenario || "Neutral / insufficient evidence")}</h3>
+            <p class="small">Evidence quality: <b>${safeText(result.evidenceQuality?.status || "UNAVAILABLE")}</b> · Scenario strength: ${result.actionConfidence ?? "N/A"}%</p>
+            ${
+              result.unifiedVerdict
+                ? `<p class="small muted">Domains: ${Object.values(
+                    result.unifiedVerdict.domains || {},
+                  )
+                    .map((d) => `${safeText(d.name)} ${safeText(d.status)}`)
+                    .join(" · ")}</p>
+                   <p class="small muted">Methodology ${safeText(result.unifiedVerdict.methodologyVersion)} · Evidence ${safeText(result.unifiedVerdict.evidenceVersion)}</p>`
+                : ""
+            }
+            <p class="small muted">${safeText(result.actionInterpretation || "The available evidence does not support a directional scenario.")}</p>
+            ${result.actionReasons?.length ? `<p class="small muted">${result.actionReasons.map(safeText).join(" · ")}</p>` : ""}
+            ${result.evidenceQuality?.reasons?.length ? `<p class="small muted">Limitations: ${result.evidenceQuality.reasons.map(safeText).join(" · ")}</p>` : ""}
+            ${
+              result.tradeLevels
+                ? `<div class="grid-2 mt-10">
+                     <div class="kv-row"><span>Reference price</span><b>${result.tradeLevels.entry}</b></div>
+                     <div class="kv-row"><span>Potential invalidation</span><b class="text-down">${result.tradeLevels.stopLoss}</b></div>
+                     <div class="kv-row"><span>Potential target zone</span><b class="text-up">${result.tradeLevels.takeProfit}</b></div>
+                     <div class="kv-row"><span>ATR risk distance</span><b>${result.tradeLevels.riskDistance}</b></div>
+                   </div>
+                   <p class="small muted">${safeText(result.tradeLevels.basis)}. These are scenario levels derived from current OHLCV data, not instructions to trade.</p>`
+                : ""
+            }
           </div>
-        </div>
-        <div style="margin-top:12px;">
-          <div class="meter-bar"><div class="${meterClass(result.opportunityScore, "up")}"></div></div>
-          <div class="meter-label">Opportunity Score</div>
-        </div>
-        <div style="margin-top:8px;">
-          <div class="meter-bar"><div class="${meterClass(result.riskScore, "down")}"></div></div>
-          <div class="meter-label">Risk Score</div>
-        </div>
-        <div class="card" style="margin-top:16px; border:1px solid ${result.action === "BUY" ? "var(--up)" : result.action === "SELL" ? "var(--down)" : "var(--warn)"};">
-          <h3>${result.scenario || "Neutral / insufficient evidence"}</h3>
-          <p class="small">Evidence quality: <b>${result.evidenceQuality?.status || "UNAVAILABLE"}</b> · Scenario strength: ${result.actionConfidence ?? "N/A"}%</p>
+
           ${
-            result.unifiedVerdict
-              ? `<p class="small muted">Domains: ${Object.values(
-                  result.unifiedVerdict.domains,
-                )
-                  .map((domain) => `${domain.name} ${domain.status}`)
-                  .join(
-                    " · ",
-                  )}</p><p class="small muted">Methodology ${result.unifiedVerdict.methodologyVersion} · Evidence ${result.unifiedVerdict.evidenceVersion}</p>`
+            result.fundamentals
+              ? `<div class="card fundamental-breakdown">
+                   <h4>Fundamental score breakdown</h4>
+                   <div class="grid-2">
+                     <div class="kv-row"><span>Fundamental bias</span><b>${safeText(result.fundamentals.bias)}</b></div>
+                     <div class="kv-row"><span>Overall score</span><b>${result.fundamentals.score}/100</b></div>
+                   </div>
+                   ${(result.fundamentals.metrics || [])
+                     .map(
+                       (m) => `
+                       <div class="fundamental-metric">
+                         <div class="meter-label"><span>${safeText(m.label)}</span><b>${safeText(m.detail)}</b></div>
+                         <div class="meter-bar">
+                           <div class="${meterClass(m.value, m.value == null ? "muted" : m.value >= 60 ? "up" : "warn")}"></div>
+                         </div>
+                       </div>
+                     `,
+                     )
+                     .join("")}
+                   <p class="small muted">${[...(result.fundamentals.positives || []), ...(result.fundamentals.negatives || [])].map(safeText).join(" · ") || "Limited fundamental data available."}</p>
+                 </div>`
               : ""
           }
-          <p class="small muted">${result.actionInterpretation || "The available evidence does not support a directional scenario."}</p>
-          ${result.actionReasons?.length ? `<p class="small muted">${result.actionReasons.join(" · ")}</p>` : ""}
-          ${result.evidenceQuality?.reasons?.length ? `<p class="small muted">Limitations: ${result.evidenceQuality.reasons.join(" · ")}</p>` : ""}
-          ${result.tradeLevels ? `<div class="grid-2" style="margin-top:10px;"><div class="kv-row"><span>Reference price</span><b>${result.tradeLevels.entry}</b></div><div class="kv-row"><span>Potential invalidation</span><b style="color:var(--down);">${result.tradeLevels.stopLoss}</b></div><div class="kv-row"><span>Potential target zone</span><b style="color:var(--up);">${result.tradeLevels.takeProfit}</b></div><div class="kv-row"><span>ATR risk distance</span><b>${result.tradeLevels.riskDistance}</b></div></div><p class="small muted">${result.tradeLevels.basis}. These are scenario levels derived from current OHLCV data, not instructions to trade.</p>` : ""}
+
+          ${
+            result.technical
+              ? `<div class="card mt-16">
+                   <h4>📐 Market-derived technical analysis</h4>
+                   <div class="grid-2 mt-10">
+                     <div class="kv-row"><span>RSI (14)</span><b>${result.technical.rsi} · ${safeText(result.technical.rsiBias)}</b></div>
+                     <div class="kv-row"><span>ATR (14)</span><b>${result.technical.atr}</b></div>
+                     <div class="kv-row"><span>Trend</span><b>${safeText(result.technical.trend)}</b></div>
+                     <div class="kv-row"><span>EMA 20 / EMA 50</span><b>${result.technical.ema20} / ${result.technical.ema50 ?? "N/A"}</b></div>
+                     <div class="kv-row"><span>MACD bias</span><b>${result.technical.macd >= 0 ? "positive" : "negative"} (${result.technical.macd})</b></div>
+                     <div class="kv-row"><span>Bollinger position</span><b>${result.technical.bollingerPosition}%</b></div>
+                     <div class="kv-row"><span>Market structure</span><b>${safeText(result.technical.structure?.label)}</b></div>
+                     <div class="kv-row"><span>Structure event</span><b>${safeText(result.technical.structure?.breakOfStructure)}</b></div>
+                     <div class="kv-row"><span>CHOCH</span><b>${safeText(result.technical.structure?.choch?.direction || "None confirmed")}</b></div>
+                     <div class="kv-row"><span>SMC / liquidity</span><b>${safeText(result.technical.smc?.liquidity)}</b></div>
+                     <div class="kv-row"><span>Relative volume</span><b>${result.technical.relativeVolume == null ? "N/A" : result.technical.relativeVolume + "x"}</b></div>
+                     ${
+                       result.technical.multiTimeframe
+                         ? `<div class="kv-row"><span>MTF alignment</span><b>${safeText(result.technical.multiTimeframe.timeframeAlignment)}</b></div>
+                            <div class="kv-row"><span>Liquidity zones</span><b>${result.technical.multiTimeframe.liquidityZones?.length || 0}</b></div>`
+                         : ""
+                     }
+                     <div class="kv-row"><span>Support / resistance</span><b>${result.technical.support} / ${result.technical.resistance}</b></div>
+                     <div class="kv-row"><span>Technical confidence</span><b>${result.technical.confidence}%</b></div>
+                   </div>
+                   <p class="muted small mt-10">Confluence: ${safeText(result.technical.confluence)}. Annualized close-to-close volatility: ${result.technical.volatility}%.</p>
+                   <p class="muted small mt-10">${safeText(result.technical.smc?.orderBlock)}. ${safeText(result.technical.smc?.limitation)} Liquidity zones are heuristics derived from OHLCV; they are not direct order-book or on-chain observations.</p>
+                 </div>`
+              : ""
+          }
+
+          <div class="grid-2 mt-16">
+            <div class="card">
+              <h4 class="text-up">🟢 Bullish Evidence</h4>
+              ${
+                result.bullishEvidence.length
+                  ? result.bullishEvidence
+                      .map(
+                        (e) =>
+                          `<div class="kv-row"><span>${safeText(e.title)}</span><span class="small">${safeText(e.evidence)}</span></div>`,
+                      )
+                      .join("")
+                  : '<p class="muted small">No bullish evidence found.</p>'
+              }
+            </div>
+            <div class="card">
+              <h4 class="text-down">🔴 Bearish Evidence</h4>
+              ${
+                result.bearishEvidence.length
+                  ? result.bearishEvidence
+                      .map(
+                        (e) =>
+                          `<div class="kv-row"><span>${safeText(e.title)}</span><span class="small">${safeText(e.evidence)}</span></div>`,
+                      )
+                      .join("")
+                  : '<p class="muted small">No bearish evidence found.</p>'
+              }
+            </div>
+          </div>
+
+          ${
+            result.contradictions && result.contradictions.length
+              ? `<div class="card-warn">
+                   <b>⚠️ Contradicting Evidence:</b>
+                   ${result.contradictions
+                     .map(
+                       (c) =>
+                         `<div class="small">${safeText(c.bull)} vs ${safeText(c.bear)} — ${safeText(c.details)}</div>`,
+                     )
+                     .join("")}
+                 </div>`
+              : ""
+          }
+
+          <div class="card-verdict">
+            <b>Verdict:</b> ${safeText(result.verdict)}
+            <p class="small muted mt-4">${safeText(result.explanation)}</p>
+          </div>
+
+          ${
+            result.personalContext
+              ? `<div class="card-position">
+                   <b>👤 Your Position:</b>
+                   ${
+                     result.personalContext.hasPosition
+                       ? `You hold ${result.personalContext.quantity} ${safeText(result.asset)} at avg cost $${Number(result.personalContext.avgCost).toFixed(2)} (current value $${Number(result.personalContext.currentValue).toFixed(2)}).`
+                       : "You do not hold this asset."
+                   }
+                 </div>`
+              : ""
+          }
+
+          <div class="qa mt-12">
+            ${W.trackRecord ? '<button class="btn tiny primary" id="ta-save-track" data-action="capture-track-record">Capture historical snapshot</button>' : ""}
+            <button class="btn tiny" data-action="new-analysis">← New Analysis</button>
+          </div>
         </div>
-          ${result.fundamentals ? `<div class="card fundamental-breakdown"><h4>Fundamental score breakdown</h4><div class="grid-2"><div class="kv-row"><span>Fundamental bias</span><b>${result.fundamentals.bias}</b></div><div class="kv-row"><span>Overall score</span><b>${result.fundamentals.score}/100</b></div></div>${(result.fundamentals.metrics || []).map((metric) => `<div class="fundamental-metric"><div class="meter-label"><span>${metric.label}</span><b>${metric.detail}</b></div><div class="meter-bar"><div class="${meterClass(metric.value, metric.value == null ? "muted" : metric.value >= 60 ? "up" : "warn")}"></div></div></div>`).join("")}<p class="small muted">${[...(result.fundamentals.positives || []), ...(result.fundamentals.negatives || [])].join(" · ") || "Limited fundamental data available."}</p></div>` : ""}
-        ${
-          result.technical
-            ? `
-        <div class="card" style="margin-top:16px;">
-          <h4>📐 Market-derived technical analysis</h4>
-          <div class="grid-2" style="margin-top:10px;">
-            <div class="kv-row"><span>RSI (14)</span><b>${result.technical.rsi} · ${result.technical.rsiBias}</b></div>
-            <div class="kv-row"><span>ATR (14)</span><b>${result.technical.atr}</b></div>
-            <div class="kv-row"><span>Trend</span><b>${result.technical.trend}</b></div>
-            <div class="kv-row"><span>EMA 20 / EMA 50</span><b>${result.technical.ema20} / ${result.technical.ema50 ?? "N/A"}</b></div>
-            <div class="kv-row"><span>MACD bias</span><b>${result.technical.macd >= 0 ? "positive" : "negative"} (${result.technical.macd})</b></div>
-            <div class="kv-row"><span>Bollinger position</span><b>${result.technical.bollingerPosition}%</b></div>
-            <div class="kv-row"><span>Market structure</span><b>${result.technical.structure.label}</b></div>
-            <div class="kv-row"><span>Structure event</span><b>${result.technical.structure.breakOfStructure}</b></div>
-            <div class="kv-row"><span>CHOCH</span><b>${result.technical.structure.choch?.direction || "None confirmed"}</b></div>
-            <div class="kv-row"><span>SMC / liquidity</span><b>${result.technical.smc.liquidity}</b></div>
-            <div class="kv-row"><span>Relative volume</span><b>${result.technical.relativeVolume == null ? "N/A" : result.technical.relativeVolume + "x"}</b></div>
-            ${result.technical.multiTimeframe ? `<div class="kv-row"><span>MTF alignment</span><b>${result.technical.multiTimeframe.timeframeAlignment}</b></div><div class="kv-row"><span>Liquidity zones</span><b>${result.technical.multiTimeframe.liquidityZones.length}</b></div>` : ""}
-            <div class="kv-row"><span>Support / resistance</span><b>${result.technical.support} / ${result.technical.resistance}</b></div>
-            <div class="kv-row"><span>Technical confidence</span><b>${result.technical.confidence}%</b></div>
-          </div>
-          <p class="muted small" style="margin-top:10px;">Confluence: ${result.technical.confluence}. Annualized close-to-close volatility: ${result.technical.volatility}%.</p>
-          <p class="muted small" style="margin-top:10px;">${result.technical.smc.orderBlock}. ${result.technical.smc.limitation} Liquidity zones are heuristics derived from OHLCV; they are not direct order-book or on-chain observations.</p>
-        </div>`
-            : ""
-        }
-        <div class="grid-2" style="margin-top:16px;">
-          <div class="card">
-            <h4 style="color:var(--up);">🟢 Bullish Evidence</h4>
-            ${result.bullishEvidence.length ? result.bullishEvidence.map((e) => `<div class="kv-row"><span>${e.title}</span><span class="small">${e.evidence}</span></div>`).join("") : '<p class="muted small">No bullish evidence found.</p>'}
-          </div>
-          <div class="card">
-            <h4 style="color:var(--down);">🔴 Bearish Evidence</h4>
-            ${result.bearishEvidence.length ? result.bearishEvidence.map((e) => `<div class="kv-row"><span>${e.title}</span><span class="small">${e.evidence}</span></div>`).join("") : '<p class="muted small">No bearish evidence found.</p>'}
-          </div>
-        </div>
-        ${
-          result.contradictions && result.contradictions.length
-            ? `
-          <div style="margin-top:12px; padding:12px; background:rgba(255,179,92,0.1); border-radius:8px;">
-            <b>⚠️ Contradicting Evidence:</b>
-            ${result.contradictions.map((c) => `<div class="small">${c.bull} vs ${c.bear} — ${c.details}</div>`).join("")}
-          </div>
-        `
-            : ""
-        }
-        <div style="margin-top:16px; padding:12px; background:rgba(124,92,255,0.08); border-radius:8px;">
-          <b>Verdict:</b> ${result.verdict}
-          <p class="small muted" style="margin-top:4px;">${result.explanation}</p>
-        </div>
-        ${
-          result.personalContext
-            ? `
-          <div style="margin-top:12px; padding:12px; background:rgba(46,230,168,0.08); border-radius:8px;">
-            <b>👤 Your Position:</b>
-            ${result.personalContext.hasPosition ? `You hold ${result.personalContext.quantity} ${result.asset} at avg cost $${result.personalContext.avgCost.toFixed(2)} (current value $${result.personalContext.currentValue.toFixed(2)}).` : "You do not hold this asset."}
-          </div>
-        `
-            : ""
-        }
-        <div style="margin-top:12px;">
-          ${W.trackRecord ? '<button class="btn tiny primary" data-action="capture-track-record">Capture historical snapshot</button>' : ""}
-          <button class="btn tiny" onclick="document.location.hash='#/token'">← New Analysis</button>
-        </div>
-      </div>
-    `;
+      `;
+
+      // ── Event listeners (no inline onclick) ─────────────
       const captureButton = view.querySelector(
         "[data-action='capture-track-record']",
       );
       if (captureButton) {
-        captureButton.onclick = () => {
+        captureButton.addEventListener("click", () => {
           try {
-            const record = W.trackRecord.capture(result);
+            const tr = W.trackRecord;
+            let record;
+            // Support either API name (createFromAnalysis is the canonical one)
+            if (typeof tr.capture === "function") {
+              record = tr.capture(result);
+            } else if (typeof tr.createFromAnalysis === "function") {
+              record = tr.createFromAnalysis(
+                result,
+                result.assetId || { symbol: result.asset },
+              );
+            } else {
+              throw new Error(
+                "Track Record module does not expose a capture method",
+              );
+            }
             captureButton.disabled = true;
             captureButton.textContent = "Snapshot captured";
-            W.ui?.toast?.(`Historical ${record.asset} analysis captured`, "ok");
+            W.ui?.toast?.(
+              `Historical ${record.displaySymbol || result.asset} analysis captured`,
+              "ok",
+            );
           } catch (captureError) {
             W.ui?.toast?.(captureError.message, "warn");
           }
-        };
+        });
+      }
+
+      const newBtn = view.querySelector("[data-action='new-analysis']");
+      if (newBtn) {
+        newBtn.addEventListener("click", () => {
+          location.hash = "#/token";
+        });
       }
     } catch (e) {
-      view.innerHTML = `<div class="card"><p class="muted">Analysis failed: ${e.message}</p></div>`;
+      view.innerHTML = `<div class="card"><p class="muted">Analysis failed: ${W.fmt.escapeHTML(e.message)}</p></div>`;
     }
   }
+
   console.log("[TokenAnalysis] Module loaded.");
 
-  // expose API
   return {
     analyze,
     render,

@@ -1,511 +1,947 @@
 // ===============================================================
-//         Weaver Track Record v2.1 – auditable history
+//         Track Record Module — v2.1
 // ===============================================================
-// Historical fidelity: preserve exactly what Weaver knew at capture
-// time. User edits are limited to explicit fields and are revisioned.
-// Historical views never fetch current market data.
+//
+// Purpose: Persist a historical, immutable snapshot of Weaver's
+// analysis alongside the user's own decision and the observed outcome.
+//
+// Constitution compliance:
+//   §2.2 reasoning visible       — snapshot preserves reasoning arrays
+//   §2.3 losses visible          — outcomes carry provenance, no cherry-pick
+//   §2.4 no financial directives — no "buy/sell" language
+//   §2.7 evidence provenance     — source/timestamp per snapshot
+//   §2.9 no false precision      — null stays null, never 0/0.5/50
+//   §3.8 versioned scoring       — methodologyVersion + scoringVersion stored
+//
+// ===============================================================
 
 window.W = window.W || {};
 
 W.trackRecord = (() => {
-  const STORAGE_KEY = "track_records";
-  const SCHEMA_VERSION = "track-record-v2.1";
-  const USER_ACTIONS = new Set([
+  const STORAGE_KEY = "track_record";
+  const SCHEMA_VERSION = "track-record-v1";
+  const MAX_REVISIONS = 100;
+
+  // ── Enum whitelists (Phase 19) ─────────────────────────────
+  // UNSET represents a fresh record where the user has not yet
+  // engaged with the decision. NO_DECISION is retained for records
+  // where the user explicitly considered and chose not to decide.
+  const ACTIONS = [
     "UNSET",
     "NO_DECISION",
     "WATCH",
     "CONSIDER",
     "ENTERED",
-    "NOT_ENTERED",
     "EXITED",
     "SKIPPED",
-    "HOLD",
-  ]);
-  const OUTCOME_STATUS = new Set([
-    "UNSET",
+  ];
+  const OUTCOME_STATUS = ["OPEN", "CLOSED", "UNKNOWN"];
+  const OUTCOME_SOURCE = [
+    "USER_ENTERED",
+    "PORTFOLIO_TRANSACTION",
+    "MARKET_OBSERVATION",
     "UNKNOWN",
-    "REPORTED_GAIN",
-    "REPORTED_LOSS",
-    "REPORTED_FLAT",
-  ]);
-  const MUTABLE_FIELDS = new Set([
-    "userDecision.action",
-    "userDecision.notes",
-    "userDecision.decisionTimestamp",
-    "userDecision.linkedTransactionId",
-    "outcome.status",
-    "outcome.observedPriceAtOutcome",
-    "outcome.outcomeTimestamp",
-    "outcome.userEntryPrice",
-    "outcome.userExitPrice",
-    "outcome.positionSize",
-    "outcome.resultCurrency",
-    "outcome.outcomeSource",
-    "outcome.notes",
-  ]);
-  const DANGEROUS_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+  ];
+  const EVIDENCE_QUALITY = ["SUFFICIENT", "PARTIAL", "INSUFFICIENT", "UNKNOWN"];
+  const SCENARIO_CLASS = ["POSITIVE", "NEGATIVE", "NEUTRAL", "UNKNOWN"];
 
-  function deepClone(value) {
-    if (value === undefined || value === null) return value;
-    try {
-      if (typeof structuredClone === "function") return structuredClone(value);
-    } catch (_) {}
-    return JSON.parse(JSON.stringify(value));
-  }
-
-  function ownDangerousKey(value, seen = new Set()) {
-    if (!value || typeof value !== "object" || seen.has(value)) return false;
-    seen.add(value);
-    for (const key of Object.getOwnPropertyNames(value)) {
-      if (DANGEROUS_KEYS.has(key)) return true;
-      if (ownDangerousKey(value[key], seen)) return true;
+  // ── Deterministic string hash (FNV-1a, 32-bit) ─────────────
+  function stableHash(input) {
+    const str = String(input || "");
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
     }
-    return false;
+    return (h >>> 0).toString(16).padStart(8, "0");
   }
 
-  function safeFiniteNumber(value, allowNegative = true) {
-    if (value === null || value === undefined || value === "") return null;
-    const number = Number(value);
-    if (!Number.isFinite(number) || (!allowNegative && number < 0)) return null;
-    return number;
-  }
-
-  function timeMs(value) {
-    if (value === null || value === undefined || value === "") return null;
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    const parsed = Date.parse(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  function calculateOutcome(outcome, decisionTimestamp) {
-    const entry = safeFiniteNumber(outcome.userEntryPrice, false);
-    const exit = safeFiniteNumber(outcome.userExitPrice, false);
-    const quantity = safeFiniteNumber(outcome.positionSize, false);
-    const result = {
-      realizedResult: null,
-      realizedResultPct: null,
-      holdingDurationMs: null,
-    };
-    if (entry !== null && exit !== null && quantity !== null) {
-      result.realizedResult = (exit - entry) * quantity;
-      if (entry !== 0)
-        result.realizedResultPct = ((exit - entry) / entry) * 100;
+  // ── UUID generation ────────────────────────────────────────
+  function newId() {
+    if (
+      typeof crypto !== "undefined" &&
+      typeof crypto.randomUUID === "function"
+    ) {
+      return crypto.randomUUID();
     }
-    const start = timeMs(decisionTimestamp);
-    const end = timeMs(outcome.outcomeTimestamp);
-    if (start !== null && end !== null && end >= start)
-      result.holdingDurationMs = end - start;
-    return result;
+    return (
+      "tr-" +
+      Date.now().toString(36) +
+      "-" +
+      Math.random().toString(36).slice(2, 10)
+    );
   }
 
-  function canonicalAssetId(analysis, metadata = {}) {
-    const source = analysis.assetId || metadata.assetId || {};
+  // ── Enum validation ────────────────────────────────────────
+  function validEnum(value, whitelist, fallback) {
+    return whitelist.includes(value) ? value : fallback;
+  }
+
+  // ── Analysis normalization ─────────────────────────────────
+  // Accepts a token-analysis() result of any shape and normalizes to
+  // the canonical weaverSnapshot. Missing fields stay null (Phase 5).
+  function normalizeAnalysis(analysis) {
+    const a = analysis || {};
+
+    const unified = a.unifiedVerdict || a.verdict || {};
+    const ta = a.technicalAnalysis || a.technicals || {};
+    const fa =
+      a.fundamentalAssessment || a.fundamental || a.fundamentalReport || {};
+    const sa = a.securityAssessment || a.shield || {};
+    const sc = a.scenario || {};
+    const ev = a.evidence || {};
+
+    // Preserve the composed verdict's domain OBJECT (not array).
+    // The unified-verdict.compose() output uses {market, technical,
+    // security, holders, liquidity, freshness}. Older code paths used
+    // an array — accept both, prefer object.
+    let domains = {};
+    if (
+      unified.domains &&
+      typeof unified.domains === "object" &&
+      !Array.isArray(unified.domains)
+    ) {
+      domains = { ...unified.domains };
+    } else if (Array.isArray(unified.domains)) {
+      // Legacy: array of {name, status, ...}. Re-key by name.
+      unified.domains.forEach((d) => {
+        if (d && typeof d === "object" && d.name) {
+          domains[String(d.name).toLowerCase()] = { ...d };
+        }
+      });
+    }
+
     return {
-      chainId: source.chainId || "unknown",
-      contractAddress: source.contractAddress || null,
-      symbol: source.symbol || analysis.asset || "UNKNOWN",
-      coingeckoId: source.coingeckoId || null,
-      name: source.name || analysis.asset || "Unknown",
+      // The raw asset identifier the analysis was performed on.
+      asset: typeof a.asset === "string" ? a.asset : null,
+
+      methodologyVersion: a.methodologyVersion ?? a.methodology ?? null,
+      scoringVersion: a.scoringVersion ?? a.scoreVersion ?? null,
+      evidenceBuilderVersion: a.evidenceBuilderVersion ?? null,
+      analysisTimestamp:
+        typeof a.analysisTimestamp === "number"
+          ? a.analysisTimestamp
+          : Date.now(),
+
+      unifiedVerdict: {
+        score:
+          typeof unified.score === "number"
+            ? unified.score
+            : typeof a.opportunityScore === "number"
+              ? a.opportunityScore
+              : typeof a.score === "number"
+                ? a.score
+                : null,
+        confidence:
+          typeof unified.confidence === "number"
+            ? unified.confidence
+            : typeof a.confidence === "number"
+              ? a.confidence
+              : null,
+        evidenceQuality: validEnum(
+          unified.evidenceQuality,
+          EVIDENCE_QUALITY,
+          "UNKNOWN",
+        ),
+        domains,
+      },
+
+      technicalAnalysis: {
+        score: typeof ta.score === "number" ? ta.score : null,
+        bias: typeof ta.bias === "string" ? ta.bias : null,
+        rsi: typeof ta.rsi === "number" ? ta.rsi : null,
+        trend: typeof ta.trend === "string" ? ta.trend : null,
+        confidence: typeof ta.confidence === "number" ? ta.confidence : null,
+        available:
+          typeof ta.available === "boolean" ? ta.available : ta.score != null,
+      },
+
+      fundamentalAssessment: {
+        score: typeof fa.score === "number" ? fa.score : null,
+        bias: typeof fa.bias === "string" ? fa.bias : null,
+        available:
+          typeof fa.available === "boolean" ? fa.available : fa.score != null,
+      },
+
+      securityAssessment: {
+        riskScore: typeof sa.riskScore === "number" ? sa.riskScore : null,
+        riskLevel:
+          typeof sa.riskLevel === "string"
+            ? sa.riskLevel
+            : Array.isArray(sa.riskLevel)
+              ? sa.riskLevel[0]
+              : null,
+        source: typeof sa.source === "string" ? sa.source : null,
+        available:
+          typeof sa.available === "boolean"
+            ? sa.available
+            : sa.riskScore != null,
+      },
+
+      scenario: {
+        classification: validEnum(sc.classification, SCENARIO_CLASS, "UNKNOWN"),
+        strength: typeof sc.strength === "number" ? sc.strength : null,
+        reasoning: Array.isArray(sc.reasoning) ? sc.reasoning.slice() : [],
+        limitations: Array.isArray(sc.limitations)
+          ? sc.limitations.slice()
+          : [],
+      },
+
+      evidence: {
+        supporting: Array.isArray(ev.supporting)
+          ? ev.supporting.slice()
+          : Array.isArray(a.bullishEvidence)
+            ? a.bullishEvidence.slice()
+            : [],
+        contradicting: Array.isArray(ev.contradicting)
+          ? ev.contradicting.slice()
+          : Array.isArray(a.bearishEvidence)
+            ? a.bearishEvidence.slice()
+            : [],
+        missing: Array.isArray(ev.missing) ? ev.missing.slice() : [],
+      },
     };
   }
 
-  function validRecord(record) {
+  // ── Asset ID normalization ─────────────────────────────────
+  function normalizeAssetId(asset) {
+    const a = asset || {};
+    return {
+      chainId: typeof a.chainId === "string" ? a.chainId : null,
+      contractAddress:
+        typeof a.contractAddress === "string" ? a.contractAddress : null,
+      symbol: typeof a.symbol === "string" ? a.symbol : null,
+      coingeckoId: typeof a.coingeckoId === "string" ? a.coingeckoId : null,
+      name: typeof a.name === "string" ? a.name : null,
+    };
+  }
+
+  // ── Immutable snapshot guard ───────────────────────────────
+  const IMMUTABLE_TOP = [
+    "recordId",
+    "createdAt",
+    "weaverSnapshot",
+    "schemaVersion",
+  ];
+
+  function patchRecord(record, patch) {
+    const next = { ...record };
+
+    for (const key of Object.keys(patch)) {
+      if (IMMUTABLE_TOP.includes(key)) {
+        console.warn(
+          `[TrackRecord] Rejected mutation of immutable field: ${key}`,
+        );
+        continue;
+      }
+      if (key === "userDecision") {
+        next.userDecision = normalizeDecision({
+          ...next.userDecision,
+          ...patch.userDecision,
+        });
+        continue;
+      }
+      if (key === "outcome") {
+        next.outcome = normalizeOutcome({ ...next.outcome, ...patch.outcome });
+        continue;
+      }
+      if (
+        [
+          "displaySymbol",
+          "displayName",
+          "assetId",
+          "revisions",
+          "migration",
+          "updatedAt",
+        ].includes(key)
+      ) {
+        next[key] = patch[key];
+      }
+    }
+    return next;
+  }
+
+  // ── Decision normalization ─────────────────────────────────
+  // defaultAction distinguishes the "fresh record" case (UNSET)
+  // from the "user updated with an invalid value" case (NO_DECISION).
+  function normalizeDecision(d, defaultAction = "NO_DECISION") {
+    const x = d || {};
+    return {
+      action: validEnum(x.action, ACTIONS, defaultAction),
+      decisionTimestamp:
+        typeof x.decisionTimestamp === "number" ? x.decisionTimestamp : null,
+      notes: typeof x.notes === "string" ? x.notes : "",
+      linkedTransactionId:
+        typeof x.linkedTransactionId === "string"
+          ? x.linkedTransactionId
+          : null,
+      updatedAt: typeof x.updatedAt === "number" ? x.updatedAt : null,
+    };
+  }
+
+  // ── Outcome normalization ──────────────────────────────────
+  function normalizeOutcome(o) {
+    const x = o || {};
+    return {
+      status: validEnum(x.status, OUTCOME_STATUS, "UNKNOWN"),
+      observedPriceAtOutcome:
+        typeof x.observedPriceAtOutcome === "number"
+          ? x.observedPriceAtOutcome
+          : null,
+      outcomeTimestamp:
+        typeof x.outcomeTimestamp === "number" ? x.outcomeTimestamp : null,
+      userEntryPrice:
+        typeof x.userEntryPrice === "number" ? x.userEntryPrice : null,
+      userExitPrice:
+        typeof x.userExitPrice === "number" ? x.userExitPrice : null,
+      positionSize: typeof x.positionSize === "number" ? x.positionSize : null,
+      realizedResult:
+        typeof x.realizedResult === "number" ? x.realizedResult : null,
+      realizedResultPct:
+        typeof x.realizedResultPct === "number" ? x.realizedResultPct : null,
+      resultCurrency:
+        typeof x.resultCurrency === "string" ? x.resultCurrency : null,
+      holdingDurationMs:
+        typeof x.holdingDurationMs === "number" ? x.holdingDurationMs : null,
+      outcomeSource: validEnum(x.outcomeSource, OUTCOME_SOURCE, "UNKNOWN"),
+    };
+  }
+
+  // ── Recompute outcome only from known values (Phase 5) ─────
+  function recomputeOutcome(outcome) {
+    const o = { ...outcome };
+
     if (
-      !record ||
-      typeof record !== "object" ||
-      Array.isArray(record) ||
-      ownDangerousKey(record)
-    )
-      return false;
+      o.userEntryPrice == null ||
+      o.userExitPrice == null ||
+      o.userEntryPrice === 0
+    ) {
+      o.realizedResultPct = null;
+    } else {
+      o.realizedResultPct =
+        ((o.userExitPrice - o.userEntryPrice) / o.userEntryPrice) * 100;
+    }
+
     if (
-      typeof record.id !== "string" ||
-      !["track-record-v1", SCHEMA_VERSION].includes(record.schemaVersion) ||
-      !record.createdAt
-    )
-      return false;
-    if (record.assetId && typeof record.assetId !== "object") return false;
-    if (!record.assetId && !record.asset) return false;
-    if (!record.weaverSnapshot || typeof record.weaverSnapshot !== "object")
-      return false;
-    if (!record.userDecision || !record.outcome) return false;
+      o.userEntryPrice == null ||
+      o.userExitPrice == null ||
+      o.positionSize == null
+    ) {
+      o.realizedResult = null;
+    } else {
+      o.realizedResult = (o.userExitPrice - o.userEntryPrice) * o.positionSize;
+    }
+
+    if (o.outcomeTimestamp != null && o.entryTimestamp != null) {
+      o.holdingDurationMs = o.outcomeTimestamp - o.entryTimestamp;
+    } else if (o.outcomeTimestamp == null) {
+      o.holdingDurationMs = null;
+    }
+
+    return o;
+  }
+
+  // ── Persistence ────────────────────────────────────────────
+  function loadAll() {
+    const raw = W.store.get(STORAGE_KEY, []);
+    if (!Array.isArray(raw)) return [];
+    return raw.filter(
+      (r) => r && typeof r === "object" && typeof r.recordId === "string",
+    );
+  }
+
+  function saveAll(records) {
+    W.store.set(STORAGE_KEY, records);
+  }
+
+  // ── Public API ─────────────────────────────────────────────
+
+  function createFromAnalysis(analysis, asset) {
+    if (!analysis || typeof analysis !== "object") {
+      throw new Error("createFromAnalysis requires an analysis object");
+    }
+
+    const assetId = normalizeAssetId(asset);
+    const snapshot = normalizeAnalysis(analysis);
+    const now = Date.now();
+
+    const record = {
+      schemaVersion: SCHEMA_VERSION,
+      recordId: newId(),
+      assetId,
+      displaySymbol:
+        assetId.symbol ||
+        (analysis.asset ? String(analysis.asset).toUpperCase() : "UNKNOWN"),
+      displayName: assetId.name || analysis.asset || "Unknown",
+      createdAt: now,
+      weaverSnapshot: snapshot,
+      // Fresh records use UNSET — the user has not engaged yet.
+      userDecision: normalizeDecision({}, "UNSET"),
+      outcome: normalizeOutcome({}),
+      revisions: [],
+    };
+
+    const records = loadAll();
+    records.unshift(record);
+    saveAll(records);
+
+    return record;
+  }
+
+  function getAll() {
+    return loadAll();
+  }
+
+  function getById(recordId) {
+    return loadAll().find((r) => r.recordId === recordId) || null;
+  }
+
+  function updateDecision(recordId, decisionPatch) {
+    const records = loadAll();
+    const idx = records.findIndex((r) => r.recordId === recordId);
+    if (idx === -1) return null;
+
+    const existing = records[idx];
+    const patch = {
+      userDecision: {
+        ...existing.userDecision,
+        ...decisionPatch,
+        updatedAt: Date.now(),
+      },
+    };
+    records[idx] = patchRecord(existing, patch);
+    saveAll(records);
+    return records[idx];
+  }
+
+  function updateOutcome(recordId, outcomePatch) {
+    const records = loadAll();
+    const idx = records.findIndex((r) => r.recordId === recordId);
+    if (idx === -1) return null;
+
+    const existing = records[idx];
+    const mergedOutcome = recomputeOutcome({
+      ...existing.outcome,
+      ...outcomePatch,
+      outcomeTimestamp:
+        outcomePatch.outcomeTimestamp ??
+        existing.outcome.outcomeTimestamp ??
+        Date.now(),
+    });
+
+    records[idx] = patchRecord(existing, { outcome: mergedOutcome });
+    saveAll(records);
+    return records[idx];
+  }
+
+  function linkTransaction(recordId, transactionId) {
+    return updateDecision(recordId, { linkedTransactionId: transactionId });
+  }
+
+  function deleteRecord(recordId) {
+    const records = loadAll().filter((r) => r.recordId !== recordId);
+    saveAll(records);
     return true;
   }
 
-  function normalizeRecord(record) {
-    if (!validRecord(record)) return null;
-    const snapshot = deepClone(record.weaverSnapshot);
-    const decision = record.userDecision || {};
-    const rawOutcome = record.outcome || {};
-    const legacyUserReported = rawOutcome.userReported || {};
-    const legacyStatus = rawOutcome.status || legacyUserReported.status;
-    const outcome = {
-      status: OUTCOME_STATUS.has(legacyStatus) ? legacyStatus : "UNSET",
-      observedPriceAtOutcome: safeFiniteNumber(
-        rawOutcome.observedPriceAtOutcome,
-        false,
-      ),
-      outcomeTimestamp: rawOutcome.outcomeTimestamp ?? null,
-      userEntryPrice: safeFiniteNumber(rawOutcome.userEntryPrice, false),
-      userExitPrice: safeFiniteNumber(rawOutcome.userExitPrice, false),
-      positionSize: safeFiniteNumber(rawOutcome.positionSize, false),
-      realizedResult: safeFiniteNumber(rawOutcome.realizedResult),
-      realizedResultPct: safeFiniteNumber(rawOutcome.realizedResultPct),
-      resultCurrency:
-        typeof rawOutcome.resultCurrency === "string"
-          ? rawOutcome.resultCurrency
-          : null,
-      outcomeSource:
-        typeof rawOutcome.outcomeSource === "string"
-          ? rawOutcome.outcomeSource
-          : "UNKNOWN",
-      notes: typeof rawOutcome.notes === "string" ? rawOutcome.notes : "",
-      holdingDurationMs: safeFiniteNumber(rawOutcome.holdingDurationMs, false),
-    };
-    return {
-      id: record.id,
-      schemaVersion: SCHEMA_VERSION,
-      createdAt: record.createdAt,
-      assetId: canonicalAssetId({
-        assetId: record.assetId || {
-          symbol: record.asset || snapshot.asset,
-          name: record.asset || snapshot.asset,
-        },
-        asset: record.asset || snapshot.asset,
-      }),
-      asset:
-        record.asset || record.assetId?.symbol || snapshot.asset || "UNKNOWN",
-      weaverSnapshot: snapshot,
-      userDecision: {
-        action: USER_ACTIONS.has(decision.action) ? decision.action : "UNSET",
-        notes: typeof decision.notes === "string" ? decision.notes : "",
-        decisionTimestamp: decision.decisionTimestamp ?? null,
-        linkedTransactionId: decision.linkedTransactionId ?? null,
-      },
-      outcome,
-      revisions: Array.isArray(record.revisions)
-        ? deepClone(record.revisions)
-        : [],
-    };
-  }
-
-  function load() {
-    try {
-      const raw = W.store?.get?.(STORAGE_KEY, []);
-      return Array.isArray(raw) ? raw.map(normalizeRecord).filter(Boolean) : [];
-    } catch (_) {
-      return [];
-    }
-  }
-
-  function save(records) {
-    try {
-      W.store?.set?.(STORAGE_KEY, deepClone(records));
-      return { ok: true };
-    } catch (error) {
-      const message =
-        error?.name === "QuotaExceededError"
-          ? "Track Record could not be saved. Local storage is full."
-          : "Track Record could not be saved.";
-      W.ui?.toast?.(message, "warn");
-      return { ok: false, error: message };
-    }
-  }
-
-  function all() {
-    return deepClone(load());
-  }
-  function get(id) {
-    return all().find((record) => record.id === id) || null;
-  }
-
-  function capture(analysis, metadata = {}) {
-    if (!analysis || typeof analysis !== "object" || !analysis.asset)
-      throw new Error("A complete Token Analysis result is required");
-    const assetId = canonicalAssetId(analysis, metadata);
-    const record = {
-      id:
-        typeof crypto !== "undefined" && crypto.randomUUID
-          ? crypto.randomUUID()
-          : Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
-      schemaVersion: SCHEMA_VERSION,
-      createdAt: new Date().toISOString(),
-      asset: analysis.asset,
-      assetId,
-      weaverSnapshot: deepClone(analysis),
-      userDecision: {
-        action: "UNSET",
-        notes: "",
-        decisionTimestamp: null,
-        linkedTransactionId: null,
-      },
-      outcome: {
-        status: "UNSET",
-        observedPriceAtOutcome: null,
-        outcomeTimestamp: null,
-        userEntryPrice: null,
-        userExitPrice: null,
-        positionSize: null,
-        realizedResult: null,
-        realizedResultPct: null,
-        resultCurrency: null,
-        outcomeSource: "UNKNOWN",
-        notes: "",
-        holdingDurationMs: null,
-      },
-      revisions: [],
-    };
-    const result = save([record, ...load()]);
-    if (!result.ok) throw new Error(result.error);
-    return deepClone(record);
-  }
-
-  function createFromAnalysis(analysis, assetId) {
-    try {
-      return {
-        ok: true,
-        record: capture({ ...analysis, assetId }, { assetId }),
-      };
-    } catch (error) {
-      return { ok: false, error: error.message };
-    }
-  }
-
-  function validChange(path, value) {
-    if (!MUTABLE_FIELDS.has(path)) return false;
-    if (path === "userDecision.action")
-      return typeof value === "string" && USER_ACTIONS.has(value);
-    if (path === "outcome.status")
-      return typeof value === "string" && OUTCOME_STATUS.has(value);
-    if (
-      path === "userDecision.notes" ||
-      path === "outcome.resultCurrency" ||
-      path === "outcome.outcomeSource" ||
-      path === "outcome.notes"
-    )
-      return value === null || typeof value === "string";
-    if (path === "userDecision.linkedTransactionId")
-      return value === null || typeof value === "string";
-    if (
-      path === "userDecision.decisionTimestamp" ||
-      path === "outcome.outcomeTimestamp"
-    )
-      return (
-        value === null ||
-        typeof value === "string" ||
-        (typeof value === "number" && Number.isFinite(value))
-      );
-    return (
-      value === null ||
-      (typeof value === "number" && Number.isFinite(value) && value >= 0)
-    );
-  }
-
-  // Strict field-path API. Every change requires a human-readable revision reason.
-  function update(id, changes = {}, reason = "") {
-    if (!reason || typeof reason !== "string" || !reason.trim())
-      return { ok: false, error: "Revision reason is required" };
-    if (
-      !changes ||
-      typeof changes !== "object" ||
-      Array.isArray(changes) ||
-      ownDangerousKey(changes)
-    )
-      return { ok: false, error: "Invalid changes object" };
-    const records = load();
-    const index = records.findIndex((record) => record.id === id);
-    if (index === -1) return { ok: false, error: "Record not found" };
-    const keys = Object.keys(changes);
-    if (!keys.length) return { ok: false, error: "No changes supplied" };
-    for (const path of keys)
-      if (!validChange(path, changes[path]))
-        return { ok: false, error: `Immutable or invalid field: ${path}` };
-    const record = records[index];
-    const next = deepClone(record);
-    for (const path of keys) {
-      const [section, field] = path.split(".");
-      const previousValue = next[section][field];
-      next[section][field] = deepClone(changes[path]);
-      next.revisions.push({
-        at: new Date().toISOString(),
-        field: path,
-        previousValue: deepClone(previousValue),
-        newValue: deepClone(changes[path]),
-        reason: reason.trim(),
-      });
-    }
-    const calculated = calculateOutcome(
-      next.outcome,
-      next.userDecision.decisionTimestamp,
-    );
-    next.outcome.realizedResult = calculated.realizedResult;
-    next.outcome.realizedResultPct = calculated.realizedResultPct;
-    next.outcome.holdingDurationMs = calculated.holdingDurationMs;
-    const result = save(
-      records.map((item, itemIndex) => (itemIndex === index ? next : item)),
-    );
-    return result.ok ? { ok: true, record: deepClone(next) } : result;
-  }
-
-  function remove(id) {
-    const records = load();
-    const next = records.filter((record) => record.id !== id);
-    return next.length === records.length
-      ? { ok: false, error: "Record not found" }
-      : save(next);
-  }
-
-  function escape(value) {
-    return W.fmt?.escapeHTML ? W.fmt.escapeHTML(value) : String(value ?? "");
-  }
-  function csvCell(value) {
-    if (value === null || value === undefined) return "";
-    let text = String(value);
-    if (/^[=+\-@]/.test(text)) text = "'" + text;
-    return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-  }
-
-  function buildCSV() {
-    const headers = [
-      "Record ID",
-      "Asset ID",
-      "Symbol",
-      "Created At",
-      "Methodology",
-      "Scenario",
-      "Evidence",
-      "Confidence",
-      "User Decision",
-      "User Notes",
-      "Outcome Status",
-      "Observed Price",
-      "Entry Price",
-      "Exit Price",
-      "Position Size",
-      "Realized Result",
-      "Result %",
-      "Currency",
-      "Outcome Source",
-    ];
-    const rows = load().map((record) => {
-      const snapshot = record.weaverSnapshot || {};
-      const verdict = snapshot.unifiedVerdict || {};
-      const outcome = record.outcome;
-      return [
-        record.id,
-        record.assetId.coingeckoId ||
-          record.assetId.contractAddress ||
-          record.assetId.symbol,
-        record.assetId.symbol,
-        record.createdAt,
-        verdict.methodologyVersion || "",
-        snapshot.scenario || snapshot.verdict || "",
-        snapshot.evidenceQuality?.status || verdict.evidence?.status || "",
-        snapshot.confidence,
-        record.userDecision.action,
-        record.userDecision.notes,
-        outcome.status,
-        outcome.observedPriceAtOutcome,
-        outcome.userEntryPrice,
-        outcome.userExitPrice,
-        outcome.positionSize,
-        outcome.realizedResult,
-        outcome.realizedResultPct,
-        outcome.resultCurrency,
-        outcome.outcomeSource,
-      ]
-        .map(csvCell)
-        .join(",");
-    });
-    return [headers.map(csvCell).join(","), ...rows].join("\n");
-  }
-
   function exportCSV() {
-    const csv = buildCSV();
-    if (
-      typeof Blob !== "undefined" &&
-      typeof URL !== "undefined" &&
-      document?.createElement
-    ) {
-      const url = URL.createObjectURL(
-        new Blob([csv], { type: "text/csv;charset=utf-8;" }),
-      );
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `weaver-track-record-${new Date().toISOString().slice(0, 10)}.csv`;
-      link.click();
-      URL.revokeObjectURL(url);
+    const records = loadAll();
+    const headers = [
+      "recordId",
+      "createdAt",
+      "symbol",
+      "name",
+      "verdict_score",
+      "verdict_confidence",
+      "evidence_quality",
+      "scenario_classification",
+      "decision_action",
+      "decision_notes",
+      "outcome_status",
+      "outcome_source",
+      "entry_price",
+      "exit_price",
+      "result",
+      "result_pct",
+      "methodology_version",
+    ];
+
+    const rows = records.map((r) => [
+      r.recordId,
+      new Date(r.createdAt).toISOString(),
+      r.displaySymbol,
+      r.displayName,
+      r.weaverSnapshot?.unifiedVerdict?.score,
+      r.weaverSnapshot?.unifiedVerdict?.confidence,
+      r.weaverSnapshot?.unifiedVerdict?.evidenceQuality,
+      r.weaverSnapshot?.scenario?.classification,
+      r.userDecision?.action,
+      r.userDecision?.notes || "",
+      r.outcome?.status,
+      r.outcome?.outcomeSource,
+      r.outcome?.userEntryPrice,
+      r.outcome?.userExitPrice,
+      r.outcome?.realizedResult,
+      r.outcome?.realizedResultPct,
+      r.weaverSnapshot?.methodologyVersion,
+    ]);
+
+    const csvEscape = (v) => {
+      if (v == null) return "";
+      let s = String(v);
+      if (/^[=+\-@]/.test(s)) s = "'" + s;
+      if (/[",\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    };
+
+    const lines = [headers.map(csvEscape).join(",")];
+    rows.forEach((row) => lines.push(row.map(csvEscape).join(",")));
+    return lines.join("\n");
+  }
+
+  // ── Migration (Phases 7–13) ────────────────────────────────
+  const LEGACY_KEYS = [];
+
+  function migrate() {
+    const canonical = loadAll();
+    const canonicalById = new Map(canonical.map((r) => [r.recordId, r]));
+    const migrationSummary = {
+      migrated: 0,
+      conflicts: 0,
+      migratedLegacyId: 0,
+      quarantined: 0,
+      deduped: 0,
+    };
+
+    const legacyCandidates = [];
+    for (const key of LEGACY_KEYS) {
+      const data = W.store.get(key, null);
+      if (Array.isArray(data)) {
+        data.forEach((r) => legacyCandidates.push({ source: key, raw: r }));
+      }
     }
-    return csv;
+
+    for (const candidate of legacyCandidates) {
+      const { raw, source } = candidate;
+
+      if (!raw || typeof raw !== "object") {
+        canonical.push(quarantineRecord(raw, source, "INVALID_SCHEMA"));
+        migrationSummary.quarantined++;
+        continue;
+      }
+
+      let recordId = typeof raw.recordId === "string" ? raw.recordId : null;
+      let wasMissingId = false;
+      if (!recordId) {
+        const stableInput = [
+          raw.displaySymbol || raw.symbol || "",
+          raw.createdAt || "",
+          raw.weaverSnapshot?.analysisTimestamp || raw.analysisTimestamp || "",
+          source,
+        ].join("|");
+        recordId = "track-legacy-" + stableHash(stableInput);
+        wasMissingId = true;
+      }
+
+      const existing = canonicalById.get(recordId);
+      if (existing) {
+        const equivalent = sameImmutable(existing, raw);
+        if (equivalent) {
+          migrationSummary.deduped++;
+          continue;
+        }
+        const derivedId =
+          recordId +
+          "-legacy-" +
+          stableHash(
+            JSON.stringify({
+              s: raw.weaverSnapshot?.scoringVersion,
+              a: raw.weaverSnapshot?.analysisTimestamp,
+              v: raw.weaverSnapshot?.unifiedVerdict?.score,
+              c: raw.weaverSnapshot?.unifiedVerdict?.confidence,
+            }),
+          );
+        const preserved = normalizeLegacy(
+          raw,
+          derivedId,
+          source,
+          "CONFLICT",
+          recordId,
+        );
+        canonical.push(preserved);
+        migrationSummary.conflicts++;
+        continue;
+      }
+
+      const migrated = normalizeLegacy(
+        raw,
+        recordId,
+        source,
+        wasMissingId ? "MIGRATED_LEGACY_ID" : "MIGRATED",
+        null,
+      );
+      canonical.push(migrated);
+      canonicalById.set(recordId, migrated);
+      if (wasMissingId) migrationSummary.migratedLegacyId++;
+      else migrationSummary.migrated++;
+    }
+
+    saveAll(canonical);
+    return migrationSummary;
   }
 
-  function transactionOptions(selected) {
-    return (W.portfolio?.txs?.() || [])
-      .map((tx) => {
-        const id = String(tx.id || "");
-        return `<option value="${escape(id)}" ${id === selected ? "selected" : ""}>${escape(`${tx.type || "Transaction"} ${tx.symbol || "asset"}`)}</option>`;
-      })
-      .join("");
+  function sameImmutable(a, b) {
+    const av = a.weaverSnapshot || {};
+    const bv = b.weaverSnapshot || {};
+    return (
+      av.methodologyVersion === bv.methodologyVersion &&
+      av.scoringVersion === bv.scoringVersion &&
+      av.evidenceBuilderVersion === bv.evidenceBuilderVersion &&
+      av.analysisTimestamp === bv.analysisTimestamp &&
+      av.unifiedVerdict?.score === bv.unifiedVerdict?.score &&
+      av.unifiedVerdict?.confidence === bv.unifiedVerdict?.confidence
+    );
   }
 
+  function normalizeLegacy(raw, recordId, source, status, originalId) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      recordId,
+      assetId: normalizeAssetId(raw.assetId || raw.asset),
+      displaySymbol: raw.displaySymbol || raw.symbol || "UNKNOWN",
+      displayName: raw.displayName || raw.name || "Unknown",
+      createdAt: typeof raw.createdAt === "number" ? raw.createdAt : Date.now(),
+      weaverSnapshot: normalizeAnalysis(raw.weaverSnapshot || raw),
+      userDecision: normalizeDecision(raw.userDecision || {}),
+      outcome: normalizeOutcome(raw.outcome || {}),
+      revisions: [],
+      migration: {
+        source,
+        migratedAt: Date.now(),
+        status,
+        originalRecordId: originalId,
+      },
+    };
+  }
+
+  function quarantineRecord(raw, source, reason) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      recordId: "track-quarantine-" + stableHash(JSON.stringify(raw) + source),
+      assetId: normalizeAssetId(null),
+      displaySymbol: "QUARANTINED",
+      displayName: "Unmigrated record",
+      createdAt: Date.now(),
+      weaverSnapshot: normalizeAnalysis(null),
+      userDecision: normalizeDecision({}),
+      outcome: normalizeOutcome({}),
+      revisions: [],
+      migration: {
+        source,
+        migratedAt: Date.now(),
+        status: "QUARANTINED",
+        originalRecordId: null,
+        reason,
+      },
+    };
+  }
+
+  // ── UI (Phase 16) ──────────────────────────────────────────
   async function render(view) {
-    const current = all();
-    view.innerHTML = `<div class="card"><div class="flex-between"><h3>Track Record</h3><button class="btn tiny" data-action="export">Export CSV</button></div><p class="muted small">Historical Weaver analyses are immutable. Decisions and outcomes are stored separately; this view does not fetch current market data.</p></div><div id="track-record-list">${current.length ? current.map((record) => `<article class="card track-record-entry" data-record-id="${escape(record.id)}"><h4>Weaver's Analysis — ${escape(record.assetId.symbol)}</h4><p class="small muted">${escape(record.weaverSnapshot.explanation || "No explanation captured.")}</p><p class="small">Scenario: ${escape(record.weaverSnapshot.scenario || record.weaverSnapshot.verdict || "Unknown")} · Confidence: ${record.weaverSnapshot.confidence === null || record.weaverSnapshot.confidence === undefined ? "not stated" : escape(record.weaverSnapshot.confidence + "%")}</p><h4>Your Decision</h4><select data-field="userDecision.action"><option value="UNSET" ${record.userDecision.action === "UNSET" ? "selected" : ""}>Not recorded</option><option value="WATCH">Watch</option><option value="CONSIDER">Consider</option><option value="ENTERED">Entered decision</option><option value="NOT_ENTERED">Did not enter</option><option value="HOLD">Held / waited</option></select><select data-field="userDecision.linkedTransactionId"><option value="">No linked transaction</option>${transactionOptions(record.userDecision.linkedTransactionId)}</select><textarea class="input mt" data-field="userDecision.notes" rows="2">${escape(record.userDecision.notes)}</textarea><h4>Outcome</h4><select data-field="outcome.status"><option value="UNSET">Not reported</option><option value="REPORTED_GAIN" ${record.outcome.status === "REPORTED_GAIN" ? "selected" : ""}>Reported gain</option><option value="REPORTED_LOSS" ${record.outcome.status === "REPORTED_LOSS" ? "selected" : ""}>Reported loss</option><option value="REPORTED_FLAT" ${record.outcome.status === "REPORTED_FLAT" ? "selected" : ""}>Reported flat</option><option value="UNKNOWN" ${record.outcome.status === "UNKNOWN" ? "selected" : ""}>Unknown</option></select><div class="grid-2"><input class="input" data-field="outcome.userEntryPrice" type="number" min="0" step="any" value="${record.outcome.userEntryPrice ?? ""}" placeholder="Entry price"><input class="input" data-field="outcome.userExitPrice" type="number" min="0" step="any" value="${record.outcome.userExitPrice ?? ""}" placeholder="Exit price"><input class="input" data-field="outcome.positionSize" type="number" min="0" step="any" value="${record.outcome.positionSize ?? ""}" placeholder="Position size"><input class="input" data-field="outcome.resultCurrency" value="${escape(record.outcome.resultCurrency || "")}" placeholder="Currency"></div><input class="input mt" data-field="outcome.outcomeSource" value="${escape(record.outcome.outcomeSource || "")}" placeholder="Outcome source (e.g. user-reported)"><input class="input mt" data-field="revisionReason" placeholder="Reason for update (required)"><button class="btn primary tiny mt" data-action="save">Save update</button><button class="btn danger tiny mt" data-action="delete">Delete record</button></article>`).join("") : '<p class="muted">No historical analyses captured yet.</p>'}</div>`;
-    view
-      .querySelector("[data-action='export']")
-      ?.addEventListener("click", exportCSV);
-    view.querySelectorAll("[data-action='save']").forEach(
-      (button) =>
-        (button.onclick = () => {
-          const entry = button.closest("[data-record-id]");
-          const changes = {};
-          entry.querySelectorAll("[data-field]").forEach((field) => {
-            const value = field.value;
-            if (
-              field.dataset.field.includes("Price") ||
-              field.dataset.field === "outcome.positionSize"
-            )
-              changes[field.dataset.field] =
-                value === "" ? null : Number(value);
-            else changes[field.dataset.field] = value || null;
-          });
-          const result = update(
-            entry.dataset.recordId,
-            changes,
-            entry.querySelector("[data-field='revisionReason']")?.value || "",
-          );
-          if (!result.ok) return W.ui?.toast?.(result.error, "warn");
-          W.ui?.toast?.(
-            "Track Record updated; historical analysis unchanged.",
-            "ok",
-          );
-          render(view);
-        }),
-    );
-    view.querySelectorAll("[data-action='delete']").forEach(
-      (button) =>
-        (button.onclick = () => {
-          const entry = button.closest("[data-record-id]");
-          const result = remove(entry.dataset.recordId);
-          if (result.ok) render(view);
-        }),
-    );
+    const records = loadAll();
+
+    if (records.length === 0) {
+      view.innerHTML = `
+        <div class="card">
+          <h2>Track Record</h2>
+          <p class="muted small">
+            Historical snapshots of Weaver's analysis alongside your decisions and observed outcomes.
+            Records are private, stored locally, and never sent anywhere.
+          </p>
+          <div class="empty-state">
+            <div class="icon">📓</div>
+            <div class="msg">No records yet</div>
+            <div class="sub">Save an analysis from the Token Analysis page to start a record.</div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    view.innerHTML = `
+      <div class="card">
+        <h2>Track Record</h2>
+        <p class="muted small">
+          Historical snapshots of Weaver's analysis alongside your decisions and observed outcomes.
+          Records are private, stored locally, and never sent anywhere.
+        </p>
+        <div class="qa mt">
+          <button class="btn tiny" id="tr-export">Export CSV</button>
+        </div>
+      </div>
+      <div id="tr-list"></div>
+    `;
+
+    view.querySelector("#tr-export").onclick = () => {
+      const csv = exportCSV();
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `weaver-track-record-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    const list = view.querySelector("#tr-list");
+    list.innerHTML = records.map(renderRecordCard).join("");
+
+    list.querySelectorAll("[data-expand]").forEach((btn) => {
+      btn.onclick = () => {
+        const recordId = btn.dataset.expand;
+        const record = getById(recordId);
+        if (!record) return;
+        openRecordModal(record);
+      };
+    });
   }
 
+  function renderRecordCard(record) {
+    const s = record.weaverSnapshot || {};
+    const verdict = s.unifiedVerdict || {};
+    const scenario = s.scenario || {};
+    const decision = record.userDecision || {};
+    const outcome = record.outcome || {};
+
+    return `
+      <div class="card" style="margin-bottom:12px;">
+        <div class="watch-head">
+          <div>
+            <b>${W.fmt.escapeHTML(record.displaySymbol)}</b>
+            <span class="muted small">${W.fmt.escapeHTML(record.displayName)}</span>
+            <br>
+            <span class="muted small">${new Date(record.createdAt).toLocaleString()}</span>
+          </div>
+          <button class="btn tiny" data-expand="${W.fmt.escapeHTML(record.recordId)}">View</button>
+        </div>
+        <div class="kv-row"><span class="muted">Scenario</span><span>${W.fmt.escapeHTML(scenario.classification || "UNKNOWN")}</span></div>
+        <div class="kv-row"><span class="muted">Evidence quality</span><span>${W.fmt.escapeHTML(verdict.evidenceQuality || "UNKNOWN")}</span></div>
+        <div class="kv-row"><span class="muted">Your decision</span><span>${W.fmt.escapeHTML(decision.action || "UNSET")}</span></div>
+        <div class="kv-row"><span class="muted">Outcome</span><span>${W.fmt.escapeHTML(outcome.status || "UNKNOWN")}</span></div>
+        <div class="kv-row"><span class="muted">Methodology</span><span class="small">${W.fmt.escapeHTML(s.methodologyVersion || "—")}</span></div>
+      </div>
+    `;
+  }
+
+  function openRecordModal(record) {
+    const m = W.ui.modal({
+      title: `Track Record — ${W.fmt.escapeHTML(record.displaySymbol)}`,
+      body: buildModalBody(record),
+      footer: `<button class="btn ghost" id="tr-close">Close</button>`,
+    });
+
+    m.el.querySelector("#tr-close").onclick = m.close;
+
+    m.el.querySelectorAll("[data-tab]").forEach((tab) => {
+      tab.onclick = () => {
+        m.el
+          .querySelectorAll("[data-tab]")
+          .forEach((t) => t.classList.remove("active"));
+        m.el
+          .querySelectorAll("[data-tab-panel]")
+          .forEach((p) => p.classList.add("hidden"));
+        tab.classList.add("active");
+        const panel = m.el.querySelector(
+          `[data-tab-panel="${tab.dataset.tab}"]`,
+        );
+        if (panel) panel.classList.remove("hidden");
+      };
+    });
+
+    const decisionForm = m.el.querySelector("#tr-decision-form");
+    if (decisionForm) {
+      decisionForm.onsubmit = (e) => {
+        e.preventDefault();
+        const action = m.el.querySelector("#tr-action").value;
+        const notes = m.el.querySelector("#tr-notes").value;
+        updateDecision(record.recordId, {
+          action,
+          notes,
+          decisionTimestamp: Date.now(),
+        });
+        W.ui.toast("Decision saved", "ok");
+        m.close();
+        W.refresh();
+      };
+    }
+
+    const outcomeForm = m.el.querySelector("#tr-outcome-form");
+    if (outcomeForm) {
+      outcomeForm.onsubmit = (e) => {
+        e.preventDefault();
+        const entry = m.el.querySelector("#tr-entry").value;
+        const exit = m.el.querySelector("#tr-exit").value;
+        const size = m.el.querySelector("#tr-size").value;
+        const status = m.el.querySelector("#tr-status").value;
+        const source = m.el.querySelector("#tr-source").value;
+
+        updateOutcome(record.recordId, {
+          userEntryPrice: entry === "" ? null : parseFloat(entry),
+          userExitPrice: exit === "" ? null : parseFloat(exit),
+          positionSize: size === "" ? null : parseFloat(size),
+          status,
+          outcomeSource: source,
+        });
+        W.ui.toast("Outcome saved", "ok");
+        m.close();
+        W.refresh();
+      };
+    }
+  }
+
+  function buildModalBody(record) {
+    const s = record.weaverSnapshot || {};
+    const v = s.unifiedVerdict || {};
+    const ta = s.technicalAnalysis || {};
+    const fa = s.fundamentalAssessment || {};
+    const sa = s.securityAssessment || {};
+    const sc = s.scenario || {};
+    const ev = s.evidence || {};
+    const d = record.userDecision || {};
+    const o = record.outcome || {};
+
+    const fmtNum = (n, digits = 2) =>
+      typeof n === "number" ? n.toFixed(digits) : "—";
+    const safe = W.fmt.escapeHTML;
+
+    return `
+      <div class="tabs">
+        <button class="tab active" data-tab="weaver">Weaver's Analysis</button>
+        <button class="tab" data-tab="decision">Your Decision</button>
+        <button class="tab" data-tab="outcome">Observed Outcome</button>
+        <button class="tab" data-tab="methodology">Methodology</button>
+      </div>
+
+      <div data-tab-panel="weaver">
+        <div class="kv-row"><span class="muted">Score</span><span>${fmtNum(v.score, 0)}</span></div>
+        <div class="kv-row"><span class="muted">Confidence</span><span>${v.confidence == null ? "—" : (v.confidence * 100).toFixed(0) + "%"}</span></div>
+        <div class="kv-row"><span class="muted">Evidence quality</span><span>${safe(v.evidenceQuality || "UNKNOWN")}</span></div>
+        <div class="kv-row"><span class="muted">Technical score</span><span>${fmtNum(ta.score, 0)}</span></div>
+        <div class="kv-row"><span class="muted">Fundamental score</span><span>${fmtNum(fa.score, 0)}</span></div>
+        <div class="kv-row"><span class="muted">Security risk score</span><span>${fmtNum(sa.riskScore, 0)}</span></div>
+        <div class="kv-row"><span class="muted">Scenario</span><span>${safe(sc.classification || "UNKNOWN")}</span></div>
+
+        <h4 class="mt">Supporting evidence</h4>
+        ${
+          (ev.supporting || []).length
+            ? ev.supporting
+                .map(
+                  (e) =>
+                    `<div class="small">• ${safe(typeof e === "string" ? e : e.title || e.evidence || JSON.stringify(e))}</div>`,
+                )
+                .join("")
+            : '<div class="muted small">None recorded</div>'
+        }
+
+        <h4 class="mt">Contradicting evidence</h4>
+        ${
+          (ev.contradicting || []).length
+            ? ev.contradicting
+                .map(
+                  (e) =>
+                    `<div class="small">• ${safe(typeof e === "string" ? e : e.title || e.evidence || JSON.stringify(e))}</div>`,
+                )
+                .join("")
+            : '<div class="muted small">None recorded</div>'
+        }
+
+        <h4 class="mt">Missing evidence</h4>
+        ${
+          (ev.missing || []).length
+            ? ev.missing
+                .map(
+                  (e) =>
+                    `<div class="small">• ${safe(typeof e === "string" ? e : JSON.stringify(e))}</div>`,
+                )
+                .join("")
+            : '<div class="muted small">None recorded</div>'
+        }
+      </div>
+
+      <div data-tab-panel="decision" class="hidden">
+        <form id="tr-decision-form">
+          <label>Action
+            <select id="tr-action">
+              ${ACTIONS.map((a) => `<option value="${a}" ${d.action === a ? "selected" : ""}>${a}</option>`).join("")}
+            </select>
+          </label>
+          <label>Notes
+            <textarea id="tr-notes" rows="4">${safe(d.notes || "")}</textarea>
+          </label>
+          <button class="btn primary mt" type="submit">Save Decision</button>
+        </form>
+      </div>
+
+      <div data-tab-panel="outcome" class="hidden">
+        <form id="tr-outcome-form">
+          <label>Status
+            <select id="tr-status">
+              ${OUTCOME_STATUS.map((sx) => `<option value="${sx}" ${o.status === sx ? "selected" : ""}>${sx}</option>`).join("")}
+            </select>
+          </label>
+          <label>Entry price
+            <input id="tr-entry" type="number" step="any" value="${o.userEntryPrice == null ? "" : o.userEntryPrice}">
+          </label>
+          <label>Exit price
+            <input id="tr-exit" type="number" step="any" value="${o.userExitPrice == null ? "" : o.userExitPrice}">
+          </label>
+          <label>Position size
+            <input id="tr-size" type="number" step="any" value="${o.positionSize == null ? "" : o.positionSize}">
+          </label>
+          <label>Outcome source
+            <select id="tr-source">
+              ${OUTCOME_SOURCE.map((sx) => `<option value="${sx}" ${o.outcomeSource === sx ? "selected" : ""}>${sx}</option>`).join("")}
+            </select>
+          </label>
+          <div class="mt small muted">
+            Calculated result:
+            <b>${o.realizedResult == null ? "—" : o.realizedResult.toFixed(2)}</b>
+            (${o.realizedResultPct == null ? "—" : o.realizedResultPct.toFixed(2) + "%"})
+          </div>
+          <button class="btn primary mt" type="submit">Save Outcome</button>
+        </form>
+      </div>
+
+      <div data-tab-panel="methodology" class="hidden">
+        <div class="kv-row"><span class="muted">Methodology version</span><span>${safe(s.methodologyVersion || "—")}</span></div>
+        <div class="kv-row"><span class="muted">Scoring version</span><span>${safe(s.scoringVersion || "—")}</span></div>
+        <div class="kv-row"><span class="muted">Evidence builder version</span><span>${safe(s.evidenceBuilderVersion || "—")}</span></div>
+        <div class="kv-row"><span class="muted">Analysis timestamp</span><span>${new Date(s.analysisTimestamp).toLocaleString()}</span></div>
+        <div class="kv-row"><span class="muted">Record created</span><span>${new Date(record.createdAt).toLocaleString()}</span></div>
+        <p class="muted small mt">
+          These values are immutable. They represent the exact methodology in effect
+          when this record was created.
+        </p>
+      </div>
+    `;
+  }
+
+  // ── Exports ────────────────────────────────────────────────
   return {
-    SCHEMA_VERSION,
-    MUTABLE_FIELDS,
-    all,
-    get,
-    capture,
-    createFromAnalysis,
-    update,
-    remove,
-    calculateOutcome,
-    normalizeRecord,
-    buildCSV,
-    exportCSV,
     render,
+    createFromAnalysis,
+    capture: createFromAnalysis,
+    getAll,
+    getById,
+    updateDecision,
+    updateOutcome,
+    linkTransaction,
+    deleteRecord,
+    exportCSV,
+    migrate,
+    _stableHash: stableHash,
+    _recomputeOutcome: recomputeOutcome,
   };
 })();
 
-console.log("[TrackRecord] Module loaded (track-record-v2.1).");
+console.log("[TrackRecord] Module loaded.");

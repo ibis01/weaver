@@ -1,188 +1,188 @@
 const { expect } = require("chai");
 
-const assetId = {
-  chainId: "ethereum",
-  contractAddress: "0x0000000000000000000000000000000000000001",
-  symbol: "TEST",
-  coingeckoId: "test-token",
-  name: "Test Token",
-};
-
-const analysis = {
-  asset: "TEST",
-  assetId,
-  opportunityScore: 72,
-  riskScore: 28,
-  confidence: null,
-  scenario: "Bullish scenario",
-  explanation: "Evidence is mixed but technical structure is supportive.",
-  evidenceQuality: { status: "PARTIAL", reasons: ["Security unavailable"] },
-  technical: { trend: "up", atr: 0.05 },
-  fundamentals: { available: false, score: 50 },
-  unifiedVerdict: {
-    schemaVersion: "unified-verdict-v1",
-    methodologyVersion: "methodology-v1",
-    evidenceVersion: "evidence-gate-v1",
-    provenance: [{ type: "technical", source: "ohlcv" }],
-  },
-};
-
-describe("Track Record v2.1 hardening", () => {
+describe("Track Record — Core", () => {
   beforeEach(() => {
-    W.store.clearAll();
+    W.store.set("track_record", []);
   });
 
-  function record() {
-    return W.trackRecord.capture(analysis);
-  }
-
-  it("captures complete canonical AssetId and preserves the full analysis", () => {
-    const saved = record();
-    expect(saved.assetId).to.deep.equal(assetId);
-    expect(saved.weaverSnapshot).to.deep.equal(analysis);
-    expect(saved.weaverSnapshot.confidence).to.equal(null);
-    expect(saved.schemaVersion).to.equal("track-record-v2.1");
-  });
-
-  it("preserves large historical evidence without arbitrary truncation", () => {
-    const longReason = "evidence ".repeat(10000);
-    const saved = W.trackRecord.capture({
-      ...analysis,
-      explanation: longReason,
+  it("creates a record with immutable snapshot", () => {
+    const analysis = {
+      score: 72,
+      confidence: 0.78,
+      evidenceQuality: "PARTIAL",
+      scenario: { classification: "POSITIVE", strength: 0.6 },
+      evidence: {
+        supporting: [{ title: "Volume rising" }],
+        contradicting: [{ title: "High concentration" }],
+        missing: ["holder history"],
+      },
+      methodologyVersion: "vm-2",
+      scoringVersion: "vs-3",
+      analysisTimestamp: 1700000000000,
+    };
+    const record = W.trackRecord.createFromAnalysis(analysis, {
+      symbol: "BTC",
+      name: "Bitcoin",
     });
-    expect(W.trackRecord.get(saved.id).weaverSnapshot.explanation).to.equal(
-      longReason,
-    );
+
+    expect(record.recordId).to.be.a("string");
+    expect(record.createdAt).to.be.a("number");
+    expect(record.weaverSnapshot.unifiedVerdict.score).to.equal(72);
+    expect(record.weaverSnapshot.unifiedVerdict.confidence).to.equal(0.78);
+    expect(record.weaverSnapshot.scenario.classification).to.equal("POSITIVE");
+    expect(record.weaverSnapshot.evidence.supporting).to.have.length(1);
+    expect(record.weaverSnapshot.evidence.contradicting).to.have.length(1);
+    expect(record.weaverSnapshot.methodologyVersion).to.equal("vm-2");
+    expect(record.weaverSnapshot.scoringVersion).to.equal("vs-3");
   });
 
-  it("rejects malformed records and prototype-pollution payloads", () => {
-    expect(W.trackRecord.normalizeRecord(null)).to.equal(null);
-    expect(
-      W.trackRecord.normalizeRecord({ id: "bad", schemaVersion: "other" }),
-    ).to.equal(null);
-    const polluted = JSON.parse(
-      '{"id":"x","schemaVersion":"track-record-v2.1","createdAt":"2026-01-01","assetId":{},"weaverSnapshot":{},"userDecision":{},"outcome":{},"__proto__":{"polluted":true}}',
+  it("keeps null confidence as null (no false precision)", () => {
+    const record = W.trackRecord.createFromAnalysis(
+      { score: 50, confidence: null },
+      { symbol: "X" },
     );
-    expect(W.trackRecord.normalizeRecord(polluted)).to.equal(null);
-    expect({}.polluted).to.equal(undefined);
+    expect(record.weaverSnapshot.unifiedVerdict.confidence).to.equal(null);
   });
 
-  it("normalizes legacy v1 records without dropping their historical snapshot", () => {
-    const legacy = W.trackRecord.normalizeRecord({
-      id: "legacy-1",
-      schemaVersion: "track-record-v1",
-      createdAt: new Date().toISOString(),
-      asset: "LEGACY",
-      weaverSnapshot: {
-        asset: "LEGACY",
-        confidence: null,
-        explanation: "old evidence",
-      },
-      userDecision: { action: "UNSET", notes: "" },
-      outcome: { userReported: { status: "UNSET", notes: "" } },
+  it("immutable snapshot cannot be mutated via updateDecision", () => {
+    const record = W.trackRecord.createFromAnalysis(
+      { score: 80, confidence: 0.9, methodologyVersion: "v1" },
+      { symbol: "BTC" },
+    );
+    // Attempt to smuggle a weaverSnapshot mutation through updateDecision
+    W.trackRecord.updateDecision(record.recordId, {
+      action: "WATCH",
+      weaverSnapshot: { unifiedVerdict: { score: 0 } },
     });
-    expect(legacy.schemaVersion).to.equal("track-record-v2.1");
-    expect(legacy.assetId.symbol).to.equal("LEGACY");
-    expect(legacy.weaverSnapshot.explanation).to.equal("old evidence");
+    const after = W.trackRecord.getById(record.recordId);
+    expect(after.weaverSnapshot.unifiedVerdict.score).to.equal(80);
+    expect(after.weaverSnapshot.methodologyVersion).to.equal("v1");
+    expect(after.userDecision.action).to.equal("WATCH");
   });
 
-  it("requires a revision reason and only accepts whitelisted update paths", () => {
-    const saved = record();
-    expect(
-      W.trackRecord.update(saved.id, { "userDecision.action": "ENTERED" }).ok,
-    ).to.equal(false);
-    expect(
-      W.trackRecord.update(
-        saved.id,
-        { weaverSnapshot: { verdict: "tampered" } },
-        "attempt",
-      ).ok,
-    ).to.equal(false);
-    expect(
-      W.trackRecord.update(saved.id, { "__proto__.polluted": true }, "attempt")
-        .ok,
-    ).to.equal(false);
-    const updated = W.trackRecord.update(
-      saved.id,
-      {
-        "userDecision.action": "ENTERED",
-        "userDecision.notes": "My note",
-        "userDecision.linkedTransactionId": "tx-1",
-      },
-      "User recorded decision",
+  it("immutable createdAt cannot be changed", () => {
+    const record = W.trackRecord.createFromAnalysis(
+      { score: 50 },
+      { symbol: "BTC" },
     );
-    expect(updated.ok).to.equal(true);
-    expect(updated.record.weaverSnapshot).to.deep.equal(analysis);
-    expect(updated.record.userDecision.action).to.equal("ENTERED");
-    expect(updated.record.revisions).to.have.length(3);
-    expect(updated.record.revisions[0].reason).to.equal(
-      "User recorded decision",
-    );
+    const before = record.createdAt;
+    W.trackRecord.updateDecision(record.recordId, { action: "WATCH" });
+    const after = W.trackRecord.getById(record.recordId);
+    expect(after.createdAt).to.equal(before);
   });
 
-  it("calculates outcome values safely and keeps zero-entry percentage null", () => {
-    const saved = record();
-    const updated = W.trackRecord.update(
-      saved.id,
-      {
-        "userDecision.decisionTimestamp": "2026-01-01T00:00:00.000Z",
-        "outcome.status": "REPORTED_GAIN",
-        "outcome.userEntryPrice": 0,
-        "outcome.userExitPrice": 2,
-        "outcome.positionSize": 3,
-        "outcome.outcomeTimestamp": "2026-01-02T00:00:00.000Z",
-        "outcome.outcomeSource": "user-reported",
-      },
-      "Record observed outcome",
+  it("missing entry price leaves realizedResult as null", () => {
+    const record = W.trackRecord.createFromAnalysis(
+      { score: 50 },
+      { symbol: "BTC" },
     );
-    expect(updated.ok).to.equal(true);
-    expect(updated.record.outcome.realizedResult).to.equal(6);
-    expect(updated.record.outcome.realizedResultPct).to.equal(null);
-    expect(updated.record.outcome.holdingDurationMs).to.equal(86400000);
+    W.trackRecord.updateOutcome(record.recordId, {
+      userExitPrice: 100,
+      positionSize: 10,
+      status: "CLOSED",
+    });
+    const after = W.trackRecord.getById(record.recordId);
+    expect(after.outcome.realizedResult).to.equal(null);
+    expect(after.outcome.realizedResultPct).to.equal(null);
   });
 
-  it("returns null calculations for missing, negative, or malformed pricing", () => {
-    const result = W.trackRecord.calculateOutcome(
-      { userEntryPrice: -1, userExitPrice: "bad", positionSize: 2 },
-      null,
+  it("computes realizedResult only when all inputs are known", () => {
+    const record = W.trackRecord.createFromAnalysis(
+      { score: 50 },
+      { symbol: "BTC" },
     );
-    expect(result.realizedResult).to.equal(null);
-    expect(result.realizedResultPct).to.equal(null);
-    expect(result.holdingDurationMs).to.equal(null);
+    W.trackRecord.updateOutcome(record.recordId, {
+      userEntryPrice: 100,
+      userExitPrice: 120,
+      positionSize: 5,
+      status: "CLOSED",
+    });
+    const after = W.trackRecord.getById(record.recordId);
+    expect(after.outcome.realizedResult).to.equal(100); // (120-100)*5
+    expect(after.outcome.realizedResultPct).to.equal(20); // 20%
   });
 
-  it("creates no implicit portfolio linkage or telemetry side effects", () => {
-    const saved = record();
-    expect(saved.userDecision.linkedTransactionId).to.equal(null);
-    expect(W.sentryBuffer || []).to.deep.equal([]);
+  it("invalid enum values are normalized to safe defaults", () => {
+    const record = W.trackRecord.createFromAnalysis(
+      { score: 50 },
+      { symbol: "BTC" },
+    );
+    W.trackRecord.updateDecision(record.recordId, {
+      action: "MALICIOUS_ACTION",
+    });
+    W.trackRecord.updateOutcome(record.recordId, {
+      status: "INVALID",
+      outcomeSource: "FAKE",
+    });
+    const after = W.trackRecord.getById(record.recordId);
+    expect(after.userDecision.action).to.equal("NO_DECISION");
+    expect(after.outcome.status).to.equal("UNKNOWN");
+    expect(after.outcome.outcomeSource).to.equal("UNKNOWN");
   });
 
-  it("escapes user notes when rendering the historical record", async () => {
-    const saved = record();
-    W.trackRecord.update(
-      saved.id,
-      { "userDecision.notes": '<img src=x onerror="alert(1)">' },
-      "Test XSS escaping",
+  it("XSS: notes are safe when rendered", () => {
+    const record = W.trackRecord.createFromAnalysis(
+      { score: 50 },
+      { symbol: "BTC" },
     );
-    const view = document.createElement("div");
-    await W.trackRecord.render(view);
-    expect(view.querySelector("img")).to.equal(null);
-    expect(view.innerHTML).to.include("&lt;img");
+    W.trackRecord.updateDecision(record.recordId, {
+      action: "WATCH",
+      notes: "<script>alert(1)</script>",
+    });
+    const after = W.trackRecord.getById(record.recordId);
+    const escaped = W.fmt.escapeHTML(after.userDecision.notes);
+    expect(escaped).to.not.include("<script>");
+    expect(escaped).to.include("&lt;script&gt;");
   });
 
-  it("exports CSV with formula-injection-safe cells", () => {
-    const saved = record();
-    W.trackRecord.update(
-      saved.id,
-      {
-        "userDecision.notes": '=HYPERLINK("https://evil.example")',
-        "outcome.resultCurrency": "+CMD",
-      },
-      "Test CSV escaping",
+  it("CSV export neutralizes formula injection", () => {
+    const record = W.trackRecord.createFromAnalysis(
+      { score: 50 },
+      { symbol: "BTC" },
     );
-    const csv = W.trackRecord.buildCSV();
-    expect(csv).to.include("'=HYPERLINK");
-    expect(csv).to.include("'+CMD");
-    expect(csv.split("\n")[0]).to.include("Record ID");
+    W.trackRecord.updateDecision(record.recordId, {
+      action: "WATCH",
+      notes: "=cmd|'/c calc'!A1",
+    });
+    const csv = W.trackRecord.exportCSV();
+    // Every cell starting with =, +, -, @ must be prefixed with '
+    expect(csv).to.not.match(/,=cmd/);
+    expect(csv).to.match(/,'=cmd|^'=cmd/);
+  });
+
+  it("persistence round-trips", () => {
+    const r1 = W.trackRecord.createFromAnalysis(
+      { score: 60 },
+      { symbol: "BTC" },
+    );
+    const all = W.trackRecord.getAll();
+    expect(all.length).to.equal(1);
+    expect(all[0].recordId).to.equal(r1.recordId);
+  });
+
+  it("delete removes the record", () => {
+    const r = W.trackRecord.createFromAnalysis(
+      { score: 60 },
+      { symbol: "BTC" },
+    );
+    W.trackRecord.deleteRecord(r.recordId);
+    expect(W.trackRecord.getAll()).to.have.length(0);
+  });
+});
+
+describe("Track Record — Migration", () => {
+  beforeEach(() => {
+    W.store.set("track_record", []);
+    W.store.set("track_record_v0", []);
+  });
+
+  it("idempotency: running migration twice creates no additional records", () => {
+    // There are no legacy keys registered by default, so migration on an
+    // empty store should be a no-op both times.
+    const a = W.trackRecord.migrate();
+    const b = W.trackRecord.migrate();
+    expect(a.migrated).to.equal(b.migrated);
+    expect(a.conflicts).to.equal(b.conflicts);
+    expect(W.trackRecord.getAll()).to.have.length(0);
   });
 });

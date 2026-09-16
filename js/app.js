@@ -57,12 +57,7 @@ window.W = window.W || {};
         { id: "smart", icon: "🧠", label: "Smart Money", route: "#/smart" },
         { id: "theses", icon: "🎯", label: "Theses", route: "#/theses" },
         { id: "journal", icon: "📓", label: "Journal", route: "#/journal" },
-        {
-          id: "track-record",
-          icon: "🧾",
-          label: "Track Record",
-          route: "#/track-record",
-        },
+        { id: "track-record", icon: "🧾", label: "Track Record",},
       ],
     },
     {
@@ -153,6 +148,9 @@ window.W = window.W || {};
         const param = getPageParam();
         return (view) => W.tokenAnalysis.render(view, param || undefined);
       }),
+    track: (v) =>
+      W.trackRecord?.render?.(v) ||
+      W.ui?.toast?.("Track Record module not loaded", "warn"),
   };
 
   function getCurrentPage() {
