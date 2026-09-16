@@ -1,18 +1,5 @@
 // ===============================================================
-//         Track Record Module — v2.1
-// ===============================================================
-//
-// Purpose: Persist a historical, immutable snapshot of Weaver's
-// analysis alongside the user's own decision and the observed outcome.
-//
-// Constitution compliance:
-//   §2.2 reasoning visible       — snapshot preserves reasoning arrays
-//   §2.3 losses visible          — outcomes carry provenance, no cherry-pick
-//   §2.4 no financial directives — no "buy/sell" language
-//   §2.7 evidence provenance     — source/timestamp per snapshot
-//   §2.9 no false precision      — null stays null, never 0/0.5/50
-//   §3.8 versioned scoring       — methodologyVersion + scoringVersion stored
-//
+//         Track Record Module — v2.1 (Corrected)
 // ===============================================================
 
 window.W = window.W || {};
@@ -22,10 +9,16 @@ W.trackRecord = (() => {
   const SCHEMA_VERSION = "track-record-v1";
   const MAX_REVISIONS = 100;
 
-  // ── Enum whitelists (Phase 19) ─────────────────────────────
-  // UNSET represents a fresh record where the user has not yet
-  // engaged with the decision. NO_DECISION is retained for records
-  // where the user explicitly considered and chose not to decide.
+  // ── Legacy migration sources ───────────────────────────────
+  //   track_record_v0  — the pre-v2.1 Track Record shape emitted by
+  //                      the original Token Analysis "capture"
+  //                      prototype. Records carry { symbol,
+  //                      createdAt, opportunityScore, confidence,
+  //                      notes } at the top level (no recordId, no
+  //                      schemaVersion).
+  const LEGACY_KEYS = ["track_record_v0"];
+
+  // ── Enum whitelists ────────────────────────────────────────
   const ACTIONS = [
     "UNSET",
     "NO_DECISION",
@@ -44,19 +37,26 @@ W.trackRecord = (() => {
   ];
   const EVIDENCE_QUALITY = ["SUFFICIENT", "PARTIAL", "INSUFFICIENT", "UNKNOWN"];
   const SCENARIO_CLASS = ["POSITIVE", "NEGATIVE", "NEUTRAL", "UNKNOWN"];
+  const KNOWN_SCHEMA_VERSIONS = new Set(["track-record-v1"]);
 
-  // ── Deterministic string hash (FNV-1a, 32-bit) ─────────────
-  function stableHash(input) {
+  // ── Deterministic content hash (cyrb53) ────────────────────
+  function stableHash(input, seed = 0) {
     const str = String(input || "");
-    let h = 0x811c9dc5;
+    let h1 = 0xdeadbeef ^ seed;
+    let h2 = 0x41c6ce57 ^ seed;
     for (let i = 0; i < str.length; i++) {
-      h ^= str.charCodeAt(i);
-      h = Math.imul(h, 0x01000193);
+      const ch = str.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761);
+      h2 = Math.imul(h2 ^ ch, 1597334677);
     }
-    return (h >>> 0).toString(16).padStart(8, "0");
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+    h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+    h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    const n = 4294967296 * (2097151 & h2) + (h1 >>> 0);
+    return n.toString(36);
   }
 
-  // ── UUID generation ────────────────────────────────────────
   function newId() {
     if (
       typeof crypto !== "undefined" &&
@@ -72,16 +72,18 @@ W.trackRecord = (() => {
     );
   }
 
-  // ── Enum validation ────────────────────────────────────────
   function validEnum(value, whitelist, fallback) {
     return whitelist.includes(value) ? value : fallback;
   }
 
   // ── Analysis normalization ─────────────────────────────────
-  // Accepts a token-analysis() result of any shape and normalizes to
-  // the canonical weaverSnapshot. Missing fields stay null (Phase 5).
-  function normalizeAnalysis(analysis) {
+  // options.fallbackTimestamp makes normalization deterministic for
+  // legacy records — otherwise the same input would get a different
+  // analysisTimestamp (Date.now()) on each migration run, defeating
+  // content-equality checks.
+  function normalizeAnalysis(analysis, options = {}) {
     const a = analysis || {};
+    const fallbackTs = options.fallbackTimestamp;
 
     const unified = a.unifiedVerdict || a.verdict || {};
     const ta = a.technicalAnalysis || a.technicals || {};
@@ -91,10 +93,6 @@ W.trackRecord = (() => {
     const sc = a.scenario || {};
     const ev = a.evidence || {};
 
-    // Preserve the composed verdict's domain OBJECT (not array).
-    // The unified-verdict.compose() output uses {market, technical,
-    // security, holders, liquidity, freshness}. Older code paths used
-    // an array — accept both, prefer object.
     let domains = {};
     if (
       unified.domains &&
@@ -103,7 +101,6 @@ W.trackRecord = (() => {
     ) {
       domains = { ...unified.domains };
     } else if (Array.isArray(unified.domains)) {
-      // Legacy: array of {name, status, ...}. Re-key by name.
       unified.domains.forEach((d) => {
         if (d && typeof d === "object" && d.name) {
           domains[String(d.name).toLowerCase()] = { ...d };
@@ -111,17 +108,19 @@ W.trackRecord = (() => {
       });
     }
 
-    return {
-      // The raw asset identifier the analysis was performed on.
-      asset: typeof a.asset === "string" ? a.asset : null,
+    const analysisTimestamp =
+      typeof a.analysisTimestamp === "number"
+        ? a.analysisTimestamp
+        : typeof fallbackTs === "number"
+          ? fallbackTs
+          : Date.now();
 
+    return {
+      asset: typeof a.asset === "string" ? a.asset : null,
       methodologyVersion: a.methodologyVersion ?? a.methodology ?? null,
       scoringVersion: a.scoringVersion ?? a.scoreVersion ?? null,
       evidenceBuilderVersion: a.evidenceBuilderVersion ?? null,
-      analysisTimestamp:
-        typeof a.analysisTimestamp === "number"
-          ? a.analysisTimestamp
-          : Date.now(),
+      analysisTimestamp,
 
       unifiedVerdict: {
         score:
@@ -203,7 +202,6 @@ W.trackRecord = (() => {
     };
   }
 
-  // ── Asset ID normalization ─────────────────────────────────
   function normalizeAssetId(asset) {
     const a = asset || {};
     return {
@@ -261,9 +259,6 @@ W.trackRecord = (() => {
     return next;
   }
 
-  // ── Decision normalization ─────────────────────────────────
-  // defaultAction distinguishes the "fresh record" case (UNSET)
-  // from the "user updated with an invalid value" case (NO_DECISION).
   function normalizeDecision(d, defaultAction = "NO_DECISION") {
     const x = d || {};
     return {
@@ -279,7 +274,6 @@ W.trackRecord = (() => {
     };
   }
 
-  // ── Outcome normalization ──────────────────────────────────
   function normalizeOutcome(o) {
     const x = o || {};
     return {
@@ -288,8 +282,10 @@ W.trackRecord = (() => {
         typeof x.observedPriceAtOutcome === "number"
           ? x.observedPriceAtOutcome
           : null,
-      outcomeTimestamp:
-        typeof x.outcomeTimestamp === "number" ? x.outcomeTimestamp : null,
+      entryTimestamp:
+        typeof x.entryTimestamp === "number" ? x.entryTimestamp : null,
+      exitTimestamp:
+        typeof x.exitTimestamp === "number" ? x.exitTimestamp : null,
       userEntryPrice:
         typeof x.userEntryPrice === "number" ? x.userEntryPrice : null,
       userExitPrice:
@@ -307,7 +303,6 @@ W.trackRecord = (() => {
     };
   }
 
-  // ── Recompute outcome only from known values (Phase 5) ─────
   function recomputeOutcome(outcome) {
     const o = { ...outcome };
 
@@ -332,16 +327,19 @@ W.trackRecord = (() => {
       o.realizedResult = (o.userExitPrice - o.userEntryPrice) * o.positionSize;
     }
 
-    if (o.outcomeTimestamp != null && o.entryTimestamp != null) {
-      o.holdingDurationMs = o.outcomeTimestamp - o.entryTimestamp;
-    } else if (o.outcomeTimestamp == null) {
+    if (
+      o.entryTimestamp != null &&
+      o.exitTimestamp != null &&
+      o.exitTimestamp >= o.entryTimestamp
+    ) {
+      o.holdingDurationMs = o.exitTimestamp - o.entryTimestamp;
+    } else {
       o.holdingDurationMs = null;
     }
 
     return o;
   }
 
-  // ── Persistence ────────────────────────────────────────────
   function loadAll() {
     const raw = W.store.get(STORAGE_KEY, []);
     if (!Array.isArray(raw)) return [];
@@ -354,7 +352,7 @@ W.trackRecord = (() => {
     W.store.set(STORAGE_KEY, records);
   }
 
-  // ── Public API ─────────────────────────────────────────────
+  // ── Public CRUD ────────────────────────────────────────────
 
   function createFromAnalysis(analysis, asset) {
     if (!analysis || typeof analysis !== "object") {
@@ -375,7 +373,6 @@ W.trackRecord = (() => {
       displayName: assetId.name || analysis.asset || "Unknown",
       createdAt: now,
       weaverSnapshot: snapshot,
-      // Fresh records use UNSET — the user has not engaged yet.
       userDecision: normalizeDecision({}, "UNSET"),
       outcome: normalizeOutcome({}),
       revisions: [],
@@ -384,7 +381,6 @@ W.trackRecord = (() => {
     const records = loadAll();
     records.unshift(record);
     saveAll(records);
-
     return record;
   }
 
@@ -400,7 +396,6 @@ W.trackRecord = (() => {
     const records = loadAll();
     const idx = records.findIndex((r) => r.recordId === recordId);
     if (idx === -1) return null;
-
     const existing = records[idx];
     const patch = {
       userDecision: {
@@ -418,17 +413,11 @@ W.trackRecord = (() => {
     const records = loadAll();
     const idx = records.findIndex((r) => r.recordId === recordId);
     if (idx === -1) return null;
-
     const existing = records[idx];
     const mergedOutcome = recomputeOutcome({
       ...existing.outcome,
       ...outcomePatch,
-      outcomeTimestamp:
-        outcomePatch.outcomeTimestamp ??
-        existing.outcome.outcomeTimestamp ??
-        Date.now(),
     });
-
     records[idx] = patchRecord(existing, { outcome: mergedOutcome });
     saveAll(records);
     return records[idx];
@@ -499,8 +488,7 @@ W.trackRecord = (() => {
     return lines.join("\n");
   }
 
-  // ── Migration (Phases 7–13) ────────────────────────────────
-  const LEGACY_KEYS = [];
+  // ── Migration ──────────────────────────────────────────────
 
   function migrate() {
     const canonical = loadAll();
@@ -513,6 +501,8 @@ W.trackRecord = (() => {
       deduped: 0,
     };
 
+    const runTimestamp = Date.now();
+
     const legacyCandidates = [];
     for (const key of LEGACY_KEYS) {
       const data = W.store.get(key, null);
@@ -524,18 +514,53 @@ W.trackRecord = (() => {
     for (const candidate of legacyCandidates) {
       const { raw, source } = candidate;
 
+      // ── Malformed ────────────────────────────────────────
       if (!raw || typeof raw !== "object") {
-        canonical.push(quarantineRecord(raw, source, "INVALID_SCHEMA"));
+        const quarantineId =
+          "track-quarantine-" +
+          stableHash(JSON.stringify(raw ?? null) + "|" + source);
+        if (canonicalById.has(quarantineId)) {
+          migrationSummary.deduped++;
+          continue;
+        }
+        const q = quarantineRecord(raw, source, "INVALID_SCHEMA", quarantineId);
+        canonical.push(q);
+        canonicalById.set(quarantineId, q);
         migrationSummary.quarantined++;
         continue;
       }
 
+      // ── Unknown schema version ───────────────────────────
+      if (
+        typeof raw.schemaVersion === "string" &&
+        !KNOWN_SCHEMA_VERSIONS.has(raw.schemaVersion)
+      ) {
+        const quarantineId =
+          "track-quarantine-" +
+          stableHash(JSON.stringify(raw) + "|" + source + "|UNKNOWN_SCHEMA");
+        if (canonicalById.has(quarantineId)) {
+          migrationSummary.deduped++;
+          continue;
+        }
+        const q = quarantineRecord(
+          raw,
+          source,
+          "UNKNOWN_SCHEMA_VERSION",
+          quarantineId,
+        );
+        canonical.push(q);
+        canonicalById.set(quarantineId, q);
+        migrationSummary.quarantined++;
+        continue;
+      }
+
+      // ── Deterministic ID for records missing one ─────────
       let recordId = typeof raw.recordId === "string" ? raw.recordId : null;
       let wasMissingId = false;
       if (!recordId) {
         const stableInput = [
           raw.displaySymbol || raw.symbol || "",
-          raw.createdAt || "",
+          typeof raw.createdAt === "number" ? raw.createdAt : "",
           raw.weaverSnapshot?.analysisTimestamp || raw.analysisTimestamp || "",
           source,
         ].join("|");
@@ -543,42 +568,63 @@ W.trackRecord = (() => {
         wasMissingId = true;
       }
 
+      // ── Normalize the legacy snapshot ONCE ───────────────
+      // fallbackTimestamp makes the snapshot deterministic across
+      // migration runs, so sameImmutable() can match it.
+      const legacySnapshot = normalizeAnalysis(raw.weaverSnapshot || raw, {
+        fallbackTimestamp: stableCreatedAt(raw),
+      });
+
+      // ── Canonical already has this recordId ──────────────
       const existing = canonicalById.get(recordId);
       if (existing) {
-        const equivalent = sameImmutable(existing, raw);
-        if (equivalent) {
+        if (sameImmutable(existing.weaverSnapshot, legacySnapshot)) {
           migrationSummary.deduped++;
           continue;
         }
+
+        // Immutable conflict — preserve legacy as a derived record.
         const derivedId =
           recordId +
           "-legacy-" +
           stableHash(
             JSON.stringify({
-              s: raw.weaverSnapshot?.scoringVersion,
-              a: raw.weaverSnapshot?.analysisTimestamp,
-              v: raw.weaverSnapshot?.unifiedVerdict?.score,
-              c: raw.weaverSnapshot?.unifiedVerdict?.confidence,
+              s: legacySnapshot.scoringVersion,
+              a: legacySnapshot.analysisTimestamp,
+              v: legacySnapshot.unifiedVerdict?.score,
+              c: legacySnapshot.unifiedVerdict?.confidence,
             }),
           );
+
+        if (canonicalById.has(derivedId)) {
+          migrationSummary.deduped++;
+          continue;
+        }
+
         const preserved = normalizeLegacy(
           raw,
           derivedId,
           source,
           "CONFLICT",
           recordId,
+          runTimestamp,
+          legacySnapshot,
         );
         canonical.push(preserved);
+        canonicalById.set(derivedId, preserved);
         migrationSummary.conflicts++;
         continue;
       }
 
+      // ── Fresh migration ──────────────────────────────────
       const migrated = normalizeLegacy(
         raw,
         recordId,
         source,
         wasMissingId ? "MIGRATED_LEGACY_ID" : "MIGRATED",
         null,
+        runTimestamp,
+        legacySnapshot,
       );
       canonical.push(migrated);
       canonicalById.set(recordId, migrated);
@@ -590,9 +636,11 @@ W.trackRecord = (() => {
     return migrationSummary;
   }
 
-  function sameImmutable(a, b) {
-    const av = a.weaverSnapshot || {};
-    const bv = b.weaverSnapshot || {};
+  // Compares two immutable snapshot objects. Legacy records must be
+  // normalized BEFORE this is called so both sides share the same shape.
+  function sameImmutable(av, bv) {
+    av = av || {};
+    bv = bv || {};
     return (
       av.methodologyVersion === bv.methodologyVersion &&
       av.scoringVersion === bv.scoringVersion &&
@@ -603,50 +651,68 @@ W.trackRecord = (() => {
     );
   }
 
-  function normalizeLegacy(raw, recordId, source, status, originalId) {
+  function stableCreatedAt(raw) {
+    if (typeof raw.createdAt === "number") return raw.createdAt;
+    if (typeof raw.weaverSnapshot?.analysisTimestamp === "number")
+      return raw.weaverSnapshot.analysisTimestamp;
+    if (typeof raw.analysisTimestamp === "number") return raw.analysisTimestamp;
+    // Deterministic fallback — never Date.now().
+    return 0;
+  }
+
+  function normalizeLegacy(
+    raw,
+    recordId,
+    source,
+    status,
+    originalId,
+    migratedAt,
+    snapshot,
+  ) {
     return {
       schemaVersion: SCHEMA_VERSION,
       recordId,
       assetId: normalizeAssetId(raw.assetId || raw.asset),
       displaySymbol: raw.displaySymbol || raw.symbol || "UNKNOWN",
       displayName: raw.displayName || raw.name || "Unknown",
-      createdAt: typeof raw.createdAt === "number" ? raw.createdAt : Date.now(),
-      weaverSnapshot: normalizeAnalysis(raw.weaverSnapshot || raw),
+      createdAt: stableCreatedAt(raw),
+      weaverSnapshot: snapshot,
       userDecision: normalizeDecision(raw.userDecision || {}),
       outcome: normalizeOutcome(raw.outcome || {}),
       revisions: [],
       migration: {
         source,
-        migratedAt: Date.now(),
+        migratedAt,
         status,
         originalRecordId: originalId,
       },
     };
   }
 
-  function quarantineRecord(raw, source, reason) {
+  function quarantineRecord(raw, source, reason, quarantineId) {
     return {
       schemaVersion: SCHEMA_VERSION,
-      recordId: "track-quarantine-" + stableHash(JSON.stringify(raw) + source),
+      recordId: quarantineId,
       assetId: normalizeAssetId(null),
       displaySymbol: "QUARANTINED",
       displayName: "Unmigrated record",
-      createdAt: Date.now(),
-      weaverSnapshot: normalizeAnalysis(null),
+      createdAt: 0,
+      weaverSnapshot: normalizeAnalysis(null, { fallbackTimestamp: 0 }),
       userDecision: normalizeDecision({}),
       outcome: normalizeOutcome({}),
       revisions: [],
       migration: {
         source,
-        migratedAt: Date.now(),
+        migratedAt: 0,
         status: "QUARANTINED",
         originalRecordId: null,
         reason,
       },
+      quarantined: { reason, original: raw },
     };
   }
 
-  // ── UI (Phase 16) ──────────────────────────────────────────
+  // ── UI ─────────────────────────────────────────────────────
   async function render(view) {
     const records = loadAll();
 
@@ -659,7 +725,7 @@ W.trackRecord = (() => {
             Records are private, stored locally, and never sent anywhere.
           </p>
           <div class="empty-state">
-            <div class="icon">📓</div>
+            <div class="icon">🧾</div>
             <div class="msg">No records yet</div>
             <div class="sub">Save an analysis from the Token Analysis page to start a record.</div>
           </div>
@@ -712,23 +778,24 @@ W.trackRecord = (() => {
     const scenario = s.scenario || {};
     const decision = record.userDecision || {};
     const outcome = record.outcome || {};
+    const safe = W.fmt.escapeHTML;
 
     return `
-      <div class="card" style="margin-bottom:12px;">
+      <div class="card tr-card">
         <div class="watch-head">
           <div>
-            <b>${W.fmt.escapeHTML(record.displaySymbol)}</b>
-            <span class="muted small">${W.fmt.escapeHTML(record.displayName)}</span>
+            <b>${safe(record.displaySymbol)}</b>
+            <span class="muted small">${safe(record.displayName)}</span>
             <br>
             <span class="muted small">${new Date(record.createdAt).toLocaleString()}</span>
           </div>
-          <button class="btn tiny" data-expand="${W.fmt.escapeHTML(record.recordId)}">View</button>
+          <button class="btn tiny" data-expand="${safe(record.recordId)}">View</button>
         </div>
-        <div class="kv-row"><span class="muted">Scenario</span><span>${W.fmt.escapeHTML(scenario.classification || "UNKNOWN")}</span></div>
-        <div class="kv-row"><span class="muted">Evidence quality</span><span>${W.fmt.escapeHTML(verdict.evidenceQuality || "UNKNOWN")}</span></div>
-        <div class="kv-row"><span class="muted">Your decision</span><span>${W.fmt.escapeHTML(decision.action || "UNSET")}</span></div>
-        <div class="kv-row"><span class="muted">Outcome</span><span>${W.fmt.escapeHTML(outcome.status || "UNKNOWN")}</span></div>
-        <div class="kv-row"><span class="muted">Methodology</span><span class="small">${W.fmt.escapeHTML(s.methodologyVersion || "—")}</span></div>
+        <div class="kv-row"><span class="muted">Scenario</span><span>${safe(scenario.classification || "UNKNOWN")}</span></div>
+        <div class="kv-row"><span class="muted">Evidence quality</span><span>${safe(verdict.evidenceQuality || "UNKNOWN")}</span></div>
+        <div class="kv-row"><span class="muted">Your decision</span><span>${safe(decision.action || "UNSET")}</span></div>
+        <div class="kv-row"><span class="muted">Outcome</span><span>${safe(outcome.status || "UNKNOWN")}</span></div>
+        <div class="kv-row"><span class="muted">Methodology</span><span class="small">${safe(s.methodologyVersion || "—")}</span></div>
       </div>
     `;
   }
@@ -784,11 +851,15 @@ W.trackRecord = (() => {
         const size = m.el.querySelector("#tr-size").value;
         const status = m.el.querySelector("#tr-status").value;
         const source = m.el.querySelector("#tr-source").value;
+        const entryTs = m.el.querySelector("#tr-entry-ts").value;
+        const exitTs = m.el.querySelector("#tr-exit-ts").value;
 
         updateOutcome(record.recordId, {
           userEntryPrice: entry === "" ? null : parseFloat(entry),
           userExitPrice: exit === "" ? null : parseFloat(exit),
           positionSize: size === "" ? null : parseFloat(size),
+          entryTimestamp: entryTs === "" ? null : new Date(entryTs).getTime(),
+          exitTimestamp: exitTs === "" ? null : new Date(exitTs).getTime(),
           status,
           outcomeSource: source,
         });
@@ -813,6 +884,10 @@ W.trackRecord = (() => {
     const fmtNum = (n, digits = 2) =>
       typeof n === "number" ? n.toFixed(digits) : "—";
     const safe = W.fmt.escapeHTML;
+    const fmtTs = (ts) =>
+      typeof ts === "number" && ts > 0
+        ? new Date(ts).toISOString().slice(0, 10)
+        : "";
 
     return `
       <div class="tabs">
@@ -898,6 +973,12 @@ W.trackRecord = (() => {
           <label>Position size
             <input id="tr-size" type="number" step="any" value="${o.positionSize == null ? "" : o.positionSize}">
           </label>
+          <label>Entry date
+            <input id="tr-entry-ts" type="date" value="${fmtTs(o.entryTimestamp)}">
+          </label>
+          <label>Exit date
+            <input id="tr-exit-ts" type="date" value="${fmtTs(o.exitTimestamp)}">
+          </label>
           <label>Outcome source
             <select id="tr-source">
               ${OUTCOME_SOURCE.map((sx) => `<option value="${sx}" ${o.outcomeSource === sx ? "selected" : ""}>${sx}</option>`).join("")}
@@ -907,6 +988,8 @@ W.trackRecord = (() => {
             Calculated result:
             <b>${o.realizedResult == null ? "—" : o.realizedResult.toFixed(2)}</b>
             (${o.realizedResultPct == null ? "—" : o.realizedResultPct.toFixed(2) + "%"})
+            · Duration:
+            <b>${o.holdingDurationMs == null ? "—" : Math.round(o.holdingDurationMs / 86400000) + "d"}</b>
           </div>
           <button class="btn primary mt" type="submit">Save Outcome</button>
         </form>
@@ -941,6 +1024,7 @@ W.trackRecord = (() => {
     migrate,
     _stableHash: stableHash,
     _recomputeOutcome: recomputeOutcome,
+    _LEGACY_KEYS: LEGACY_KEYS,
   };
 })();
 

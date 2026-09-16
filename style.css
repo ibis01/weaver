@@ -1518,3 +1518,8 @@ th.num {
 .card-action-buy  { border-color: var(--up); }
 .card-action-sell { border-color: var(--down); }
 .card-action-hold { border-color: var(--warn); }
+
+/* ── Track Record (CSP-safe) ─────────────────────────────── */
+.tr-card {
+  margin-bottom: 12px;
+}
