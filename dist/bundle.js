@@ -11233,6 +11233,34 @@ W.gems = (() => {
     return `🛡️ Shield: ${s.riskLevel[0]} (${s.riskScore}/100 identified-risk score, ${s.scoreVersion})`;
   }
 
+  // ── Auto-feed into Theses ───────────────────────────────
+  // Every alert gets a trackable "why we called it" record — the
+  // trust layer a bare score/alert doesn't give you. Dedupes against
+  // existing theses by source (addr+chain), not just the in-memory
+  // `seen` set, since `seen` resets on reload but a duplicate thesis
+  // would not.
+  function autoCreateThesis(gem, addr, shield) {
+    if (!W.theses) return;
+    const chain = gem.pair.chainId;
+    const sourceRef = { type: "gem", addr, chain };
+    if (W.theses.findBySourceRef && W.theses.findBySourceRef(sourceRef)) return;
+
+    const asset = `$${gem.pair.baseToken.symbol} (${chain})`;
+    const reasons = (gem.analysis.reasons || []).join("; ");
+    const signals = shieldSummary(shield);
+
+    W.theses.create({
+      asset,
+      statement: `Gem Agent alert — score ${gem.analysis.score} (${gem.analysis.scoreVersion}). Not financial advice; log the reasoning, decide for yourself.`,
+      reasons,
+      signals,
+      invalidation:
+        "Shield verdict turns high-risk, liquidity is pulled, or momentum reverses hard — review before acting further.",
+      horizon: "Short-term",
+      sourceRef,
+    });
+  }
+
   async function scan(view) {
     const body = view.querySelector("#g-body");
     if (!body) return;
@@ -11266,6 +11294,14 @@ W.gems = (() => {
       (Array.isArray(pairs) ? pairs : []).forEach((p) => {
         const a = p.baseToken?.address;
         if (!a) return;
+        // Constitution §3.3 — DISCOVERABLE_CHAINS ⊆ VERIFIED_CHAINS.
+        // Don't surface a "gem" as a default result on a chain Token
+        // Shield can't actually verify — that's discovery shipping
+        // ahead of verification. (See test/unit/gems-chain-filter.test.js
+        // for a behavioral regression test — the static CHAINS config
+        // being correct isn't enough on its own; it has to actually
+        // gate what gets scored and alerted on.)
+        if (!CHAINS[p.chainId]) return;
         if (
           !byToken[a] ||
           (p.liquidity?.usd || 0) > (byToken[a].liquidity?.usd || 0)
@@ -11302,6 +11338,7 @@ W.gems = (() => {
             6000,
           );
           if (W.tg) W.tg.notify("gem:" + addr, msg);
+          autoCreateThesis(g, addr, shield);
         }
         seen[addr] = 1;
       }
@@ -16419,10 +16456,24 @@ W.theses = W.theses || {};
       target: data.target || null,
       createdAt: new Date().toISOString(),
       status: "active", // active, invalidated, completed
+      sourceRef: data.sourceRef || null,
     };
     theses.push(thesis);
     save();
     return thesis;
+  }
+
+  function findBySourceRef(sourceRef) {
+    if (!sourceRef) return null;
+    return (
+      theses.find(
+        (t) =>
+          t.sourceRef &&
+          t.sourceRef.type === sourceRef.type &&
+          t.sourceRef.addr === sourceRef.addr &&
+          t.sourceRef.chain === sourceRef.chain,
+      ) || null
+    );
   }
 
   function remove(id) {
@@ -16588,7 +16639,7 @@ W.theses = W.theses || {};
   }
 
   // ── Exports ────────────────────────────────────────────
-  W.theses = { all, create, remove, render };
+  W.theses = { all, create, remove, render, findBySourceRef };
 })();
 
 console.log("[Theses] Module loaded (with Health Monitor integration).");

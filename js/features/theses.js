@@ -39,10 +39,24 @@ W.theses = W.theses || {};
       target: data.target || null,
       createdAt: new Date().toISOString(),
       status: "active", // active, invalidated, completed
+      sourceRef: data.sourceRef || null,
     };
     theses.push(thesis);
     save();
     return thesis;
+  }
+
+  function findBySourceRef(sourceRef) {
+    if (!sourceRef) return null;
+    return (
+      theses.find(
+        (t) =>
+          t.sourceRef &&
+          t.sourceRef.type === sourceRef.type &&
+          t.sourceRef.addr === sourceRef.addr &&
+          t.sourceRef.chain === sourceRef.chain,
+      ) || null
+    );
   }
 
   function remove(id) {
@@ -208,7 +222,7 @@ W.theses = W.theses || {};
   }
 
   // ── Exports ────────────────────────────────────────────
-  W.theses = { all, create, remove, render };
+  W.theses = { all, create, remove, render, findBySourceRef };
 })();
 
 console.log("[Theses] Module loaded (with Health Monitor integration).");

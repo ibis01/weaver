@@ -26,9 +26,21 @@ describe("Production configuration", () => {
       ALLOWED_ORIGINS: "https://app.example",
       REDIS_URL: "rediss://user:secret@redis.example:6380",
       ALERT_WEBHOOK_URL: "https://alerts.example/hook",
+      TRUST_PROXY_HOPS: "1",
     });
     expect(config.production).to.equal(true);
     expect(config.redisUrl).to.equal("rediss://user:secret@redis.example:6380");
     expect(config.origins).to.deep.equal(["https://app.example"]);
+    expect(config.trustProxyHops).to.equal(1);
+  });
+
+  it("refuses to start in production without TRUST_PROXY_HOPS configured", () => {
+    expect(() =>
+      loadConfig({
+        NODE_ENV: "production",
+        ALLOWED_ORIGINS: "https://app.example",
+        REDIS_URL: "rediss://user:secret@redis.example:6380",
+      }),
+    ).to.throw(/TRUST_PROXY_HOPS/);
   });
 });

@@ -30,6 +30,14 @@ if (!isProduction && !allowedOrigins.length)
     "http://localhost:3000",
   ];
 
+// Without this, req.ip is the direct socket peer — behind any reverse
+// proxy/load balancer that's the proxy's own IP for every request, so
+// per-client rate limiting (checkRateLimit below) silently collapses
+// into one shared bucket for the whole app. Config enforces this is
+// set in production (see server/config.js); 0 in dev means "no proxy
+// in front, trust nothing," matching Express's own default.
+app.set("trust proxy", config.trustProxyHops ?? 0);
+
 const ALLOWED_DOMAINS = [
   "api.coingecko.com",
   "api.binance.com",
