@@ -267,19 +267,16 @@ W.dashboard = (() => {
 
   async function render(view) {
     view.innerHTML = `
+      <p class="muted small mb-16">Your evidence-driven crypto intelligence workspace.</p>
       <div id="d-data-health" aria-live="polite"></div>
       <div class="cards" id="d-stats"></div>
       <div class="grid-2">
         <div id="what-matters-now-container"></div>
         <div id="what-changed-container"></div>
       </div>
-      <div class="card text-center p-24">
-        <h3 class="mb-16">Next Steps</h3>
-        <div class="qa flex-center gap-16">
-          <a href="#/token" class="btn primary">🔍 Analyze a Token</a>
-          <button class="btn" id="qa-add">+ Add Holding</button>
-          <button class="btn" id="qa-sync" title="Sync connected wallets">👛 Sync Wallets</button>
-        </div>
+      <div class="card mt-16">
+        <div class="flex-between mb-8"><h3>💼 Your Portfolio</h3></div>
+        <div id="d-port"></div>
       </div>
       <div class="card mt-16">
         <div class="flex-between mb-8">
@@ -299,9 +296,13 @@ W.dashboard = (() => {
           </table>
         </div>
       </div>
-      <div class="card mt-16">
-        <div class="flex-between mb-8"><h3>💼 Your Portfolio</h3></div>
-        <div id="d-port"></div>
+      <div class="card text-center p-24 mt-16">
+        <h3 class="mb-16">Next Steps</h3>
+        <div class="qa flex-center gap-16">
+          <a href="#/token" class="btn primary">🔍 Analyze a Token</a>
+          <button class="btn" id="qa-add">+ Add Holding</button>
+          <button class="btn" id="qa-sync" title="Sync connected wallets">👛 Sync Wallets</button>
+        </div>
       </div>
     `;
 
@@ -437,10 +438,84 @@ W.dashboard = (() => {
     }
 
     const changedContainer = view.querySelector("#what-changed-container");
-    if (changedContainer && W.delta) {
-      if (totals) {
+    if (changedContainer) {
+      changedContainer.innerHTML = "";
+
+      const card = document.createElement("div");
+      card.className = "card";
+      const title = document.createElement("h3");
+      title.textContent = "🔍 Discoveries";
+      card.appendChild(title);
+
+      // New intelligence — recent Gem Agent discoveries, sourced from
+      // the Thesis records Gem Agent already auto-creates (see
+      // js/features/gems.js autoCreateThesis / sourceRef). Real
+      // intelligence-pipeline data, not invented for this UI.
+      const newIntelLabel = document.createElement("p");
+      newIntelLabel.className = "muted small mb-8";
+      newIntelLabel.style.marginTop = "8px";
+      newIntelLabel.textContent = "New intelligence";
+      card.appendChild(newIntelLabel);
+
+      const gemTheses = (W.theses?.all?.() || [])
+        .filter((t) => t.sourceRef?.type === "gem")
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, 3);
+
+      if (!gemTheses.length) {
+        const p = document.createElement("p");
+        p.className = "muted small";
+        p.textContent =
+          "No new discoveries yet — run Gem Agent to populate this.";
+        card.appendChild(p);
+      } else {
+        const list = document.createElement("ul");
+        list.style.listStyle = "none";
+        list.style.padding = "0";
+        list.style.margin = "0";
+        gemTheses.forEach((t) => {
+          const li = document.createElement("li");
+          li.style.padding = "8px 0";
+          li.style.borderBottom = "1px solid var(--border, #30363d)";
+
+          const head = document.createElement("div");
+          head.style.display = "flex";
+          head.style.justifyContent = "space-between";
+          const asset = document.createElement("b");
+          asset.textContent = t.asset; // SAFE: textContent
+          const security = document.createElement("span");
+          security.className = "muted small";
+          security.textContent = t.signals || "Security status unavailable"; // SAFE
+          head.appendChild(asset);
+          head.appendChild(security);
+          li.appendChild(head);
+
+          if (t.reasons) {
+            const why = document.createElement("p");
+            why.className = "muted small mt-4";
+            why.textContent = t.reasons; // SAFE: textContent
+            li.appendChild(why);
+          }
+          list.appendChild(li);
+        });
+        card.appendChild(list);
+      }
+
+      // Portfolio changes — existing delta engine, unchanged data flow,
+      // rendered without its own card wrapper so it composes cleanly
+      // into this shared card instead of nesting card-in-card.
+      const pfLabel = document.createElement("p");
+      pfLabel.className = "muted small mb-8";
+      pfLabel.style.marginTop = "16px";
+      pfLabel.textContent = "Portfolio changes";
+      card.appendChild(pfLabel);
+
+      const pfContainer = document.createElement("div");
+      card.appendChild(pfContainer);
+
+      if (totals && W.delta) {
         const deltas = W.delta.computePortfolioDeltas(totals);
-        W.delta.renderCard(changedContainer, deltas);
+        W.delta.renderList(pfContainer, deltas);
         const currentSnapshot = W.delta.getSnapshot();
         if (
           !currentSnapshot ||
@@ -448,8 +523,14 @@ W.dashboard = (() => {
         )
           W.delta.saveSnapshot(totals);
       } else {
-        changedContainer.innerHTML = `<div class="card"><h3>📊 What Changed</h3><p class="text-muted small-text">Add holdings to your portfolio to start tracking value changes over time.</p></div>`;
+        const p = document.createElement("p");
+        p.className = "muted small";
+        p.textContent =
+          "Add holdings to your portfolio to start tracking value changes over time.";
+        pfContainer.appendChild(p);
       }
+
+      changedContainer.appendChild(card);
     }
   }
 

@@ -143,6 +143,7 @@ describe("Proxy SSRF Protection", () => {
     try {
       const res = await axios.get(
         base + encodeURIComponent("https://api.coingecko.com/api/v3/ping"),
+        { timeout: 5000 },
       );
       // Guard allowed the request AND upstream returned 2xx.
       expect(res.status).to.equal(200);

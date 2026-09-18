@@ -1,9 +1,11 @@
 // ===============================================================
-//         "What Changed" Delta Engine
+//         Portfolio Changes ("Discoveries") Delta Engine
 // ===============================================================
 //
 // Purpose: Compare current portfolio state with a previous
-// snapshot to surface meaningful changes (Section 24).
+// snapshot to surface meaningful changes (Section 24). Composed
+// into the Dashboard's "Discoveries" card by js/ui/dashboard.js
+// alongside Gem Agent's new-intelligence list.
 //
 // ===============================================================
 
@@ -84,6 +86,49 @@ W.delta = (() => {
   }
 
   // ── Safe UI Renderer (Section 15) ───────────────────────
+  // buildList() renders just the delta list into an existing container
+  // (no card/title wrapper) — used both by renderCard() below and by
+  // dashboard.js, which composes it into a shared "Discoveries" card
+  // alongside Gem Agent's new-intelligence list, to avoid nesting a
+  // card inside a card.
+  function buildList(container, deltas) {
+    if (!deltas || deltas.length === 0) {
+      const p = document.createElement("p");
+      p.className = "muted small";
+      p.textContent = "No significant portfolio changes since your last visit.";
+      container.appendChild(p);
+      return;
+    }
+    const list = document.createElement("ul");
+    list.style.listStyle = "none";
+    list.style.padding = "0";
+    list.style.margin = "0";
+
+    deltas.forEach((d) => {
+      const li = document.createElement("li");
+      li.style.padding = "8px 0";
+      li.style.borderBottom = "1px solid var(--border, #30363d)";
+      li.style.display = "flex";
+      li.style.justifyContent = "space-between";
+      li.style.alignItems = "center";
+
+      const label = document.createElement("span");
+      label.textContent = d.metric; // SAFE: textContent
+
+      const value = document.createElement("span");
+      const isUp = d.deltaAbsolute >= 0;
+      value.style.color = isUp ? "var(--up, #2ee6a8)" : "var(--down, #ff5c7a)";
+      value.style.fontWeight = "bold";
+      value.textContent = `${isUp ? "+" : ""}${W.fmt.money(d.deltaAbsolute)} (${isUp ? "+" : ""}${d.deltaPercent.toFixed(2)}%)`; // SAFE
+
+      li.appendChild(label);
+      li.appendChild(value);
+      list.appendChild(li);
+    });
+    container.appendChild(list);
+  }
+
+  /** Full card with its own title + wrapper — unchanged public behavior. */
   function renderCard(container, deltas) {
     if (!container) return;
     container.innerHTML = "";
@@ -92,49 +137,27 @@ W.delta = (() => {
     card.className = "card";
 
     const title = document.createElement("h3");
-    title.textContent = "📊 What Changed";
+    title.textContent = "📊 Portfolio Changes";
     card.appendChild(title);
 
-    if (!deltas || deltas.length === 0) {
-      const p = document.createElement("p");
-      p.className = "muted small";
-      p.textContent = "No significant changes since your last visit.";
-      card.appendChild(p);
-    } else {
-      const list = document.createElement("ul");
-      list.style.listStyle = "none";
-      list.style.padding = "0";
-      list.style.margin = "0";
-
-      deltas.forEach((d) => {
-        const li = document.createElement("li");
-        li.style.padding = "8px 0";
-        li.style.borderBottom = "1px solid var(--border, #30363d)";
-        li.style.display = "flex";
-        li.style.justifyContent = "space-between";
-        li.style.alignItems = "center";
-
-        const label = document.createElement("span");
-        label.textContent = d.metric; // SAFE: textContent
-
-        const value = document.createElement("span");
-        const isUp = d.deltaAbsolute >= 0;
-        value.style.color = isUp
-          ? "var(--up, #2ee6a8)"
-          : "var(--down, #ff5c7a)";
-        value.style.fontWeight = "bold";
-        value.textContent = `${isUp ? "+" : ""}${W.fmt.money(d.deltaAbsolute)} (${isUp ? "+" : ""}${d.deltaPercent.toFixed(2)}%)`; // SAFE
-
-        li.appendChild(label);
-        li.appendChild(value);
-        list.appendChild(li);
-      });
-      card.appendChild(list);
-    }
+    buildList(card, deltas);
     container.appendChild(card);
   }
 
-  return { getSnapshot, saveSnapshot, computePortfolioDeltas, renderCard };
+  /** Just the list, no title/card wrapper — for composing into another card. */
+  function renderList(container, deltas) {
+    if (!container) return;
+    container.innerHTML = "";
+    buildList(container, deltas);
+  }
+
+  return {
+    getSnapshot,
+    saveSnapshot,
+    computePortfolioDeltas,
+    renderCard,
+    renderList,
+  };
 })();
 
-console.log("[Delta] What Changed engine loaded.");
+console.log("[Delta] Portfolio changes engine loaded.");

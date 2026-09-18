@@ -16,7 +16,7 @@ W.ranker = (() => {
     card.className = "card";
 
     const title = document.createElement("h3");
-    title.textContent = "⚡ What Matters Now";
+    title.textContent = "⚡ Needs Attention";
     card.appendChild(title);
 
     if (top.length === 0) {
