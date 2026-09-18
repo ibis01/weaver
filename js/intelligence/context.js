@@ -1,7 +1,7 @@
 // ===============================================================
 //         "Why It Matters" Context Generator
 // ===============================================================
-// CSP Compliant: Zero inline styles used.
+// CSP Compliant: no style="" attributes. Dynamic styles via CSSOM.
 // ===============================================================
 //
 // EVIDENCE_CONFIDENCE_NOTE: every evidence item generated here comes
