@@ -205,8 +205,8 @@ W.sectors = (() => {
         </div>
         <p class="muted small">Where is smart money flowing today? Right = Pumping · Left = Dumping · Higher = More Volume · Bigger = Larger Market Cap.</p>
       </div>
-      <div class="card" style="padding:0;overflow:hidden;position:relative;">
-        <canvas id="sector-canvas" style="width:100%;display:block;cursor:crosshair;"></canvas>
+     <div class="card canvas-card">
+        <canvas id="sector-canvas" class="chart-canvas"></canvas>
       </div>
     `;
 

@@ -48,7 +48,7 @@ W.explorer = (() => {
             .map(
               (c) => `
           <tr class="clickable" data-id="${c.id}">
-            <td style="width:40px;"><img class="coin-img" src="${c.thumb}" alt="${escapeHTML(c.name)}"></td>
+            <td class="w-40"><img class="coin-img" src="${c.thumb}" alt="${escapeHTML(c.name)}"></td>
             <td><b>${escapeHTML(c.name)}</b> <span class="muted small">${c.symbol.toUpperCase()}</span></td>
             <td class="muted">${c.market_cap_rank ? "Rank #" + c.market_cap_rank : ""}</td>
           </tr>
@@ -184,7 +184,7 @@ W.explorer = (() => {
     // ── Check if Chart.js is available ──────────────────
     if (typeof Chart === "undefined") {
       canvas.parentElement.innerHTML = `
-        <p class="muted small center" style="padding:40px 0;">
+        <p class="muted small center p-40-y">
           📊 Chart library not loaded. Please include Chart.js in your HTML.
         </p>`;
       return;
@@ -206,7 +206,7 @@ W.explorer = (() => {
 
       if (!prices || prices.length < 2) {
         canvas.parentElement.innerHTML = `
-          <p class="muted small center" style="padding:40px 0;">
+          <p class="muted small center p-40-y">
             📉 No chart data available for this period.
           </p>`;
         return;
@@ -286,7 +286,7 @@ W.explorer = (() => {
     } catch (e) {
       console.error("[Explorer] Chart error:", e);
       canvas.parentElement.innerHTML = `
-        <p class="muted small center" style="padding:40px 0;">
+        <p class="muted small center p-40-y">
           ⚠️ Failed to load chart: ${escapeHTML(e.message)}
         </p>`;
     }

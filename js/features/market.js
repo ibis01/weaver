@@ -6,6 +6,16 @@ window.W = window.W || {};
 
 W.market = (() => {
   // ── Helpers ──────────────────────────────────────────────
+  // Bucket a percentage to the nearest 10 for the .meter-fill-N
+  // classes in style.css. Kept local so this module has no
+  // dependency on W.ui being fully populated. CSP-safe: width is
+  // set via a class, not an inline style attribute.
+  function pctBucket(n) {
+    const v = Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
+    return Math.round(v / 10) * 10;
+  }
+
+  // ── Helpers ──────────────────────────────────────────────
   function escapeHTML(str) {
     if (!str) return "";
     const div = document.createElement("div");
@@ -133,7 +143,7 @@ W.market = (() => {
             : "Bitcoin Season ₿";
       view.querySelector("#m-alt").innerHTML = `
         <div class="alt-num">${idx}</div>
-        <div class="alt-bar"><div style="width:${idx}%"></div></div>
+        <div class="alt-bar"><div class="meter-fill meter-fill-${pctBucket(idx)}"></div></div>
         <p class="muted small">${beating}/${top50.length} of the top-50 coins outperformed BTC over 7 days (≥75 = Altcoin Season).</p>
         <b>${label}</b>
       `;
@@ -142,7 +152,7 @@ W.market = (() => {
         .slice(0, 40)
         .map((c) => {
           const p = c.price_change_percentage_7d_in_currency ?? 0;
-          return `<a class="heat-cell" style="background:${heatColor(p)}" href="#/coin/${c.id}" title="${escapeHTML(c.name)} 7d: ${p.toFixed(2)}%">
+          return `<a class="heat-cell heat-fill" data-heat="${heatColor(p)}" href="#/coin/${c.id}" title="${escapeHTML(c.name)} 7d: ${p.toFixed(2)}%">
           <b>${c.symbol.toUpperCase()}</b>
           <span>${p >= 0 ? "+" : ""}${p.toFixed(1)}%</span>
         </a>`;
@@ -152,6 +162,9 @@ W.market = (() => {
       console.warn("[Market] Error fetching top data:", e);
     }
   }
+        view.querySelectorAll(".heat-cell[data-heat]").forEach((el) => {
+          el.style.background = el.dataset.heat;
+        });
 
   return { render };
 })();

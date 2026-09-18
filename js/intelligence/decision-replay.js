@@ -1,7 +1,7 @@
 // ===============================================================
 //         Decision Replay Engine – Multi‑Dimensional Evaluation
 // ===============================================================
-// CSP Compliant: Zero inline styles used.
+// CSP Compliant: no style="" attributes. Dynamic styles via CSSOM.
 //
 // CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9):
 //   - Calibration is only computed when the user actually stated a

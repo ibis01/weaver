@@ -1523,3 +1523,48 @@ th.num {
 .tr-card {
   margin-bottom: 12px;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   Phase 0 — CSP cleanup (no inline style="..." attributes)
+   ═══════════════════════════════════════════════════════════════ */
+
+.w-40 { width: 40px; }
+.p-40-y { padding: 40px 0; }
+.ml-auto { margin-left: auto; }
+.mt-20 { margin-top: 20px; }
+
+.text-xs { font-size: 0.8em; }
+.text-2xs { font-size: 10px; }
+.text-3xl { font-size: 26px; }
+
+.tag-lg { font-size: 12px; padding: 5px 10px; }
+.tag-xl { font-size: 14px; padding: 8px 16px; }
+
+.wallet-status-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.address-display { cursor: pointer; font-family: monospace; font-size: 1.1em; }
+.canvas-card { padding: 0; overflow: hidden; position: relative; }
+
+/* Thesis-health badge */
+.thesis-health-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.8em;
+  font-weight: bold;
+  margin-left: 8px;
+}
+.thesis-health-up { color: var(--up); background: rgba(16, 185, 129, 0.15); }
+.thesis-health-warn { color: var(--warn); background: rgba(245, 158, 11, 0.15); }
+.thesis-health-down { color: var(--down); background: rgba(239, 68, 68, 0.15); }
+.thesis-health-unknown { color: var(--muted); background: rgba(154, 163, 178, 0.1); }
+
+/* Risk card variants */
+.risk-card-low { border-color: var(--up); box-shadow: 0 0 40px transparent; }
+.risk-card-mid { border-color: var(--warn); box-shadow: 0 0 40px transparent; }
+.risk-card-high { border-color: var(--down); box-shadow: 0 0 40px rgba(255, 92, 122, 0.2); }
+
+/* Meter-fill colour overrides — must beat .meter-bar div specificity */
+.meter-bar div.meter-fill-up { background: var(--up); }
+.meter-bar div.meter-fill-down { background: var(--down); }
+.meter-bar div.meter-fill-warn { background: var(--warn); }
+.meter-bar div.meter-fill-muted { background: var(--muted); }

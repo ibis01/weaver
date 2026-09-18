@@ -551,7 +551,7 @@ W.tokenAnalysis = (() => {
   }
 
   // ────────────────────────────────────────────────────────────
-  // Render (CSP-compliant: no inline styles, no inline onclick)
+  // Render (CSP-compliant: no style="" attributes, no inline onclick)
   // ────────────────────────────────────────────────────────────
   async function render(view, assetId) {
     // Search view
