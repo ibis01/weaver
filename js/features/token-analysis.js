@@ -260,10 +260,10 @@ W.tokenAnalysis = (() => {
       ),
       interpretation:
         action === "BUY"
-          ? "Evidence supports an immediate bullish setup, subject to your risk limits."
+          ? "Evidence currently leans positive: technical bias and timeframe alignment are constructive."
           : action === "SELL"
-            ? "Evidence supports reducing exposure or avoiding a bullish entry; this is not a short-sale instruction."
-            : "Signals are mixed, insufficiently aligned, or too weak for an immediate directional decision.",
+            ? "Evidence currently leans negative: technical bias and timeframe alignment are not supportive."
+            : "Evidence is mixed, insufficiently aligned, or too weak to indicate a directional scenario.",
     };
   }
 
