@@ -14,7 +14,25 @@
       style-src 'self' https://fonts.googleapis.com;
       font-src 'self' https://fonts.gstatic.com;
       img-src 'self' data: https:;
-      connect-src 'self' https://api.coingecko.com https://api.alternative.me https://api.binance.com;
+      connect-src 'self'
+        http://localhost:3001
+        https://api.coingecko.com
+        https://api.alternative.me
+        https://api.binance.com
+        https://api.dexscreener.com
+        https://api.gopluslabs.io
+        https://eth.blockscout.com
+        https://api.mainnet-beta.solana.com
+        https://api.bscscan.com
+        https://api.polygonscan.com
+        https://api.arbiscan.io
+        https://api.snowtrace.io
+        https://mempool.space
+        https://api.solscan.io
+        https://api.etherscan.io;
+      worker-src 'self';
+      object-src 'none';
+      base-uri 'self';
     "
   >
 
