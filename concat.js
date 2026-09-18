@@ -95,6 +95,7 @@ const files = [
   // ── UI Enhancements ──────────────────────────────────────────
   "js/ui/particles.js",
   "js/ui/tilt.js",
+  "js/ui/evidence-drawer.js",
 
   // ── Core App ──────────────────────────────────────────────────
   "js/app.js",
