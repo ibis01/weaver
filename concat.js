@@ -52,6 +52,7 @@ const files = [
   "js/intelligence/delta.js",
   "js/intelligence/behavior.js",
   "js/intelligence/context.js",
+  "js/intelligence/ranker.js",
   "js/intelligence/thesis-health.js",
   "js/intelligence/opportunities.js",
   "js/intelligence/decision-replay.js",
