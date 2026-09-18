@@ -169,6 +169,31 @@ W.api = (() => {
       } catch (e) {
         lastError = e;
         clearTimeout(timer);
+        // A 429 from the proxy means CoinGecko rate-limited this client.
+        // The direct fallback (PROXIES[1]) will hit the same rate limit
+        // from the same IP, and additionally triggers a CORS error in
+        // the browser. Skip it and serve stale cache if available.
+        if (/HTTP 429/.test(e.message)) {
+          const stale = getCached(url, 86400000);
+          if (stale !== null) {
+            source = "cache (stale, rate limited)";
+            W.dataHealth?.mark(resourceForUrl(url), {
+              source: "cache (stale)",
+              observedAt: Date.now(),
+              staleAfter: 3600000,
+            });
+            console.warn(
+              `[Prices] Rate limited (429) — serving stale cache for ${resourceForUrl(url)}`,
+            );
+            return stale;
+          }
+          console.warn(
+            `[Prices] Rate limited (429) and no cache — ${resourceForUrl(url)} unavailable`,
+          );
+          throw new Error(
+            "Rate limited by market data provider. Try again in 60 seconds.",
+          );
+        }
         console.warn(`[Prices] Proxy failed: ${e.message}`);
       }
     }
