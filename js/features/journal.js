@@ -1,7 +1,7 @@
 // ===============================================================
 //         Decision Journal Module
 // ===============================================================
-// CSP Compliant: Zero inline styles.
+// CSP Compliant: no style="" attributes. Dynamic styles via CSSOM.
 //
 // CONFIDENCE POLICY (WEAVER_CONSTITUTION §2.9):
 //   - If the user does not enter a confidence, it is stored as `null`.

@@ -1,7 +1,7 @@
 // ===============================================================
 //         Ranker / Presentation Layer
 // ===============================================================
-// CSP Compliant: Zero inline styles.
+// CSP Compliant: no style="" attributes. Dynamic styles via CSSOM.
 // ===============================================================
 
 window.W = window.W || {};
