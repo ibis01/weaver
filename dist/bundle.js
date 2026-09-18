@@ -10991,11 +10991,19 @@ W.gems = (() => {
       const addresses = [...map.keys()].slice(0, 30);
       if (!addresses.length) throw new Error("No candidates");
 
-      const pairs = await fetchDexScreener(
+      const pairsResp = await fetchDexScreener(
         DEXSCREENER_API + "/latest/dex/tokens/" + addresses.join(","),
       );
+      // DexScreener returns { pairs: [...] } for the multi-token
+      // endpoint. Some older proxy paths returned a bare array. Accept
+      // both shapes.
+      const pairs = Array.isArray(pairsResp)
+        ? pairsResp
+        : pairsResp && Array.isArray(pairsResp.pairs)
+          ? pairsResp.pairs
+          : [];
       const byToken = {};
-      (Array.isArray(pairs) ? pairs : []).forEach((p) => {
+      pairs.forEach((p) => {
         const a = p.baseToken?.address;
         if (!a) return;
         // Constitution §3.3 — DISCOVERABLE_CHAINS ⊆ VERIFIED_CHAINS.
