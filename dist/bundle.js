@@ -18339,6 +18339,14 @@ W.tokenAnalysis = (() => {
               : ""
           }
 
+          <div class="card mt-16" id="security-section">
+            <div class="flex-between mb-8">
+              <h4>🛡️ Security</h4>
+              <button class="btn tiny" data-action="verify-security">Verify Security</button>
+            </div>
+            <p class="small muted" data-security-state="idle">Security verification has not been run for this token. No safety conclusion is being made yet.</p>
+          </div>
+
           <div class="qa mt-12">
             ${W.trackRecord ? '<button class="btn tiny primary" id="ta-save-track" data-action="capture-track-record">Capture historical snapshot</button>' : ""}
             <a class="btn tiny" href="#/track">🧾 View track record</a>
@@ -18348,6 +18356,62 @@ W.tokenAnalysis = (() => {
       `;
 
       // ── Event listeners (no inline onclick) ─────────────
+      // Security card — verify on demand via Token Shield
+      const secBtn = view.querySelector("[data-action='verify-security']");
+      const secSection = view.querySelector("#security-section");
+      if (secBtn && secSection) {
+        const secState = secSection.querySelector("[data-security-state]");
+        const setState = (cls, text) => {
+          if (!secState) return;
+          secState.className = "small " + cls;
+          secState.textContent = text;
+        };
+        secBtn.addEventListener("click", async () => {
+          secBtn.disabled = true;
+          secBtn.textContent = "Checking…";
+          setState("muted", "Fetching contract address…");
+          try {
+            const coin = await W.api.coin(result.assetId?.coingeckoId || result.asset);
+            const platforms = (coin && coin.platforms) || {};
+            const supported = Object.keys(platforms).filter((k) => W.shield?.CHAINS?.[k] && platforms[k]);
+            if (!supported.length) {
+              setState("muted", "Security verification is not available for native chain tokens. Cross-check on the chain's block explorer.");
+              secBtn.remove();
+              return;
+            }
+            const chainKey = supported[0];
+            const addr = platforms[chainKey];
+            setState("muted", "Running Token Shield on " + chainKey + "…");
+            const assessment = await W.shield.check(addr, chainKey);
+            if (!assessment) {
+              setState("muted", "No security data found for this contract. Cross-check on the block explorer.");
+              secBtn.remove();
+              return;
+            }
+            secState.remove();
+            const rl = assessment.riskLevel?.[0] || "Unknown";
+            const rs = assessment.riskScore ?? "—";
+            const sv = assessment.scoreVersion || "—";
+            const risks = Array.isArray(assessment.risks) ? assessment.risks : [];
+            const header = document.createElement("p");
+            header.className = "small";
+            header.textContent = rl + " · risk score " + rs + "/100 · " + sv;
+            secSection.appendChild(header);
+            risks.slice(0, 6).forEach((r) => {
+              const li = document.createElement("p");
+              li.className = "small muted mt-4";
+              li.textContent = "• " + r;
+              secSection.appendChild(li);
+            });
+            secBtn.remove();
+          } catch (e) {
+            setState("down", "Security verification unavailable. No safety conclusion is being made from missing data.");
+            secBtn.textContent = "Retry";
+            secBtn.disabled = false;
+          }
+        });
+      }
+
       const captureButton = view.querySelector(
         "[data-action='capture-track-record']",
       );
