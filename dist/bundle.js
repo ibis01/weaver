@@ -18587,6 +18587,10 @@ W.tokenAnalysis = (() => {
               bearishEvidence: result.bearishEvidence,
               contradictions: result.contradictions,
               evidenceQuality: result.evidenceQuality,
+              provenance:
+                (result.unifiedVerdict &&
+                  result.unifiedVerdict.provenance) ||
+                [],
             });
           }
         });
@@ -18740,6 +18744,45 @@ W.ui.evidenceDrawer = (() => {
     );
   }
 
+  function renderProvenance(records) {
+    if (!Array.isArray(records) || records.length === 0) {
+      return '<p class="muted small">No provenance records available.</p>';
+    }
+    return records
+      .map((p) => {
+        if (!p || typeof p !== "object") return "";
+        const rows = [];
+        if (p.type) rows.push("Type: " + esc(p.type));
+        if (p.source) rows.push("Source: " + esc(p.source));
+        if (p.chain) rows.push("Chain: " + esc(p.chain));
+        if (p.address)
+          rows.push(
+            "Address: " +
+              esc(
+                W.fmt && W.fmt.maskAddress
+                  ? W.fmt.maskAddress(p.address)
+                  : p.address,
+              ),
+          );
+        if (p.asOf) {
+          const d = new Date(p.asOf);
+          rows.push(
+            "As of: " + esc(isNaN(d.getTime()) ? String(p.asOf) : d.toISOString()),
+          );
+        }
+        if (!rows.length) return "";
+        return (
+          '<div class="kv-row"><span class="muted">' +
+          esc(p.type || "record") +
+          '</span><span class="small">' +
+          rows.join("<br>") +
+          "</span></div>"
+        );
+      })
+      .filter(Boolean)
+      .join("");
+  }
+
   function open(result) {
     const r = result || {};
     const b = bucket(r.domains);
@@ -18790,6 +18833,8 @@ W.ui.evidenceDrawer = (() => {
       renderItems(contradicting, "None recorded.") +
       "<h4>❓ Unknowns</h4>" +
       renderItems(unknowns, "No evidence gaps recorded.") +
+      "<h4>📎 Evidence provenance</h4>" +
+      renderProvenance(r.provenance) +
       "</div>";
 
     const m = W.ui.modal({
