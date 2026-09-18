@@ -16586,6 +16586,8 @@ W.trackRecord = (() => {
     "outcome.status",
     "outcome.observedPriceAtOutcome",
     "outcome.outcomeTimestamp",
+    "outcome.entryTimestamp",
+    "outcome.exitTimestamp",
     "outcome.userEntryPrice",
     "outcome.userExitPrice",
     "outcome.positionSize",
@@ -16617,6 +16619,23 @@ W.trackRecord = (() => {
 
   function deterministicId(value, prefix = "track-legacy") {
     return `${prefix}-${contentHash(value)}`;
+  }
+
+  // Narrow signature for identity comparison during migration.
+  // Full snapshot comparison fails because canonical and legacy
+  // snapshots are structurally different. The fields below are what
+  // actually determine whether two records describe the same analysis.
+  function snapshotSignature(snapshot) {
+    if (!snapshot || typeof snapshot !== "object") return "null";
+    const verdict = snapshot.unifiedVerdict || {};
+    const ts = snapshot.analysisTimestamp;
+    return JSON.stringify({
+      score: verdict.score ?? null,
+      confidence: verdict.confidence ?? null,
+      scoringVersion:
+        snapshot.scoringVersion ?? verdict.evidenceVersion ?? null,
+      analysisTimestamp: ts ? ts : null,
+    });
   }
 
   function legacyV0Snapshot(raw) {
@@ -16721,8 +16740,10 @@ W.trackRecord = (() => {
       if (entry !== 0)
         result.realizedResultPct = ((exit - entry) / entry) * 100;
     }
-    const start = timeMs(decisionTimestamp);
-    const end = timeMs(outcome.outcomeTimestamp);
+    const start =
+      timeMs(outcome.entryTimestamp) ?? timeMs(decisionTimestamp);
+    const end =
+      timeMs(outcome.exitTimestamp) ?? timeMs(outcome.outcomeTimestamp);
     if (start !== null && end !== null && end >= start)
       result.holdingDurationMs = end - start;
     return result;
@@ -16770,12 +16791,14 @@ W.trackRecord = (() => {
     const legacyUserReported = rawOutcome.userReported || {};
     const legacyStatus = rawOutcome.status || legacyUserReported.status;
     const outcome = {
-      status: OUTCOME_STATUS.has(legacyStatus) ? legacyStatus : "UNSET",
+      status: OUTCOME_STATUS.has(legacyStatus) ? legacyStatus : "UNKNOWN",
       observedPriceAtOutcome: safeFiniteNumber(
         rawOutcome.observedPriceAtOutcome,
         false,
       ),
       outcomeTimestamp: rawOutcome.outcomeTimestamp ?? null,
+      entryTimestamp: rawOutcome.entryTimestamp ?? null,
+      exitTimestamp: rawOutcome.exitTimestamp ?? null,
       userEntryPrice: safeFiniteNumber(rawOutcome.userEntryPrice, false),
       userExitPrice: safeFiniteNumber(rawOutcome.userExitPrice, false),
       positionSize: safeFiniteNumber(rawOutcome.positionSize, false),
@@ -16807,7 +16830,9 @@ W.trackRecord = (() => {
         record.asset || record.assetId?.symbol || snapshot.asset || "UNKNOWN",
       weaverSnapshot: snapshot,
       userDecision: {
-        action: USER_ACTIONS.has(decision.action) ? decision.action : "UNSET",
+        action: USER_ACTIONS.has(decision.action)
+          ? decision.action
+          : "NO_DECISION",
         notes: typeof decision.notes === "string" ? decision.notes : "",
         decisionTimestamp: decision.decisionTimestamp ?? null,
         linkedTransactionId: decision.linkedTransactionId ?? null,
@@ -16825,6 +16850,10 @@ W.trackRecord = (() => {
     const canonicalRaw = W.store?.get?.(STORAGE_KEY, []);
     const canonical = Array.isArray(canonicalRaw) ? canonicalRaw : [];
     const quarantined = [];
+    let migratedLegacyId = 0;
+    let deduped = 0;
+    let conflicts = 0;
+
     const output = canonical
       .map((record) => {
         if (
@@ -16849,12 +16878,38 @@ W.trackRecord = (() => {
         return null;
       })
       .filter(Boolean);
+
     const byId = new Map(output.map((record) => [record.id, record]));
+
     const sources = [];
     for (const key of LEGACY_STORAGE_KEYS) {
       const raw = W.store?.get?.(key, []);
       if (Array.isArray(raw)) sources.push({ key, records: raw });
     }
+
+    function quarantine(raw, sourceKey, reason, originalRecordId) {
+      const id = deterministicId(raw, "track-quarantine");
+      if (byId.has(id)) {
+        deduped++;
+        return;
+      }
+      const q = {
+        id,
+        recordId: id,
+        schemaVersion: SCHEMA_VERSION,
+        migration: {
+          source: sourceKey,
+          migratedAt: Date.now(),
+          status: "QUARANTINED",
+          originalRecordId: originalRecordId ?? null,
+          reason,
+        },
+        rawData: deepClone(raw),
+      };
+      quarantined.push(q);
+      byId.set(id, q);
+    }
+
     for (const source of sources) {
       for (const original of source.records) {
         const raw = deepClone(original);
@@ -16864,18 +16919,19 @@ W.trackRecord = (() => {
           Array.isArray(raw) ||
           ownDangerousKey(raw)
         ) {
-          quarantined.push({
-            id: deterministicId(raw, "track-quarantine"),
-            schemaVersion: SCHEMA_VERSION,
-            migration: {
-              source: source.key,
-              migratedAt: Date.now(),
-              status: "QUARANTINED",
-              originalRecordId: null,
-              reason: "INVALID_SCHEMA",
-            },
-            rawData: raw,
-          });
+          quarantine(raw, source.key, "INVALID_SCHEMA", null);
+          continue;
+        }
+        if (
+          typeof raw.schemaVersion === "string" &&
+          !ACCEPTED_SCHEMA_VERSIONS.has(raw.schemaVersion)
+        ) {
+          quarantine(
+            raw,
+            source.key,
+            "UNKNOWN_SCHEMA_VERSION",
+            raw.recordId || raw.id || null,
+          );
           continue;
         }
         if (source.key === "track_record_v0") {
@@ -16891,7 +16947,6 @@ W.trackRecord = (() => {
                   },
                   "track-legacy",
                 );
-          if (byId.has(stableId)) continue;
           const legacySnapshot = legacyV0Snapshot(raw);
           const migrated = {
             id: stableId,
@@ -16920,6 +16975,8 @@ W.trackRecord = (() => {
               status: "UNKNOWN",
               observedPriceAtOutcome: null,
               outcomeTimestamp: null,
+              entryTimestamp: null,
+              exitTimestamp: null,
               userEntryPrice: null,
               userExitPrice: null,
               positionSize: null,
@@ -16938,10 +16995,39 @@ W.trackRecord = (() => {
               originalRecordId: raw.recordId || null,
             },
           };
+          const existing = byId.get(stableId);
+          if (existing) {
+            if (
+              snapshotSignature(existing.weaverSnapshot) ===
+              snapshotSignature(legacySnapshot)
+            ) {
+              deduped++;
+              continue;
+            }
+            const conflictId = `${stableId}-legacy-${contentHash(legacySnapshot)}`;
+            if (!byId.has(conflictId)) {
+              // Only `id` diverges. `recordId` stays as the base ID so
+              // the conflict is unambiguously linked to the analysis it
+              // conflicts with.
+              migrated.id = conflictId;
+              migrated.migration = {
+                source: source.key,
+                migratedAt: Date.now(),
+                status: "CONFLICT",
+                originalRecordId: stableId,
+              };
+              byId.set(conflictId, migrated);
+              output.push(migrated);
+              conflicts++;
+            }
+            continue;
+          }
           byId.set(stableId, migrated);
           output.push(migrated);
+          migratedLegacyId++;
           continue;
         }
+
         const originalId =
           typeof raw.recordId === "string"
             ? raw.recordId
@@ -16963,18 +17049,12 @@ W.trackRecord = (() => {
         };
         const normalized = normalizeRecord(candidate);
         if (!normalized) {
-          quarantined.push({
-            id: deterministicId(raw, "track-quarantine"),
-            schemaVersion: SCHEMA_VERSION,
-            migration: {
-              source: source.key,
-              migratedAt: Date.now(),
-              status: "QUARANTINED",
-              originalRecordId: originalId,
-              reason: "INVALID_IMMUTABLE_SNAPSHOT",
-            },
-            rawData: raw,
-          });
+          quarantine(
+            raw,
+            source.key,
+            "INVALID_IMMUTABLE_SNAPSHOT",
+            originalId,
+          );
           continue;
         }
         normalized.migration = {
@@ -16990,24 +17070,30 @@ W.trackRecord = (() => {
           continue;
         }
         if (
-          stableStringify(existing.weaverSnapshot) ===
-          stableStringify(normalized.weaverSnapshot)
-        )
+          snapshotSignature(existing.weaverSnapshot) ===
+          snapshotSignature(normalized.weaverSnapshot)
+        ) {
+          deduped++;
           continue;
+        }
         const conflictId = `${normalized.id}-legacy-${contentHash(normalized.weaverSnapshot)}`;
         if (!byId.has(conflictId)) {
-          normalized.id = conflictId;
-          normalized.migration = {
+          // Only `id` diverges. `recordId` stays as the base ID.
+          const conflictRecord = deepClone(normalized);
+          conflictRecord.id = conflictId;
+          conflictRecord.migration = {
             source: source.key,
             migratedAt: Date.now(),
             status: "CONFLICT",
-            originalRecordId: normalized.id.replace(/-legacy-[^-]+$/, ""),
+            originalRecordId: normalized.id,
           };
-          byId.set(conflictId, normalized);
-          output.push(normalized);
+          byId.set(conflictId, conflictRecord);
+          output.push(conflictRecord);
+          conflicts++;
         }
       }
     }
+
     const result = [...output, ...quarantined].filter(
       (record, index, list) =>
         list.findIndex((candidate) => candidate.id === record.id) === index,
@@ -17020,13 +17106,26 @@ W.trackRecord = (() => {
       ok: true,
       records: deepClone(result),
       quarantined: quarantined.length,
+      migratedLegacyId,
+      deduped,
+      conflicts,
     };
   }
 
   function load() {
     try {
       const raw = W.store?.get?.(STORAGE_KEY, []);
-      return Array.isArray(raw) ? raw.map(normalizeRecord).filter(Boolean) : [];
+      if (!Array.isArray(raw)) return [];
+      return raw
+        .map((record) => {
+          if (
+            record?.migration?.status === "QUARANTINED" &&
+            typeof record.id === "string"
+          )
+            return deepClone(record);
+          return normalizeRecord(record);
+        })
+        .filter(Boolean);
     } catch (_) {
       return [];
     }
@@ -17075,9 +17174,11 @@ W.trackRecord = (() => {
         linkedTransactionId: null,
       },
       outcome: {
-        status: "UNSET",
+        status: "UNKNOWN",
         observedPriceAtOutcome: null,
         outcomeTimestamp: null,
+        entryTimestamp: null,
+        exitTimestamp: null,
         userEntryPrice: null,
         userExitPrice: null,
         positionSize: null,
@@ -17097,14 +17198,42 @@ W.trackRecord = (() => {
   }
 
   function createFromAnalysis(analysis, assetId) {
-    try {
-      return {
-        ok: true,
-        record: capture({ ...analysis, assetId }, { assetId }),
-      };
-    } catch (error) {
-      return { ok: false, error: error.message };
+    if (!analysis || typeof analysis !== "object") {
+      throw new Error("createFromAnalysis: analysis object is required");
     }
+    const resolvedAsset =
+      (assetId && (assetId.symbol || assetId.name)) ||
+      (typeof analysis.asset === "string" ? analysis.asset : null) ||
+      (analysis.asset && (analysis.asset.symbol || analysis.asset.name)) ||
+      analysis.symbol ||
+      "UNKNOWN";
+    const resolvedAssetId =
+      assetId || analysis.assetId || { symbol: resolvedAsset };
+    const score =
+      Number.isFinite(analysis.score)
+        ? analysis.score
+        : Number.isFinite(analysis.opportunityScore)
+          ? analysis.opportunityScore
+          : null;
+    const normalized = {
+      ...analysis,
+      asset: resolvedAsset,
+      assetId: resolvedAssetId,
+      unifiedVerdict: analysis.unifiedVerdict || {
+        score,
+        confidence: analysis.confidence ?? null,
+        scenario: analysis.scenario ?? null,
+        domains: analysis.domains ?? null,
+        methodologyVersion: analysis.methodologyVersion ?? null,
+        evidenceVersion: analysis.scoringVersion ?? null,
+      },
+      evidenceQuality: analysis.evidenceQuality ?? null,
+      evidence: analysis.evidence ?? null,
+      methodologyVersion: analysis.methodologyVersion ?? null,
+      scoringVersion: analysis.scoringVersion ?? null,
+      analysisTimestamp: analysis.analysisTimestamp ?? null,
+    };
+    return capture(normalized, { assetId: resolvedAssetId });
   }
 
   function validChange(path, value) {
@@ -17125,7 +17254,9 @@ W.trackRecord = (() => {
       return value === null || typeof value === "string";
     if (
       path === "userDecision.decisionTimestamp" ||
-      path === "outcome.outcomeTimestamp"
+      path === "outcome.outcomeTimestamp" ||
+      path === "outcome.entryTimestamp" ||
+      path === "outcome.exitTimestamp"
     )
       return (
         value === null ||
@@ -17138,7 +17269,6 @@ W.trackRecord = (() => {
     );
   }
 
-  // Strict field-path API. Every change requires a human-readable revision reason.
   function update(id, changes = {}, reason = "") {
     if (!reason || typeof reason !== "string" || !reason.trim())
       return { ok: false, error: "Revision reason is required" };
@@ -17214,6 +17344,8 @@ W.trackRecord = (() => {
       "status",
       "observedPriceAtOutcome",
       "outcomeTimestamp",
+      "entryTimestamp",
+      "exitTimestamp",
       "userEntryPrice",
       "userExitPrice",
       "positionSize",
@@ -17267,37 +17399,40 @@ W.trackRecord = (() => {
       "Outcome Source",
       "Outcome Notes",
     ];
-    const rows = load().map((record) => {
-      const snapshot = record.weaverSnapshot || {};
-      const verdict = snapshot.unifiedVerdict || {};
-      const outcome = record.outcome;
-      return [
-        record.id,
-        record.assetId.coingeckoId ||
-          record.assetId.contractAddress ||
+    const rows = load()
+      .map((record) => {
+        if (record.migration?.status === "QUARANTINED") return null;
+        const snapshot = record.weaverSnapshot || {};
+        const verdict = snapshot.unifiedVerdict || {};
+        const outcome = record.outcome;
+        return [
+          record.id,
+          record.assetId.coingeckoId ||
+            record.assetId.contractAddress ||
+            record.assetId.symbol,
           record.assetId.symbol,
-        record.assetId.symbol,
-        record.createdAt,
-        verdict.methodologyVersion || "",
-        snapshot.scenario || snapshot.verdict || "",
-        snapshot.evidenceQuality?.status || verdict.evidence?.status || "",
-        snapshot.confidence,
-        record.userDecision.action,
-        record.userDecision.notes,
-        outcome.status,
-        outcome.observedPriceAtOutcome,
-        outcome.userEntryPrice,
-        outcome.userExitPrice,
-        outcome.positionSize,
-        outcome.realizedResult,
-        outcome.realizedResultPct,
-        outcome.resultCurrency,
-        outcome.outcomeSource,
-        outcome.notes,
-      ]
-        .map(csvCell)
-        .join(",");
-    });
+          record.createdAt,
+          verdict.methodologyVersion || "",
+          snapshot.scenario || snapshot.verdict || "",
+          snapshot.evidenceQuality?.status || verdict.evidence?.status || "",
+          snapshot.confidence,
+          record.userDecision.action,
+          record.userDecision.notes,
+          outcome.status,
+          outcome.observedPriceAtOutcome,
+          outcome.userEntryPrice,
+          outcome.userExitPrice,
+          outcome.positionSize,
+          outcome.realizedResult,
+          outcome.realizedResultPct,
+          outcome.resultCurrency,
+          outcome.outcomeSource,
+          outcome.notes,
+        ]
+          .map(csvCell)
+          .join(",");
+      })
+      .filter(Boolean);
     return [headers.map(csvCell).join(","), ...rows].join("\n");
   }
 
@@ -17331,7 +17466,7 @@ W.trackRecord = (() => {
 
   async function render(view) {
     const current = all();
-    view.innerHTML = `<div class="card"><div class="flex-between"><h3>Track Record</h3><button class="btn tiny" data-action="export">Export CSV</button></div><p class="muted small">Historical Weaver analyses are immutable. Decisions and outcomes are stored separately; this view does not fetch current market data.</p></div><div id="track-record-list">${current.length ? current.map((record) => `<article class="card track-record-entry" data-record-id="${escape(record.id)}"><h4>Weaver's Analysis — ${escape(record.assetId.symbol)}</h4><p class="small muted">${escape(record.weaverSnapshot.explanation || "No explanation captured.")}</p><p class="small">Scenario: ${escape(record.weaverSnapshot.scenario || record.weaverSnapshot.verdict || "Unknown")} · Confidence: ${record.weaverSnapshot.confidence === null || record.weaverSnapshot.confidence === undefined ? "not stated" : escape(record.weaverSnapshot.confidence + "%")}</p><h4>Your Decision</h4><select data-field="userDecision.action"><option value="UNSET" ${record.userDecision.action === "UNSET" ? "selected" : ""}>Not recorded</option><option value="WATCH">Watch</option><option value="CONSIDER">Consider</option><option value="ENTERED">Entered decision</option><option value="NOT_ENTERED">Did not enter</option><option value="HOLD">Held / waited</option></select><select data-field="userDecision.linkedTransactionId"><option value="">No linked transaction</option>${transactionOptions(record.userDecision.linkedTransactionId)}</select><textarea class="input mt" data-field="userDecision.notes" rows="2">${escape(record.userDecision.notes)}</textarea><h4>Outcome</h4><select data-field="outcome.status"><option value="UNSET">Not reported</option><option value="REPORTED_GAIN" ${record.outcome.status === "REPORTED_GAIN" ? "selected" : ""}>Reported gain</option><option value="REPORTED_LOSS" ${record.outcome.status === "REPORTED_LOSS" ? "selected" : ""}>Reported loss</option><option value="REPORTED_FLAT" ${record.outcome.status === "REPORTED_FLAT" ? "selected" : ""}>Reported flat</option><option value="UNKNOWN" ${record.outcome.status === "UNKNOWN" ? "selected" : ""}>Unknown</option></select><div class="grid-2"><input class="input" data-field="outcome.userEntryPrice" type="number" min="0" step="any" value="${record.outcome.userEntryPrice ?? ""}" placeholder="Entry price"><input class="input" data-field="outcome.userExitPrice" type="number" min="0" step="any" value="${record.outcome.userExitPrice ?? ""}" placeholder="Exit price"><input class="input" data-field="outcome.positionSize" type="number" min="0" step="any" value="${record.outcome.positionSize ?? ""}" placeholder="Position size"><input class="input" data-field="outcome.resultCurrency" value="${escape(record.outcome.resultCurrency || "")}" placeholder="Currency"></div><input class="input mt" data-field="outcome.outcomeSource" value="${escape(record.outcome.outcomeSource || "")}" placeholder="Outcome source (e.g. user-reported)"><input class="input mt" data-field="revisionReason" placeholder="Reason for update (required)"><button class="btn primary tiny mt" data-action="save">Save update</button><button class="btn danger tiny mt" data-action="delete">Delete record</button></article>`).join("") : '<p class="muted">No historical analyses captured yet.</p>'}</div>`;
+    view.innerHTML = `<div class="card"><div class="flex-between"><h3>Track Record</h3><button class="btn tiny" data-action="export">Export CSV</button></div><p class="muted small">Historical Weaver analyses are immutable. Decisions and outcomes are stored separately; this view does not fetch current market data.</p></div><div id="track-record-list">${current.length ? current.map((record) => `<article class="card track-record-entry" data-record-id="${escape(record.id)}"><h4>Weaver's Analysis — ${escape(record.assetId.symbol)}</h4><p class="small muted">${escape(record.weaverSnapshot.explanation || "No explanation captured.")}</p><p class="small">Scenario: ${escape(record.weaverSnapshot.scenario || record.weaverSnapshot.verdict || "Unknown")} · Confidence: ${record.weaverSnapshot.confidence === null || record.weaverSnapshot.confidence === undefined ? "not stated" : escape(record.weaverSnapshot.confidence + "%")}</p><h4>Your Decision</h4><select data-field="userDecision.action"><option value="NO_DECISION" ${record.userDecision.action === "NO_DECISION" ? "selected" : ""}>Not recorded</option><option value="WATCH" ${record.userDecision.action === "WATCH" ? "selected" : ""}>Watch</option><option value="CONSIDER" ${record.userDecision.action === "CONSIDER" ? "selected" : ""}>Consider</option><option value="ENTERED" ${record.userDecision.action === "ENTERED" ? "selected" : ""}>Entered decision</option><option value="NOT_ENTERED" ${record.userDecision.action === "NOT_ENTERED" ? "selected" : ""}>Did not enter</option><option value="HOLD" ${record.userDecision.action === "HOLD" ? "selected" : ""}>Held / waited</option></select><select data-field="userDecision.linkedTransactionId"><option value="">No linked transaction</option>${transactionOptions(record.userDecision.linkedTransactionId)}</select><textarea class="input mt" data-field="userDecision.notes" rows="2">${escape(record.userDecision.notes)}</textarea><h4>Outcome</h4><select data-field="outcome.status"><option value="UNKNOWN" ${record.outcome.status === "UNKNOWN" ? "selected" : ""}>Not reported</option><option value="REPORTED_GAIN" ${record.outcome.status === "REPORTED_GAIN" ? "selected" : ""}>Reported gain</option><option value="REPORTED_LOSS" ${record.outcome.status === "REPORTED_LOSS" ? "selected" : ""}>Reported loss</option><option value="REPORTED_FLAT" ${record.outcome.status === "REPORTED_FLAT" ? "selected" : ""}>Reported flat</option></select><div class="grid-2"><input class="input" data-field="outcome.userEntryPrice" type="number" min="0" step="any" value="${record.outcome.userEntryPrice ?? ""}" placeholder="Entry price"><input class="input" data-field="outcome.userExitPrice" type="number" min="0" step="any" value="${record.outcome.userExitPrice ?? ""}" placeholder="Exit price"><input class="input" data-field="outcome.positionSize" type="number" min="0" step="any" value="${record.outcome.positionSize ?? ""}" placeholder="Position size"><input class="input" data-field="outcome.resultCurrency" value="${escape(record.outcome.resultCurrency || "")}" placeholder="Currency"></div><input class="input mt" data-field="outcome.outcomeSource" value="${escape(record.outcome.outcomeSource || "")}" placeholder="Outcome source (e.g. user-reported)"><input class="input mt" data-field="revisionReason" placeholder="Reason for update (required)"><button class="btn primary tiny mt" data-action="save">Save update</button><button class="btn danger tiny mt" data-action="delete">Delete record</button></article>`).join("") : '<p class="muted">No historical analyses captured yet.</p>'}</div>`;
     view
       .querySelector("[data-action='export']")
       ?.addEventListener("click", exportCSV);
@@ -17378,6 +17513,7 @@ W.trackRecord = (() => {
   } catch (error) {
     console.warn("[TrackRecord] Migration deferred:", error.message);
   }
+
   return {
     STORAGE_KEY,
     SCHEMA_VERSION,

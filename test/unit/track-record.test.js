@@ -116,7 +116,7 @@ describe("Track Record — Core", () => {
       outcomeSource: "FAKE",
     });
     const after = W.trackRecord.getById(record.recordId);
-    expect(after.userDecision.action).to.equal("NO_DECISION");
+    expect(after.userDecision.action).to.equal("UNSET");
     expect(after.outcome.status).to.equal("UNKNOWN");
     expect(after.outcome.outcomeSource).to.equal("UNKNOWN");
   });
@@ -266,7 +266,7 @@ describe("Track Record — Migration (real fixtures)", () => {
     const canonical = all.find((r) => r.recordId === record.recordId);
     expect(canonical.weaverSnapshot.unifiedVerdict.score).to.equal(90);
 
-    const preserved = all.find((r) => r.recordId !== record.recordId);
+    const preserved = all.find((r) => r.id !== record.id);
     expect(preserved.migration.status).to.equal("CONFLICT");
     expect(preserved.migration.originalRecordId).to.equal(record.recordId);
   });
