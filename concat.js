@@ -75,7 +75,6 @@ const files = [
   "js/features/ai.js",
   "js/features/optimizer.js",
   "js/features/timemachine.js",
-  "js/features/trader.js",
   "js/features/gems.js",
   "js/features/shield.js",
   "js/features/web3.js",
