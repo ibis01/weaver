@@ -604,6 +604,39 @@ W.tokenAnalysis = (() => {
         <div class="card">
           <h3>📊 Token Analysis: ${safeText(result.asset)}</h3>
 
+          <div class="card mt-16 ${actionClass}">
+            <h3>${safeText(result.scenario || "Neutral / insufficient evidence")}</h3>
+            <p class="small">Evidence quality: <b>${safeText(result.evidenceQuality?.status || "UNAVAILABLE")}</b> · Scenario strength: ${result.actionConfidence ?? "N/A"}%</p>
+            ${
+              result.unifiedVerdict
+                ? `<p class="small muted">Domains: ${Object.values(
+                    result.unifiedVerdict.domains || {},
+                  )
+                    .map((d) => `${safeText(d.name)} ${safeText(d.status)}`)
+                    .join(" · ")}</p>
+                   <p class="small muted">Methodology ${safeText(result.unifiedVerdict.methodologyVersion)} · Evidence ${safeText(result.unifiedVerdict.evidenceVersion)}</p>`
+                : ""
+            }
+            <p class="small muted">${safeText(result.actionInterpretation || "The available evidence does not support a directional scenario.")}</p>
+            ${result.actionReasons?.length ? `<p class="small muted">${result.actionReasons.map(safeText).join(" · ")}</p>` : ""}
+            ${result.evidenceQuality?.reasons?.length ? `<p class="small muted">Limitations: ${result.evidenceQuality.reasons.map(safeText).join(" · ")}</p>` : ""}
+          </div>
+
+          ${
+            result.tradeLevels
+              ? `<div class="card mt-16">
+                   <h4>⚠️ Risks</h4>
+                   <div class="grid-2 mt-10">
+                     <div class="kv-row"><span>Reference price</span><b>${result.tradeLevels.entry}</b></div>
+                     <div class="kv-row"><span>Potential invalidation</span><b class="text-down">${result.tradeLevels.stopLoss}</b></div>
+                     <div class="kv-row"><span>Potential target zone</span><b class="text-up">${result.tradeLevels.takeProfit}</b></div>
+                     <div class="kv-row"><span>ATR risk distance</span><b>${result.tradeLevels.riskDistance}</b></div>
+                   </div>
+                   <p class="small muted">${safeText(result.tradeLevels.basis)}. These are scenario levels derived from current OHLCV data, not instructions to trade.</p>
+                 </div>`
+              : ""
+          }
+
           <div class="cards mt-12">
             <div class="card stat">
               <div class="stat-label">Opportunity Score</div>
@@ -630,35 +663,6 @@ W.tokenAnalysis = (() => {
           <div class="mt-8">
             <div class="meter-bar"><div class="${meterClass(result.riskScore, "down")}"></div></div>
             <div class="meter-label">Risk Score</div>
-          </div>
-
-          <div class="card mt-16 ${actionClass}">
-            <h3>${safeText(result.scenario || "Neutral / insufficient evidence")}</h3>
-            <p class="small">Evidence quality: <b>${safeText(result.evidenceQuality?.status || "UNAVAILABLE")}</b> · Scenario strength: ${result.actionConfidence ?? "N/A"}%</p>
-            ${
-              result.unifiedVerdict
-                ? `<p class="small muted">Domains: ${Object.values(
-                    result.unifiedVerdict.domains || {},
-                  )
-                    .map((d) => `${safeText(d.name)} ${safeText(d.status)}`)
-                    .join(" · ")}</p>
-                   <p class="small muted">Methodology ${safeText(result.unifiedVerdict.methodologyVersion)} · Evidence ${safeText(result.unifiedVerdict.evidenceVersion)}</p>`
-                : ""
-            }
-            <p class="small muted">${safeText(result.actionInterpretation || "The available evidence does not support a directional scenario.")}</p>
-            ${result.actionReasons?.length ? `<p class="small muted">${result.actionReasons.map(safeText).join(" · ")}</p>` : ""}
-            ${result.evidenceQuality?.reasons?.length ? `<p class="small muted">Limitations: ${result.evidenceQuality.reasons.map(safeText).join(" · ")}</p>` : ""}
-            ${
-              result.tradeLevels
-                ? `<div class="grid-2 mt-10">
-                     <div class="kv-row"><span>Reference price</span><b>${result.tradeLevels.entry}</b></div>
-                     <div class="kv-row"><span>Potential invalidation</span><b class="text-down">${result.tradeLevels.stopLoss}</b></div>
-                     <div class="kv-row"><span>Potential target zone</span><b class="text-up">${result.tradeLevels.takeProfit}</b></div>
-                     <div class="kv-row"><span>ATR risk distance</span><b>${result.tradeLevels.riskDistance}</b></div>
-                   </div>
-                   <p class="small muted">${safeText(result.tradeLevels.basis)}. These are scenario levels derived from current OHLCV data, not instructions to trade.</p>`
-                : ""
-            }
           </div>
 
           ${
