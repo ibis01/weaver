@@ -552,14 +552,6 @@ W.dashboard = (() => {
   }
 
   return { render, renderPortfolio, holdingModal, enrich };
-  
-  // ── Exports ───────────────────────────────────────────
-  return {
-    render,
-    holdingModal,
-    txModal,
-    enrich,
-  };
 })();
 
 console.log("[Dashboard] Module loaded (CSP compliant).");
