@@ -318,7 +318,7 @@ W.decisionEngine = (() => {
     }
 
     decisions.sort((a, b) => b.score - a.score);
-    return decisions;
+     return decisions.filter((d) => d.score > 0);
   }
 
   // ── Presentation ──────────────────────────────────
