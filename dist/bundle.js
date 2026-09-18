@@ -2083,19 +2083,16 @@ W.dashboard = (() => {
 
   async function render(view) {
     view.innerHTML = `
+      <p class="muted small mb-16">Your evidence-driven crypto intelligence workspace.</p>
       <div id="d-data-health" aria-live="polite"></div>
       <div class="cards" id="d-stats"></div>
       <div class="grid-2">
         <div id="what-matters-now-container"></div>
         <div id="what-changed-container"></div>
       </div>
-      <div class="card text-center p-24">
-        <h3 class="mb-16">Next Steps</h3>
-        <div class="qa flex-center gap-16">
-          <a href="#/token" class="btn primary">🔍 Analyze a Token</a>
-          <button class="btn" id="qa-add">+ Add Holding</button>
-          <button class="btn" id="qa-sync" title="Sync connected wallets">👛 Sync Wallets</button>
-        </div>
+      <div class="card mt-16">
+        <div class="flex-between mb-8"><h3>💼 Your Portfolio</h3></div>
+        <div id="d-port"></div>
       </div>
       <div class="card mt-16">
         <div class="flex-between mb-8">
@@ -2115,9 +2112,13 @@ W.dashboard = (() => {
           </table>
         </div>
       </div>
-      <div class="card mt-16">
-        <div class="flex-between mb-8"><h3>💼 Your Portfolio</h3></div>
-        <div id="d-port"></div>
+      <div class="card text-center p-24 mt-16">
+        <h3 class="mb-16">Next Steps</h3>
+        <div class="qa flex-center gap-16">
+          <a href="#/token" class="btn primary">🔍 Analyze a Token</a>
+          <button class="btn" id="qa-add">+ Add Holding</button>
+          <button class="btn" id="qa-sync" title="Sync connected wallets">👛 Sync Wallets</button>
+        </div>
       </div>
     `;
 
@@ -2253,10 +2254,84 @@ W.dashboard = (() => {
     }
 
     const changedContainer = view.querySelector("#what-changed-container");
-    if (changedContainer && W.delta) {
-      if (totals) {
+    if (changedContainer) {
+      changedContainer.innerHTML = "";
+
+      const card = document.createElement("div");
+      card.className = "card";
+      const title = document.createElement("h3");
+      title.textContent = "🔍 Discoveries";
+      card.appendChild(title);
+
+      // New intelligence — recent Gem Agent discoveries, sourced from
+      // the Thesis records Gem Agent already auto-creates (see
+      // js/features/gems.js autoCreateThesis / sourceRef). Real
+      // intelligence-pipeline data, not invented for this UI.
+      const newIntelLabel = document.createElement("p");
+      newIntelLabel.className = "muted small mb-8";
+      newIntelLabel.style.marginTop = "8px";
+      newIntelLabel.textContent = "New intelligence";
+      card.appendChild(newIntelLabel);
+
+      const gemTheses = (W.theses?.all?.() || [])
+        .filter((t) => t.sourceRef?.type === "gem")
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, 3);
+
+      if (!gemTheses.length) {
+        const p = document.createElement("p");
+        p.className = "muted small";
+        p.textContent =
+          "No new discoveries yet — run Gem Agent to populate this.";
+        card.appendChild(p);
+      } else {
+        const list = document.createElement("ul");
+        list.style.listStyle = "none";
+        list.style.padding = "0";
+        list.style.margin = "0";
+        gemTheses.forEach((t) => {
+          const li = document.createElement("li");
+          li.style.padding = "8px 0";
+          li.style.borderBottom = "1px solid var(--border, #30363d)";
+
+          const head = document.createElement("div");
+          head.style.display = "flex";
+          head.style.justifyContent = "space-between";
+          const asset = document.createElement("b");
+          asset.textContent = t.asset; // SAFE: textContent
+          const security = document.createElement("span");
+          security.className = "muted small";
+          security.textContent = t.signals || "Security status unavailable"; // SAFE
+          head.appendChild(asset);
+          head.appendChild(security);
+          li.appendChild(head);
+
+          if (t.reasons) {
+            const why = document.createElement("p");
+            why.className = "muted small mt-4";
+            why.textContent = t.reasons; // SAFE: textContent
+            li.appendChild(why);
+          }
+          list.appendChild(li);
+        });
+        card.appendChild(list);
+      }
+
+      // Portfolio changes — existing delta engine, unchanged data flow,
+      // rendered without its own card wrapper so it composes cleanly
+      // into this shared card instead of nesting card-in-card.
+      const pfLabel = document.createElement("p");
+      pfLabel.className = "muted small mb-8";
+      pfLabel.style.marginTop = "16px";
+      pfLabel.textContent = "Portfolio changes";
+      card.appendChild(pfLabel);
+
+      const pfContainer = document.createElement("div");
+      card.appendChild(pfContainer);
+
+      if (totals && W.delta) {
         const deltas = W.delta.computePortfolioDeltas(totals);
-        W.delta.renderCard(changedContainer, deltas);
+        W.delta.renderList(pfContainer, deltas);
         const currentSnapshot = W.delta.getSnapshot();
         if (
           !currentSnapshot ||
@@ -2264,8 +2339,14 @@ W.dashboard = (() => {
         )
           W.delta.saveSnapshot(totals);
       } else {
-        changedContainer.innerHTML = `<div class="card"><h3>📊 What Changed</h3><p class="text-muted small-text">Add holdings to your portfolio to start tracking value changes over time.</p></div>`;
+        const p = document.createElement("p");
+        p.className = "muted small";
+        p.textContent =
+          "Add holdings to your portfolio to start tracking value changes over time.";
+        pfContainer.appendChild(p);
       }
+
+      changedContainer.appendChild(card);
     }
   }
 
@@ -4248,11 +4329,13 @@ W.regime = (() => {
 console.log("[Regime] Market regime engine loaded (confidence model).");
 // ---- js/intelligence/delta.js ----
 // ===============================================================
-//         "What Changed" Delta Engine
+//         Portfolio Changes ("Discoveries") Delta Engine
 // ===============================================================
 //
 // Purpose: Compare current portfolio state with a previous
-// snapshot to surface meaningful changes (Section 24).
+// snapshot to surface meaningful changes (Section 24). Composed
+// into the Dashboard's "Discoveries" card by js/ui/dashboard.js
+// alongside Gem Agent's new-intelligence list.
 //
 // ===============================================================
 
@@ -4333,6 +4416,49 @@ W.delta = (() => {
   }
 
   // ── Safe UI Renderer (Section 15) ───────────────────────
+  // buildList() renders just the delta list into an existing container
+  // (no card/title wrapper) — used both by renderCard() below and by
+  // dashboard.js, which composes it into a shared "Discoveries" card
+  // alongside Gem Agent's new-intelligence list, to avoid nesting a
+  // card inside a card.
+  function buildList(container, deltas) {
+    if (!deltas || deltas.length === 0) {
+      const p = document.createElement("p");
+      p.className = "muted small";
+      p.textContent = "No significant portfolio changes since your last visit.";
+      container.appendChild(p);
+      return;
+    }
+    const list = document.createElement("ul");
+    list.style.listStyle = "none";
+    list.style.padding = "0";
+    list.style.margin = "0";
+
+    deltas.forEach((d) => {
+      const li = document.createElement("li");
+      li.style.padding = "8px 0";
+      li.style.borderBottom = "1px solid var(--border, #30363d)";
+      li.style.display = "flex";
+      li.style.justifyContent = "space-between";
+      li.style.alignItems = "center";
+
+      const label = document.createElement("span");
+      label.textContent = d.metric; // SAFE: textContent
+
+      const value = document.createElement("span");
+      const isUp = d.deltaAbsolute >= 0;
+      value.style.color = isUp ? "var(--up, #2ee6a8)" : "var(--down, #ff5c7a)";
+      value.style.fontWeight = "bold";
+      value.textContent = `${isUp ? "+" : ""}${W.fmt.money(d.deltaAbsolute)} (${isUp ? "+" : ""}${d.deltaPercent.toFixed(2)}%)`; // SAFE
+
+      li.appendChild(label);
+      li.appendChild(value);
+      list.appendChild(li);
+    });
+    container.appendChild(list);
+  }
+
+  /** Full card with its own title + wrapper — unchanged public behavior. */
   function renderCard(container, deltas) {
     if (!container) return;
     container.innerHTML = "";
@@ -4341,52 +4467,30 @@ W.delta = (() => {
     card.className = "card";
 
     const title = document.createElement("h3");
-    title.textContent = "📊 What Changed";
+    title.textContent = "📊 Portfolio Changes";
     card.appendChild(title);
 
-    if (!deltas || deltas.length === 0) {
-      const p = document.createElement("p");
-      p.className = "muted small";
-      p.textContent = "No significant changes since your last visit.";
-      card.appendChild(p);
-    } else {
-      const list = document.createElement("ul");
-      list.style.listStyle = "none";
-      list.style.padding = "0";
-      list.style.margin = "0";
-
-      deltas.forEach((d) => {
-        const li = document.createElement("li");
-        li.style.padding = "8px 0";
-        li.style.borderBottom = "1px solid var(--border, #30363d)";
-        li.style.display = "flex";
-        li.style.justifyContent = "space-between";
-        li.style.alignItems = "center";
-
-        const label = document.createElement("span");
-        label.textContent = d.metric; // SAFE: textContent
-
-        const value = document.createElement("span");
-        const isUp = d.deltaAbsolute >= 0;
-        value.style.color = isUp
-          ? "var(--up, #2ee6a8)"
-          : "var(--down, #ff5c7a)";
-        value.style.fontWeight = "bold";
-        value.textContent = `${isUp ? "+" : ""}${W.fmt.money(d.deltaAbsolute)} (${isUp ? "+" : ""}${d.deltaPercent.toFixed(2)}%)`; // SAFE
-
-        li.appendChild(label);
-        li.appendChild(value);
-        list.appendChild(li);
-      });
-      card.appendChild(list);
-    }
+    buildList(card, deltas);
     container.appendChild(card);
   }
 
-  return { getSnapshot, saveSnapshot, computePortfolioDeltas, renderCard };
+  /** Just the list, no title/card wrapper — for composing into another card. */
+  function renderList(container, deltas) {
+    if (!container) return;
+    container.innerHTML = "";
+    buildList(container, deltas);
+  }
+
+  return {
+    getSnapshot,
+    saveSnapshot,
+    computePortfolioDeltas,
+    renderCard,
+    renderList,
+  };
 })();
 
-console.log("[Delta] What Changed engine loaded.");
+console.log("[Delta] Portfolio changes engine loaded.");
 // ---- js/intelligence/behavior.js ----
 // ===============================================================
 //         Behavioral Pattern Detection Engine
@@ -10559,464 +10663,6 @@ W.time = W.time || {};
 
   console.log("[TimeMachine] Module loaded.");
 })();
-// ---- js/features/trader.js ----
-// ================================================================
-// js/features/trader.js – AI Trading Assistant
-// ================================================================
-
-window.W = window.W || {};
-
-W.trader = (() => {
-  // ── Helpers: Technical Indicators ─────────────────────
-
-  // Simple Moving Average
-  function sma(data, period) {
-    const result = [];
-    for (let i = 0; i < data.length; i++) {
-      if (i < period - 1) {
-        result.push(null);
-      } else {
-        const slice = data.slice(i - period + 1, i + 1);
-        const avg = slice.reduce((a, b) => a + b, 0) / slice.length;
-        result.push(avg);
-      }
-    }
-    return result;
-  }
-
-  // Relative Strength Index (RSI)
-  function rsi(data, period = 14) {
-    const result = new Array(data.length).fill(null);
-    let gain = 0,
-      loss = 0;
-
-    // First calculate initial average gain/loss
-    for (let i = 1; i <= period; i++) {
-      const diff = data[i] - data[i - 1];
-      if (diff >= 0) gain += diff;
-      else loss += Math.abs(diff);
-    }
-    gain /= period;
-    loss /= period;
-    if (gain + loss === 0) return result;
-    result[period] = 100 - 100 / (1 + gain / loss);
-
-    // Smooth with Wilder's method
-    for (let i = period + 1; i < data.length; i++) {
-      const diff = data[i] - data[i - 1];
-      if (diff >= 0) {
-        gain = (gain * (period - 1) + diff) / period;
-        loss = (loss * (period - 1)) / period;
-      } else {
-        gain = (gain * (period - 1)) / period;
-        loss = (loss * (period - 1) + Math.abs(diff)) / period;
-      }
-      if (gain + loss === 0) {
-        result[i] = 50;
-      } else {
-        result[i] = 100 - 100 / (1 + gain / loss);
-      }
-    }
-    return result;
-  }
-
-  // ── Signal Engine ─────────────────────────────────────
-
-  function signalOf(score) {
-    if (score >= 4) return ["STRONG BUY", "buy"];
-    if (score >= 2) return ["BUY", "buy"];
-    if (score <= -4) return ["STRONG SELL", "sell"];
-    if (score <= -2) return ["SELL", "sell"];
-    return ["HOLD", "neutral"];
-  }
-
-  function advice(label) {
-    const map = {
-      "STRONG BUY": "Deep value zone — DCA-friendly for long-term holders.",
-      BUY: "Constructive setup — accumulating is reasonable.",
-      HOLD: "No statistical edge right now — hold and wait.",
-      SELL: "Consider taking partial profits / tightening stops.",
-      "STRONG SELL": "Risk-off — review position size seriously.",
-    };
-    return map[label] || "No clear signal.";
-  }
-
-  // ── Main Analysis Function ────────────────────────────
-
-  async function analyze(id, fg) {
-    if (!id) throw new Error("No coin ID provided");
-    if (!fg) throw new Error("No Fear & Greed data provided");
-
-    // Fetch coin data and chart
-    const [coin, chart] = await Promise.all([
-      W.api.coin(id),
-      W.api.chart(id, 90),
-    ]);
-
-    if (!coin || !chart) throw new Error("No data available for this coin");
-
-    // Extract prices
-    const prices = (chart.prices || []).map((p) => p[1]);
-    if (prices.length < 50) {
-      throw new Error("Insufficient historical data for analysis");
-    }
-
-    const last = prices[prices.length - 1];
-
-    // ── Indicators ──────────────────────────────────────
-    const sma20 = sma(prices, 20);
-    const sma50 = sma(prices, 50);
-    const rsiValues = rsi(prices, 14);
-
-    const currentSMA20 = sma20[sma20.length - 1];
-    const currentSMA50 = sma50[sma50.length - 1];
-    const currentRSI = rsiValues[rsiValues.length - 1] ?? 50;
-
-    const md = coin.market_data || {};
-    const p7 = md.price_change_percentage_7d ?? 0;
-    const p30 = md.price_change_percentage_30d ?? 0;
-
-    // ── Scoring ──────────────────────────────────────────
-    let score = 0;
-    const reasons = [];
-
-    // 1. Trend: price vs SMA20 vs SMA50
-    if (last > currentSMA20 && currentSMA20 > currentSMA50) {
-      score += 2;
-      reasons.push([
-        "up",
-        "Uptrend — price > SMA20 > SMA50 (bullish alignment)",
-      ]);
-    } else if (last > currentSMA50) {
-      score += 1;
-      reasons.push(["up", "Price holding above the 50-day average"]);
-    } else if (last < currentSMA20 && currentSMA20 < currentSMA50) {
-      score -= 2;
-      reasons.push([
-        "down",
-        "Downtrend — price < SMA20 < SMA50 (bearish alignment)",
-      ]);
-    } else if (last < currentSMA50) {
-      score -= 1;
-      reasons.push(["down", "Price below the 50-day average"]);
-    } else {
-      reasons.push(["neutral", "Price trading near key moving averages"]);
-    }
-
-    // 2. RSI
-    if (currentRSI < 30) {
-      score += 2;
-      reasons.push([
-        "up",
-        `RSI ${currentRSI.toFixed(0)} — oversold, historically a buy zone`,
-      ]);
-    } else if (currentRSI > 70) {
-      score -= 2;
-      reasons.push([
-        "down",
-        `RSI ${currentRSI.toFixed(0)} — overbought, elevated pullback risk`,
-      ]);
-    } else if (currentRSI < 45) {
-      score += 0.5;
-      reasons.push([
-        "neutral",
-        `RSI ${currentRSI.toFixed(0)} — mildly oversold`,
-      ]);
-    } else if (currentRSI > 60) {
-      score -= 0.5;
-      reasons.push([
-        "neutral",
-        `RSI ${currentRSI.toFixed(0)} — mildly overbought`,
-      ]);
-    } else {
-      reasons.push([
-        "neutral",
-        `RSI ${currentRSI.toFixed(0)} — neutral momentum`,
-      ]);
-    }
-
-    // 3. 7‑day momentum
-    if (p7 > 5) {
-      score += 1;
-      reasons.push(["up", `7-day momentum +${p7.toFixed(1)}% (strong)`]);
-    } else if (p7 > 0) {
-      score += 0.5;
-      reasons.push(["up", `7-day momentum +${p7.toFixed(1)}%`]);
-    } else if (p7 < -5) {
-      score -= 1;
-      reasons.push(["down", `7-day momentum ${p7.toFixed(1)}% (weak)`]);
-    } else {
-      reasons.push(["neutral", `7-day momentum ${p7.toFixed(1)}%`]);
-    }
-
-    // 4. 30‑day momentum
-    if (p30 > 10) {
-      score += 1;
-      reasons.push(["up", `30-day momentum +${p30.toFixed(1)}% (strong)`]);
-    } else if (p30 > 0) {
-      score += 0.5;
-      reasons.push(["up", `30-day momentum +${p30.toFixed(1)}%`]);
-    } else if (p30 < -10) {
-      score -= 1;
-      reasons.push(["down", `30-day momentum ${p30.toFixed(1)}% (weak)`]);
-    } else {
-      reasons.push(["neutral", `30-day momentum ${p30.toFixed(1)}%`]);
-    }
-
-    // 5. Fear & Greed (contrarian)
-    const fgv = +fg.value;
-    if (fgv <= 25) {
-      score += 1;
-      reasons.push([
-        "up",
-        `Fear & Greed ${fgv} (extreme fear) — contrarian buy zone`,
-      ]);
-    } else if (fgv >= 75) {
-      score -= 1;
-      reasons.push([
-        "down",
-        `Fear & Greed ${fgv} (extreme greed) — contrarian caution`,
-      ]);
-    } else if (fgv <= 40) {
-      score += 0.5;
-      reasons.push(["neutral", `Fear & Greed ${fgv} — fear (cautious buying)`]);
-    } else if (fgv >= 60) {
-      score -= 0.5;
-      reasons.push([
-        "neutral",
-        `Fear & Greed ${fgv} — greed (cautious selling)`,
-      ]);
-    } else {
-      reasons.push([
-        "neutral",
-        `Fear & Greed ${fgv} — neutral ${fg.value_classification || ""}`,
-      ]);
-    }
-
-    // ── Result ──────────────────────────────────────────
-    const [signal, cssClass] = signalOf(score);
-    const confidence = Math.min(100, (Math.abs(score) / 8) * 100);
-
-    return {
-      coin,
-      last,
-      currentRSI,
-      currentSMA20,
-      currentSMA50,
-      p7,
-      p30,
-      score,
-      reasons,
-      signal,
-      cssClass,
-      confidence,
-      advice: advice(signal),
-    };
-  }
-
-  // ── UI: Result Card ───────────────────────────────────
-
-  function resultCard(a) {
-    const [label, cls] = [a.signal, a.cssClass];
-    const conf = a.confidence;
-
-    const reasonsHTML = a.reasons
-      .map(([t, txt]) => {
-        const emoji = t === "up" ? "＋" : t === "down" ? "−" : "•";
-        const tagClass = t === "up" ? "buy" : t === "down" ? "sell" : "neutral";
-        return `<li><span class="tag ${tagClass}">${emoji}</span> ${txt}</li>`;
-      })
-      .join("");
-
-    return `
-      <div class="card">
-        <div class="coin-head">
-          <img class="coin-lg" src="${a.coin.image?.large || ""}" alt="${a.coin.name}">
-          <div>
-            <h2>${a.coin.name} <span class="muted">${a.coin.symbol.toUpperCase()}</span></h2>
-            <div class="coin-price">
-              <span class="tag ${cls}" style="font-size:14px;padding:6px 14px;">${label}</span>
-              <span class="muted small ml">Weaver score ${a.score > 0 ? "+" : ""}${a.score.toFixed(1)}/8 · confidence ${conf.toFixed(0)}%</span>
-            </div>
-          </div>
-        </div>
-        <div class="meter-bar mt"><div style="width:${conf}%; background: ${conf >= 70 ? "var(--up)" : conf >= 40 ? "var(--warn)" : "var(--down)"}; box-shadow: 0 0 20px ${conf >= 70 ? "var(--up)" : conf >= 40 ? "var(--warn)" : "var(--down)"};"></div></div>
-        <div class="cards mt">
-          <div class="card stat">
-            <div class="stat-label">RSI (14)</div>
-            <div class="stat-big">${a.currentRSI.toFixed(0)}</div>
-          </div>
-          <div class="card stat">
-            <div class="stat-label">SMA 20 / 50</div>
-            <div class="stat-big small">${W.fmt.price(a.currentSMA20)} / ${W.fmt.price(a.currentSMA50)}</div>
-          </div>
-          <div class="card stat">
-            <div class="stat-label">Price</div>
-            <div class="stat-big">${W.fmt.price(a.last)}</div>
-          </div>
-        </div>
-        <ul class="tx-list">${reasonsHTML}</ul>
-        <div class="ai-brief mt">
-          🤖 <b>Weaver:</b> ${a.advice}
-          <span class="muted small">Rule-based technical analysis — not financial advice.</span>
-        </div>
-      </div>
-    `;
-  }
-
-  // ── Render ─────────────────────────────────────────────
-
-  async function render(view) {
-    if (!view) {
-      console.warn("[Trader] No view element provided");
-      return;
-    }
-
-    view.innerHTML = `
-      <div class="card">
-        <h3>⚡ AI Trading Assistant</h3>
-        <p class="muted small">RSI-14 + SMA 20/50 trend + momentum + Fear&Greed contrarian filter → Weaver Score → signal.</p>
-        <div class="qa mt">
-          <div id="t-picker" class="min-w-260"></div>
-          <button class="btn primary" id="t-go">Analyze</button>
-        </div>
-        <div class="qa mt" id="t-quick"></div>
-      </div>
-      <div id="t-result"></div>
-      <div class="card">
-        <h3>📡 Holdings Signals (auto-scan)</h3>
-        <div id="t-hold">${W.ui.spinner()}</div>
-      </div>
-    `;
-
-    // ── Coin picker ──────────────────────────────────────
-    let picked = null;
-    if (W.ui.coinPicker) {
-      W.ui.coinPicker(view.querySelector("#t-picker"), (p) => (picked = p));
-    } else {
-      console.warn("[Trader] coinPicker not available");
-    }
-
-    // ── Run analysis for a coin ─────────────────────────
-    const run = async (id) => {
-      const resultContainer = view.querySelector("#t-result");
-      if (!resultContainer) return;
-      resultContainer.innerHTML = W.ui.spinner();
-
-      try {
-        const fg = await W.api.fearGreed();
-        const result = await analyze(id, fg);
-        resultContainer.innerHTML = resultCard(result);
-      } catch (e) {
-        resultContainer.innerHTML = `<p class="muted">${e.message}</p>`;
-      }
-    };
-
-    // ── Go button ────────────────────────────────────────
-    view.querySelector("#t-go").onclick = () => {
-      if (!picked) return W.ui.toast("Pick a coin first", "warn");
-      run(picked.id);
-    };
-
-    // ── Quick picks ──────────────────────────────────────
-    const holdings = W.portfolio ? W.portfolio.all() : [];
-    const quickIds = [
-      "bitcoin",
-      "ethereum",
-      "solana",
-      ...holdings.slice(0, 3).map((h) => h.coinId),
-    ].filter((id, idx, arr) => arr.indexOf(id) === idx);
-
-    const quickContainer = view.querySelector("#t-quick");
-    if (quickContainer && quickIds.length) {
-      quickContainer.innerHTML = quickIds
-        .map((id) => `<button class="chip" data-q="${id}">${id}</button>`)
-        .join("");
-      quickContainer.querySelectorAll("[data-q]").forEach((btn) => {
-        btn.onclick = () => run(btn.dataset.q);
-      });
-    }
-
-    // ── Holdings auto-scan ──────────────────────────────
-    try {
-      const fg = await W.api.fearGreed();
-      const holds = holdings.slice(0, 5);
-      const holdContainer = view.querySelector("#t-hold");
-      if (!holdContainer) return;
-
-      if (!holds.length) {
-        holdContainer.innerHTML = '<p class="muted small">No holdings yet.</p>';
-        return;
-      }
-
-      const results = [];
-      for (const h of holds) {
-        try {
-          const r = await analyze(h.coinId, fg);
-          results.push(r);
-        } catch (e) {
-          console.warn("[Trader] Auto-scan error for", h.coinId, e);
-        }
-      }
-
-      if (!results.length) {
-        holdContainer.innerHTML =
-          '<p class="muted small">Could not analyze holdings.</p>';
-        return;
-      }
-
-      holdContainer.innerHTML = `
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Asset</th>
-                <th>Signal</th>
-                <th>RSI</th>
-                <th>Trend</th>
-                <th>Weaver says</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${results
-                .map(
-                  (a) => `
-                <tr>
-                  <td class="coin-cell">
-                    <img src="${a.coin.image?.small || ""}" alt="${a.coin.name}" class="icon-20">
-                    <b>${a.coin.name}</b>
-                  </td>
-                  <td><span class="tag ${a.cssClass}">${a.signal}</span></td>
-                  <td>${a.currentRSI.toFixed(0)}</td>
-                  <td>${a.last > a.currentSMA50 ? '<span class="up">Above SMA50</span>' : '<span class="down">Below SMA50</span>'}</td>
-                  <td class="muted small">${a.advice}</td>
-                </tr>
-              `,
-                )
-                .join("")}
-            </tbody>
-          </table>
-        </div>
-      `;
-    } catch (e) {
-      const holdContainer = view.querySelector("#t-hold");
-      if (holdContainer)
-        holdContainer.innerHTML = `<p class="muted small">${e.message}</p>`;
-    }
-  }
-
-  // ── Exports ────────────────────────────────────────────
-  return {
-    render,
-    analyze,
-    sma,
-    rsi,
-    signalOf,
-    advice,
-  };
-})();
-
-console.log("[Trader] Module loaded.");
 // ---- js/features/gems.js ----
 // js/features/gems.js – Gem Agent: Token Hunter
 
@@ -16884,1036 +16530,880 @@ W.journal = W.journal || {};
 console.log("[Journal] Decision module loaded (CSP compliant).");
 // ---- js/features/track-record.js ----
 // ===============================================================
-//         Track Record Module — v2.1 (Corrected)
+//         Weaver Track Record v2.1 – auditable history
 // ===============================================================
+// Historical fidelity: preserve exactly what Weaver knew at capture
+// time. User edits are limited to explicit fields and are revisioned.
+// Historical views never fetch current market data.
 
 window.W = window.W || {};
 
 W.trackRecord = (() => {
   const STORAGE_KEY = "track_record";
-  const SCHEMA_VERSION = "track-record-v1";
+  const LEGACY_STORAGE_KEYS = [
+    "track_record_v0",
+    "track_records",
+    "track_record_v1",
+  ];
   const MAX_REVISIONS = 100;
-
-  // ── Legacy migration sources ───────────────────────────────
-  //   track_record_v0  — the pre-v2.1 Track Record shape emitted by
-  //                      the original Token Analysis "capture"
-  //                      prototype. Records carry { symbol,
-  //                      createdAt, opportunityScore, confidence,
-  //                      notes } at the top level (no recordId, no
-  //                      schemaVersion).
-  const LEGACY_KEYS = ["track_record_v0"];
-
-  // ── Enum whitelists ────────────────────────────────────────
-  const ACTIONS = [
+  const SCHEMA_VERSION = "track-record-v1";
+  const ACCEPTED_SCHEMA_VERSIONS = new Set([
+    SCHEMA_VERSION,
+    "track-record-v2.1",
+  ]);
+  const USER_ACTIONS = new Set([
     "UNSET",
     "NO_DECISION",
     "WATCH",
     "CONSIDER",
     "ENTERED",
+    "NOT_ENTERED",
     "EXITED",
     "SKIPPED",
-  ];
-  const OUTCOME_STATUS = ["OPEN", "CLOSED", "UNKNOWN"];
-  const OUTCOME_SOURCE = [
+    "HOLD",
+  ]);
+  const OUTCOME_STATUS = new Set([
+    "UNSET",
+    "OPEN",
+    "CLOSED",
+    "UNKNOWN",
+    "REPORTED_GAIN",
+    "REPORTED_LOSS",
+    "REPORTED_FLAT",
+  ]);
+  const OUTCOME_SOURCES = new Set([
     "USER_ENTERED",
     "PORTFOLIO_TRANSACTION",
     "MARKET_OBSERVATION",
     "UNKNOWN",
-  ];
-  const EVIDENCE_QUALITY = ["SUFFICIENT", "PARTIAL", "INSUFFICIENT", "UNKNOWN"];
-  const SCENARIO_CLASS = ["POSITIVE", "NEGATIVE", "NEUTRAL", "UNKNOWN"];
-  const KNOWN_SCHEMA_VERSIONS = new Set(["track-record-v1"]);
+    "user-reported",
+  ]);
+  const MUTABLE_FIELDS = new Set([
+    "userDecision.action",
+    "userDecision.notes",
+    "userDecision.decisionTimestamp",
+    "userDecision.linkedTransactionId",
+    "outcome.status",
+    "outcome.observedPriceAtOutcome",
+    "outcome.outcomeTimestamp",
+    "outcome.userEntryPrice",
+    "outcome.userExitPrice",
+    "outcome.positionSize",
+    "outcome.resultCurrency",
+    "outcome.outcomeSource",
+    "outcome.notes",
+  ]);
+  const DANGEROUS_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 
-  // ── Deterministic content hash (cyrb53) ────────────────────
-  function stableHash(input, seed = 0) {
-    const str = String(input || "");
-    let h1 = 0xdeadbeef ^ seed;
-    let h2 = 0x41c6ce57 ^ seed;
-    for (let i = 0; i < str.length; i++) {
-      const ch = str.charCodeAt(i);
-      h1 = Math.imul(h1 ^ ch, 2654435761);
-      h2 = Math.imul(h2 ^ ch, 1597334677);
-    }
-    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
-    h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
-    h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-    const n = 4294967296 * (2097151 & h2) + (h1 >>> 0);
-    return n.toString(36);
+  function stableStringify(value) {
+    if (value === null || typeof value !== "object")
+      return JSON.stringify(value);
+    if (Array.isArray(value))
+      return `[${value.map(stableStringify).join(",")}]`;
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(",")}}`;
   }
 
-  function newId() {
-    if (
-      typeof crypto !== "undefined" &&
-      typeof crypto.randomUUID === "function"
-    ) {
-      return crypto.randomUUID();
+  function contentHash(value) {
+    let hash = 2166136261;
+    for (const char of stableStringify(value)) {
+      hash ^= char.charCodeAt(0);
+      hash = Math.imul(hash, 16777619);
     }
-    return (
-      "tr-" +
-      Date.now().toString(36) +
-      "-" +
-      Math.random().toString(36).slice(2, 10)
-    );
+    return (hash >>> 0).toString(16).padStart(8, "0");
   }
 
-  function validEnum(value, whitelist, fallback) {
-    return whitelist.includes(value) ? value : fallback;
+  function deterministicId(value, prefix = "track-legacy") {
+    return `${prefix}-${contentHash(value)}`;
   }
 
-  // ── Analysis normalization ─────────────────────────────────
-  // options.fallbackTimestamp makes normalization deterministic for
-  // legacy records — otherwise the same input would get a different
-  // analysisTimestamp (Date.now()) on each migration run, defeating
-  // content-equality checks.
-  function normalizeAnalysis(analysis, options = {}) {
-    const a = analysis || {};
-    const fallbackTs = options.fallbackTimestamp;
-
-    const unified = a.unifiedVerdict || a.verdict || {};
-    const ta = a.technicalAnalysis || a.technicals || {};
-    const fa =
-      a.fundamentalAssessment || a.fundamental || a.fundamentalReport || {};
-    const sa = a.securityAssessment || a.shield || {};
-    const sc = a.scenario || {};
-    const ev = a.evidence || {};
-
-    let domains = {};
-    if (
-      unified.domains &&
-      typeof unified.domains === "object" &&
-      !Array.isArray(unified.domains)
-    ) {
-      domains = { ...unified.domains };
-    } else if (Array.isArray(unified.domains)) {
-      unified.domains.forEach((d) => {
-        if (d && typeof d === "object" && d.name) {
-          domains[String(d.name).toLowerCase()] = { ...d };
-        }
-      });
-    }
-
-    const analysisTimestamp =
-      typeof a.analysisTimestamp === "number"
-        ? a.analysisTimestamp
-        : typeof fallbackTs === "number"
-          ? fallbackTs
-          : Date.now();
-
+  function legacyV0Snapshot(raw) {
+    const timestamp = Number.isFinite(raw?.analysisTimestamp)
+      ? raw.analysisTimestamp
+      : Number.isFinite(raw?.createdAt)
+        ? raw.createdAt
+        : 0;
     return {
-      asset: typeof a.asset === "string" ? a.asset : null,
-      methodologyVersion: a.methodologyVersion ?? a.methodology ?? null,
-      scoringVersion: a.scoringVersion ?? a.scoreVersion ?? null,
-      evidenceBuilderVersion: a.evidenceBuilderVersion ?? null,
-      analysisTimestamp,
-
+      asset:
+        typeof raw?.symbol === "string"
+          ? raw.symbol
+          : typeof raw?.asset === "string"
+            ? raw.asset
+            : null,
+      methodologyVersion: raw?.methodologyVersion || raw?.methodology || null,
+      scoringVersion: raw?.scoringVersion || raw?.scoreVersion || null,
+      evidenceBuilderVersion: raw?.evidenceBuilderVersion || null,
+      analysisTimestamp: timestamp,
       unifiedVerdict: {
-        score:
-          typeof unified.score === "number"
-            ? unified.score
-            : typeof a.opportunityScore === "number"
-              ? a.opportunityScore
-              : typeof a.score === "number"
-                ? a.score
-                : null,
-        confidence:
-          typeof unified.confidence === "number"
-            ? unified.confidence
-            : typeof a.confidence === "number"
-              ? a.confidence
-              : null,
-        evidenceQuality: validEnum(
-          unified.evidenceQuality,
-          EVIDENCE_QUALITY,
-          "UNKNOWN",
-        ),
-        domains,
+        score: Number.isFinite(raw?.opportunityScore)
+          ? raw.opportunityScore
+          : Number.isFinite(raw?.score)
+            ? raw.score
+            : null,
+        confidence: Number.isFinite(raw?.confidence) ? raw.confidence : null,
+        evidenceQuality: "UNKNOWN",
+        domains: {},
       },
-
       technicalAnalysis: {
-        score: typeof ta.score === "number" ? ta.score : null,
-        bias: typeof ta.bias === "string" ? ta.bias : null,
-        rsi: typeof ta.rsi === "number" ? ta.rsi : null,
-        trend: typeof ta.trend === "string" ? ta.trend : null,
-        confidence: typeof ta.confidence === "number" ? ta.confidence : null,
-        available:
-          typeof ta.available === "boolean" ? ta.available : ta.score != null,
+        score: null,
+        bias: null,
+        rsi: null,
+        trend: null,
+        confidence: null,
+        available: false,
       },
-
-      fundamentalAssessment: {
-        score: typeof fa.score === "number" ? fa.score : null,
-        bias: typeof fa.bias === "string" ? fa.bias : null,
-        available:
-          typeof fa.available === "boolean" ? fa.available : fa.score != null,
-      },
-
+      fundamentalAssessment: { score: null, bias: null, available: false },
       securityAssessment: {
-        riskScore: typeof sa.riskScore === "number" ? sa.riskScore : null,
-        riskLevel:
-          typeof sa.riskLevel === "string"
-            ? sa.riskLevel
-            : Array.isArray(sa.riskLevel)
-              ? sa.riskLevel[0]
-              : null,
-        source: typeof sa.source === "string" ? sa.source : null,
-        available:
-          typeof sa.available === "boolean"
-            ? sa.available
-            : sa.riskScore != null,
+        riskScore: null,
+        riskLevel: null,
+        source: null,
+        available: false,
       },
-
       scenario: {
-        classification: validEnum(sc.classification, SCENARIO_CLASS, "UNKNOWN"),
-        strength: typeof sc.strength === "number" ? sc.strength : null,
-        reasoning: Array.isArray(sc.reasoning) ? sc.reasoning.slice() : [],
-        limitations: Array.isArray(sc.limitations)
-          ? sc.limitations.slice()
-          : [],
+        classification: "UNKNOWN",
+        strength: null,
+        reasoning: [],
+        limitations: ["Migrated from legacy Track Record v0"],
       },
-
       evidence: {
-        supporting: Array.isArray(ev.supporting)
-          ? ev.supporting.slice()
-          : Array.isArray(a.bullishEvidence)
-            ? a.bullishEvidence.slice()
-            : [],
-        contradicting: Array.isArray(ev.contradicting)
-          ? ev.contradicting.slice()
-          : Array.isArray(a.bearishEvidence)
-            ? a.bearishEvidence.slice()
-            : [],
-        missing: Array.isArray(ev.missing) ? ev.missing.slice() : [],
+        supporting: [],
+        contradicting: [],
+        missing: ["Legacy record did not include structured evidence"],
       },
     };
   }
 
-  function normalizeAssetId(asset) {
-    const a = asset || {};
-    return {
-      chainId: typeof a.chainId === "string" ? a.chainId : null,
-      contractAddress:
-        typeof a.contractAddress === "string" ? a.contractAddress : null,
-      symbol: typeof a.symbol === "string" ? a.symbol : null,
-      coingeckoId: typeof a.coingeckoId === "string" ? a.coingeckoId : null,
-      name: typeof a.name === "string" ? a.name : null,
-    };
+  function deepClone(value) {
+    if (value === undefined || value === null) return value;
+    try {
+      if (typeof structuredClone === "function") return structuredClone(value);
+    } catch (_) {}
+    return JSON.parse(JSON.stringify(value));
   }
 
-  // ── Immutable snapshot guard ───────────────────────────────
-  const IMMUTABLE_TOP = [
-    "recordId",
-    "createdAt",
-    "weaverSnapshot",
-    "schemaVersion",
-  ];
-
-  function patchRecord(record, patch) {
-    const next = { ...record };
-
-    for (const key of Object.keys(patch)) {
-      if (IMMUTABLE_TOP.includes(key)) {
-        console.warn(
-          `[TrackRecord] Rejected mutation of immutable field: ${key}`,
-        );
-        continue;
-      }
-      if (key === "userDecision") {
-        next.userDecision = normalizeDecision({
-          ...next.userDecision,
-          ...patch.userDecision,
-        });
-        continue;
-      }
-      if (key === "outcome") {
-        next.outcome = normalizeOutcome({ ...next.outcome, ...patch.outcome });
-        continue;
-      }
-      if (
-        [
-          "displaySymbol",
-          "displayName",
-          "assetId",
-          "revisions",
-          "migration",
-          "updatedAt",
-        ].includes(key)
-      ) {
-        next[key] = patch[key];
-      }
+  function ownDangerousKey(value, seen = new Set()) {
+    if (!value || typeof value !== "object" || seen.has(value)) return false;
+    seen.add(value);
+    for (const key of Object.getOwnPropertyNames(value)) {
+      if (DANGEROUS_KEYS.has(key)) return true;
+      if (ownDangerousKey(value[key], seen)) return true;
     }
-    return next;
+    return false;
   }
 
-  function normalizeDecision(d, defaultAction = "NO_DECISION") {
-    const x = d || {};
+  function safeFiniteNumber(value, allowNegative = true) {
+    if (value === null || value === undefined || value === "") return null;
+    const number = Number(value);
+    if (!Number.isFinite(number) || (!allowNegative && number < 0)) return null;
+    return number;
+  }
+
+  function timeMs(value) {
+    if (value === null || value === undefined || value === "") return null;
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function calculateOutcome(outcome, decisionTimestamp) {
+    const entry = safeFiniteNumber(outcome.userEntryPrice, false);
+    const exit = safeFiniteNumber(outcome.userExitPrice, false);
+    const quantity = safeFiniteNumber(outcome.positionSize, false);
+    const result = {
+      realizedResult: null,
+      realizedResultPct: null,
+      holdingDurationMs: null,
+    };
+    if (entry !== null && exit !== null && quantity !== null) {
+      result.realizedResult = (exit - entry) * quantity;
+      if (entry !== 0)
+        result.realizedResultPct = ((exit - entry) / entry) * 100;
+    }
+    const start = timeMs(decisionTimestamp);
+    const end = timeMs(outcome.outcomeTimestamp);
+    if (start !== null && end !== null && end >= start)
+      result.holdingDurationMs = end - start;
+    return result;
+  }
+
+  function canonicalAssetId(analysis, metadata = {}) {
+    const source = analysis.assetId || metadata.assetId || {};
     return {
-      action: validEnum(x.action, ACTIONS, defaultAction),
-      decisionTimestamp:
-        typeof x.decisionTimestamp === "number" ? x.decisionTimestamp : null,
-      notes: typeof x.notes === "string" ? x.notes : "",
-      linkedTransactionId:
-        typeof x.linkedTransactionId === "string"
-          ? x.linkedTransactionId
-          : null,
-      updatedAt: typeof x.updatedAt === "number" ? x.updatedAt : null,
+      chainId: source.chainId || "unknown",
+      contractAddress: source.contractAddress || null,
+      symbol: source.symbol || analysis.asset || "UNKNOWN",
+      coingeckoId: source.coingeckoId || null,
+      name: source.name || analysis.asset || "Unknown",
     };
   }
 
-  function normalizeOutcome(o) {
-    const x = o || {};
-    return {
-      status: validEnum(x.status, OUTCOME_STATUS, "UNKNOWN"),
-      observedPriceAtOutcome:
-        typeof x.observedPriceAtOutcome === "number"
-          ? x.observedPriceAtOutcome
-          : null,
-      entryTimestamp:
-        typeof x.entryTimestamp === "number" ? x.entryTimestamp : null,
-      exitTimestamp:
-        typeof x.exitTimestamp === "number" ? x.exitTimestamp : null,
-      userEntryPrice:
-        typeof x.userEntryPrice === "number" ? x.userEntryPrice : null,
-      userExitPrice:
-        typeof x.userExitPrice === "number" ? x.userExitPrice : null,
-      positionSize: typeof x.positionSize === "number" ? x.positionSize : null,
-      realizedResult:
-        typeof x.realizedResult === "number" ? x.realizedResult : null,
-      realizedResultPct:
-        typeof x.realizedResultPct === "number" ? x.realizedResultPct : null,
+  function validRecord(record) {
+    if (
+      !record ||
+      typeof record !== "object" ||
+      Array.isArray(record) ||
+      ownDangerousKey(record)
+    )
+      return false;
+    if (
+      typeof (record.id || record.recordId) !== "string" ||
+      !ACCEPTED_SCHEMA_VERSIONS.has(record.schemaVersion) ||
+      record.createdAt === undefined ||
+      record.createdAt === null
+    )
+      return false;
+    if (record.assetId && typeof record.assetId !== "object") return false;
+    if (!record.assetId && !record.asset) return false;
+    if (!record.weaverSnapshot || typeof record.weaverSnapshot !== "object")
+      return false;
+    if (!record.userDecision || !record.outcome) return false;
+    return true;
+  }
+
+  function normalizeRecord(record) {
+    if (!validRecord(record)) return null;
+    const snapshot = deepClone(record.weaverSnapshot);
+    const decision = record.userDecision || {};
+    const rawOutcome = record.outcome || {};
+    const legacyUserReported = rawOutcome.userReported || {};
+    const legacyStatus = rawOutcome.status || legacyUserReported.status;
+    const outcome = {
+      status: OUTCOME_STATUS.has(legacyStatus) ? legacyStatus : "UNSET",
+      observedPriceAtOutcome: safeFiniteNumber(
+        rawOutcome.observedPriceAtOutcome,
+        false,
+      ),
+      outcomeTimestamp: rawOutcome.outcomeTimestamp ?? null,
+      userEntryPrice: safeFiniteNumber(rawOutcome.userEntryPrice, false),
+      userExitPrice: safeFiniteNumber(rawOutcome.userExitPrice, false),
+      positionSize: safeFiniteNumber(rawOutcome.positionSize, false),
+      realizedResult: safeFiniteNumber(rawOutcome.realizedResult),
+      realizedResultPct: safeFiniteNumber(rawOutcome.realizedResultPct),
       resultCurrency:
-        typeof x.resultCurrency === "string" ? x.resultCurrency : null,
-      holdingDurationMs:
-        typeof x.holdingDurationMs === "number" ? x.holdingDurationMs : null,
-      outcomeSource: validEnum(x.outcomeSource, OUTCOME_SOURCE, "UNKNOWN"),
+        typeof rawOutcome.resultCurrency === "string"
+          ? rawOutcome.resultCurrency
+          : null,
+      outcomeSource: OUTCOME_SOURCES.has(rawOutcome.outcomeSource)
+        ? rawOutcome.outcomeSource
+        : "UNKNOWN",
+      notes: typeof rawOutcome.notes === "string" ? rawOutcome.notes : "",
+      holdingDurationMs: safeFiniteNumber(rawOutcome.holdingDurationMs, false),
+    };
+    return {
+      id: record.id || record.recordId,
+      recordId: record.recordId || record.id,
+      schemaVersion: SCHEMA_VERSION,
+      createdAt: record.createdAt,
+      assetId: canonicalAssetId({
+        assetId: record.assetId || {
+          symbol: record.asset || snapshot.asset,
+          name: record.asset || snapshot.asset,
+        },
+        asset: record.asset || snapshot.asset,
+      }),
+      asset:
+        record.asset || record.assetId?.symbol || snapshot.asset || "UNKNOWN",
+      weaverSnapshot: snapshot,
+      userDecision: {
+        action: USER_ACTIONS.has(decision.action) ? decision.action : "UNSET",
+        notes: typeof decision.notes === "string" ? decision.notes : "",
+        decisionTimestamp: decision.decisionTimestamp ?? null,
+        linkedTransactionId: decision.linkedTransactionId ?? null,
+      },
+      outcome,
+      revisions: Array.isArray(record.revisions)
+        ? deepClone(record.revisions)
+        : [],
+      ...(record.migration ? { migration: deepClone(record.migration) } : {}),
     };
   }
 
-  function recomputeOutcome(outcome) {
-    const o = { ...outcome };
-
-    if (
-      o.userEntryPrice == null ||
-      o.userExitPrice == null ||
-      o.userEntryPrice === 0
-    ) {
-      o.realizedResultPct = null;
-    } else {
-      o.realizedResultPct =
-        ((o.userExitPrice - o.userEntryPrice) / o.userEntryPrice) * 100;
+  function migrate(options = {}) {
+    const persist = options.persist !== false;
+    const canonicalRaw = W.store?.get?.(STORAGE_KEY, []);
+    const canonical = Array.isArray(canonicalRaw) ? canonicalRaw : [];
+    const quarantined = [];
+    const output = canonical
+      .map((record) => {
+        if (
+          record?.migration?.status === "QUARANTINED" &&
+          typeof record.id === "string"
+        )
+          return deepClone(record);
+        const normalized = normalizeRecord(record);
+        if (normalized) return normalized;
+        quarantined.push({
+          id: deterministicId(record, "track-quarantine"),
+          schemaVersion: SCHEMA_VERSION,
+          migration: {
+            source: STORAGE_KEY,
+            migratedAt: Date.now(),
+            status: "QUARANTINED",
+            originalRecordId: record?.recordId || record?.id || null,
+            reason: "INVALID_SCHEMA",
+          },
+          rawData: deepClone(record),
+        });
+        return null;
+      })
+      .filter(Boolean);
+    const byId = new Map(output.map((record) => [record.id, record]));
+    const sources = [];
+    for (const key of LEGACY_STORAGE_KEYS) {
+      const raw = W.store?.get?.(key, []);
+      if (Array.isArray(raw)) sources.push({ key, records: raw });
     }
-
-    if (
-      o.userEntryPrice == null ||
-      o.userExitPrice == null ||
-      o.positionSize == null
-    ) {
-      o.realizedResult = null;
-    } else {
-      o.realizedResult = (o.userExitPrice - o.userEntryPrice) * o.positionSize;
+    for (const source of sources) {
+      for (const original of source.records) {
+        const raw = deepClone(original);
+        if (
+          !raw ||
+          typeof raw !== "object" ||
+          Array.isArray(raw) ||
+          ownDangerousKey(raw)
+        ) {
+          quarantined.push({
+            id: deterministicId(raw, "track-quarantine"),
+            schemaVersion: SCHEMA_VERSION,
+            migration: {
+              source: source.key,
+              migratedAt: Date.now(),
+              status: "QUARANTINED",
+              originalRecordId: null,
+              reason: "INVALID_SCHEMA",
+            },
+            rawData: raw,
+          });
+          continue;
+        }
+        if (source.key === "track_record_v0") {
+          const stableId =
+            typeof raw.recordId === "string"
+              ? raw.recordId
+              : deterministicId(
+                  {
+                    source: source.key,
+                    symbol: raw.symbol || raw.asset || null,
+                    createdAt: raw.createdAt || null,
+                    analysisTimestamp: raw.analysisTimestamp || null,
+                  },
+                  "track-legacy",
+                );
+          if (byId.has(stableId)) continue;
+          const legacySnapshot = legacyV0Snapshot(raw);
+          const migrated = {
+            id: stableId,
+            recordId: stableId,
+            schemaVersion: SCHEMA_VERSION,
+            createdAt: Number.isFinite(raw.createdAt)
+              ? raw.createdAt
+              : legacySnapshot.analysisTimestamp,
+            asset: raw.symbol || raw.asset || "UNKNOWN",
+            assetId: canonicalAssetId({
+              assetId: raw.assetId || {
+                symbol: raw.symbol || raw.asset || "UNKNOWN",
+                name: raw.name || raw.symbol || raw.asset,
+              },
+            }),
+            weaverSnapshot: legacySnapshot,
+            userDecision: {
+              action: USER_ACTIONS.has(raw.userDecision?.action)
+                ? raw.userDecision.action
+                : "NO_DECISION",
+              notes: typeof raw.notes === "string" ? raw.notes : "",
+              decisionTimestamp: null,
+              linkedTransactionId: null,
+            },
+            outcome: {
+              status: "UNKNOWN",
+              observedPriceAtOutcome: null,
+              outcomeTimestamp: null,
+              userEntryPrice: null,
+              userExitPrice: null,
+              positionSize: null,
+              realizedResult: null,
+              realizedResultPct: null,
+              resultCurrency: null,
+              outcomeSource: "UNKNOWN",
+              notes: "",
+              holdingDurationMs: null,
+            },
+            revisions: [],
+            migration: {
+              source: source.key,
+              migratedAt: Date.now(),
+              status: "MIGRATED",
+              originalRecordId: raw.recordId || null,
+            },
+          };
+          byId.set(stableId, migrated);
+          output.push(migrated);
+          continue;
+        }
+        const originalId =
+          typeof raw.recordId === "string"
+            ? raw.recordId
+            : typeof raw.id === "string"
+              ? raw.id
+              : null;
+        const candidateId =
+          originalId ||
+          deterministicId({
+            assetId: raw.assetId || raw.asset || null,
+            createdAt: raw.createdAt || null,
+            analysisTimestamp: raw.weaverSnapshot?.analysisTimestamp || null,
+            raw,
+          });
+        const candidate = {
+          ...raw,
+          id: candidateId,
+          schemaVersion: raw.schemaVersion || SCHEMA_VERSION,
+        };
+        const normalized = normalizeRecord(candidate);
+        if (!normalized) {
+          quarantined.push({
+            id: deterministicId(raw, "track-quarantine"),
+            schemaVersion: SCHEMA_VERSION,
+            migration: {
+              source: source.key,
+              migratedAt: Date.now(),
+              status: "QUARANTINED",
+              originalRecordId: originalId,
+              reason: "INVALID_IMMUTABLE_SNAPSHOT",
+            },
+            rawData: raw,
+          });
+          continue;
+        }
+        normalized.migration = {
+          source: source.key,
+          migratedAt: Date.now(),
+          status: originalId ? "MIGRATED" : "MIGRATED_LEGACY_ID",
+          originalRecordId: originalId,
+        };
+        const existing = byId.get(normalized.id);
+        if (!existing) {
+          byId.set(normalized.id, normalized);
+          output.push(normalized);
+          continue;
+        }
+        if (
+          stableStringify(existing.weaverSnapshot) ===
+          stableStringify(normalized.weaverSnapshot)
+        )
+          continue;
+        const conflictId = `${normalized.id}-legacy-${contentHash(normalized.weaverSnapshot)}`;
+        if (!byId.has(conflictId)) {
+          normalized.id = conflictId;
+          normalized.migration = {
+            source: source.key,
+            migratedAt: Date.now(),
+            status: "CONFLICT",
+            originalRecordId: normalized.id.replace(/-legacy-[^-]+$/, ""),
+          };
+          byId.set(conflictId, normalized);
+          output.push(normalized);
+        }
+      }
     }
-
-    if (
-      o.entryTimestamp != null &&
-      o.exitTimestamp != null &&
-      o.exitTimestamp >= o.entryTimestamp
-    ) {
-      o.holdingDurationMs = o.exitTimestamp - o.entryTimestamp;
-    } else {
-      o.holdingDurationMs = null;
-    }
-
-    return o;
-  }
-
-  function loadAll() {
-    const raw = W.store.get(STORAGE_KEY, []);
-    if (!Array.isArray(raw)) return [];
-    return raw.filter(
-      (r) => r && typeof r === "object" && typeof r.recordId === "string",
+    const result = [...output, ...quarantined].filter(
+      (record, index, list) =>
+        list.findIndex((candidate) => candidate.id === record.id) === index,
     );
-  }
-
-  function saveAll(records) {
-    W.store.set(STORAGE_KEY, records);
-  }
-
-  // ── Public CRUD ────────────────────────────────────────────
-
-  function createFromAnalysis(analysis, asset) {
-    if (!analysis || typeof analysis !== "object") {
-      throw new Error("createFromAnalysis requires an analysis object");
+    if (persist) {
+      const saved = save(result);
+      if (!saved.ok) return saved;
     }
+    return {
+      ok: true,
+      records: deepClone(result),
+      quarantined: quarantined.length,
+    };
+  }
 
-    const assetId = normalizeAssetId(asset);
-    const snapshot = normalizeAnalysis(analysis);
-    const now = Date.now();
+  function load() {
+    try {
+      const raw = W.store?.get?.(STORAGE_KEY, []);
+      return Array.isArray(raw) ? raw.map(normalizeRecord).filter(Boolean) : [];
+    } catch (_) {
+      return [];
+    }
+  }
 
+  function save(records) {
+    try {
+      W.store?.set?.(STORAGE_KEY, deepClone(records));
+      return { ok: true };
+    } catch (error) {
+      const message =
+        error?.name === "QuotaExceededError"
+          ? "Track Record could not be saved. Local storage is full."
+          : "Track Record could not be saved.";
+      W.ui?.toast?.(message, "warn");
+      return { ok: false, error: message };
+    }
+  }
+
+  function all() {
+    return deepClone(load());
+  }
+  function get(id) {
+    return all().find((record) => record.id === id) || null;
+  }
+
+  function capture(analysis, metadata = {}) {
+    if (!analysis || typeof analysis !== "object" || !analysis.asset)
+      throw new Error("A complete Token Analysis result is required");
+    const assetId = canonicalAssetId(analysis, metadata);
     const record = {
+      id:
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
       schemaVersion: SCHEMA_VERSION,
-      recordId: newId(),
+      recordId: null,
+      createdAt: Date.now(),
+      asset: analysis.asset,
       assetId,
-      displaySymbol:
-        assetId.symbol ||
-        (analysis.asset ? String(analysis.asset).toUpperCase() : "UNKNOWN"),
-      displayName: assetId.name || analysis.asset || "Unknown",
-      createdAt: now,
-      weaverSnapshot: snapshot,
-      userDecision: normalizeDecision({}, "UNSET"),
-      outcome: normalizeOutcome({}),
+      weaverSnapshot: deepClone(analysis),
+      userDecision: {
+        action: "UNSET",
+        notes: "",
+        decisionTimestamp: null,
+        linkedTransactionId: null,
+      },
+      outcome: {
+        status: "UNSET",
+        observedPriceAtOutcome: null,
+        outcomeTimestamp: null,
+        userEntryPrice: null,
+        userExitPrice: null,
+        positionSize: null,
+        realizedResult: null,
+        realizedResultPct: null,
+        resultCurrency: null,
+        outcomeSource: "UNKNOWN",
+        notes: "",
+        holdingDurationMs: null,
+      },
       revisions: [],
     };
-
-    const records = loadAll();
-    records.unshift(record);
-    saveAll(records);
-    return record;
+    record.recordId = record.id;
+    const result = save([record, ...load()]);
+    if (!result.ok) throw new Error(result.error);
+    return deepClone(record);
   }
 
-  function getAll() {
-    return loadAll();
+  function createFromAnalysis(analysis, assetId) {
+    try {
+      return {
+        ok: true,
+        record: capture({ ...analysis, assetId }, { assetId }),
+      };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
   }
 
-  function getById(recordId) {
-    return loadAll().find((r) => r.recordId === recordId) || null;
+  function validChange(path, value) {
+    if (!MUTABLE_FIELDS.has(path)) return false;
+    if (path === "userDecision.action")
+      return typeof value === "string" && USER_ACTIONS.has(value);
+    if (path === "outcome.status")
+      return typeof value === "string" && OUTCOME_STATUS.has(value);
+    if (
+      path === "userDecision.notes" ||
+      path === "outcome.resultCurrency" ||
+      path === "outcome.notes"
+    )
+      return value === null || typeof value === "string";
+    if (path === "outcome.outcomeSource")
+      return typeof value === "string" && OUTCOME_SOURCES.has(value);
+    if (path === "userDecision.linkedTransactionId")
+      return value === null || typeof value === "string";
+    if (
+      path === "userDecision.decisionTimestamp" ||
+      path === "outcome.outcomeTimestamp"
+    )
+      return (
+        value === null ||
+        typeof value === "string" ||
+        (typeof value === "number" && Number.isFinite(value))
+      );
+    return (
+      value === null ||
+      (typeof value === "number" && Number.isFinite(value) && value >= 0)
+    );
   }
 
-  function updateDecision(recordId, decisionPatch) {
-    const records = loadAll();
-    const idx = records.findIndex((r) => r.recordId === recordId);
-    if (idx === -1) return null;
-    const existing = records[idx];
-    const patch = {
-      userDecision: {
-        ...existing.userDecision,
-        ...decisionPatch,
-        updatedAt: Date.now(),
-      },
-    };
-    records[idx] = patchRecord(existing, patch);
-    saveAll(records);
-    return records[idx];
+  // Strict field-path API. Every change requires a human-readable revision reason.
+  function update(id, changes = {}, reason = "") {
+    if (!reason || typeof reason !== "string" || !reason.trim())
+      return { ok: false, error: "Revision reason is required" };
+    if (
+      !changes ||
+      typeof changes !== "object" ||
+      Array.isArray(changes) ||
+      ownDangerousKey(changes)
+    )
+      return { ok: false, error: "Invalid changes object" };
+    const records = load();
+    const index = records.findIndex((record) => record.id === id);
+    if (index === -1) return { ok: false, error: "Record not found" };
+    const keys = Object.keys(changes);
+    if (!keys.length) return { ok: false, error: "No changes supplied" };
+    for (const path of keys)
+      if (!validChange(path, changes[path]))
+        return { ok: false, error: `Immutable or invalid field: ${path}` };
+    const record = records[index];
+    const next = deepClone(record);
+    for (const path of keys) {
+      const [section, field] = path.split(".");
+      const previousValue = next[section][field];
+      next[section][field] = deepClone(changes[path]);
+      next.revisions.push({
+        at: new Date().toISOString(),
+        field: path,
+        previousValue: deepClone(previousValue),
+        newValue: deepClone(changes[path]),
+        reason: reason.trim(),
+      });
+      if (next.revisions.length > MAX_REVISIONS)
+        next.revisions = next.revisions.slice(-MAX_REVISIONS);
+    }
+    const calculated = calculateOutcome(
+      next.outcome,
+      next.userDecision.decisionTimestamp,
+    );
+    next.outcome.realizedResult = calculated.realizedResult;
+    next.outcome.realizedResultPct = calculated.realizedResultPct;
+    next.outcome.holdingDurationMs = calculated.holdingDurationMs;
+    const result = save(
+      records.map((item, itemIndex) => (itemIndex === index ? next : item)),
+    );
+    return result.ok ? { ok: true, record: deepClone(next) } : result;
   }
 
-  function updateOutcome(recordId, outcomePatch) {
-    const records = loadAll();
-    const idx = records.findIndex((r) => r.recordId === recordId);
-    if (idx === -1) return null;
-    const existing = records[idx];
-    const mergedOutcome = recomputeOutcome({
-      ...existing.outcome,
-      ...outcomePatch,
-    });
-    records[idx] = patchRecord(existing, { outcome: mergedOutcome });
-    saveAll(records);
-    return records[idx];
+  function remove(id) {
+    const records = load();
+    const next = records.filter((record) => record.id !== id);
+    return next.length === records.length
+      ? { ok: false, error: "Record not found" }
+      : save(next);
+  }
+
+  function updateDecision(recordId, decisionPatch = {}) {
+    const changes = {};
+    for (const key of [
+      "action",
+      "notes",
+      "decisionTimestamp",
+      "linkedTransactionId",
+    ]) {
+      if (Object.prototype.hasOwnProperty.call(decisionPatch, key))
+        changes[`userDecision.${key}`] = decisionPatch[key];
+    }
+    return update(recordId, changes, "User decision update").record || null;
+  }
+
+  function updateOutcome(recordId, outcomePatch = {}) {
+    const changes = {};
+    for (const key of [
+      "status",
+      "observedPriceAtOutcome",
+      "outcomeTimestamp",
+      "userEntryPrice",
+      "userExitPrice",
+      "positionSize",
+      "resultCurrency",
+      "outcomeSource",
+      "notes",
+    ]) {
+      if (Object.prototype.hasOwnProperty.call(outcomePatch, key))
+        changes[`outcome.${key}`] = outcomePatch[key];
+    }
+    return update(recordId, changes, "Observed outcome update").record || null;
   }
 
   function linkTransaction(recordId, transactionId) {
     return updateDecision(recordId, { linkedTransactionId: transactionId });
   }
-
   function deleteRecord(recordId) {
-    const records = loadAll().filter((r) => r.recordId !== recordId);
-    saveAll(records);
-    return true;
+    return remove(recordId).ok;
+  }
+
+  function escape(value) {
+    return W.fmt?.escapeHTML ? W.fmt.escapeHTML(value) : String(value ?? "");
+  }
+  function csvCell(value) {
+    if (value === null || value === undefined) return "";
+    let text = String(value);
+    if (/^[=+\-@]/.test(text)) text = "'" + text;
+    return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  }
+
+  function buildCSV() {
+    const headers = [
+      "Record ID",
+      "Asset ID",
+      "Symbol",
+      "Created At",
+      "Methodology",
+      "Scenario",
+      "Evidence",
+      "Confidence",
+      "User Decision",
+      "User Notes",
+      "Outcome Status",
+      "Observed Price",
+      "Entry Price",
+      "Exit Price",
+      "Position Size",
+      "Realized Result",
+      "Result %",
+      "Currency",
+      "Outcome Source",
+      "Outcome Notes",
+    ];
+    const rows = load().map((record) => {
+      const snapshot = record.weaverSnapshot || {};
+      const verdict = snapshot.unifiedVerdict || {};
+      const outcome = record.outcome;
+      return [
+        record.id,
+        record.assetId.coingeckoId ||
+          record.assetId.contractAddress ||
+          record.assetId.symbol,
+        record.assetId.symbol,
+        record.createdAt,
+        verdict.methodologyVersion || "",
+        snapshot.scenario || snapshot.verdict || "",
+        snapshot.evidenceQuality?.status || verdict.evidence?.status || "",
+        snapshot.confidence,
+        record.userDecision.action,
+        record.userDecision.notes,
+        outcome.status,
+        outcome.observedPriceAtOutcome,
+        outcome.userEntryPrice,
+        outcome.userExitPrice,
+        outcome.positionSize,
+        outcome.realizedResult,
+        outcome.realizedResultPct,
+        outcome.resultCurrency,
+        outcome.outcomeSource,
+        outcome.notes,
+      ]
+        .map(csvCell)
+        .join(",");
+    });
+    return [headers.map(csvCell).join(","), ...rows].join("\n");
   }
 
   function exportCSV() {
-    const records = loadAll();
-    const headers = [
-      "recordId",
-      "createdAt",
-      "symbol",
-      "name",
-      "verdict_score",
-      "verdict_confidence",
-      "evidence_quality",
-      "scenario_classification",
-      "decision_action",
-      "decision_notes",
-      "outcome_status",
-      "outcome_source",
-      "entry_price",
-      "exit_price",
-      "result",
-      "result_pct",
-      "methodology_version",
-    ];
-
-    const rows = records.map((r) => [
-      r.recordId,
-      new Date(r.createdAt).toISOString(),
-      r.displaySymbol,
-      r.displayName,
-      r.weaverSnapshot?.unifiedVerdict?.score,
-      r.weaverSnapshot?.unifiedVerdict?.confidence,
-      r.weaverSnapshot?.unifiedVerdict?.evidenceQuality,
-      r.weaverSnapshot?.scenario?.classification,
-      r.userDecision?.action,
-      r.userDecision?.notes || "",
-      r.outcome?.status,
-      r.outcome?.outcomeSource,
-      r.outcome?.userEntryPrice,
-      r.outcome?.userExitPrice,
-      r.outcome?.realizedResult,
-      r.outcome?.realizedResultPct,
-      r.weaverSnapshot?.methodologyVersion,
-    ]);
-
-    const csvEscape = (v) => {
-      if (v == null) return "";
-      let s = String(v);
-      if (/^[=+\-@]/.test(s)) s = "'" + s;
-      if (/[",\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
-      return s;
-    };
-
-    const lines = [headers.map(csvEscape).join(",")];
-    rows.forEach((row) => lines.push(row.map(csvEscape).join(",")));
-    return lines.join("\n");
-  }
-
-  // ── Migration ──────────────────────────────────────────────
-
-  function migrate() {
-    const canonical = loadAll();
-    const canonicalById = new Map(canonical.map((r) => [r.recordId, r]));
-    const migrationSummary = {
-      migrated: 0,
-      conflicts: 0,
-      migratedLegacyId: 0,
-      quarantined: 0,
-      deduped: 0,
-    };
-
-    const runTimestamp = Date.now();
-
-    const legacyCandidates = [];
-    for (const key of LEGACY_KEYS) {
-      const data = W.store.get(key, null);
-      if (Array.isArray(data)) {
-        data.forEach((r) => legacyCandidates.push({ source: key, raw: r }));
-      }
-    }
-
-    for (const candidate of legacyCandidates) {
-      const { raw, source } = candidate;
-
-      // ── Malformed ────────────────────────────────────────
-      if (!raw || typeof raw !== "object") {
-        const quarantineId =
-          "track-quarantine-" +
-          stableHash(JSON.stringify(raw ?? null) + "|" + source);
-        if (canonicalById.has(quarantineId)) {
-          migrationSummary.deduped++;
-          continue;
-        }
-        const q = quarantineRecord(raw, source, "INVALID_SCHEMA", quarantineId);
-        canonical.push(q);
-        canonicalById.set(quarantineId, q);
-        migrationSummary.quarantined++;
-        continue;
-      }
-
-      // ── Unknown schema version ───────────────────────────
-      if (
-        typeof raw.schemaVersion === "string" &&
-        !KNOWN_SCHEMA_VERSIONS.has(raw.schemaVersion)
-      ) {
-        const quarantineId =
-          "track-quarantine-" +
-          stableHash(JSON.stringify(raw) + "|" + source + "|UNKNOWN_SCHEMA");
-        if (canonicalById.has(quarantineId)) {
-          migrationSummary.deduped++;
-          continue;
-        }
-        const q = quarantineRecord(
-          raw,
-          source,
-          "UNKNOWN_SCHEMA_VERSION",
-          quarantineId,
-        );
-        canonical.push(q);
-        canonicalById.set(quarantineId, q);
-        migrationSummary.quarantined++;
-        continue;
-      }
-
-      // ── Deterministic ID for records missing one ─────────
-      let recordId = typeof raw.recordId === "string" ? raw.recordId : null;
-      let wasMissingId = false;
-      if (!recordId) {
-        const stableInput = [
-          raw.displaySymbol || raw.symbol || "",
-          typeof raw.createdAt === "number" ? raw.createdAt : "",
-          raw.weaverSnapshot?.analysisTimestamp || raw.analysisTimestamp || "",
-          source,
-        ].join("|");
-        recordId = "track-legacy-" + stableHash(stableInput);
-        wasMissingId = true;
-      }
-
-      // ── Normalize the legacy snapshot ONCE ───────────────
-      // fallbackTimestamp makes the snapshot deterministic across
-      // migration runs, so sameImmutable() can match it.
-      const legacySnapshot = normalizeAnalysis(raw.weaverSnapshot || raw, {
-        fallbackTimestamp: stableCreatedAt(raw),
-      });
-
-      // ── Canonical already has this recordId ──────────────
-      const existing = canonicalById.get(recordId);
-      if (existing) {
-        if (sameImmutable(existing.weaverSnapshot, legacySnapshot)) {
-          migrationSummary.deduped++;
-          continue;
-        }
-
-        // Immutable conflict — preserve legacy as a derived record.
-        const derivedId =
-          recordId +
-          "-legacy-" +
-          stableHash(
-            JSON.stringify({
-              s: legacySnapshot.scoringVersion,
-              a: legacySnapshot.analysisTimestamp,
-              v: legacySnapshot.unifiedVerdict?.score,
-              c: legacySnapshot.unifiedVerdict?.confidence,
-            }),
-          );
-
-        if (canonicalById.has(derivedId)) {
-          migrationSummary.deduped++;
-          continue;
-        }
-
-        const preserved = normalizeLegacy(
-          raw,
-          derivedId,
-          source,
-          "CONFLICT",
-          recordId,
-          runTimestamp,
-          legacySnapshot,
-        );
-        canonical.push(preserved);
-        canonicalById.set(derivedId, preserved);
-        migrationSummary.conflicts++;
-        continue;
-      }
-
-      // ── Fresh migration ──────────────────────────────────
-      const migrated = normalizeLegacy(
-        raw,
-        recordId,
-        source,
-        wasMissingId ? "MIGRATED_LEGACY_ID" : "MIGRATED",
-        null,
-        runTimestamp,
-        legacySnapshot,
+    const csv = buildCSV();
+    if (
+      typeof Blob !== "undefined" &&
+      typeof URL !== "undefined" &&
+      document?.createElement
+    ) {
+      const url = URL.createObjectURL(
+        new Blob([csv], { type: "text/csv;charset=utf-8;" }),
       );
-      canonical.push(migrated);
-      canonicalById.set(recordId, migrated);
-      if (wasMissingId) migrationSummary.migratedLegacyId++;
-      else migrationSummary.migrated++;
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `weaver-track-record-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
     }
-
-    saveAll(canonical);
-    return migrationSummary;
+    return csv;
   }
 
-  // Compares two immutable snapshot objects. Legacy records must be
-  // normalized BEFORE this is called so both sides share the same shape.
-  function sameImmutable(av, bv) {
-    av = av || {};
-    bv = bv || {};
-    return (
-      av.methodologyVersion === bv.methodologyVersion &&
-      av.scoringVersion === bv.scoringVersion &&
-      av.evidenceBuilderVersion === bv.evidenceBuilderVersion &&
-      av.analysisTimestamp === bv.analysisTimestamp &&
-      av.unifiedVerdict?.score === bv.unifiedVerdict?.score &&
-      av.unifiedVerdict?.confidence === bv.unifiedVerdict?.confidence
+  function transactionOptions(selected) {
+    return (W.portfolio?.txs?.() || [])
+      .map((tx) => {
+        const id = String(tx.id || "");
+        return `<option value="${escape(id)}" ${id === selected ? "selected" : ""}>${escape(`${tx.type || "Transaction"} ${tx.symbol || "asset"}`)}</option>`;
+      })
+      .join("");
+  }
+
+  async function render(view) {
+    const current = all();
+    view.innerHTML = `<div class="card"><div class="flex-between"><h3>Track Record</h3><button class="btn tiny" data-action="export">Export CSV</button></div><p class="muted small">Historical Weaver analyses are immutable. Decisions and outcomes are stored separately; this view does not fetch current market data.</p></div><div id="track-record-list">${current.length ? current.map((record) => `<article class="card track-record-entry" data-record-id="${escape(record.id)}"><h4>Weaver's Analysis — ${escape(record.assetId.symbol)}</h4><p class="small muted">${escape(record.weaverSnapshot.explanation || "No explanation captured.")}</p><p class="small">Scenario: ${escape(record.weaverSnapshot.scenario || record.weaverSnapshot.verdict || "Unknown")} · Confidence: ${record.weaverSnapshot.confidence === null || record.weaverSnapshot.confidence === undefined ? "not stated" : escape(record.weaverSnapshot.confidence + "%")}</p><h4>Your Decision</h4><select data-field="userDecision.action"><option value="UNSET" ${record.userDecision.action === "UNSET" ? "selected" : ""}>Not recorded</option><option value="WATCH">Watch</option><option value="CONSIDER">Consider</option><option value="ENTERED">Entered decision</option><option value="NOT_ENTERED">Did not enter</option><option value="HOLD">Held / waited</option></select><select data-field="userDecision.linkedTransactionId"><option value="">No linked transaction</option>${transactionOptions(record.userDecision.linkedTransactionId)}</select><textarea class="input mt" data-field="userDecision.notes" rows="2">${escape(record.userDecision.notes)}</textarea><h4>Outcome</h4><select data-field="outcome.status"><option value="UNSET">Not reported</option><option value="REPORTED_GAIN" ${record.outcome.status === "REPORTED_GAIN" ? "selected" : ""}>Reported gain</option><option value="REPORTED_LOSS" ${record.outcome.status === "REPORTED_LOSS" ? "selected" : ""}>Reported loss</option><option value="REPORTED_FLAT" ${record.outcome.status === "REPORTED_FLAT" ? "selected" : ""}>Reported flat</option><option value="UNKNOWN" ${record.outcome.status === "UNKNOWN" ? "selected" : ""}>Unknown</option></select><div class="grid-2"><input class="input" data-field="outcome.userEntryPrice" type="number" min="0" step="any" value="${record.outcome.userEntryPrice ?? ""}" placeholder="Entry price"><input class="input" data-field="outcome.userExitPrice" type="number" min="0" step="any" value="${record.outcome.userExitPrice ?? ""}" placeholder="Exit price"><input class="input" data-field="outcome.positionSize" type="number" min="0" step="any" value="${record.outcome.positionSize ?? ""}" placeholder="Position size"><input class="input" data-field="outcome.resultCurrency" value="${escape(record.outcome.resultCurrency || "")}" placeholder="Currency"></div><input class="input mt" data-field="outcome.outcomeSource" value="${escape(record.outcome.outcomeSource || "")}" placeholder="Outcome source (e.g. user-reported)"><input class="input mt" data-field="revisionReason" placeholder="Reason for update (required)"><button class="btn primary tiny mt" data-action="save">Save update</button><button class="btn danger tiny mt" data-action="delete">Delete record</button></article>`).join("") : '<p class="muted">No historical analyses captured yet.</p>'}</div>`;
+    view
+      .querySelector("[data-action='export']")
+      ?.addEventListener("click", exportCSV);
+    view.querySelectorAll("[data-action='save']").forEach(
+      (button) =>
+        (button.onclick = () => {
+          const entry = button.closest("[data-record-id]");
+          const changes = {};
+          entry.querySelectorAll("[data-field]").forEach((field) => {
+            const value = field.value;
+            if (
+              field.dataset.field.includes("Price") ||
+              field.dataset.field === "outcome.positionSize"
+            )
+              changes[field.dataset.field] =
+                value === "" ? null : Number(value);
+            else changes[field.dataset.field] = value || null;
+          });
+          const result = update(
+            entry.dataset.recordId,
+            changes,
+            entry.querySelector("[data-field='revisionReason']")?.value || "",
+          );
+          if (!result.ok) return W.ui?.toast?.(result.error, "warn");
+          W.ui?.toast?.(
+            "Track Record updated; historical analysis unchanged.",
+            "ok",
+          );
+          render(view);
+        }),
+    );
+    view.querySelectorAll("[data-action='delete']").forEach(
+      (button) =>
+        (button.onclick = () => {
+          const entry = button.closest("[data-record-id]");
+          const result = remove(entry.dataset.recordId);
+          if (result.ok) render(view);
+        }),
     );
   }
 
-  function stableCreatedAt(raw) {
-    if (typeof raw.createdAt === "number") return raw.createdAt;
-    if (typeof raw.weaverSnapshot?.analysisTimestamp === "number")
-      return raw.weaverSnapshot.analysisTimestamp;
-    if (typeof raw.analysisTimestamp === "number") return raw.analysisTimestamp;
-    // Deterministic fallback — never Date.now().
-    return 0;
+  try {
+    migrate();
+  } catch (error) {
+    console.warn("[TrackRecord] Migration deferred:", error.message);
   }
-
-  function normalizeLegacy(
-    raw,
-    recordId,
-    source,
-    status,
-    originalId,
-    migratedAt,
-    snapshot,
-  ) {
-    return {
-      schemaVersion: SCHEMA_VERSION,
-      recordId,
-      assetId: normalizeAssetId(raw.assetId || raw.asset),
-      displaySymbol: raw.displaySymbol || raw.symbol || "UNKNOWN",
-      displayName: raw.displayName || raw.name || "Unknown",
-      createdAt: stableCreatedAt(raw),
-      weaverSnapshot: snapshot,
-      userDecision: normalizeDecision(raw.userDecision || {}),
-      outcome: normalizeOutcome(raw.outcome || {}),
-      revisions: [],
-      migration: {
-        source,
-        migratedAt,
-        status,
-        originalRecordId: originalId,
-      },
-    };
-  }
-
-  function quarantineRecord(raw, source, reason, quarantineId) {
-    return {
-      schemaVersion: SCHEMA_VERSION,
-      recordId: quarantineId,
-      assetId: normalizeAssetId(null),
-      displaySymbol: "QUARANTINED",
-      displayName: "Unmigrated record",
-      createdAt: 0,
-      weaverSnapshot: normalizeAnalysis(null, { fallbackTimestamp: 0 }),
-      userDecision: normalizeDecision({}),
-      outcome: normalizeOutcome({}),
-      revisions: [],
-      migration: {
-        source,
-        migratedAt: 0,
-        status: "QUARANTINED",
-        originalRecordId: null,
-        reason,
-      },
-      quarantined: { reason, original: raw },
-    };
-  }
-
-  // ── UI ─────────────────────────────────────────────────────
-  async function render(view) {
-    const records = loadAll();
-
-    if (records.length === 0) {
-      view.innerHTML = `
-        <div class="card">
-          <h2>Track Record</h2>
-          <p class="muted small">
-            Historical snapshots of Weaver's analysis alongside your decisions and observed outcomes.
-            Records are private, stored locally, and never sent anywhere.
-          </p>
-          <div class="empty-state">
-            <div class="icon">🧾</div>
-            <div class="msg">No records yet</div>
-            <div class="sub">Save an analysis from the Token Analysis page to start a record.</div>
-          </div>
-        </div>
-      `;
-      return;
-    }
-
-    view.innerHTML = `
-      <div class="card">
-        <h2>Track Record</h2>
-        <p class="muted small">
-          Historical snapshots of Weaver's analysis alongside your decisions and observed outcomes.
-          Records are private, stored locally, and never sent anywhere.
-        </p>
-        <div class="qa mt">
-          <button class="btn tiny" id="tr-export">Export CSV</button>
-        </div>
-      </div>
-      <div id="tr-list"></div>
-    `;
-
-    view.querySelector("#tr-export").onclick = () => {
-      const csv = exportCSV();
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `weaver-track-record-${new Date().toISOString().slice(0, 10)}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-    };
-
-    const list = view.querySelector("#tr-list");
-    list.innerHTML = records.map(renderRecordCard).join("");
-
-    list.querySelectorAll("[data-expand]").forEach((btn) => {
-      btn.onclick = () => {
-        const recordId = btn.dataset.expand;
-        const record = getById(recordId);
-        if (!record) return;
-        openRecordModal(record);
-      };
-    });
-  }
-
-  function renderRecordCard(record) {
-    const s = record.weaverSnapshot || {};
-    const verdict = s.unifiedVerdict || {};
-    const scenario = s.scenario || {};
-    const decision = record.userDecision || {};
-    const outcome = record.outcome || {};
-    const safe = W.fmt.escapeHTML;
-
-    return `
-      <div class="card tr-card">
-        <div class="watch-head">
-          <div>
-            <b>${safe(record.displaySymbol)}</b>
-            <span class="muted small">${safe(record.displayName)}</span>
-            <br>
-            <span class="muted small">${new Date(record.createdAt).toLocaleString()}</span>
-          </div>
-          <button class="btn tiny" data-expand="${safe(record.recordId)}">View</button>
-        </div>
-        <div class="kv-row"><span class="muted">Scenario</span><span>${safe(scenario.classification || "UNKNOWN")}</span></div>
-        <div class="kv-row"><span class="muted">Evidence quality</span><span>${safe(verdict.evidenceQuality || "UNKNOWN")}</span></div>
-        <div class="kv-row"><span class="muted">Your decision</span><span>${safe(decision.action || "UNSET")}</span></div>
-        <div class="kv-row"><span class="muted">Outcome</span><span>${safe(outcome.status || "UNKNOWN")}</span></div>
-        <div class="kv-row"><span class="muted">Methodology</span><span class="small">${safe(s.methodologyVersion || "—")}</span></div>
-      </div>
-    `;
-  }
-
-  function openRecordModal(record) {
-    const m = W.ui.modal({
-      title: `Track Record — ${W.fmt.escapeHTML(record.displaySymbol)}`,
-      body: buildModalBody(record),
-      footer: `<button class="btn ghost" id="tr-close">Close</button>`,
-    });
-
-    m.el.querySelector("#tr-close").onclick = m.close;
-
-    m.el.querySelectorAll("[data-tab]").forEach((tab) => {
-      tab.onclick = () => {
-        m.el
-          .querySelectorAll("[data-tab]")
-          .forEach((t) => t.classList.remove("active"));
-        m.el
-          .querySelectorAll("[data-tab-panel]")
-          .forEach((p) => p.classList.add("hidden"));
-        tab.classList.add("active");
-        const panel = m.el.querySelector(
-          `[data-tab-panel="${tab.dataset.tab}"]`,
-        );
-        if (panel) panel.classList.remove("hidden");
-      };
-    });
-
-    const decisionForm = m.el.querySelector("#tr-decision-form");
-    if (decisionForm) {
-      decisionForm.onsubmit = (e) => {
-        e.preventDefault();
-        const action = m.el.querySelector("#tr-action").value;
-        const notes = m.el.querySelector("#tr-notes").value;
-        updateDecision(record.recordId, {
-          action,
-          notes,
-          decisionTimestamp: Date.now(),
-        });
-        W.ui.toast("Decision saved", "ok");
-        m.close();
-        W.refresh();
-      };
-    }
-
-    const outcomeForm = m.el.querySelector("#tr-outcome-form");
-    if (outcomeForm) {
-      outcomeForm.onsubmit = (e) => {
-        e.preventDefault();
-        const entry = m.el.querySelector("#tr-entry").value;
-        const exit = m.el.querySelector("#tr-exit").value;
-        const size = m.el.querySelector("#tr-size").value;
-        const status = m.el.querySelector("#tr-status").value;
-        const source = m.el.querySelector("#tr-source").value;
-        const entryTs = m.el.querySelector("#tr-entry-ts").value;
-        const exitTs = m.el.querySelector("#tr-exit-ts").value;
-
-        updateOutcome(record.recordId, {
-          userEntryPrice: entry === "" ? null : parseFloat(entry),
-          userExitPrice: exit === "" ? null : parseFloat(exit),
-          positionSize: size === "" ? null : parseFloat(size),
-          entryTimestamp: entryTs === "" ? null : new Date(entryTs).getTime(),
-          exitTimestamp: exitTs === "" ? null : new Date(exitTs).getTime(),
-          status,
-          outcomeSource: source,
-        });
-        W.ui.toast("Outcome saved", "ok");
-        m.close();
-        W.refresh();
-      };
-    }
-  }
-
-  function buildModalBody(record) {
-    const s = record.weaverSnapshot || {};
-    const v = s.unifiedVerdict || {};
-    const ta = s.technicalAnalysis || {};
-    const fa = s.fundamentalAssessment || {};
-    const sa = s.securityAssessment || {};
-    const sc = s.scenario || {};
-    const ev = s.evidence || {};
-    const d = record.userDecision || {};
-    const o = record.outcome || {};
-
-    const fmtNum = (n, digits = 2) =>
-      typeof n === "number" ? n.toFixed(digits) : "—";
-    const safe = W.fmt.escapeHTML;
-    const fmtTs = (ts) =>
-      typeof ts === "number" && ts > 0
-        ? new Date(ts).toISOString().slice(0, 10)
-        : "";
-
-    return `
-      <div class="tabs">
-        <button class="tab active" data-tab="weaver">Weaver's Analysis</button>
-        <button class="tab" data-tab="decision">Your Decision</button>
-        <button class="tab" data-tab="outcome">Observed Outcome</button>
-        <button class="tab" data-tab="methodology">Methodology</button>
-      </div>
-
-      <div data-tab-panel="weaver">
-        <div class="kv-row"><span class="muted">Score</span><span>${fmtNum(v.score, 0)}</span></div>
-        <div class="kv-row"><span class="muted">Confidence</span><span>${v.confidence == null ? "—" : (v.confidence * 100).toFixed(0) + "%"}</span></div>
-        <div class="kv-row"><span class="muted">Evidence quality</span><span>${safe(v.evidenceQuality || "UNKNOWN")}</span></div>
-        <div class="kv-row"><span class="muted">Technical score</span><span>${fmtNum(ta.score, 0)}</span></div>
-        <div class="kv-row"><span class="muted">Fundamental score</span><span>${fmtNum(fa.score, 0)}</span></div>
-        <div class="kv-row"><span class="muted">Security risk score</span><span>${fmtNum(sa.riskScore, 0)}</span></div>
-        <div class="kv-row"><span class="muted">Scenario</span><span>${safe(sc.classification || "UNKNOWN")}</span></div>
-
-        <h4 class="mt">Supporting evidence</h4>
-        ${
-          (ev.supporting || []).length
-            ? ev.supporting
-                .map(
-                  (e) =>
-                    `<div class="small">• ${safe(typeof e === "string" ? e : e.title || e.evidence || JSON.stringify(e))}</div>`,
-                )
-                .join("")
-            : '<div class="muted small">None recorded</div>'
-        }
-
-        <h4 class="mt">Contradicting evidence</h4>
-        ${
-          (ev.contradicting || []).length
-            ? ev.contradicting
-                .map(
-                  (e) =>
-                    `<div class="small">• ${safe(typeof e === "string" ? e : e.title || e.evidence || JSON.stringify(e))}</div>`,
-                )
-                .join("")
-            : '<div class="muted small">None recorded</div>'
-        }
-
-        <h4 class="mt">Missing evidence</h4>
-        ${
-          (ev.missing || []).length
-            ? ev.missing
-                .map(
-                  (e) =>
-                    `<div class="small">• ${safe(typeof e === "string" ? e : JSON.stringify(e))}</div>`,
-                )
-                .join("")
-            : '<div class="muted small">None recorded</div>'
-        }
-      </div>
-
-      <div data-tab-panel="decision" class="hidden">
-        <form id="tr-decision-form">
-          <label>Action
-            <select id="tr-action">
-              ${ACTIONS.map((a) => `<option value="${a}" ${d.action === a ? "selected" : ""}>${a}</option>`).join("")}
-            </select>
-          </label>
-          <label>Notes
-            <textarea id="tr-notes" rows="4">${safe(d.notes || "")}</textarea>
-          </label>
-          <button class="btn primary mt" type="submit">Save Decision</button>
-        </form>
-      </div>
-
-      <div data-tab-panel="outcome" class="hidden">
-        <form id="tr-outcome-form">
-          <label>Status
-            <select id="tr-status">
-              ${OUTCOME_STATUS.map((sx) => `<option value="${sx}" ${o.status === sx ? "selected" : ""}>${sx}</option>`).join("")}
-            </select>
-          </label>
-          <label>Entry price
-            <input id="tr-entry" type="number" step="any" value="${o.userEntryPrice == null ? "" : o.userEntryPrice}">
-          </label>
-          <label>Exit price
-            <input id="tr-exit" type="number" step="any" value="${o.userExitPrice == null ? "" : o.userExitPrice}">
-          </label>
-          <label>Position size
-            <input id="tr-size" type="number" step="any" value="${o.positionSize == null ? "" : o.positionSize}">
-          </label>
-          <label>Entry date
-            <input id="tr-entry-ts" type="date" value="${fmtTs(o.entryTimestamp)}">
-          </label>
-          <label>Exit date
-            <input id="tr-exit-ts" type="date" value="${fmtTs(o.exitTimestamp)}">
-          </label>
-          <label>Outcome source
-            <select id="tr-source">
-              ${OUTCOME_SOURCE.map((sx) => `<option value="${sx}" ${o.outcomeSource === sx ? "selected" : ""}>${sx}</option>`).join("")}
-            </select>
-          </label>
-          <div class="mt small muted">
-            Calculated result:
-            <b>${o.realizedResult == null ? "—" : o.realizedResult.toFixed(2)}</b>
-            (${o.realizedResultPct == null ? "—" : o.realizedResultPct.toFixed(2) + "%"})
-            · Duration:
-            <b>${o.holdingDurationMs == null ? "—" : Math.round(o.holdingDurationMs / 86400000) + "d"}</b>
-          </div>
-          <button class="btn primary mt" type="submit">Save Outcome</button>
-        </form>
-      </div>
-
-      <div data-tab-panel="methodology" class="hidden">
-        <div class="kv-row"><span class="muted">Methodology version</span><span>${safe(s.methodologyVersion || "—")}</span></div>
-        <div class="kv-row"><span class="muted">Scoring version</span><span>${safe(s.scoringVersion || "—")}</span></div>
-        <div class="kv-row"><span class="muted">Evidence builder version</span><span>${safe(s.evidenceBuilderVersion || "—")}</span></div>
-        <div class="kv-row"><span class="muted">Analysis timestamp</span><span>${new Date(s.analysisTimestamp).toLocaleString()}</span></div>
-        <div class="kv-row"><span class="muted">Record created</span><span>${new Date(record.createdAt).toLocaleString()}</span></div>
-        <p class="muted small mt">
-          These values are immutable. They represent the exact methodology in effect
-          when this record was created.
-        </p>
-      </div>
-    `;
-  }
-
-  // ── Exports ────────────────────────────────────────────────
   return {
-    render,
+    STORAGE_KEY,
+    SCHEMA_VERSION,
+    MUTABLE_FIELDS,
+    all,
+    get,
+    getAll: all,
+    getById: get,
+    capture,
     createFromAnalysis,
-    capture: createFromAnalysis,
-    getAll,
-    getById,
+    update,
     updateDecision,
     updateOutcome,
     linkTransaction,
+    remove,
     deleteRecord,
-    exportCSV,
     migrate,
-    _stableHash: stableHash,
-    _recomputeOutcome: recomputeOutcome,
-    _LEGACY_KEYS: LEGACY_KEYS,
+    calculateOutcome,
+    normalizeRecord,
+    buildCSV,
+    exportCSV,
+    render,
   };
 })();
 
-console.log("[TrackRecord] Module loaded.");
+console.log("[TrackRecord] Module loaded (track-record-v2.1).");
 // ---- js/features/token-analysis.js ----
 // ===============================================================
 //         Token Analysis – Evidence-Driven Decision Workflow
@@ -18960,231 +18450,205 @@ W.tokenAnalysis = (() => {
 //     toasts when a render returns a falsy value.
 // ===============================================================
 
-//  Weaver Core Application
-
 window.W = window.W || {};
 
 (function () {
-  // ── Navigation Configuration ──────────────────────────
-  const NAV = [
-    { id: "dashboard", icon: "📊", label: "Dashboard" },
-    { id: "portfolio", icon: "💼", label: "Portfolio" },
-    { id: "watchlist", icon: "⭐", label: "Watchlist" },
-    { id: "explorer", icon: "🔍", label: "Coin Explorer" },
-    { id: "alerts", icon: "🚨", label: "Alerts" },
-    { id: "news", icon: "📰", label: "News" },
-    { id: "ai", icon: "🧠", label: "Portfolio Intelligence" },
-    { id: "optimizer", icon: "🧮", label: "Optimizer" },
-    { id: "time", icon: "⏳", label: "Time Machine" },
-    { id: "trader", icon: "⚡", label: "Trading Assistant" },
-    { id: "gems", icon: "💎", label: "Gem Agent" },
-    { id: "shield", icon: "🛡️", label: "Token Shield" },
-    { id: "web3", icon: "🌐", label: "Web3 Wallets" },
-    { id: "defi", icon: "💰", label: "DeFi" },
-    { id: "airdrops", icon: "🎯", label: "Airdrop Hunter" },
-    { id: "market", icon: "📈", label: "Trading Tools" },
-    { id: "sectors", icon: "🌊", label: "Sector Map" },
-    { id: "whales", icon: "🐋", label: "Whale Tracker" },
-    { id: "smart", icon: "🧠", label: "Smart Money" },
-    { id: "unlocks", icon: "🔓", label: "Token Unlocks" },
-    { id: "learn", icon: "📚", label: "Learn" },
-    { id: "profile", icon: "👤", label: "Profile" },
-    { id: "pro", icon: "🔮", label: "Weaver Pro" },
-    { id: "theses", icon: "🎯", label: "Theses" },
-    { id: "journal", icon: "📓", label: "Journal" },
-    { id: "sync", icon: "☁️", label: "Sync" },
-    { id: "settings", icon: "⚙️", label: "Settings" },
-    // ── Track Record ─────────────────────────────────────
-    { id: "track", icon: "🧾", label: "Track Record" },
+  const NAV_GROUPS = [
+    {
+      label: "PRIMARY",
+      items: [
+        {
+          id: "dashboard",
+          icon: "📊",
+          label: "Dashboard",
+          route: "#/dashboard",
+        },
+        { id: "explorer", icon: "🔍", label: "Discover", route: "#/explorer" },
+        { id: "token", icon: "📈", label: "Analyze", route: "#/token" },
+        {
+          id: "portfolio",
+          icon: "💼",
+          label: "Portfolio",
+          route: "#/portfolio",
+        },
+      ],
+    },
+    {
+      label: "MONITOR",
+      items: [
+        {
+          id: "watchlist",
+          icon: "⭐",
+          label: "Watchlist",
+          route: "#/watchlist",
+        },
+        { id: "alerts", icon: "🚨", label: "Alerts", route: "#/alerts" },
+        { id: "market", icon: "📡", label: "Signals", route: "#/market" },
+      ],
+    },
+    {
+      label: "INTELLIGENCE",
+      items: [
+        { id: "news", icon: "📰", label: "News", route: "#/news" },
+        { id: "whales", icon: "🐋", label: "Whale Tracker", route: "#/whales" },
+        { id: "smart", icon: "🧠", label: "Smart Money", route: "#/smart" },
+        { id: "theses", icon: "🎯", label: "Theses", route: "#/theses" },
+        { id: "journal", icon: "📓", label: "Journal", route: "#/journal" },
+        { id: "track", icon: "🧾", label: "Track Record", route: "#/track" },
+      ],
+    },
+    {
+      label: "TOOLS",
+      items: [
+        { id: "shield", icon: "🛡️", label: "Token Shield", route: "#/shield" },
+        {
+          id: "optimizer",
+          icon: "🧮",
+          label: "Optimizer",
+          route: "#/optimizer",
+        },
+        {
+          id: "unlocks",
+          icon: "🔓",
+          label: "Token Unlocks",
+          route: "#/unlocks",
+        },
+        { id: "ai", icon: "🧠", label: "AI Insights", route: "#/ai" },
+        { id: "sync", icon: "☁️", label: "Encrypted Sync", route: "#/sync" },
+        { id: "settings", icon: "⚙️", label: "Settings", route: "#/settings" },
+      ],
+    },
   ];
 
-  // ── Route Map ──────────────────────────────────────────
-  // Each route is `(view) => void`. Handlers must set
-  // `view.innerHTML` synchronously (even if just a spinner)
-  // so Playwright's `waitForSelector("#view")` resolves.
+  const ALL_NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
+  let routeGeneration = 0;
+
+  // ── Shared route dispatcher ────────────────────────────────
+  // Resolves the module method at dispatch time (not at script-load
+  // time, which matters because modules load in order). Catches
+  // failures and renders an honest error card instead of silently
+  // leaving the view empty or firing a false "not loaded" toast.
+  async function safeRender(view, name, getMethod) {
+    const generation = routeGeneration;
+    if (view.dataset.route !== name) return;
+    const method = getMethod();
+    if (typeof method !== "function") {
+      W.ui?.toast?.(`${name} module not loaded`, "warn");
+      view.innerHTML = `<div class="card"><p class="muted">${name} module not available.</p></div>`;
+      return;
+    }
+    try {
+      if (generation !== routeGeneration || view.dataset.route !== name) return;
+      await method(view);
+      if (generation !== routeGeneration || view.dataset.route !== name) return;
+    } catch (e) {
+      if (generation !== routeGeneration || view.dataset.route !== name) return;
+      console.warn(`[Router] ${name} render failed:`, e);
+      view.innerHTML = `<div class="card"><p class="muted">Failed to load ${name}: ${W.fmt?.escapeHTML?.(e.message) || "unknown error"}</p></div>`;
+    }
+  }
+
   const routes = {
-    dashboard: (v) => {
-      if (W.dashboard?.render) return W.dashboard.render(v);
-      v.innerHTML = '<div class="card"><h3>Dashboard</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    portfolio: (v) => {
-      if (W.dashboard?.renderPortfolio) return W.dashboard.renderPortfolio(v);
-      if (W.portfolio?.render) return W.portfolio.render(v);
-      v.innerHTML = '<div class="card"><h3>Portfolio</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    watchlist: (v) => {
-      if (W.watchlist?.render) return W.watchlist.render(v);
-      v.innerHTML = '<div class="card"><h3>Watchlist</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    explorer: (v) => {
-      if (W.explorer?.render) return W.explorer.render(v);
-      v.innerHTML = '<div class="card"><h3>Explorer</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    alerts: (v) => {
-      if (W.alerts?.render) return W.alerts.render(v);
-      v.innerHTML = '<div class="card"><h3>Alerts</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    news: (v) => {
-      if (W.news?.render) return W.news.render(v);
-      v.innerHTML = '<div class="card"><h3>News</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    ai: (v) => {
-      if (W.ai?.render) return W.ai.render(v);
-      v.innerHTML = '<div class="card"><h3>AI Insights</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    optimizer: (v) => {
-      if (W.optimizer?.render) return W.optimizer.render(v);
-      v.innerHTML = '<div class="card"><h3>Optimizer</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    time: (v) => {
-      if (W.time?.render) return W.time.render(v);
-      v.innerHTML = '<div class="card"><h3>Time Machine</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    trader: (v) => {
-      if (W.trader?.render) return W.trader.render(v);
-      v.innerHTML = '<div class="card"><h3>Trading Assistant</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    gems: (v) => {
-      if (W.gems?.render) return W.gems.render(v);
-      v.innerHTML = '<div class="card"><h3>Gem Agent</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    shield: (v) => {
-      if (W.shield?.render) return W.shield.render(v);
-      v.innerHTML = '<div class="card"><h3>Token Shield</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    web3: (v) => {
-      if (W.web3?.render) return W.web3.render(v);
-      v.innerHTML = '<div class="card"><h3>Web3 Wallets</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    defi: (v) => {
-      if (W.misc?.renderDefi) return W.misc.renderDefi(v);
-      v.innerHTML = '<div class="card"><h3>DeFi</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    airdrops: (v) => {
-      if (W.misc?.renderAirdrops) return W.misc.renderAirdrops(v);
-      v.innerHTML = '<div class="card"><h3>Airdrops</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    market: (v) => {
-      if (W.market?.render) return W.market.render(v);
-      v.innerHTML = '<div class="card"><h3>Market</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    sectors: (v) => {
-      if (W.sectors?.render) return W.sectors.render(v);
-      v.innerHTML = '<div class="card"><h3>Sectors</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    whales: (v) => {
-      if (W.whales?.render) return W.whales.render(v);
-      v.innerHTML = '<div class="card"><h3>Whales</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    smart: (v) => {
-      if (W.smart?.render) return W.smart.render(v);
-      v.innerHTML = '<div class="card"><h3>Smart Money</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    unlocks: (v) => {
-      if (W.unlocks?.render) return W.unlocks.render(v);
-      v.innerHTML = '<div class="card"><h3>Unlocks</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    learn: (v) => {
-      if (W.learn?.render) return W.learn.render(v);
-      v.innerHTML = '<div class="card"><h3>Learn</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    profile: (v) => {
-      if (W.misc?.renderProfile) return W.misc.renderProfile(v);
-      v.innerHTML = '<div class="card"><h3>Profile</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    pro: (v) => {
-      if (W.misc?.renderPro) return W.misc.renderPro(v);
-      v.innerHTML = '<div class="card"><h3>Pro</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    theses: (v) => {
-      if (W.theses?.render) return W.theses.render(v);
-      v.innerHTML = '<div class="card"><h3>Theses</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    journal: (v) => {
-      if (W.journal?.render) return W.journal.render(v);
-      v.innerHTML = '<div class="card"><h3>Journal</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    sync: (v) => {
-      if (W.sync?.render) return W.sync.render(v);
-      v.innerHTML = '<div class="card"><h3>Sync</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    settings: (v) => {
-      if (W.misc?.renderSettings) return W.misc.renderSettings(v);
-      v.innerHTML = '<div class="card"><h3>Settings</h3><p class="muted">Module not loaded.</p></div>';
-    },
-    // ── Track Record ─────────────────────────────────────
-    track: (v) => {
-      if (W.trackRecord?.render) return W.trackRecord.render(v);
-      v.innerHTML = '<div class="card"><h3>Track Record</h3><p class="muted">Module not loaded.</p></div>';
-    },
+    dashboard: (v) => safeRender(v, "dashboard", () => W.dashboard?.render),
+    portfolio: (v) =>
+      safeRender(v, "portfolio", () => W.dashboard?.renderPortfolio),
+    watchlist: (v) => safeRender(v, "watchlist", () => W.watchlist?.render),
+    explorer: (v) => safeRender(v, "explorer", () => W.explorer?.render),
+    alerts: (v) => safeRender(v, "alerts", () => W.alerts?.render),
+    news: (v) => safeRender(v, "news", () => W.news?.render),
+    ai: (v) => safeRender(v, "ai", () => W.ai?.render),
+    optimizer: (v) => safeRender(v, "optimizer", () => W.optimizer?.render),
+    time: (v) => safeRender(v, "time", () => W.time?.render),
+    gems: (v) => safeRender(v, "gems", () => W.gems?.render),
+    shield: (v) => safeRender(v, "shield", () => W.shield?.render),
+    web3: (v) => safeRender(v, "web3", () => W.web3?.render),
+    defi: (v) => safeRender(v, "defi", () => W.misc?.renderDefi),
+    airdrops: (v) => safeRender(v, "airdrops", () => W.misc?.renderAirdrops),
+    market: (v) => safeRender(v, "market", () => W.market?.render),
+    sectors: (v) => safeRender(v, "sectors", () => W.sectors?.render),
+    whales: (v) => safeRender(v, "whales", () => W.whales?.render),
+    smart: (v) => safeRender(v, "smart", () => W.smart?.render),
+    unlocks: (v) => safeRender(v, "unlocks", () => W.unlocks?.render),
+    learn: (v) => safeRender(v, "learn", () => W.learn?.render),
+    profile: (v) => safeRender(v, "profile", () => W.misc?.renderProfile),
+    pro: (v) => safeRender(v, "pro", () => W.misc?.renderPro),
+    theses: (v) => safeRender(v, "theses", () => W.theses?.render),
+    journal: (v) => safeRender(v, "journal", () => W.journal?.render),
+    "track-record": (v) =>
+      safeRender(v, "track-record", () => W.trackRecord?.render),
+    track: (v) => safeRender(v, "track", () => W.trackRecord?.render),
+    sync: (v) => safeRender(v, "sync", () => W.sync?.render),
+    settings: (v) => safeRender(v, "settings", () => W.misc?.renderSettings),
+    token: (v) =>
+      safeRender(v, "token", () => {
+        if (typeof W.tokenAnalysis?.render !== "function") return null;
+        const param = getPageParam();
+        return (view) => W.tokenAnalysis.render(view, param || undefined);
+      }),
   };
 
-  // ── Helpers ────────────────────────────────────────────
   function getCurrentPage() {
     return location.hash.slice(2).split("/")[0] || "dashboard";
   }
-
   function getPageParam() {
     const parts = location.hash.slice(2).split("/");
-    return parts.length > 1 ? parts[1] : null;
+    if (parts.length <= 1 || !parts[1]) return null;
+    try {
+      return decodeURIComponent(parts[1]);
+    } catch {
+      return parts[1];
+    }
   }
 
-  // ── Route Handler ──────────────────────────────────────
   function route() {
+    routeGeneration += 1;
     const hash = location.hash.slice(2) || "dashboard";
     const [page, param] = hash.split("/");
     const activeId = page === "coin" ? "explorer" : page;
 
-    // Update navigation
     document.querySelectorAll("#nav a").forEach((a) => {
       a.classList.toggle("active", a.dataset.id === activeId);
     });
 
-    // Update page title
-    const navItem = NAV.find((n) => n.id === activeId);
+    const navItem = ALL_NAV_ITEMS.find((n) => n.id === activeId);
     const titleEl = document.getElementById("page-title");
     if (titleEl) titleEl.textContent = navItem ? navItem.label : "Weaver";
 
-    // Render view
     const view = document.getElementById("view");
     if (!view) {
       console.warn("[App] View element not found");
       return;
     }
 
+    // Clear previous route's DOM before dispatch. Without this, a
+    // failed or empty render leaves the previous route's content on
+    // screen (e.g. clicking News showed stale Sync content).
+    view.innerHTML = "";
+    view.dataset.route = page;
+
     try {
       if (page === "coin" && param) {
-        if (W.explorer?.renderCoin) {
-          W.explorer.renderCoin(view, param);
-        } else {
-          view.innerHTML = '<div class="card"><p class="muted">Explorer module not available.</p></div>';
-        }
+        if (W.explorer?.renderCoin) W.explorer.renderCoin(view, param);
+        else
+          view.innerHTML =
+            '<p class="muted">Explorer module not available.</p>';
       } else if (routes[page]) {
         routes[page](view);
       } else {
-        view.innerHTML = '<div class="card"><h3>404</h3><p class="muted">Page not found.</p></div>';
+        view.innerHTML =
+          '<div class="card"><h3>404</h3><p class="muted">Page not found.</p></div>';
       }
     } catch (e) {
       console.error("[App] Route error:", e);
-      view.innerHTML = `
-        <div class="card">
-          <h3>⚠️ Something went wrong</h3>
-          <p class="muted">${W.fmt?.escapeHTML?.(e.message) || e.message}</p>
-        </div>
-      `;
+      view.innerHTML = `<div class="card"><h3>⚠️ Something went wrong</h3><p class="muted">${W.fmt?.escapeHTML?.(e.message) || e.message}</p><p class="muted small">Check the console (F12) for details.</p></div>`;
     }
 
-    // Update last updated timestamp
     const updated = document.getElementById("last-updated");
-    if (updated) {
+    if (updated)
       updated.textContent = `updated ${new Date().toLocaleTimeString()} · via ${W.api?.source || "…"}`;
-    }
-
-    // Check alerts
     if (W.alerts?.check) W.alerts.check();
   }
 
-  // ── Streak Tracking ────────────────────────────────────
   function updateStreak() {
     const today = new Date().toDateString();
     const streak = W.store?.get?.("streak", null);
@@ -19195,9 +18659,7 @@ window.W = window.W || {};
     }
   }
 
-  // ── Auto-Refresh Loop ──────────────────────────────────
   let refreshLoop = null;
-
   function startLoop() {
     clearInterval(refreshLoop);
     const settings = W.store?.get?.("settings", {});
@@ -19215,7 +18677,6 @@ window.W = window.W || {};
     }
   }
 
-  // ── Settings Application ──────────────────────────────
   W.applySettings = function () {
     const cur = W.currency?.() || "usd";
     const el = document.getElementById("currency");
@@ -19223,38 +18684,47 @@ window.W = window.W || {};
     startLoop();
   };
 
-  // ── W.currency ────────────────────────────────────────
   W.currency = function () {
     return W.store?.get?.("settings", {})?.currency || "usd";
   };
-
-  // ── Refresh wrapper ────────────────────────────────────
   W.refresh = function () {
     route();
   };
 
-  // ── Init ───────────────────────────────────────────────
   function init() {
     console.log("[App] Initializing Weaver...");
 
-    // ── Build navigation ──────────────────────────────────
     const navEl = document.getElementById("nav");
     if (navEl) {
-      navEl.innerHTML = NAV.map(
-        (n) => `
-        <a href="#/${n.id}" data-id="${n.id}">
-          <span class="nav-ico">${n.icon}</span>
-          <span>${n.label}</span>
-          ${n.id === "alerts" ? '<span class="nav-badge" id="alert-badge"></span>' : ""}
-        </a>
-      `,
-      ).join("");
+      navEl.innerHTML = NAV_GROUPS.map((group) => {
+        const groupHtml = `<div class="nav-group-label">${group.label}</div>`;
+        const itemsHtml = group.items
+          .map(
+            (n) => `
+          <a href="${n.route}" data-id="${n.id}">
+            <span class="nav-ico">${n.icon}</span>
+            <span>${n.label}</span>
+            ${n.id === "alerts" ? '<span class="nav-badge" id="alert-badge"></span>' : ""}
+          </a>
+        `,
+          )
+          .join("");
+        return groupHtml + itemsHtml;
+      }).join("");
     }
 
-    // ── Setup currency dropdown ──────────────────────────
     const curEl = document.getElementById("currency");
     if (curEl) {
-      const currencies = ["usd", "ngn", "eur", "gbp", "inr", "jpy", "aud", "cad"];
+      const currencies = [
+        "usd",
+        "ngn",
+        "eur",
+        "gbp",
+        "inr",
+        "jpy",
+        "aud",
+        "cad",
+      ];
       curEl.innerHTML = currencies
         .map((c) => `<option value="${c}">${c.toUpperCase()}</option>`)
         .join("");
@@ -19267,15 +18737,12 @@ window.W = window.W || {};
       };
     }
 
-    // ── Refresh button ────────────────────────────────────
     const refreshBtn = document.getElementById("btn-refresh");
     if (refreshBtn) refreshBtn.onclick = route;
 
-    // ── Pro button ────────────────────────────────────────
     const proBtn = document.getElementById("btn-pro");
     if (proBtn) proBtn.onclick = () => (location.hash = "#/pro");
 
-    // ── Sync button ──────────────────────────────────────
     const syncBtn = document.getElementById("sync-btn");
     if (syncBtn) {
       syncBtn.onclick = () => {
@@ -19284,40 +18751,67 @@ window.W = window.W || {};
       };
     }
 
-    // ── Unhandled rejections ─────────────────────────────
     window.addEventListener("unhandledrejection", (e) => {
       console.warn("[App] Unhandled rejection:", e.reason);
       const msg = e.reason?.message || "Request failed";
       const view = document.getElementById("view");
       const spinner = view?.querySelector(".spinner");
       if (spinner) {
-        spinner.outerHTML = `<p class="muted small mt">⚠️ ${W.fmt?.escapeHTML?.(msg) || msg} — some live data is unavailable.</p>`;
+        spinner.outerHTML = `<p class="muted small mt">⚠️ ${W.fmt?.escapeHTML?.(msg) || msg} — some live data is unavailable (showing cache where possible). Try ⟳ or another network.</p>`;
       }
     });
 
-    // ── Achievements ─────────────────────────────────────
     if (W.achievements?.check) W.achievements.check();
-
-    // ── Streak ────────────────────────────────────────────
     updateStreak();
-
-    // ── Sync boot ────────────────────────────────────────
     if (W.sync?.boot) W.sync.boot();
 
-    // ── Route and start loop ─────────────────────────────
     window.addEventListener("hashchange", route);
     route();
     startLoop();
 
-    // ── Alert checker (every 60s) ────────────────────────
     setInterval(() => {
       if (W.alerts?.check) W.alerts.check();
     }, 60000);
 
+    // ── Toast click handler for Telegram test ────────────
+    document.addEventListener("click", (e) => {
+      const target = e.target;
+      const id = target?.id;
+
+      if (id === "set-tgtest") {
+        const token =
+          document.querySelector("#set-tgtoken")?.value?.trim?.() || "";
+        const chat =
+          document.querySelector("#set-tgchat")?.value?.trim?.() || "";
+        if (!token || !chat) {
+          W.ui?.toast?.("Enter token and Chat ID first", "warn");
+          return;
+        }
+        if (!W.tg) {
+          W.ui?.toast?.("Telegram module not loaded", "warn");
+          return;
+        }
+        W.tg
+          .send(`✅ Weaver connected! Alerts will arrive here.`, {
+            on: true,
+            token,
+            chat,
+          })
+          .then((ok) => {
+            W.ui?.toast?.(
+              ok ? "Test sent 📨" : "Failed — check token/Chat ID",
+              ok ? "ok" : "warn",
+            );
+          });
+      }
+
+      // SECURITY FIX: Removed plaintext `if (id === "set-save")` handler.
+      // Credential saving is now exclusively handled by the secure vault in `W.misc.renderSettings`.
+    });
+
     console.log("[App] ✅ Weaver initialized.");
   }
 
-  // ── Start on DOM ready ─────────────────────────────────
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
   } else {
