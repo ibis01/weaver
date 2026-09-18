@@ -18264,7 +18264,7 @@ W.tokenAnalysis = (() => {
 
           <div class="grid-2 mt-16">
             <div class="card">
-              <h4 class="text-up">🟢 Bullish Evidence</h4>
+              <h4 class="text-up">🟢 Positive Evidence</h4>
               ${
                 result.bullishEvidence.length
                   ? result.bullishEvidence
@@ -18277,7 +18277,7 @@ W.tokenAnalysis = (() => {
               }
             </div>
             <div class="card">
-              <h4 class="text-down">🔴 Bearish Evidence</h4>
+              <h4 class="text-down">🔴 Negative Evidence</h4>
               ${
                 result.bearishEvidence.length
                   ? result.bearishEvidence
@@ -18291,6 +18291,17 @@ W.tokenAnalysis = (() => {
             </div>
           </div>
 
+          ${
+            result.evidenceQuality?.reasons?.length
+              ? `<div class="card mt-16">
+                   <h4 class="text-muted">❓ Unknowns</h4>
+                   <p class="small muted mt-4">Evidence gaps Weaver could not verify:</p>
+                   <ul class="tx-list mt-8">
+                     ${result.evidenceQuality.reasons.map((r) => `<li class="small">${safeText(r)}</li>`).join("")}
+                   </ul>
+                 </div>`
+              : ""
+          }
           ${
             result.contradictions && result.contradictions.length
               ? `<div class="card-warn">
@@ -18325,6 +18336,7 @@ W.tokenAnalysis = (() => {
 
           <div class="qa mt-12">
             ${W.trackRecord ? '<button class="btn tiny primary" id="ta-save-track" data-action="capture-track-record">Capture historical snapshot</button>' : ""}
+            <a class="btn tiny" href="#/track">🧾 View track record</a>
             <button class="btn tiny" data-action="new-analysis">← New Analysis</button>
           </div>
         </div>
