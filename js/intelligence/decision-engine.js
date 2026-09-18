@@ -336,7 +336,7 @@ W.decisionEngine = (() => {
     const card = document.createElement("div");
     card.className = "card";
     const title = document.createElement("h3");
-    title.textContent = "⚡ What Matters Now";
+    title.textContent = "⚡ Needs Attention";
     card.appendChild(title);
 
     const list = document.createElement("ul");
