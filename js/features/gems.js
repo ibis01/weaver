@@ -294,11 +294,22 @@ W.gems = (() => {
       });
 
       const minScore = parseFloat(view.querySelector("#g-min")?.value) || 0;
+      const chainFilter = view.querySelector("#g-chain")?.value || "";
+      const hideRisk = view.querySelector("#g-hide-risk")?.checked || false;
       const results = Object.values(byToken)
         .map((p) => ({ pair: p, analysis: score(p) }))
         .filter((g) => g.analysis.score >= minScore)
         .sort((a, b) => b.analysis.score - a.analysis.score)
         .slice(0, 24);
+
+      const shown = results.filter((g) => {
+        if (chainFilter && g.pair.chainId !== chainFilter) return false;
+        if (hideRisk) {
+          const sc = shieldCache[g.pair.baseToken.address];
+          if (sc && sc.riskScore >= 40) return false;
+        }
+        return true;
+      });
 
       for (const g of results) {
         const addr = g.pair.baseToken.address;
@@ -329,11 +340,11 @@ W.gems = (() => {
       view.querySelector("#g-stats").innerHTML = `
         <div class="card stat"><div class="stat-label">Candidates scanned</div><div class="stat-big">${addresses.length}</div></div>
         <div class="card stat"><div class="stat-label">Chains covered</div><div class="stat-big">${new Set(results.map((g) => g.pair.chainId)).size}</div></div>
-        <div class="card stat"><div class="stat-label">Gems ≥ ${minScore}</div><div class="stat-big">${results.length}</div></div>
+        <div class="card stat"><div class="stat-label">Gems ≥ ${minScore}</div><div class="stat-big">${results.length}${shown.length < results.length ? " (showing " + shown.length + ")" : ""}</div></div>
       `;
 
-      if (results.length) {
-        body.innerHTML = `<div class="grid-2">${results
+      if (shown.length) {
+        body.innerHTML = `<div class="grid-2">${shown
           .map((g) => {
             const p = g.pair,
               a = g.analysis,
@@ -420,6 +431,16 @@ W.gems = (() => {
                 <option value="70">70</option>
               </select>
             </label>
+            <label class="m-0">Chain
+              <select id="g-chain" class="w-auto">
+                <option value="">All</option>
+                ${Object.keys(CHAINS).map((c) => `<option value="${c}">${c}</option>`).join("")}
+              </select>
+            </label>
+            <label class="small m-0">
+              <input type="checkbox" id="g-hide-risk" class="w-auto">
+              Hide high-risk
+            </label>
             <label class="small m-0">
               <input type="checkbox" id="g-auto" ${auto ? "checked" : ""} class="w-auto">
               Auto-scan 5 min
@@ -435,6 +456,8 @@ W.gems = (() => {
 
     view.querySelector("#g-go").onclick = () => scan(view);
     view.querySelector("#g-min").onchange = () => scan(view);
+    view.querySelector("#g-chain").onchange = () => scan(view);
+    view.querySelector("#g-hide-risk").onchange = () => scan(view);
     view.querySelector("#g-auto").onchange = (e) => {
       auto = e.target.checked;
       clearInterval(timer);
