@@ -266,21 +266,35 @@ W.dashboard = (() => {
   }
 
   async function render(view) {
+    // ── Phase 1 layout ────────────────────────────────────────
+    // Order: stats → portfolio (with actions) → attention + changes
+    //        → market context. Portfolio sits first because it's the
+    //        user's own data; market intelligence comes after.
     view.innerHTML = `
       <p class="muted small mb-16">Your evidence-driven crypto intelligence workspace.</p>
       <div id="d-data-health" aria-live="polite"></div>
       <div class="cards" id="d-stats"></div>
-      <div class="grid-2">
+
+      <div class="card mt-16">
+        <div class="flex-between mb-8">
+          <h3>💼 Your Portfolio</h3>
+          <div class="qa">
+            <a href="#/token" class="btn tiny">🔍 Analyze</a>
+            <button class="btn tiny" id="qa-add">+ Add Holding</button>
+            <button class="btn tiny" id="qa-sync" title="Sync connected wallets">👛 Sync Wallets</button>
+          </div>
+        </div>
+        <div id="d-port"></div>
+      </div>
+
+      <div class="grid-2 mt-16">
         <div id="what-matters-now-container"></div>
         <div id="what-changed-container"></div>
       </div>
-      <div class="card mt-16">
-        <div class="flex-between mb-8"><h3>💼 Your Portfolio</h3></div>
-        <div id="d-port"></div>
-      </div>
+
       <div class="card mt-16">
         <div class="flex-between mb-8">
-          <h3>🌐 Markets Terminal</h3>
+          <h3>🌐 Market Context</h3>
           <div class="qa">
             <button class="chip active" data-tab="trending">🔥 Trending</button>
             <button class="chip" data-tab="top">🏆 Top</button>
@@ -294,14 +308,6 @@ W.dashboard = (() => {
             <thead><tr><th>#</th><th>Token</th><th class="num">Price</th><th class="num">24H</th><th>7d Chart</th></tr></thead>
             <tbody id="d-rows"><tr><td colspan="5" class="text-center text-muted">${W.ui.spinner()}</td></tr></tbody>
           </table>
-        </div>
-      </div>
-      <div class="card text-center p-24 mt-16">
-        <h3 class="mb-16">Next Steps</h3>
-        <div class="qa flex-center gap-16">
-          <a href="#/token" class="btn primary">🔍 Analyze a Token</a>
-          <button class="btn" id="qa-add">+ Add Holding</button>
-          <button class="btn" id="qa-sync" title="Sync connected wallets">👛 Sync Wallets</button>
         </div>
       </div>
     `;
@@ -447,10 +453,6 @@ W.dashboard = (() => {
       title.textContent = "🔍 Discoveries";
       card.appendChild(title);
 
-      // New intelligence — recent Gem Agent discoveries, sourced from
-      // the Thesis records Gem Agent already auto-creates (see
-      // js/features/gems.js autoCreateThesis / sourceRef). Real
-      // intelligence-pipeline data, not invented for this UI.
       const newIntelLabel = document.createElement("p");
       newIntelLabel.className = "muted small mb-8";
       newIntelLabel.style.marginTop = "8px";
@@ -482,10 +484,10 @@ W.dashboard = (() => {
           head.style.display = "flex";
           head.style.justifyContent = "space-between";
           const asset = document.createElement("b");
-          asset.textContent = t.asset; // SAFE: textContent
+          asset.textContent = t.asset;
           const security = document.createElement("span");
           security.className = "muted small";
-          security.textContent = t.signals || "Security status unavailable"; // SAFE
+          security.textContent = t.signals || "Security status unavailable";
           head.appendChild(asset);
           head.appendChild(security);
           li.appendChild(head);
@@ -493,7 +495,7 @@ W.dashboard = (() => {
           if (t.reasons) {
             const why = document.createElement("p");
             why.className = "muted small mt-4";
-            why.textContent = t.reasons; // SAFE: textContent
+            why.textContent = t.reasons;
             li.appendChild(why);
           }
           list.appendChild(li);
@@ -501,9 +503,6 @@ W.dashboard = (() => {
         card.appendChild(list);
       }
 
-      // Portfolio changes — existing delta engine, unchanged data flow,
-      // rendered without its own card wrapper so it composes cleanly
-      // into this shared card instead of nesting card-in-card.
       const pfLabel = document.createElement("p");
       pfLabel.className = "muted small mb-8";
       pfLabel.style.marginTop = "16px";
