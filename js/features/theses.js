@@ -121,7 +121,7 @@ W.theses = W.theses || {};
             <p class="small muted"><b>Invalidation:</b> ${W.fmt.escapeHTML(t.invalidation)}</p>
 
             <!-- Hook for health details (injected below) -->
-            <div class="thesis-health-details" data-details-id="${t.id}" style="margin-top: 12px;"></div>
+            <div class="thesis-health-details mt-12" data-details-id="${t.id}"></div>
 
             <div class="flex-gap-10-mt-10">
               <button class="btn tiny warn" data-action="invalidate" data-id="${t.id}">Mark Invalidated</button>
@@ -133,7 +133,7 @@ W.theses = W.theses || {};
           .join("")}
       </div>
 
-      <div id="thesis-form-container" class="card hidden" style="margin-top:20px;">
+      <div id="thesis-form-container" class="card hidden mt-20">
         <h4>Create New Thesis</h4>
         <form id="thesis-form" class="form-grid">
           <input type="text" id="t-asset" placeholder="Asset (e.g. BTC)" required class="input">

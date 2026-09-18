@@ -52,6 +52,16 @@ W.gems = (() => {
     return Math.round(hours / 24) + "d";
   }
 
+  // Bucket a percentage to the nearest 10 for the .meter-fill-N
+  // classes in style.css. Kept local so this module has no
+  // dependency on W.ui being fully populated (the test environment
+  // does not load it). CSP-safe: the width is set via a class, not
+  // an inline style attribute.
+  function pctBucket(n) {
+    const v = Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
+    return Math.round(v / 10) * 10;
+  }
+
   // ── API call with proxy fallback ──────────────────────
   async function fetchDexScreener(url) {
     let lastErr;
@@ -171,9 +181,6 @@ W.gems = (() => {
   let seen = {};
   let shieldCache = {};
 
-  // Ask Token Shield for a risk assessment before emitting an alert.
-  // Chains not in Shield's CHAINS return { unsupported: true }; this
-  // is honest degradation, not a silent skip.
   async function checkShield(addr, chainKey, identity = {}) {
     if (shieldCache[addr]) {
       W.shield?.rememberEvidence?.(
@@ -213,12 +220,6 @@ W.gems = (() => {
     return `🛡️ Shield: ${s.riskLevel[0]} (${s.riskScore}/100 identified-risk score, ${s.scoreVersion})`;
   }
 
-  // ── Auto-feed into Theses ───────────────────────────────
-  // Every alert gets a trackable "why we called it" record — the
-  // trust layer a bare score/alert doesn't give you. Dedupes against
-  // existing theses by source (addr+chain), not just the in-memory
-  // `seen` set, since `seen` resets on reload but a duplicate thesis
-  // would not.
   function autoCreateThesis(gem, addr, shield) {
     if (!W.theses) return;
     const chain = gem.pair.chainId;
@@ -275,12 +276,6 @@ W.gems = (() => {
         const a = p.baseToken?.address;
         if (!a) return;
         // Constitution §3.3 — DISCOVERABLE_CHAINS ⊆ VERIFIED_CHAINS.
-        // Don't surface a "gem" as a default result on a chain Token
-        // Shield can't actually verify — that's discovery shipping
-        // ahead of verification. (See test/unit/gems-chain-filter.test.js
-        // for a behavioral regression test — the static CHAINS config
-        // being correct isn't enough on its own; it has to actually
-        // gate what gets scored and alerted on.)
         if (!CHAINS[p.chainId]) return;
         if (
           !byToken[a] ||
@@ -348,12 +343,12 @@ W.gems = (() => {
                   ${chainTag(p.chainId)} <span class="muted small">age ${ageText(a.ageH)}</span>
                 </div>
                 <div class="text-right">
-                  <span class="tag ${a.verdict[1]}" style="font-size:12px;padding:5px 10px;">${a.verdict[0]}</span>
-                  <div class="alt-num" style="font-size:26px;">${a.score}</div>
-                  <div class="muted" style="font-size:10px;">${a.scoreVersion}</div>
+                  <span class="tag tag-lg ${a.verdict[1]}">${a.verdict[0]}</span>
+                  <div class="alt-num text-3xl">${a.score}</div>
+                  <div class="muted text-2xs">${a.scoreVersion}</div>
                 </div>
               </div>
-              <div class="meter-bar"><div style="width:${a.score}%; background: var(--grad);"></div></div>
+              <div class="meter-bar"><div class="meter-fill meter-fill-${pctBucket(a.score)}"></div></div>
               <div class="kv-row"><span class="muted">Price</span><span>$${p.priceUsd}</span></div>
               <div class="kv-row"><span class="muted">Liquidity / 24h Vol</span><span>$${kfmt(a.liq)} / $${kfmt(a.vol)}</span></div>
               <div class="kv-row"><span class="muted">1h / 6h / 24h</span><span>${W.fmt.pct(a.h1)} ${W.fmt.pct(a.h6)} ${W.fmt.pct(a.h24)}</span></div>

@@ -486,6 +486,15 @@ W.learn = (() => {
   }
 
   // ── Helpers ─────────────────────────────────────────────
+  // Bucket a percentage to the nearest 10 for the .meter-fill-N
+  // classes in style.css. Kept local so this module has no
+  // dependency on W.ui being fully populated. CSP-safe: width is
+  // set via a class, not an inline style attribute.
+  function pctBucket(n) {
+    const v = Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
+    return Math.round(v / 10) * 10;
+  }
+
   function escapeHTML(str) {
     if (!str) return "";
     const div = document.createElement("div");
@@ -524,7 +533,7 @@ W.learn = (() => {
         </div>
         <div class="meter">
           <div class="meter-label">Progress <b>${done.length}/${LESSONS.length}</b></div>
-          <div class="meter-bar"><div style="width:${(done.length / LESSONS.length) * 100}%"></div></div>
+           <div class="meter-bar"><div class="meter-fill meter-fill-${pctBucket((done.length / LESSONS.length) * 100)}"></div></div>
         </div>
       </div>
       <div class="grid-2" id="learn-grid">

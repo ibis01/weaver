@@ -466,8 +466,8 @@ W.misc = (() => {
           <input id="set-aimodel" placeholder="gpt-4o-mini" value="${escapeHTML(ai.model || "")}">
         </label>
         <button class="btn primary mt" id="set-save">Save Settings</button>
-        <button class="btn ghost mt" id="set-unlock" style="display:${encryptedBlob ? "inline-block" : "none"};">🔓 Unlock Keys</button>
-        <button class="btn ghost mt" id="set-lock" style="display:${W.secureSession.isUnlocked() ? "inline-block" : "none"};">🔒 Lock Keys</button>
+        <button class="btn ghost mt${encryptedBlob ? "" : " hidden"}" id="set-unlock">🔓 Unlock Keys</button>
+        <button class="btn ghost mt${W.secureSession.isUnlocked() ? "" : " hidden"}" id="set-lock">🔒 Lock Keys</button>
       </div>
       <div class="card">
         <h3>📨 Telegram Alerts (optional)</h3>

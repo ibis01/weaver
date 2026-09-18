@@ -39,7 +39,7 @@ W.whales = W.whales || {};
             <p class="small muted">Wallet: <code>${W.fmt.maskAddress(w.addr)}</code></p>
             <p class="small"><b>Amount:</b> ${w.amount} ${W.fmt.escapeHTML(w.symbol)}</p>
             <p class="small muted">${W.fmt.relativeTime(w.timestamp)}</p>
-            <button class="btn tiny warn" data-del="${w.id}" style="margin-top:10px;">Remove</button>
+            <button class="btn tiny warn mt-10" data-del="${w.id}">Remove</button>
           </div>
         `,
           )

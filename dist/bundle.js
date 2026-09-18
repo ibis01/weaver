@@ -1424,9 +1424,6 @@ window.W = window.W || {};
 W.ui = {
   /**
    * Show a toast notification
-   * @param {string} msg - HTML message to display
-   * @param {string} type - 'info', 'ok', 'warn'
-   * @param {number} ms - Duration in milliseconds
    */
   toast(msg, type = "info", ms = 3500) {
     const container = document.getElementById("toasts");
@@ -1446,8 +1443,6 @@ W.ui = {
 
   /**
    * Create a modal dialog
-   * @param {Object} config - { title, body, footer }
-   * @returns {Object} { close, el }
    */
   modal({ title, body, footer }) {
     const root = document.getElementById("modal-root");
@@ -1473,11 +1468,9 @@ W.ui = {
       root.innerHTML = "";
     };
 
-    // Close on X button
     const closeBtn = root.querySelector(".modal-x");
     if (closeBtn) closeBtn.onclick = close;
 
-    // Close on backdrop click
     const backdrop = root.querySelector("#modal-backdrop");
     if (backdrop) {
       backdrop.addEventListener("click", (e) => {
@@ -1485,7 +1478,6 @@ W.ui = {
       });
     }
 
-    // Close on Escape key
     const escHandler = (e) => {
       if (e.key === "Escape") {
         close();
@@ -1501,11 +1493,7 @@ W.ui = {
   },
 
   /**
-   * Show a masked password-entry modal. Replaces native prompt() for
-   * anything sensitive — no plaintext visible on screen, no reliance
-   * on a browser dialog that some extensions can read.
-   * @param {Object} opts - { title, message, confirmLabel, minLength, placeholder }
-   * @returns {Promise<string|null>} the entered value, or null if cancelled
+   * Masked password-entry modal.
    */
   promptPassword({
     title = "Enter Password",
@@ -1519,9 +1507,9 @@ W.ui = {
       const body = `
         ${message ? `<p class="muted small">${esc(message)}</p>` : ""}
         <label>
-          <input type="password" id="pw-modal-input" placeholder="${esc(placeholder)}" autocomplete="off" style="width:100%;">
+          <input type="password" id="pw-modal-input" placeholder="${esc(placeholder)}" autocomplete="off" class="w-100">
         </label>
-        <p id="pw-modal-error" class="down small" style="display:none;"></p>
+        <p id="pw-modal-error" class="down small hidden"></p>
       `;
       const footer = `
         <button class="btn ghost" data-a="cancel">Cancel</button>
@@ -1551,11 +1539,9 @@ W.ui = {
 
       const submit = () => {
         const val = input.value;
-        // Blank is allowed through as an explicit "skip" — only enforce
-        // minLength once the user has actually started typing something.
         if (minLength && val.length > 0 && val.length < minLength) {
           errorEl.textContent = `Must be at least ${minLength} characters.`;
-          errorEl.style.display = "block";
+          errorEl.classList.remove("hidden");
           return;
         }
         finish(val);
@@ -1570,9 +1556,6 @@ W.ui = {
         }
       });
 
-      // The base modal() closes itself on X / backdrop click / Escape,
-      // but doesn't tell us — without these, the promise would hang
-      // forever if the user dismisses the modal that way.
       if (closeBtn) closeBtn.addEventListener("click", () => finish(null));
       if (backdrop) {
         backdrop.addEventListener("click", (e) => {
@@ -1592,8 +1575,6 @@ W.ui = {
 
   /**
    * Show a confirmation dialog
-   * @param {string} msg - Confirmation message
-   * @param {Function} onYes - Callback when confirmed
    */
   confirm(msg, onYes) {
     const m = this.modal({
@@ -1619,8 +1600,6 @@ W.ui = {
 
   /**
    * Search-as-you-type coin picker
-   * @param {HTMLElement} container - The container element
-   * @param {Function} onPick - Callback with selected coin { id, symbol, name, img }
    */
   coinPicker(container, onPick) {
     if (!container) {
@@ -1719,27 +1698,15 @@ W.ui = {
       if (results.innerHTML) results.classList.remove("hidden");
     });
 
-    // Close results when clicking outside
     document.addEventListener("click", (e) => {
       if (!container.contains(e.target)) results.classList.add("hidden");
     });
   },
 
-  /**
-   * Loading spinner HTML
-   * @returns {string} HTML string
-   */
   spinner() {
     return '<div class="spinner"></div>';
   },
 
-  /**
-   * Empty state HTML
-   * @param {string} icon - Emoji or icon
-   * @param {string} msg - Main message
-   * @param {string} sub - Subtitle message (optional)
-   * @returns {string} HTML string
-   */
   empty(icon, msg, sub = "") {
     return `
       <div class="empty">
@@ -5021,15 +4988,14 @@ W.thesisHealth = (() => {
   // ── Helper: Render badge ──────────────────────────────────────
   function renderBadge(thesisId, healthData) {
     if (!healthData) return "";
-    let color = "var(--text-muted, #9aa3b2)";
     const { status, healthScore } = healthData;
+    let cls = "thesis-health-unknown";
     if (status === STATUS.HEALTHY || status === STATUS.STRENGTHENING)
-      color = "var(--up, #2ee6a8)";
-    else if (status === STATUS.WEAKENING) color = "var(--warn, #ffb35c)";
-    else if (status === STATUS.INVALIDATED) color = "var(--down, #ff5c7a)";
-    return `<span class="thesis-health-badge" data-id="${thesisId}" style="display:inline-block; padding: 2px 8px; border-radius: 12px; background: ${color}20; color: ${color}; font-size: 0.8em; font-weight: bold; margin-left: 8px;">${status} (${healthScore}%)</span>`;
+      cls = "thesis-health-up";
+    else if (status === STATUS.WEAKENING) cls = "thesis-health-warn";
+    else if (status === STATUS.INVALIDATED) cls = "thesis-health-down";
+    return `<span class="thesis-health-badge ${cls}" data-id="${thesisId}">${status} (${healthScore}%)</span>`;
   }
-
   // ── Helper: Render details ────────────────────────────────────
   function renderDetails(container, healthData) {
     if (!container || !healthData) return;
@@ -7794,7 +7760,7 @@ W.explorer = (() => {
             .map(
               (c) => `
           <tr class="clickable" data-id="${c.id}">
-            <td style="width:40px;"><img class="coin-img" src="${c.thumb}" alt="${escapeHTML(c.name)}"></td>
+            <td class="w-40"><img class="coin-img" src="${c.thumb}" alt="${escapeHTML(c.name)}"></td>
             <td><b>${escapeHTML(c.name)}</b> <span class="muted small">${c.symbol.toUpperCase()}</span></td>
             <td class="muted">${c.market_cap_rank ? "Rank #" + c.market_cap_rank : ""}</td>
           </tr>
@@ -7930,7 +7896,7 @@ W.explorer = (() => {
     // ── Check if Chart.js is available ──────────────────
     if (typeof Chart === "undefined") {
       canvas.parentElement.innerHTML = `
-        <p class="muted small center" style="padding:40px 0;">
+        <p class="muted small center p-40-y">
           📊 Chart library not loaded. Please include Chart.js in your HTML.
         </p>`;
       return;
@@ -7952,7 +7918,7 @@ W.explorer = (() => {
 
       if (!prices || prices.length < 2) {
         canvas.parentElement.innerHTML = `
-          <p class="muted small center" style="padding:40px 0;">
+          <p class="muted small center p-40-y">
             📉 No chart data available for this period.
           </p>`;
         return;
@@ -8032,7 +7998,7 @@ W.explorer = (() => {
     } catch (e) {
       console.error("[Explorer] Chart error:", e);
       canvas.parentElement.innerHTML = `
-        <p class="muted small center" style="padding:40px 0;">
+        <p class="muted small center p-40-y">
           ⚠️ Failed to load chart: ${escapeHTML(e.message)}
         </p>`;
     }
@@ -9062,6 +9028,16 @@ window.W = window.W || {};
 
 W.market = (() => {
   // ── Helpers ──────────────────────────────────────────────
+  // Bucket a percentage to the nearest 10 for the .meter-fill-N
+  // classes in style.css. Kept local so this module has no
+  // dependency on W.ui being fully populated. CSP-safe: width is
+  // set via a class, not an inline style attribute.
+  function pctBucket(n) {
+    const v = Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
+    return Math.round(v / 10) * 10;
+  }
+
+  // ── Helpers ──────────────────────────────────────────────
   function escapeHTML(str) {
     if (!str) return "";
     const div = document.createElement("div");
@@ -9189,7 +9165,7 @@ W.market = (() => {
             : "Bitcoin Season ₿";
       view.querySelector("#m-alt").innerHTML = `
         <div class="alt-num">${idx}</div>
-        <div class="alt-bar"><div style="width:${idx}%"></div></div>
+        <div class="alt-bar"><div class="meter-fill meter-fill-${pctBucket(idx)}"></div></div>
         <p class="muted small">${beating}/${top50.length} of the top-50 coins outperformed BTC over 7 days (≥75 = Altcoin Season).</p>
         <b>${label}</b>
       `;
@@ -9198,7 +9174,7 @@ W.market = (() => {
         .slice(0, 40)
         .map((c) => {
           const p = c.price_change_percentage_7d_in_currency ?? 0;
-          return `<a class="heat-cell" style="background:${heatColor(p)}" href="#/coin/${c.id}" title="${escapeHTML(c.name)} 7d: ${p.toFixed(2)}%">
+          return `<a class="heat-cell heat-fill" data-heat="${heatColor(p)}" href="#/coin/${c.id}" title="${escapeHTML(c.name)} 7d: ${p.toFixed(2)}%">
           <b>${c.symbol.toUpperCase()}</b>
           <span>${p >= 0 ? "+" : ""}${p.toFixed(1)}%</span>
         </a>`;
@@ -9208,6 +9184,9 @@ W.market = (() => {
       console.warn("[Market] Error fetching top data:", e);
     }
   }
+        view.querySelectorAll(".heat-cell[data-heat]").forEach((el) => {
+          el.style.background = el.dataset.heat;
+        });
 
   return { render };
 })();
@@ -10476,7 +10455,7 @@ W.time = W.time || {};
         <div class="card">
           <h3>📅 ${daysAgo} Days Ago</h3>
           <p class="muted small">${snapshotDate.toLocaleDateString()} ${snapshotDate.toLocaleTimeString()}</p>
-          <div class="cards" style="margin-top:12px;">
+            <div class="cards mt-12">
             <div class="card stat">
               <div class="stat-label">Value</div>
               <div class="stat-big">${W.fmt.money(snapshot.totals.totalValue)}</div>
@@ -10508,7 +10487,7 @@ W.time = W.time || {};
         <div class="card">
           <h3>📈 Today</h3>
           <p class="muted small">${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}</p>
-          <div class="cards" style="margin-top:12px;">
+          <div class="cards mt-12">
             <div class="card stat">
               <div class="stat-label">Value</div>
               <div class="stat-big">${W.fmt.money(currentTotals.totalValue)}</div>
@@ -10521,7 +10500,7 @@ W.time = W.time || {};
           ${
             performance
               ? `
-            <div class="card stat" style="margin-top:12px; border-color: ${performance.isPositive ? "var(--up)" : "var(--down)"};">
+            <div class="card stat mt-12 ${performance.isPositive ? "risk-card-low" : "risk-card-high"}">
               <div class="stat-label">Performance</div>
               <div class="stat-big ${performance.isPositive ? "up" : "down"}">
                 ${performance.isPositive ? "+" : ""}${W.fmt.money(performance.valueChange)}
@@ -10718,6 +10697,16 @@ W.gems = (() => {
     return Math.round(hours / 24) + "d";
   }
 
+  // Bucket a percentage to the nearest 10 for the .meter-fill-N
+  // classes in style.css. Kept local so this module has no
+  // dependency on W.ui being fully populated (the test environment
+  // does not load it). CSP-safe: the width is set via a class, not
+  // an inline style attribute.
+  function pctBucket(n) {
+    const v = Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
+    return Math.round(v / 10) * 10;
+  }
+
   // ── API call with proxy fallback ──────────────────────
   async function fetchDexScreener(url) {
     let lastErr;
@@ -10837,9 +10826,6 @@ W.gems = (() => {
   let seen = {};
   let shieldCache = {};
 
-  // Ask Token Shield for a risk assessment before emitting an alert.
-  // Chains not in Shield's CHAINS return { unsupported: true }; this
-  // is honest degradation, not a silent skip.
   async function checkShield(addr, chainKey, identity = {}) {
     if (shieldCache[addr]) {
       W.shield?.rememberEvidence?.(
@@ -10879,12 +10865,6 @@ W.gems = (() => {
     return `🛡️ Shield: ${s.riskLevel[0]} (${s.riskScore}/100 identified-risk score, ${s.scoreVersion})`;
   }
 
-  // ── Auto-feed into Theses ───────────────────────────────
-  // Every alert gets a trackable "why we called it" record — the
-  // trust layer a bare score/alert doesn't give you. Dedupes against
-  // existing theses by source (addr+chain), not just the in-memory
-  // `seen` set, since `seen` resets on reload but a duplicate thesis
-  // would not.
   function autoCreateThesis(gem, addr, shield) {
     if (!W.theses) return;
     const chain = gem.pair.chainId;
@@ -10941,12 +10921,6 @@ W.gems = (() => {
         const a = p.baseToken?.address;
         if (!a) return;
         // Constitution §3.3 — DISCOVERABLE_CHAINS ⊆ VERIFIED_CHAINS.
-        // Don't surface a "gem" as a default result on a chain Token
-        // Shield can't actually verify — that's discovery shipping
-        // ahead of verification. (See test/unit/gems-chain-filter.test.js
-        // for a behavioral regression test — the static CHAINS config
-        // being correct isn't enough on its own; it has to actually
-        // gate what gets scored and alerted on.)
         if (!CHAINS[p.chainId]) return;
         if (
           !byToken[a] ||
@@ -11014,12 +10988,12 @@ W.gems = (() => {
                   ${chainTag(p.chainId)} <span class="muted small">age ${ageText(a.ageH)}</span>
                 </div>
                 <div class="text-right">
-                  <span class="tag ${a.verdict[1]}" style="font-size:12px;padding:5px 10px;">${a.verdict[0]}</span>
-                  <div class="alt-num" style="font-size:26px;">${a.score}</div>
-                  <div class="muted" style="font-size:10px;">${a.scoreVersion}</div>
+                  <span class="tag tag-lg ${a.verdict[1]}">${a.verdict[0]}</span>
+                  <div class="alt-num text-3xl">${a.score}</div>
+                  <div class="muted text-2xs">${a.scoreVersion}</div>
                 </div>
               </div>
-              <div class="meter-bar"><div style="width:${a.score}%; background: var(--grad);"></div></div>
+              <div class="meter-bar"><div class="meter-fill meter-fill-${pctBucket(a.score)}"></div></div>
               <div class="kv-row"><span class="muted">Price</span><span>$${p.priceUsd}</span></div>
               <div class="kv-row"><span class="muted">Liquidity / 24h Vol</span><span>$${kfmt(a.liq)} / $${kfmt(a.vol)}</span></div>
               <div class="kv-row"><span class="muted">1h / 6h / 24h</span><span>${W.fmt.pct(a.h1)} ${W.fmt.pct(a.h6)} ${W.fmt.pct(a.h24)}</span></div>
@@ -11179,6 +11153,15 @@ W.shield = (() => {
   }
 
   // ── Helpers ────────────────────────────────────────────
+
+  // Bucket a percentage to the nearest 10 for the .meter-fill-N
+  // classes in style.css. Kept local so this module has no
+  // dependency on W.ui being fully populated. CSP-safe: width is
+  // set via a class, not an inline style attribute.
+  function pctBucket(n) {
+    const v = Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
+    return Math.round(v / 10) * 10;
+  }
 
   function escapeHTML(str) {
     if (!str) return "";
@@ -11465,16 +11448,16 @@ W.shield = (() => {
 
     // ── Build HTML ──────────────────────────────────
     return `
-      <div class="card" style="border-color: ${riskScore >= 40 ? "var(--down)" : riskScore >= 20 ? "var(--warn)" : "var(--up)"}; box-shadow: 0 0 40px ${riskScore >= 40 ? "rgba(255,92,122,.2)" : "transparent"};">
+      <div class="card ${riskScore >= 40 ? "risk-card-high" : riskScore >= 20 ? "risk-card-mid" : "risk-card-low"}">
         <div class="watch-head">
           <div>
             <h2>${escapeHTML(result.token_name || "Unknown")} <span class="muted">${escapeHTML(result.token_symbol || "")}</span></h2>
             <p class="muted small">${chain.icon} ${chain.name} · ${holderCount} Holders · Supply: ${totalSupply}</p>
           </div>
-          <div style="text-align:right;">
-            <span class="tag ${riskLevel[1]}" style="font-size:14px;padding:8px 16px;">${riskLevel[0]}</span>
-            <div class="muted small">Risk Score: ${riskScore}/100</div>
-            <div class="muted" style="font-size:10px;">${SHIELD_SCORE_VERSION_EVM}</div>
+         <div class="text-right">
+              <span class="tag tag-xl ${riskLevel[1]}">${riskLevel[0]}</span>
+              <div class="muted small">Risk Score: ${riskScore}/100</div>
+            <div class="muted text-2xs">${SHIELD_SCORE_VERSION_EVM}</div>
           </div>
         </div>
         ${
@@ -11499,11 +11482,11 @@ W.shield = (() => {
         </div>
         <div class="card">
           <h3>💰 Taxes & Fees</h3>
-          <div class="kv-row"><span>Buy Tax</span> <b style="color: ${parseFloat(buyTax) > 5 ? "var(--down)" : "var(--up)"};">${buyTax}%</b></div>
-          <div class="kv-row"><span>Sell Tax</span> <b style="color: ${parseFloat(sellTax) > 5 ? "var(--down)" : "var(--up)"};">${sellTax}%</b></div>
+          <div class="kv-row"><span>Buy Tax</span> <b class="${parseFloat(buyTax) > 5 ? "text-down" : "text-up"}">${buyTax}%</b></div>
+          <div class="kv-row"><span>Sell Tax</span> <b class="${parseFloat(sellTax) > 5 ? "text-down" : "text-up"}">${sellTax}%</b></div>
           <div class="meter-label mt">Tax Severity</div>
           <div class="meter-bar">
-            <div style="width: ${Math.min(100, (parseFloat(buyTax) + parseFloat(sellTax)) * 2)}%; background: ${Math.max(parseFloat(buyTax), parseFloat(sellTax)) > 5 ? "var(--down)" : "var(--up)"};"></div>
+            <div class="meter-fill meter-fill-${pctBucket(Math.min(100, (parseFloat(buyTax) + parseFloat(sellTax)) * 2))} ${Math.max(parseFloat(buyTax), parseFloat(sellTax)) > 5 ? "meter-fill-down" : "meter-fill-up"}"></div>
           </div>
           <p class="muted small mt">Taxes > 5% are often used to drain buyer funds. 0/0 is ideal.</p>
         </div>
@@ -11688,16 +11671,16 @@ W.shield = (() => {
     };
 
     return `
-      <div class="card" style="border-color: ${riskScore >= 40 ? "var(--down)" : riskScore >= 20 ? "var(--warn)" : "var(--up)"}; box-shadow: 0 0 40px ${riskScore >= 40 ? "rgba(255,92,122,.2)" : "transparent"};">
+     <div class="card ${riskScore >= 40 ? "risk-card-high" : riskScore >= 20 ? "risk-card-mid" : "risk-card-low"}">
         <div class="watch-head">
           <div>
             <h2>${escapeHTML(result.token_name || "Unknown")} <span class="muted">${escapeHTML(result.token_symbol || "")}</span></h2>
             <p class="muted small">${chain.icon} ${chain.name} · ${holderCount} Holders · Supply: ${totalSupply}${isTrusted ? ' · <span class="tag buy">✓ Trusted</span>' : ""}</p>
           </div>
-          <div style="text-align:right;">
-            <span class="tag ${riskLevel[1]}" style="font-size:14px;padding:8px 16px;">${riskLevel[0]}</span>
-            <div class="muted small">Risk Score: ${riskScore}/100</div>
-            <div class="muted" style="font-size:10px;">${SHIELD_SCORE_VERSION_SOLANA}</div>
+             <div class="text-right">
+             <span class="tag tag-xl ${riskLevel[1]}">${riskLevel[0]}</span>
+              <div class="muted small">Risk Score: ${riskScore}/100</div>
+            <div class="muted text-2xs">${SHIELD_SCORE_VERSION_SOLANA}</div>
           </div>
         </div>
         ${
@@ -11722,7 +11705,7 @@ W.shield = (() => {
         </div>
         <div class="card">
           <h3>💰 Transfer Fee</h3>
-          <div class="kv-row"><span>Current Fee</span> <b style="color: ${transferFeePct > 5 ? "var(--down)" : "var(--up)"};">${transferFeePct}%</b></div>
+          <div class="kv-row"><span>Current Fee</span> <b class="${transferFeePct > 5 ? "text-down" : "text-up"}">${transferFeePct}%</b></div>
           <p class="muted small mt">Solana Token-2022 tokens can charge a fee on every transfer. 0% is ideal.</p>
           <p class="muted small mt">⚠️ This audit uses GoPlus's Solana Token Security API, which is in beta — cross-check important findings on <a href="https://solscan.io/token/${escapeHTML(address)}" target="_blank" rel="noopener noreferrer">Solscan</a> or RugCheck before trading.</p>
         </div>
@@ -12239,21 +12222,21 @@ W.web3 = W.web3 || {};
       <div class="card">
         <h3>🌐 Web3 Wallets</h3>
         <p class="muted small">Connect your wallet to view on-chain balances. Weaver is read-only by default.</p>
-        <div id="wallet-status" class="mt" style="display:flex; align-items:center; gap:10px; flex-wrap: wrap;">
+        <div id="wallet-status" class="mt wallet-status-row">
           ${
             connectedAddress
               ? `
-                <span class="muted" id="address-display" style="cursor:pointer; font-family:monospace; font-size:1.1em;">${displayAddress}</span>
-                <span class="muted small" style="font-size:0.8em;">(Click to copy)</span>
-                <button class="btn tiny warn" id="btn-disconnect" style="margin-left: auto;">Disconnect</button>
+                 <span class="muted address-display" id="address-display">${displayAddress}</span>
+                 <span class="muted small text-xs">(Click to copy)</span>
+                 <button class="btn tiny warn ml-auto" id="btn-disconnect">Disconnect</button>
                 `
               : `<button class="btn primary" id="btn-connect">Connect Wallet</button>`
           }
         </div>
-      </div>
-      <div class="card mt">
-        <h3>🔐 Security & Privacy</h3>
-        <ul class="tx-list" style="list-style:none;padding:0;">
+        </div>
+        <div class="card mt">
+          <h3>🔐 Security & Privacy</h3>
+        <ul class="tx-list tx-list-compact">
           <li>✅ All wallet interactions require explicit UI preview.</li>
           <li>✅ Weaver never stores your private keys or seed phrases.</li>
           <li>✅ Wallet addresses are masked in the UI to prevent shoulder surfing.</li>
@@ -12771,8 +12754,8 @@ W.misc = (() => {
           <input id="set-aimodel" placeholder="gpt-4o-mini" value="${escapeHTML(ai.model || "")}">
         </label>
         <button class="btn primary mt" id="set-save">Save Settings</button>
-        <button class="btn ghost mt" id="set-unlock" style="display:${encryptedBlob ? "inline-block" : "none"};">🔓 Unlock Keys</button>
-        <button class="btn ghost mt" id="set-lock" style="display:${W.secureSession.isUnlocked() ? "inline-block" : "none"};">🔒 Lock Keys</button>
+        <button class="btn ghost mt${encryptedBlob ? "" : " hidden"}" id="set-unlock">🔓 Unlock Keys</button>
+        <button class="btn ghost mt${W.secureSession.isUnlocked() ? "" : " hidden"}" id="set-lock">🔒 Lock Keys</button>
       </div>
       <div class="card">
         <h3>📨 Telegram Alerts (optional)</h3>
@@ -13002,7 +12985,7 @@ W.whales = W.whales || {};
             <p class="small muted">Wallet: <code>${W.fmt.maskAddress(w.addr)}</code></p>
             <p class="small"><b>Amount:</b> ${w.amount} ${W.fmt.escapeHTML(w.symbol)}</p>
             <p class="small muted">${W.fmt.relativeTime(w.timestamp)}</p>
-            <button class="btn tiny warn" data-del="${w.id}" style="margin-top:10px;">Remove</button>
+            <button class="btn tiny warn mt-10" data-del="${w.id}">Remove</button>
           </div>
         `,
           )
@@ -14015,8 +13998,8 @@ W.sectors = (() => {
         </div>
         <p class="muted small">Where is smart money flowing today? Right = Pumping · Left = Dumping · Higher = More Volume · Bigger = Larger Market Cap.</p>
       </div>
-      <div class="card" style="padding:0;overflow:hidden;position:relative;">
-        <canvas id="sector-canvas" style="width:100%;display:block;cursor:crosshair;"></canvas>
+     <div class="card canvas-card">
+        <canvas id="sector-canvas" class="chart-canvas"></canvas>
       </div>
     `;
 
@@ -14570,6 +14553,15 @@ W.learn = (() => {
   }
 
   // ── Helpers ─────────────────────────────────────────────
+  // Bucket a percentage to the nearest 10 for the .meter-fill-N
+  // classes in style.css. Kept local so this module has no
+  // dependency on W.ui being fully populated. CSP-safe: width is
+  // set via a class, not an inline style attribute.
+  function pctBucket(n) {
+    const v = Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
+    return Math.round(v / 10) * 10;
+  }
+
   function escapeHTML(str) {
     if (!str) return "";
     const div = document.createElement("div");
@@ -14608,7 +14600,7 @@ W.learn = (() => {
         </div>
         <div class="meter">
           <div class="meter-label">Progress <b>${done.length}/${LESSONS.length}</b></div>
-          <div class="meter-bar"><div style="width:${(done.length / LESSONS.length) * 100}%"></div></div>
+           <div class="meter-bar"><div class="meter-fill meter-fill-${pctBucket((done.length / LESSONS.length) * 100)}"></div></div>
         </div>
       </div>
       <div class="grid-2" id="learn-grid">
@@ -16184,7 +16176,7 @@ W.theses = W.theses || {};
             <p class="small muted"><b>Invalidation:</b> ${W.fmt.escapeHTML(t.invalidation)}</p>
 
             <!-- Hook for health details (injected below) -->
-            <div class="thesis-health-details" data-details-id="${t.id}" style="margin-top: 12px;"></div>
+            <div class="thesis-health-details mt-12" data-details-id="${t.id}"></div>
 
             <div class="flex-gap-10-mt-10">
               <button class="btn tiny warn" data-action="invalidate" data-id="${t.id}">Mark Invalidated</button>
@@ -16196,7 +16188,7 @@ W.theses = W.theses || {};
           .join("")}
       </div>
 
-      <div id="thesis-form-container" class="card hidden" style="margin-top:20px;">
+      <div id="thesis-form-container" class="card hidden mt-20">
         <h4>Create New Thesis</h4>
         <form id="thesis-form" class="form-grid">
           <input type="text" id="t-asset" placeholder="Asset (e.g. BTC)" required class="input">
@@ -18386,135 +18378,7 @@ W.tokenAnalysis = (() => {
   };
 })();
 // ---- js/ui/particles.js ----
-// ================================================================
-// js/ui/particles.js – Futuristic Particle System (Starfield + Neural Network)
-// ================================================================
-(function () {
-  // Create canvas and inject it behind the content
-  const canvas = document.createElement("canvas");
-  canvas.id = "particles-canvas";
-  canvas.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: -1;
-    pointer-events: none;
-    display: block;
-  `;
-  document.body.prepend(canvas);
-
-  const ctx = canvas.getContext("2d");
-  let width, height;
-  let particles = [];
-  const PARTICLE_COUNT = 180;
-  const MAX_DIST = 180; // max distance for line connections
-
-  // ── Resize handler ──────────────────────────────────
-  function resize() {
-    width = canvas.width = window.innerWidth;
-    height = canvas.height = window.innerHeight;
-  }
-  window.addEventListener("resize", resize);
-  resize();
-
-  // ── Particle class ──────────────────────────────────
-  class Particle {
-    constructor() {
-      this.reset();
-    }
-    reset() {
-      this.x = Math.random() * width;
-      this.y = Math.random() * height;
-      this.size = Math.random() * 3 + 0.8;
-      this.speedX = (Math.random() - 0.5) * 0.6;
-      this.speedY = (Math.random() - 0.5) * 0.6;
-      this.opacity = Math.random() * 0.6 + 0.3;
-      this.pulse = Math.random() * Math.PI * 2;
-      this.pulseSpeed = 0.02 + Math.random() * 0.04;
-      // Slight color variation: purple, cyan, or white
-      const hue =
-        Math.random() > 0.6 ? "cyan" : Math.random() > 0.5 ? "purple" : "white";
-      this.color = hue;
-    }
-    update() {
-      this.x += this.speedX;
-      this.y += this.speedY;
-      this.pulse += this.pulseSpeed;
-      // Wrap around edges
-      if (this.x < 0) this.x = width;
-      if (this.x > width) this.x = 0;
-      if (this.y < 0) this.y = height;
-      if (this.y > height) this.y = 0;
-    }
-    draw() {
-      const alpha = this.opacity * (0.7 + 0.3 * Math.sin(this.pulse));
-      let color;
-      if (this.color === "purple") {
-        color = `rgba(124, 92, 255, ${alpha})`;
-      } else if (this.color === "cyan") {
-        color = `rgba(92, 214, 255, ${alpha})`;
-      } else {
-        color = `rgba(255, 255, 255, ${alpha * 0.8})`;
-      }
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 12;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    }
-  }
-
-  // ── Initialize particles ────────────────────────────
-  for (let i = 0; i < PARTICLE_COUNT; i++) {
-    particles.push(new Particle());
-  }
-
-  // ── Animation loop ──────────────────────────────────
-  function animate() {
-    ctx.clearRect(0, 0, width, height);
-
-    // Update and draw each particle
-    particles.forEach((p) => {
-      p.update();
-      p.draw();
-    });
-
-    // Draw connecting lines between nearby particles
-    for (let i = 0; i < particles.length; i++) {
-      for (let j = i + 1; j < particles.length; j++) {
-        const dx = particles[i].x - particles[j].x;
-        const dy = particles[i].y - particles[j].y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < MAX_DIST) {
-          const alpha = (1 - dist / MAX_DIST) * 0.25;
-          ctx.beginPath();
-          ctx.moveTo(particles[i].x, particles[i].y);
-          ctx.lineTo(particles[j].x, particles[j].y);
-          ctx.strokeStyle = `rgba(124, 92, 255, ${alpha})`;
-          ctx.lineWidth = 0.7;
-          ctx.stroke();
-        }
-      }
-    }
-
-    requestAnimationFrame(animate);
-  }
-
-  animate();
-
-  // ── Debounce resize ─────────────────────────────────
-  let resizeTimeout;
-  window.addEventListener("resize", () => {
-    clearTimeout(resizeTimeout);
-    resizeTimeout = setTimeout(resize, 150);
-  });
-
-  console.log("[Particles] Initialized");
-})();
+;
 // ---- js/ui/tilt.js ----
 // ================================================================
 // js/ui/tilt.js – 3D Tilt on .card elements (smooth, subtle)
