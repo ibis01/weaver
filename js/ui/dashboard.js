@@ -270,17 +270,27 @@ W.dashboard = (() => {
       <p class="muted small mb-16">Your evidence-driven crypto intelligence workspace.</p>
       <div id="d-data-health" aria-live="polite"></div>
       <div class="cards" id="d-stats"></div>
-      <div class="grid-2">
+
+      <div class="card mt-16">
+        <div class="flex-between mb-8">
+          <h3>💼 Your Portfolio</h3>
+          <div class="qa">
+            <a href="#/token" class="btn tiny">🔍 Analyze</a>
+            <button class="btn tiny" id="qa-add">+ Add Holding</button>
+            <button class="btn tiny" id="qa-sync" title="Sync connected wallets">👛 Sync Wallets</button>
+          </div>
+        </div>
+        <div id="d-port"></div>
+      </div>
+
+      <div class="grid-2 mt-16">
         <div id="what-matters-now-container"></div>
         <div id="what-changed-container"></div>
       </div>
-      <div class="card mt-16">
-        <div class="flex-between mb-8"><h3>💼 Your Portfolio</h3></div>
-        <div id="d-port"></div>
-      </div>
+
       <div class="card mt-16">
         <div class="flex-between mb-8">
-          <h3>🌐 Markets Terminal</h3>
+          <h3>🌐 Market Context</h3>
           <div class="qa">
             <button class="chip active" data-tab="trending">🔥 Trending</button>
             <button class="chip" data-tab="top">🏆 Top</button>
@@ -294,14 +304,6 @@ W.dashboard = (() => {
             <thead><tr><th>#</th><th>Token</th><th class="num">Price</th><th class="num">24H</th><th>7d Chart</th></tr></thead>
             <tbody id="d-rows"><tr><td colspan="5" class="text-center text-muted">${W.ui.spinner()}</td></tr></tbody>
           </table>
-        </div>
-      </div>
-      <div class="card text-center p-24 mt-16">
-        <h3 class="mb-16">Next Steps</h3>
-        <div class="qa flex-center gap-16">
-          <a href="#/token" class="btn primary">🔍 Analyze a Token</a>
-          <button class="btn" id="qa-add">+ Add Holding</button>
-          <button class="btn" id="qa-sync" title="Sync connected wallets">👛 Sync Wallets</button>
         </div>
       </div>
     `;
@@ -550,6 +552,14 @@ W.dashboard = (() => {
   }
 
   return { render, renderPortfolio, holdingModal, enrich };
+  
+  // ── Exports ───────────────────────────────────────────
+  return {
+    render,
+    holdingModal,
+    txModal,
+    enrich,
+  };
 })();
 
 console.log("[Dashboard] Module loaded (CSP compliant).");
