@@ -606,6 +606,7 @@ W.tokenAnalysis = (() => {
 
           <div class="card mt-16 ${actionClass}">
             <h3>${safeText(result.scenario || "Neutral / insufficient evidence")}</h3>
+              <button class="btn tiny" data-action="why">Why?</button>
             <p class="small">Evidence quality: <b>${safeText(result.evidenceQuality?.status || "UNAVAILABLE")}</b> · Scenario strength: ${result.actionConfidence ?? "N/A"}%</p>
             ${
               result.unifiedVerdict
@@ -835,6 +836,23 @@ W.tokenAnalysis = (() => {
         });
       }
 
+      const whyBtn = view.querySelector("[data-action='why']");
+      if (whyBtn) {
+        whyBtn.addEventListener("click", () => {
+          if (W.ui && W.ui.evidenceDrawer) {
+            W.ui.evidenceDrawer.open({
+              explanation: result.explanation,
+              domains: (result.unifiedVerdict && result.unifiedVerdict.domains) || {},
+              methodologyVersion: result.unifiedVerdict && result.unifiedVerdict.methodologyVersion,
+              evidenceVersion: result.unifiedVerdict && result.unifiedVerdict.evidenceVersion,
+              bullishEvidence: result.bullishEvidence,
+              bearishEvidence: result.bearishEvidence,
+              contradictions: result.contradictions,
+              evidenceQuality: result.evidenceQuality,
+            });
+          }
+        });
+      }
       const newBtn = view.querySelector("[data-action='new-analysis']");
       if (newBtn) {
         newBtn.addEventListener("click", () => {
