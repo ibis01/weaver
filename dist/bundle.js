@@ -10991,11 +10991,19 @@ W.gems = (() => {
       const addresses = [...map.keys()].slice(0, 30);
       if (!addresses.length) throw new Error("No candidates");
 
-      const pairs = await fetchDexScreener(
+      const pairsResp = await fetchDexScreener(
         DEXSCREENER_API + "/latest/dex/tokens/" + addresses.join(","),
       );
+      // DexScreener returns { pairs: [...] } for the multi-token
+      // endpoint. Some older proxy paths returned a bare array. Accept
+      // both shapes.
+      const pairs = Array.isArray(pairsResp)
+        ? pairsResp
+        : pairsResp && Array.isArray(pairsResp.pairs)
+          ? pairsResp.pairs
+          : [];
       const byToken = {};
-      (Array.isArray(pairs) ? pairs : []).forEach((p) => {
+      pairs.forEach((p) => {
         const a = p.baseToken?.address;
         if (!a) return;
         // Constitution §3.3 — DISCOVERABLE_CHAINS ⊆ VERIFIED_CHAINS.
@@ -11076,10 +11084,15 @@ W.gems = (() => {
               <div class="kv-row"><span class="muted">Liquidity / 24h Vol</span><span>$${kfmt(a.liq)} / $${kfmt(a.vol)}</span></div>
               <div class="kv-row"><span class="muted">1h / 6h / 24h</span><span>${W.fmt.pct(a.h1)} ${W.fmt.pct(a.h6)} ${W.fmt.pct(a.h24)}</span></div>
               <div class="shield-slot">${shieldSection}</div>
-              <ul class="tx-list">${a.reasons
-                .slice(0, 4)
-                .map((r) => `<li>${escapeHTML(r)}</li>`)
-                .join("")}</ul>
+              <p class="small muted mt-8"><b>Why it appeared:</b> ${escapeHTML(a.reasons[0] || "Insufficient evidence to summarize.")}</p>
+              ${
+                a.reasons.length > 1
+                  ? `<ul class="tx-list">${a.reasons
+                      .slice(1, 4)
+                      .map((r) => `<li>${escapeHTML(r)}</li>`)
+                      .join("")}</ul>`
+                  : ""
+              }
               <a class="btn tiny mt" href="#/token/${encodeURIComponent(t.symbol)}">📈 Analyze ${escapeHTML(t.symbol)}</a>
               <a class="btn tiny mt" target="_blank" href="${p.url || "https://dexscreener.com/" + p.chainId + "/" + p.pairAddress}">📊 Open in DEX Screener ↗</a>
             </div>
