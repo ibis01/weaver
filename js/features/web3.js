@@ -293,21 +293,21 @@ W.web3 = W.web3 || {};
       <div class="card">
         <h3>🌐 Web3 Wallets</h3>
         <p class="muted small">Connect your wallet to view on-chain balances. Weaver is read-only by default.</p>
-        <div id="wallet-status" class="mt" style="display:flex; align-items:center; gap:10px; flex-wrap: wrap;">
+        <div id="wallet-status" class="mt wallet-status-row">
           ${
             connectedAddress
               ? `
-                <span class="muted" id="address-display" style="cursor:pointer; font-family:monospace; font-size:1.1em;">${displayAddress}</span>
-                <span class="muted small" style="font-size:0.8em;">(Click to copy)</span>
-                <button class="btn tiny warn" id="btn-disconnect" style="margin-left: auto;">Disconnect</button>
+                 <span class="muted address-display" id="address-display">${displayAddress}</span>
+                 <span class="muted small text-xs">(Click to copy)</span>
+                 <button class="btn tiny warn ml-auto" id="btn-disconnect">Disconnect</button>
                 `
               : `<button class="btn primary" id="btn-connect">Connect Wallet</button>`
           }
         </div>
-      </div>
-      <div class="card mt">
-        <h3>🔐 Security & Privacy</h3>
-        <ul class="tx-list" style="list-style:none;padding:0;">
+        </div>
+        <div class="card mt">
+          <h3>🔐 Security & Privacy</h3>
+        <ul class="tx-list tx-list-compact">
           <li>✅ All wallet interactions require explicit UI preview.</li>
           <li>✅ Weaver never stores your private keys or seed phrases.</li>
           <li>✅ Wallet addresses are masked in the UI to prevent shoulder surfing.</li>

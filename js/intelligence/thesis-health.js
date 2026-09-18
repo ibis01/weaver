@@ -203,15 +203,14 @@ W.thesisHealth = (() => {
   // ── Helper: Render badge ──────────────────────────────────────
   function renderBadge(thesisId, healthData) {
     if (!healthData) return "";
-    let color = "var(--text-muted, #9aa3b2)";
     const { status, healthScore } = healthData;
+    let cls = "thesis-health-unknown";
     if (status === STATUS.HEALTHY || status === STATUS.STRENGTHENING)
-      color = "var(--up, #2ee6a8)";
-    else if (status === STATUS.WEAKENING) color = "var(--warn, #ffb35c)";
-    else if (status === STATUS.INVALIDATED) color = "var(--down, #ff5c7a)";
-    return `<span class="thesis-health-badge" data-id="${thesisId}" style="display:inline-block; padding: 2px 8px; border-radius: 12px; background: ${color}20; color: ${color}; font-size: 0.8em; font-weight: bold; margin-left: 8px;">${status} (${healthScore}%)</span>`;
+      cls = "thesis-health-up";
+    else if (status === STATUS.WEAKENING) cls = "thesis-health-warn";
+    else if (status === STATUS.INVALIDATED) cls = "thesis-health-down";
+    return `<span class="thesis-health-badge ${cls}" data-id="${thesisId}">${status} (${healthScore}%)</span>`;
   }
-
   // ── Helper: Render details ────────────────────────────────────
   function renderDetails(container, healthData) {
     if (!container || !healthData) return;

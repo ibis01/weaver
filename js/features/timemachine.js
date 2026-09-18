@@ -174,7 +174,7 @@ W.time = W.time || {};
         <div class="card">
           <h3>📅 ${daysAgo} Days Ago</h3>
           <p class="muted small">${snapshotDate.toLocaleDateString()} ${snapshotDate.toLocaleTimeString()}</p>
-          <div class="cards" style="margin-top:12px;">
+            <div class="cards mt-12">
             <div class="card stat">
               <div class="stat-label">Value</div>
               <div class="stat-big">${W.fmt.money(snapshot.totals.totalValue)}</div>
@@ -206,7 +206,7 @@ W.time = W.time || {};
         <div class="card">
           <h3>📈 Today</h3>
           <p class="muted small">${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}</p>
-          <div class="cards" style="margin-top:12px;">
+          <div class="cards mt-12">
             <div class="card stat">
               <div class="stat-label">Value</div>
               <div class="stat-big">${W.fmt.money(currentTotals.totalValue)}</div>
@@ -219,7 +219,7 @@ W.time = W.time || {};
           ${
             performance
               ? `
-            <div class="card stat" style="margin-top:12px; border-color: ${performance.isPositive ? "var(--up)" : "var(--down)"};">
+            <div class="card stat mt-12 ${performance.isPositive ? "risk-card-low" : "risk-card-high"}">
               <div class="stat-label">Performance</div>
               <div class="stat-big ${performance.isPositive ? "up" : "down"}">
                 ${performance.isPositive ? "+" : ""}${W.fmt.money(performance.valueChange)}

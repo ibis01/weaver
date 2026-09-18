@@ -7,9 +7,6 @@ window.W = window.W || {};
 W.ui = {
   /**
    * Show a toast notification
-   * @param {string} msg - HTML message to display
-   * @param {string} type - 'info', 'ok', 'warn'
-   * @param {number} ms - Duration in milliseconds
    */
   toast(msg, type = "info", ms = 3500) {
     const container = document.getElementById("toasts");
@@ -29,8 +26,6 @@ W.ui = {
 
   /**
    * Create a modal dialog
-   * @param {Object} config - { title, body, footer }
-   * @returns {Object} { close, el }
    */
   modal({ title, body, footer }) {
     const root = document.getElementById("modal-root");
@@ -56,11 +51,9 @@ W.ui = {
       root.innerHTML = "";
     };
 
-    // Close on X button
     const closeBtn = root.querySelector(".modal-x");
     if (closeBtn) closeBtn.onclick = close;
 
-    // Close on backdrop click
     const backdrop = root.querySelector("#modal-backdrop");
     if (backdrop) {
       backdrop.addEventListener("click", (e) => {
@@ -68,7 +61,6 @@ W.ui = {
       });
     }
 
-    // Close on Escape key
     const escHandler = (e) => {
       if (e.key === "Escape") {
         close();
@@ -84,11 +76,7 @@ W.ui = {
   },
 
   /**
-   * Show a masked password-entry modal. Replaces native prompt() for
-   * anything sensitive — no plaintext visible on screen, no reliance
-   * on a browser dialog that some extensions can read.
-   * @param {Object} opts - { title, message, confirmLabel, minLength, placeholder }
-   * @returns {Promise<string|null>} the entered value, or null if cancelled
+   * Masked password-entry modal.
    */
   promptPassword({
     title = "Enter Password",
@@ -102,9 +90,9 @@ W.ui = {
       const body = `
         ${message ? `<p class="muted small">${esc(message)}</p>` : ""}
         <label>
-          <input type="password" id="pw-modal-input" placeholder="${esc(placeholder)}" autocomplete="off" style="width:100%;">
+          <input type="password" id="pw-modal-input" placeholder="${esc(placeholder)}" autocomplete="off" class="w-100">
         </label>
-        <p id="pw-modal-error" class="down small" style="display:none;"></p>
+        <p id="pw-modal-error" class="down small hidden"></p>
       `;
       const footer = `
         <button class="btn ghost" data-a="cancel">Cancel</button>
@@ -134,11 +122,9 @@ W.ui = {
 
       const submit = () => {
         const val = input.value;
-        // Blank is allowed through as an explicit "skip" — only enforce
-        // minLength once the user has actually started typing something.
         if (minLength && val.length > 0 && val.length < minLength) {
           errorEl.textContent = `Must be at least ${minLength} characters.`;
-          errorEl.style.display = "block";
+          errorEl.classList.remove("hidden");
           return;
         }
         finish(val);
@@ -153,9 +139,6 @@ W.ui = {
         }
       });
 
-      // The base modal() closes itself on X / backdrop click / Escape,
-      // but doesn't tell us — without these, the promise would hang
-      // forever if the user dismisses the modal that way.
       if (closeBtn) closeBtn.addEventListener("click", () => finish(null));
       if (backdrop) {
         backdrop.addEventListener("click", (e) => {
@@ -175,8 +158,6 @@ W.ui = {
 
   /**
    * Show a confirmation dialog
-   * @param {string} msg - Confirmation message
-   * @param {Function} onYes - Callback when confirmed
    */
   confirm(msg, onYes) {
     const m = this.modal({
@@ -202,8 +183,6 @@ W.ui = {
 
   /**
    * Search-as-you-type coin picker
-   * @param {HTMLElement} container - The container element
-   * @param {Function} onPick - Callback with selected coin { id, symbol, name, img }
    */
   coinPicker(container, onPick) {
     if (!container) {
@@ -302,27 +281,15 @@ W.ui = {
       if (results.innerHTML) results.classList.remove("hidden");
     });
 
-    // Close results when clicking outside
     document.addEventListener("click", (e) => {
       if (!container.contains(e.target)) results.classList.add("hidden");
     });
   },
 
-  /**
-   * Loading spinner HTML
-   * @returns {string} HTML string
-   */
   spinner() {
     return '<div class="spinner"></div>';
   },
 
-  /**
-   * Empty state HTML
-   * @param {string} icon - Emoji or icon
-   * @param {string} msg - Main message
-   * @param {string} sub - Subtitle message (optional)
-   * @returns {string} HTML string
-   */
   empty(icon, msg, sub = "") {
     return `
       <div class="empty">

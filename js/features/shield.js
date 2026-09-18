@@ -67,6 +67,15 @@ W.shield = (() => {
 
   // ── Helpers ────────────────────────────────────────────
 
+  // Bucket a percentage to the nearest 10 for the .meter-fill-N
+  // classes in style.css. Kept local so this module has no
+  // dependency on W.ui being fully populated. CSP-safe: width is
+  // set via a class, not an inline style attribute.
+  function pctBucket(n) {
+    const v = Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
+    return Math.round(v / 10) * 10;
+  }
+
   function escapeHTML(str) {
     if (!str) return "";
     const div = document.createElement("div");
@@ -352,16 +361,16 @@ W.shield = (() => {
 
     // ── Build HTML ──────────────────────────────────
     return `
-      <div class="card" style="border-color: ${riskScore >= 40 ? "var(--down)" : riskScore >= 20 ? "var(--warn)" : "var(--up)"}; box-shadow: 0 0 40px ${riskScore >= 40 ? "rgba(255,92,122,.2)" : "transparent"};">
+      <div class="card ${riskScore >= 40 ? "risk-card-high" : riskScore >= 20 ? "risk-card-mid" : "risk-card-low"}">
         <div class="watch-head">
           <div>
             <h2>${escapeHTML(result.token_name || "Unknown")} <span class="muted">${escapeHTML(result.token_symbol || "")}</span></h2>
             <p class="muted small">${chain.icon} ${chain.name} · ${holderCount} Holders · Supply: ${totalSupply}</p>
           </div>
-          <div style="text-align:right;">
-            <span class="tag ${riskLevel[1]}" style="font-size:14px;padding:8px 16px;">${riskLevel[0]}</span>
-            <div class="muted small">Risk Score: ${riskScore}/100</div>
-            <div class="muted" style="font-size:10px;">${SHIELD_SCORE_VERSION_EVM}</div>
+         <div class="text-right">
+              <span class="tag tag-xl ${riskLevel[1]}">${riskLevel[0]}</span>
+              <div class="muted small">Risk Score: ${riskScore}/100</div>
+            <div class="muted text-2xs">${SHIELD_SCORE_VERSION_EVM}</div>
           </div>
         </div>
         ${
@@ -386,11 +395,11 @@ W.shield = (() => {
         </div>
         <div class="card">
           <h3>💰 Taxes & Fees</h3>
-          <div class="kv-row"><span>Buy Tax</span> <b style="color: ${parseFloat(buyTax) > 5 ? "var(--down)" : "var(--up)"};">${buyTax}%</b></div>
-          <div class="kv-row"><span>Sell Tax</span> <b style="color: ${parseFloat(sellTax) > 5 ? "var(--down)" : "var(--up)"};">${sellTax}%</b></div>
+          <div class="kv-row"><span>Buy Tax</span> <b class="${parseFloat(buyTax) > 5 ? "text-down" : "text-up"}">${buyTax}%</b></div>
+          <div class="kv-row"><span>Sell Tax</span> <b class="${parseFloat(sellTax) > 5 ? "text-down" : "text-up"}">${sellTax}%</b></div>
           <div class="meter-label mt">Tax Severity</div>
           <div class="meter-bar">
-            <div style="width: ${Math.min(100, (parseFloat(buyTax) + parseFloat(sellTax)) * 2)}%; background: ${Math.max(parseFloat(buyTax), parseFloat(sellTax)) > 5 ? "var(--down)" : "var(--up)"};"></div>
+            <div class="meter-fill meter-fill-${pctBucket(Math.min(100, (parseFloat(buyTax) + parseFloat(sellTax)) * 2))} ${Math.max(parseFloat(buyTax), parseFloat(sellTax)) > 5 ? "meter-fill-down" : "meter-fill-up"}"></div>
           </div>
           <p class="muted small mt">Taxes > 5% are often used to drain buyer funds. 0/0 is ideal.</p>
         </div>
@@ -575,16 +584,16 @@ W.shield = (() => {
     };
 
     return `
-      <div class="card" style="border-color: ${riskScore >= 40 ? "var(--down)" : riskScore >= 20 ? "var(--warn)" : "var(--up)"}; box-shadow: 0 0 40px ${riskScore >= 40 ? "rgba(255,92,122,.2)" : "transparent"};">
+     <div class="card ${riskScore >= 40 ? "risk-card-high" : riskScore >= 20 ? "risk-card-mid" : "risk-card-low"}">
         <div class="watch-head">
           <div>
             <h2>${escapeHTML(result.token_name || "Unknown")} <span class="muted">${escapeHTML(result.token_symbol || "")}</span></h2>
             <p class="muted small">${chain.icon} ${chain.name} · ${holderCount} Holders · Supply: ${totalSupply}${isTrusted ? ' · <span class="tag buy">✓ Trusted</span>' : ""}</p>
           </div>
-          <div style="text-align:right;">
-            <span class="tag ${riskLevel[1]}" style="font-size:14px;padding:8px 16px;">${riskLevel[0]}</span>
-            <div class="muted small">Risk Score: ${riskScore}/100</div>
-            <div class="muted" style="font-size:10px;">${SHIELD_SCORE_VERSION_SOLANA}</div>
+             <div class="text-right">
+             <span class="tag tag-xl ${riskLevel[1]}">${riskLevel[0]}</span>
+              <div class="muted small">Risk Score: ${riskScore}/100</div>
+            <div class="muted text-2xs">${SHIELD_SCORE_VERSION_SOLANA}</div>
           </div>
         </div>
         ${
@@ -609,7 +618,7 @@ W.shield = (() => {
         </div>
         <div class="card">
           <h3>💰 Transfer Fee</h3>
-          <div class="kv-row"><span>Current Fee</span> <b style="color: ${transferFeePct > 5 ? "var(--down)" : "var(--up)"};">${transferFeePct}%</b></div>
+          <div class="kv-row"><span>Current Fee</span> <b class="${transferFeePct > 5 ? "text-down" : "text-up"}">${transferFeePct}%</b></div>
           <p class="muted small mt">Solana Token-2022 tokens can charge a fee on every transfer. 0% is ideal.</p>
           <p class="muted small mt">⚠️ This audit uses GoPlus's Solana Token Security API, which is in beta — cross-check important findings on <a href="https://solscan.io/token/${escapeHTML(address)}" target="_blank" rel="noopener noreferrer">Solscan</a> or RugCheck before trading.</p>
         </div>
