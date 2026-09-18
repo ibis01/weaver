@@ -913,6 +913,10 @@ W.tokenAnalysis = (() => {
               bearishEvidence: result.bearishEvidence,
               contradictions: result.contradictions,
               evidenceQuality: result.evidenceQuality,
+              provenance:
+                (result.unifiedVerdict &&
+                  result.unifiedVerdict.provenance) ||
+                [],
             });
           }
         });
