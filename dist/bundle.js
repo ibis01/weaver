@@ -2335,14 +2335,6 @@ W.dashboard = (() => {
   }
 
   return { render, renderPortfolio, holdingModal, enrich };
-  
-  // ── Exports ───────────────────────────────────────────
-  return {
-    render,
-    holdingModal,
-    txModal,
-    enrich,
-  };
 })();
 
 console.log("[Dashboard] Module loaded (CSP compliant).");
@@ -18784,7 +18776,7 @@ window.W = window.W || {};
           label: "Dashboard",
           route: "#/dashboard",
         },
-        { id: "explorer", icon: "🔍", label: "Discover", route: "#/explorer" },
+        { id: "gems", icon: "🔍", label: "Discover", route: "#/gems" },
         { id: "token", icon: "📈", label: "Analyze", route: "#/token" },
         {
           id: "portfolio",
@@ -18925,8 +18917,8 @@ window.W = window.W || {};
     routeGeneration += 1;
     const hash = location.hash.slice(2) || "dashboard";
     const [page, param] = hash.split("/");
-    const activeId = page === "coin" ? "explorer" : page;
-
+    const activeId = page === "coin" ? "gems" : page;
+    
     document.querySelectorAll("#nav a").forEach((a) => {
       a.classList.toggle("active", a.dataset.id === activeId);
     });
