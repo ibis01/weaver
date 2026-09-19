@@ -10965,8 +10965,10 @@ W.gems = (() => {
   // ── Scan state ────────────────────────────────────────
   let auto = false,
     timer = null;
-  // `seen` tracks notification dedup across scans (address-only, matches
-  // pre-existing behavior). `shieldCache` is chain-aware.
+  // `seen` tracks notification dedup across scans. Chain-aware: the same
+  // 0x... address on Ethereum and Base are two distinct candidates and
+  // must not collapse into one notification. Keyed with the same
+  // normalization as shieldCacheKey so the two caches stay in lockstep.
   let seen = {};
   let shieldCache = {};
 
@@ -11155,14 +11157,17 @@ W.gems = (() => {
       });
 
       // ── Notifications / theses (post-enrichment, cache-only) ──
-      // Uses the freshly-warmed cache. `seen` semantics preserved:
-      // one notification per address per session.
+      // Uses the freshly-warmed cache. `seen` is chain-aware: the same
+      // 0x... address on two chains is two candidates, so cross-chain
+      // notifications do not collapse. Telegram notify key uses the
+      // same chain-aware identity, otherwise Telegram's own dedup
+      // would suppress the second chain's alert.
       for (const g of results) {
         const addr = g.pair.baseToken.address;
         const chainKey = g.pair.chainId;
-        if (g.analysis.score >= 70 && !seen[addr]) {
-          const key = shieldCacheKey(addr, chainKey);
-          const shield = key ? shieldCache[key] : null;
+        const cacheKey = shieldCacheKey(addr, chainKey);
+        if (g.analysis.score >= 70 && cacheKey && !seen[cacheKey]) {
+          const shield = shieldCache[cacheKey] || null;
           const reasonLines = (g.analysis.reasons || [])
             .slice(0, 4)
             .map((r) => "• " + r)
@@ -11176,10 +11181,25 @@ W.gems = (() => {
             "ok",
             6000,
           );
-          if (W.tg) W.tg.notify("gem:" + addr, msg);
+          if (W.tg) W.tg.notify("gem:" + cacheKey, msg);
           autoCreateThesis(g, addr, shield);
+          if (W.trackRecord) {
+            const priceAtCapture = parseFloat(g.pair.priceUsd);
+            W.trackRecord.createFromGemAlert({
+              symbol: g.pair.baseToken.symbol,
+              chainId: chainKey,
+              contractAddress: addr,
+              priceAtCapture: Number.isFinite(priceAtCapture)
+                ? priceAtCapture
+                : null,
+              scenario: "Bullish scenario",
+              confidence: g.analysis.score,
+              reasons: g.analysis.reasons,
+              methodologyVersion: g.analysis.scoreVersion,
+            });
+          }
         }
-        seen[addr] = 1;
+        if (cacheKey) seen[cacheKey] = 1;
       }
 
       view.querySelector("#g-stats").innerHTML = `
@@ -16875,6 +16895,16 @@ W.trackRecord = (() => {
   ]);
   const DANGEROUS_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 
+  // ── Outcome-evaluation cooldown ───────────────────────
+  // Avoid re-sweeping DexScreener every time the user navigates
+  // to /track. The cooldown keys off the pending set's signature,
+  // so a new gem call still triggers an immediate check.
+  const OUTCOME_COOLDOWN_MS = 60_000;
+  const OUTCOME_FETCH_TIMEOUT_MS = 9000;
+  let lastOutcomeSignature = "";
+  let lastOutcomeCheck = 0;
+  let warnedUnevaluable = false;
+
   function stableStringify(value) {
     if (value === null || typeof value !== "object")
       return JSON.stringify(value);
@@ -17018,8 +17048,7 @@ W.trackRecord = (() => {
       if (entry !== 0)
         result.realizedResultPct = ((exit - entry) / entry) * 100;
     }
-    const start =
-      timeMs(outcome.entryTimestamp) ?? timeMs(decisionTimestamp);
+    const start = timeMs(outcome.entryTimestamp) ?? timeMs(decisionTimestamp);
     const end =
       timeMs(outcome.exitTimestamp) ?? timeMs(outcome.outcomeTimestamp);
     if (start !== null && end !== null && end >= start)
@@ -17106,6 +17135,7 @@ W.trackRecord = (() => {
       }),
       asset:
         record.asset || record.assetId?.symbol || snapshot.asset || "UNKNOWN",
+      origin: record.origin === "gem-agent" ? "gem-agent" : "manual",
       weaverSnapshot: snapshot,
       userDecision: {
         action: USER_ACTIONS.has(decision.action)
@@ -17284,9 +17314,6 @@ W.trackRecord = (() => {
             }
             const conflictId = `${stableId}-legacy-${contentHash(legacySnapshot)}`;
             if (!byId.has(conflictId)) {
-              // Only `id` diverges. `recordId` stays as the base ID so
-              // the conflict is unambiguously linked to the analysis it
-              // conflicts with.
               migrated.id = conflictId;
               migrated.migration = {
                 source: source.key,
@@ -17327,12 +17354,7 @@ W.trackRecord = (() => {
         };
         const normalized = normalizeRecord(candidate);
         if (!normalized) {
-          quarantine(
-            raw,
-            source.key,
-            "INVALID_IMMUTABLE_SNAPSHOT",
-            originalId,
-          );
+          quarantine(raw, source.key, "INVALID_IMMUTABLE_SNAPSHOT", originalId);
           continue;
         }
         normalized.migration = {
@@ -17356,7 +17378,6 @@ W.trackRecord = (() => {
         }
         const conflictId = `${normalized.id}-legacy-${contentHash(normalized.weaverSnapshot)}`;
         if (!byId.has(conflictId)) {
-          // Only `id` diverges. `recordId` stays as the base ID.
           const conflictRecord = deepClone(normalized);
           conflictRecord.id = conflictId;
           conflictRecord.migration = {
@@ -17444,6 +17465,7 @@ W.trackRecord = (() => {
       createdAt: Date.now(),
       asset: analysis.asset,
       assetId,
+      origin: metadata.origin === "gem-agent" ? "gem-agent" : "manual",
       weaverSnapshot: deepClone(analysis),
       userDecision: {
         action: "UNSET",
@@ -17475,7 +17497,7 @@ W.trackRecord = (() => {
     return deepClone(record);
   }
 
-  function createFromAnalysis(analysis, assetId) {
+  function createFromAnalysis(analysis, assetId, options = {}) {
     if (!analysis || typeof analysis !== "object") {
       throw new Error("createFromAnalysis: analysis object is required");
     }
@@ -17485,14 +17507,13 @@ W.trackRecord = (() => {
       (analysis.asset && (analysis.asset.symbol || analysis.asset.name)) ||
       analysis.symbol ||
       "UNKNOWN";
-    const resolvedAssetId =
-      assetId || analysis.assetId || { symbol: resolvedAsset };
-    const score =
-      Number.isFinite(analysis.score)
-        ? analysis.score
-        : Number.isFinite(analysis.opportunityScore)
-          ? analysis.opportunityScore
-          : null;
+    const resolvedAssetId = assetId ||
+      analysis.assetId || { symbol: resolvedAsset };
+    const score = Number.isFinite(analysis.score)
+      ? analysis.score
+      : Number.isFinite(analysis.opportunityScore)
+        ? analysis.opportunityScore
+        : null;
     const normalized = {
       ...analysis,
       asset: resolvedAsset,
@@ -17511,7 +17532,203 @@ W.trackRecord = (() => {
       scoringVersion: analysis.scoringVersion ?? null,
       analysisTimestamp: analysis.analysisTimestamp ?? null,
     };
-    return capture(normalized, { assetId: resolvedAssetId });
+    return capture(normalized, {
+      assetId: resolvedAssetId,
+      origin: options.origin,
+    });
+  }
+
+  /**
+   * Public gem-call track record. Unlike manual captures, gem-agent
+   * entries never involve a personal position — there's no entry/exit
+   * quantity to redact, so these are safe to show publicly by
+   * construction, not because of a redaction step someone could forget.
+   * Dedupes by contract address + chain so a re-scanned gem doesn't
+   * create a second entry.
+   */
+  function createFromGemAlert({
+    symbol,
+    chainId,
+    contractAddress,
+    priceAtCapture,
+    scenario,
+    confidence,
+    reasons,
+    methodologyVersion,
+  }) {
+    if (!symbol || !chainId || !contractAddress) return null;
+    const existing = all().find(
+      (r) =>
+        r.origin === "gem-agent" &&
+        r.assetId?.chainId === chainId &&
+        r.assetId?.contractAddress === contractAddress,
+    );
+    if (existing) return existing;
+
+    const price = Number.isFinite(priceAtCapture) ? priceAtCapture : null;
+    return createFromAnalysis(
+      {
+        asset: symbol,
+        scenario: scenario || "Bullish scenario",
+        confidence: Number.isFinite(confidence) ? confidence : null,
+        explanation: Array.isArray(reasons) ? reasons.join("; ") : "",
+        methodologyVersion: methodologyVersion || null,
+        scoringVersion: methodologyVersion || null,
+        priceAtCapture: price,
+      },
+      { chainId, contractAddress, symbol, name: symbol },
+      { origin: "gem-agent" },
+    );
+  }
+
+  // ── Fetch with timeout ────────────────────────────────
+  // Mirrors gems.js's fetchDexScreener timeout. Without this, a hung
+  // DexScreener response would block render() indefinitely.
+  async function fetchWithTimeout(url, timeoutMs = OUTCOME_FETCH_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /**
+   * Re-checks price for open gem-agent records against DexScreener (the
+   * same source Gem Agent scored them from) and files the outcome via
+   * the existing calculateOutcome() math — treated as a nominal
+   * one-unit position so realizedResultPct is exact even though no real
+   * trade happened. Never invents a status for a record it can't price.
+   *
+   * REPORTED_FLAT is treated as re-evaluable: a call that is flat at
+   * capture time may still move later, and a public track record should
+   * reflect the current state, not a stale snapshot.
+   *
+   * Cooldown: within OUTCOME_COOLDOWN_MS, if the pending-set signature
+   * hasn't changed, this is a no-op. Callers can override with
+   * { force: true }.
+   */
+  async function evaluateGemOutcomes(options = {}) {
+    const force = options.force === true;
+
+    const allGemRecords = all().filter((r) => r.origin === "gem-agent");
+    const evaluable = (r) =>
+      ["UNKNOWN", "OPEN", "REPORTED_FLAT"].includes(r.outcome.status) &&
+      r.assetId?.contractAddress &&
+      Number.isFinite(r.weaverSnapshot?.priceAtCapture);
+
+    const pending = allGemRecords.filter(evaluable);
+
+    // Warn once per session if any gem-agent record can never be
+    // evaluated (missing capture price). These stay "Pending" in the
+    // UI by design — we never invent a status.
+    if (!warnedUnevaluable) {
+      const unevaluable = allGemRecords.filter(
+        (r) =>
+          ["UNKNOWN", "OPEN", "REPORTED_FLAT"].includes(r.outcome.status) &&
+          r.assetId?.contractAddress &&
+          !Number.isFinite(r.weaverSnapshot?.priceAtCapture),
+      );
+      if (unevaluable.length) {
+        console.warn(
+          "[TrackRecord]",
+          unevaluable.length,
+          "gem-agent record(s) have no capture price and cannot be evaluated.",
+        );
+      }
+      warnedUnevaluable = true;
+    }
+
+    if (!pending.length) return { checked: 0, updated: 0 };
+
+    const signature = pending
+      .map((r) => r.id)
+      .sort()
+      .join(",");
+    const now = Date.now();
+    if (
+      !force &&
+      signature === lastOutcomeSignature &&
+      now - lastOutcomeCheck < OUTCOME_COOLDOWN_MS
+    ) {
+      return { checked: 0, updated: 0, skipped: "cooldown" };
+    }
+    lastOutcomeSignature = signature;
+    lastOutcomeCheck = now;
+
+    const byChain = {};
+    pending.forEach((r) => {
+      (byChain[r.assetId.chainId] ||= []).push(r);
+    });
+
+    let updated = 0;
+    for (const [chainId, records] of Object.entries(byChain)) {
+      const addresses = records.map((r) => r.assetId.contractAddress);
+      let pairs = [];
+      try {
+        const res = await fetchWithTimeout(
+          "https://api.dexscreener.com/latest/dex/tokens/" +
+            addresses.join(","),
+        );
+        if (!res.ok) {
+          console.warn(
+            "[TrackRecord] Outcome fetch returned HTTP",
+            res.status,
+            "for chain",
+            chainId,
+          );
+          continue;
+        }
+        const data = await res.json();
+        pairs = Array.isArray(data) ? data : data.pairs || [];
+      } catch (e) {
+        // Graceful degradation — leave these pending, don't fabricate.
+        console.warn(
+          "[TrackRecord] Outcome fetch failed for chain",
+          chainId,
+          ":",
+          e.message,
+        );
+        continue;
+      }
+
+      for (const record of records) {
+        const pair = pairs.find(
+          (p) =>
+            p.chainId === chainId &&
+            p.baseToken?.address?.toLowerCase() ===
+              record.assetId.contractAddress.toLowerCase(),
+        );
+        const currentPrice = pair ? parseFloat(pair.priceUsd) : null;
+        if (!Number.isFinite(currentPrice)) continue;
+
+        const entry = record.weaverSnapshot.priceAtCapture;
+        const pct = ((currentPrice - entry) / entry) * 100;
+        const status =
+          pct > 2
+            ? "REPORTED_GAIN"
+            : pct < -2
+              ? "REPORTED_LOSS"
+              : "REPORTED_FLAT";
+
+        // Only increment `updated` if the write actually succeeded.
+        // updateOutcome returns null on failure (and logs the reason),
+        // so a silent quota error can't inflate the success count.
+        const written = updateOutcome(record.id, {
+          status,
+          observedPriceAtOutcome: currentPrice,
+          userEntryPrice: entry,
+          userExitPrice: currentPrice,
+          positionSize: 1,
+          entryTimestamp: record.createdAt,
+          outcomeTimestamp: Date.now(),
+          outcomeSource: "MARKET_OBSERVATION",
+        });
+        if (written) updated++;
+      }
+    }
+    return { checked: pending.length, updated };
   }
 
   function validChange(path, value) {
@@ -17613,7 +17830,12 @@ W.trackRecord = (() => {
       if (Object.prototype.hasOwnProperty.call(decisionPatch, key))
         changes[`userDecision.${key}`] = decisionPatch[key];
     }
-    return update(recordId, changes, "User decision update").record || null;
+    const result = update(recordId, changes, "User decision update");
+    if (!result.ok) {
+      console.warn("[TrackRecord] updateDecision failed:", result.error);
+      return null;
+    }
+    return result.record || null;
   }
 
   function updateOutcome(recordId, outcomePatch = {}) {
@@ -17634,7 +17856,12 @@ W.trackRecord = (() => {
       if (Object.prototype.hasOwnProperty.call(outcomePatch, key))
         changes[`outcome.${key}`] = outcomePatch[key];
     }
-    return update(recordId, changes, "Observed outcome update").record || null;
+    const result = update(recordId, changes, "Observed outcome update");
+    if (!result.ok) {
+      console.warn("[TrackRecord] updateOutcome failed:", result.error);
+      return null;
+    }
+    return result.record || null;
   }
 
   function linkTransaction(recordId, transactionId) {
@@ -17743,8 +17970,67 @@ W.trackRecord = (() => {
   }
 
   async function render(view) {
+    try {
+      await evaluateGemOutcomes();
+    } catch (e) {
+      console.warn("[TrackRecord] Gem outcome evaluation skipped:", e.message);
+    }
     const current = all();
-    view.innerHTML = `<div class="card"><div class="flex-between"><h3>Track Record</h3><button class="btn tiny" data-action="export">Export CSV</button></div><p class="muted small">Historical Weaver analyses are immutable. Decisions and outcomes are stored separately; this view does not fetch current market data.</p></div><div id="track-record-list">${current.length ? current.map((record) => `<article class="card track-record-entry" data-record-id="${escape(record.id)}"><h4>Weaver's Analysis — ${escape(record.assetId.symbol)}</h4><p class="small muted">${escape(record.weaverSnapshot.explanation || "No explanation captured.")}</p><p class="small">Scenario: ${escape(record.weaverSnapshot.scenario || record.weaverSnapshot.verdict || "Unknown")} · Confidence: ${record.weaverSnapshot.confidence === null || record.weaverSnapshot.confidence === undefined ? "not stated" : escape(record.weaverSnapshot.confidence + "%")}</p><h4>Your Decision</h4><select data-field="userDecision.action"><option value="NO_DECISION" ${record.userDecision.action === "NO_DECISION" ? "selected" : ""}>Not recorded</option><option value="WATCH" ${record.userDecision.action === "WATCH" ? "selected" : ""}>Watch</option><option value="CONSIDER" ${record.userDecision.action === "CONSIDER" ? "selected" : ""}>Consider</option><option value="ENTERED" ${record.userDecision.action === "ENTERED" ? "selected" : ""}>Entered decision</option><option value="NOT_ENTERED" ${record.userDecision.action === "NOT_ENTERED" ? "selected" : ""}>Did not enter</option><option value="HOLD" ${record.userDecision.action === "HOLD" ? "selected" : ""}>Held / waited</option></select><select data-field="userDecision.linkedTransactionId"><option value="">No linked transaction</option>${transactionOptions(record.userDecision.linkedTransactionId)}</select><textarea class="input mt" data-field="userDecision.notes" rows="2">${escape(record.userDecision.notes)}</textarea><h4>Outcome</h4><select data-field="outcome.status"><option value="UNKNOWN" ${record.outcome.status === "UNKNOWN" ? "selected" : ""}>Not reported</option><option value="REPORTED_GAIN" ${record.outcome.status === "REPORTED_GAIN" ? "selected" : ""}>Reported gain</option><option value="REPORTED_LOSS" ${record.outcome.status === "REPORTED_LOSS" ? "selected" : ""}>Reported loss</option><option value="REPORTED_FLAT" ${record.outcome.status === "REPORTED_FLAT" ? "selected" : ""}>Reported flat</option></select><div class="grid-2"><input class="input" data-field="outcome.userEntryPrice" type="number" min="0" step="any" value="${record.outcome.userEntryPrice ?? ""}" placeholder="Entry price"><input class="input" data-field="outcome.userExitPrice" type="number" min="0" step="any" value="${record.outcome.userExitPrice ?? ""}" placeholder="Exit price"><input class="input" data-field="outcome.positionSize" type="number" min="0" step="any" value="${record.outcome.positionSize ?? ""}" placeholder="Position size"><input class="input" data-field="outcome.resultCurrency" value="${escape(record.outcome.resultCurrency || "")}" placeholder="Currency"></div><input class="input mt" data-field="outcome.outcomeSource" value="${escape(record.outcome.outcomeSource || "")}" placeholder="Outcome source (e.g. user-reported)"><input class="input mt" data-field="revisionReason" placeholder="Reason for update (required)"><button class="btn primary tiny mt" data-action="save">Save update</button><button class="btn danger tiny mt" data-action="delete">Delete record</button></article>`).join("") : '<p class="muted">No historical analyses captured yet.</p>'}</div>`;
+    const gemRecords = current
+      .filter((r) => r.origin === "gem-agent")
+      .sort((a, b) => b.createdAt - a.createdAt);
+    const manualRecords = current.filter((r) => r.origin !== "gem-agent");
+
+    const badgeFor = (status) =>
+      status === "REPORTED_GAIN"
+        ? ["bullish", "Gain"]
+        : status === "REPORTED_LOSS"
+          ? ["bearish", "Loss"]
+          : status === "REPORTED_FLAT"
+            ? ["neutral", "Flat"]
+            : ["neutral", "Pending"];
+
+    const resolved = gemRecords.filter((r) =>
+      ["REPORTED_GAIN", "REPORTED_LOSS", "REPORTED_FLAT"].includes(
+        r.outcome.status,
+      ),
+    );
+    const wins = resolved.filter(
+      (r) => r.outcome.status === "REPORTED_GAIN",
+    ).length;
+    const winRate = resolved.length
+      ? Math.round((wins / resolved.length) * 100)
+      : null;
+
+    const publicSection = `
+      <div class="card">
+        <div class="flex-between"><h3>🌐 Weaver's Public Track Record</h3></div>
+        <p class="muted small">Every Gem Agent call, tracked automatically — wins and losses shown equally. These are Weaver's own market calls, never a user's personal trades.</p>
+        <p class="small">
+          ${
+            resolved.length
+              ? `<b>${wins}W / ${resolved.length - wins}L or flat</b> · Win rate ${winRate}% of ${resolved.length} resolved`
+              : "No resolved calls yet."
+          }
+          ${gemRecords.length - resolved.length > 0 ? ` · ${gemRecords.length - resolved.length} pending` : ""}
+        </p>
+        ${
+          gemRecords.length
+            ? gemRecords
+                .slice(0, 20)
+                .map((r) => {
+                  const [cls, label] = badgeFor(r.outcome.status);
+                  const pct = r.outcome.realizedResultPct;
+                  return `<div class="kv-row"><span>${escape(r.assetId.symbol)} (${escape(r.assetId.chainId)}) · ${new Date(r.createdAt).toLocaleDateString()}</span><span class="tag ${cls}">${label}${pct !== null && pct !== undefined ? " " + (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%" : ""}</span></div>`;
+                })
+                .join("")
+            : '<p class="muted small">No Gem Agent calls captured yet.</p>'
+        }
+      </div>`;
+
+    const manualSection = `<div class="card"><div class="flex-between"><h3>Your Analyses</h3><button class="btn tiny" data-action="export">Export CSV</button></div><p class="muted small">Historical Weaver analyses are immutable. Decisions and outcomes are stored separately; this view does not fetch current market data.</p></div><div id="track-record-list">${manualRecords.length ? manualRecords.map((record) => `<article class="card track-record-entry" data-record-id="${escape(record.id)}"><h4>Weaver's Analysis — ${escape(record.assetId.symbol)}</h4><p class="small muted">${escape(record.weaverSnapshot.explanation || "No explanation captured.")}</p><p class="small">Scenario: ${escape(record.weaverSnapshot.scenario || record.weaverSnapshot.verdict || "Unknown")} · Confidence: ${record.weaverSnapshot.confidence === null || record.weaverSnapshot.confidence === undefined ? "not stated" : escape(record.weaverSnapshot.confidence + "%")}</p><h4>Your Decision</h4><select data-field="userDecision.action"><option value="NO_DECISION" ${record.userDecision.action === "NO_DECISION" ? "selected" : ""}>Not recorded</option><option value="WATCH" ${record.userDecision.action === "WATCH" ? "selected" : ""}>Watch</option><option value="CONSIDER" ${record.userDecision.action === "CONSIDER" ? "selected" : ""}>Consider</option><option value="ENTERED" ${record.userDecision.action === "ENTERED" ? "selected" : ""}>Entered decision</option><option value="NOT_ENTERED" ${record.userDecision.action === "NOT_ENTERED" ? "selected" : ""}>Did not enter</option><option value="HOLD" ${record.userDecision.action === "HOLD" ? "selected" : ""}>Held / waited</option></select><select data-field="userDecision.linkedTransactionId"><option value="">No linked transaction</option>${transactionOptions(record.userDecision.linkedTransactionId)}</select><textarea class="input mt" data-field="userDecision.notes" rows="2">${escape(record.userDecision.notes)}</textarea><h4>Outcome</h4><select data-field="outcome.status"><option value="UNKNOWN" ${record.outcome.status === "UNKNOWN" ? "selected" : ""}>Not reported</option><option value="REPORTED_GAIN" ${record.outcome.status === "REPORTED_GAIN" ? "selected" : ""}>Reported gain</option><option value="REPORTED_LOSS" ${record.outcome.status === "REPORTED_LOSS" ? "selected" : ""}>Reported loss</option><option value="REPORTED_FLAT" ${record.outcome.status === "REPORTED_FLAT" ? "selected" : ""}>Reported flat</option></select><div class="grid-2"><input class="input" data-field="outcome.userEntryPrice" type="number" min="0" step="any" value="${record.outcome.userEntryPrice ?? ""}" placeholder="Entry price"><input class="input" data-field="outcome.userExitPrice" type="number" min="0" step="any" value="${record.outcome.userExitPrice ?? ""}" placeholder="Exit price"><input class="input" data-field="outcome.positionSize" type="number" min="0" step="any" value="${record.outcome.positionSize ?? ""}" placeholder="Position size"><input class="input" data-field="outcome.resultCurrency" value="${escape(record.outcome.resultCurrency || "")}" placeholder="Currency"></div><input class="input mt" data-field="outcome.outcomeSource" value="${escape(record.outcome.outcomeSource || "")}" placeholder="Outcome source (e.g. user-reported)"><input class="input mt" data-field="revisionReason" placeholder="Reason for update (required)"><button class="btn primary tiny mt" data-action="save">Save update</button><button class="btn danger tiny mt" data-action="delete">Delete record</button></article>`).join("") : '<p class="muted">No manual analyses captured yet.</p>'}</div>`;
+
+    view.innerHTML = publicSection + manualSection;
     view
       .querySelector("[data-action='export']")
       ?.addEventListener("click", exportCSV);
@@ -17802,6 +18088,8 @@ W.trackRecord = (() => {
     getById: get,
     capture,
     createFromAnalysis,
+    createFromGemAlert,
+    evaluateGemOutcomes,
     update,
     updateDecision,
     updateOutcome,

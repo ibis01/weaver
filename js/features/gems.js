@@ -217,8 +217,10 @@ W.gems = (() => {
   // ── Scan state ────────────────────────────────────────
   let auto = false,
     timer = null;
-  // `seen` tracks notification dedup across scans (address-only, matches
-  // pre-existing behavior). `shieldCache` is chain-aware.
+  // `seen` tracks notification dedup across scans. Chain-aware: the same
+  // 0x... address on Ethereum and Base are two distinct candidates and
+  // must not collapse into one notification. Keyed with the same
+  // normalization as shieldCacheKey so the two caches stay in lockstep.
   let seen = {};
   let shieldCache = {};
 
@@ -407,14 +409,17 @@ W.gems = (() => {
       });
 
       // ── Notifications / theses (post-enrichment, cache-only) ──
-      // Uses the freshly-warmed cache. `seen` semantics preserved:
-      // one notification per address per session.
+      // Uses the freshly-warmed cache. `seen` is chain-aware: the same
+      // 0x... address on two chains is two candidates, so cross-chain
+      // notifications do not collapse. Telegram notify key uses the
+      // same chain-aware identity, otherwise Telegram's own dedup
+      // would suppress the second chain's alert.
       for (const g of results) {
         const addr = g.pair.baseToken.address;
         const chainKey = g.pair.chainId;
-        if (g.analysis.score >= 70 && !seen[addr]) {
-          const key = shieldCacheKey(addr, chainKey);
-          const shield = key ? shieldCache[key] : null;
+        const cacheKey = shieldCacheKey(addr, chainKey);
+        if (g.analysis.score >= 70 && cacheKey && !seen[cacheKey]) {
+          const shield = shieldCache[cacheKey] || null;
           const reasonLines = (g.analysis.reasons || [])
             .slice(0, 4)
             .map((r) => "• " + r)
@@ -428,10 +433,25 @@ W.gems = (() => {
             "ok",
             6000,
           );
-          if (W.tg) W.tg.notify("gem:" + addr, msg);
+          if (W.tg) W.tg.notify("gem:" + cacheKey, msg);
           autoCreateThesis(g, addr, shield);
+          if (W.trackRecord) {
+            const priceAtCapture = parseFloat(g.pair.priceUsd);
+            W.trackRecord.createFromGemAlert({
+              symbol: g.pair.baseToken.symbol,
+              chainId: chainKey,
+              contractAddress: addr,
+              priceAtCapture: Number.isFinite(priceAtCapture)
+                ? priceAtCapture
+                : null,
+              scenario: "Bullish scenario",
+              confidence: g.analysis.score,
+              reasons: g.analysis.reasons,
+              methodologyVersion: g.analysis.scoreVersion,
+            });
+          }
         }
-        seen[addr] = 1;
+        if (cacheKey) seen[cacheKey] = 1;
       }
 
       view.querySelector("#g-stats").innerHTML = `
