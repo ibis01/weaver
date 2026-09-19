@@ -305,19 +305,49 @@ W.tokenAnalysis = (() => {
     const signals = allSignals.filter((s) => s.assetId.symbol === asset.symbol);
 
     if (!signals.length && !technical) {
+      // ── Unavailable-data path ─────────────────────────────
+      // Every field the renderer reads must be present here.
+      // Scores are null, NOT 0 — unknown must never render as a
+      // measured value. Same principle as the Gem Agent Shield P0:
+      // unknown ≠ zero, and missing must never render as a broken
+      // string ("undefined", "N/A%").
+      const unavailableQuality = {
+        status: "UNAVAILABLE",
+        reasons: [
+          "No recent signals for this asset.",
+          "Technical market data is unavailable.",
+        ],
+        score: 0,
+      };
       return {
         asset: asset.symbol,
-        opportunityScore: 0,
-        riskScore: 0,
+        assetId: asset,
+        opportunityScore: null,
+        riskScore: null,
         bullishEvidence: [],
         bearishEvidence: [],
         contradictions: [],
         verdict: "Insufficient data",
         confidence: null,
-        explanation: "No recent signals for this asset.",
+        explanation: "No recent signals and no technical data for this asset.",
         action: "HOLD",
+        actionConfidence: null,
+        actionReasons: [
+          "No recent signals for this asset",
+          "Technical market data is unavailable",
+        ],
+        actionInterpretation:
+          "The available evidence does not support a directional scenario.",
+        scenario: "Neutral / insufficient evidence",
+        evidenceQuality: unavailableQuality,
+        tradeLevels: null,
+        unifiedVerdict: null,
+        // collectEvents did run and matched nothing — 0 is a fact here,
+        // not a fabrication.
+        signalsCount: 0,
         fundamentals,
         technical: null,
+        personalContext: null,
       };
     }
 
@@ -588,17 +618,37 @@ W.tokenAnalysis = (() => {
         return;
       }
 
-      // Dynamic class names (CSP-safe — no inline style)
-      const oppClass = result.opportunityScore > 60 ? "text-up" : "text-warn";
-      const riskClass = result.riskScore > 60 ? "text-down" : "text-warn";
+      const safeText = (s) => W.fmt.escapeHTML(String(s ?? ""));
+
+      // ── Null-safe formatters ──────────────────────────────
+      // Unknown must never render as 0, "undefined", or "N/A%".
+      // Legacy: the early-return path once emitted these three
+      // artefacts simultaneously. Keep this contract even after
+      // the source of the bug is fixed, as defence in depth.
+      const isNumber = (v) => Number.isFinite(v);
+      const fmtScore = (v) => (isNumber(v) ? `${v}/100` : "—");
+      const fmtPct = (v) => (isNumber(v) ? `${v}%` : "—");
+      const fmtCount = (v) => (isNumber(v) ? String(v) : "—");
+
+      // Dynamic class names (CSP-safe — no inline style).
+      // Unknown scores use muted styling, never warn-orange, which
+      // would falsely read as "measured but low".
+      const oppClass = isNumber(result.opportunityScore)
+        ? result.opportunityScore > 60
+          ? "text-up"
+          : "text-warn"
+        : "muted";
+      const riskClass = isNumber(result.riskScore)
+        ? result.riskScore > 60
+          ? "text-down"
+          : "text-warn"
+        : "muted";
       const actionClass =
         result.action === "BUY"
           ? "card-action-buy"
           : result.action === "SELL"
             ? "card-action-sell"
             : "card-action-hold";
-
-      const safeText = (s) => W.fmt.escapeHTML(String(s ?? ""));
 
       view.innerHTML = `
         <div class="card">
@@ -607,7 +657,7 @@ W.tokenAnalysis = (() => {
           <div class="card mt-16 ${actionClass}">
             <h3>${safeText(result.scenario || "Neutral / insufficient evidence")}</h3>
               <button class="btn tiny" data-action="why">Why?</button>
-            <p class="small">Evidence quality: <b>${safeText(result.evidenceQuality?.status || "UNAVAILABLE")}</b> · Scenario strength: ${result.actionConfidence ?? "N/A"}%</p>
+            <p class="small">Evidence quality: <b>${safeText(result.evidenceQuality?.status || "UNAVAILABLE")}</b> · Scenario strength: ${fmtPct(result.actionConfidence)}</p>
             ${
               result.unifiedVerdict
                 ? `<p class="small muted">Domains: ${Object.values(
@@ -641,19 +691,19 @@ W.tokenAnalysis = (() => {
           <div class="cards mt-12">
             <div class="card stat">
               <div class="stat-label">Opportunity Score</div>
-              <div class="stat-big ${oppClass}">${result.opportunityScore}/100</div>
+              <div class="stat-big ${oppClass}">${fmtScore(result.opportunityScore)}</div>
             </div>
             <div class="card stat">
               <div class="stat-label">Risk Score</div>
-              <div class="stat-big ${riskClass}">${result.riskScore}/100</div>
+              <div class="stat-big ${riskClass}">${fmtScore(result.riskScore)}</div>
             </div>
             <div class="card stat">
               <div class="stat-label">Evidence Strength</div>
-              <div class="stat-big">${result.confidence === null ? "N/A" : result.confidence + "%"}</div>
+              <div class="stat-big">${fmtPct(result.confidence)}</div>
             </div>
             <div class="card stat">
               <div class="stat-label">Signals Analyzed</div>
-              <div class="stat-big">${result.signalsCount}</div>
+              <div class="stat-big">${fmtCount(result.signalsCount)}</div>
             </div>
           </div>
 
@@ -826,11 +876,18 @@ W.tokenAnalysis = (() => {
           secBtn.textContent = "Checking…";
           setState("muted", "Fetching contract address…");
           try {
-            const coin = await W.api.coin(result.assetId?.coingeckoId || result.asset);
+            const coin = await W.api.coin(
+              result.assetId?.coingeckoId || result.asset,
+            );
             const platforms = (coin && coin.platforms) || {};
-            const supported = Object.keys(platforms).filter((k) => W.shield?.CHAINS?.[k] && platforms[k]);
+            const supported = Object.keys(platforms).filter(
+              (k) => W.shield?.CHAINS?.[k] && platforms[k],
+            );
             if (!supported.length) {
-              setState("muted", "Security verification is not available for native chain tokens. Cross-check on the chain's block explorer.");
+              setState(
+                "muted",
+                "Security verification is not available for native chain tokens. Cross-check on the chain's block explorer.",
+              );
               secBtn.remove();
               return;
             }
@@ -839,7 +896,10 @@ W.tokenAnalysis = (() => {
             setState("muted", "Running Token Shield on " + chainKey + "…");
             const assessment = await W.shield.check(addr, chainKey);
             if (!assessment) {
-              setState("muted", "No security data found for this contract. Cross-check on the block explorer.");
+              setState(
+                "muted",
+                "No security data found for this contract. Cross-check on the block explorer.",
+              );
               secBtn.remove();
               return;
             }
@@ -847,7 +907,9 @@ W.tokenAnalysis = (() => {
             const rl = assessment.riskLevel?.[0] || "Unknown";
             const rs = assessment.riskScore ?? "—";
             const sv = assessment.scoreVersion || "—";
-            const risks = Array.isArray(assessment.risks) ? assessment.risks : [];
+            const risks = Array.isArray(assessment.risks)
+              ? assessment.risks
+              : [];
             const header = document.createElement("p");
             header.className = "small";
             header.textContent = rl + " · risk score " + rs + "/100 · " + sv;
@@ -860,7 +922,10 @@ W.tokenAnalysis = (() => {
             });
             secBtn.remove();
           } catch (e) {
-            setState("down", "Security verification unavailable. No safety conclusion is being made from missing data.");
+            setState(
+              "down",
+              "Security verification unavailable. No safety conclusion is being made from missing data.",
+            );
             secBtn.textContent = "Retry";
             secBtn.disabled = false;
           }
@@ -906,9 +971,13 @@ W.tokenAnalysis = (() => {
           if (W.ui && W.ui.evidenceDrawer) {
             W.ui.evidenceDrawer.open({
               explanation: result.explanation,
-              domains: (result.unifiedVerdict && result.unifiedVerdict.domains) || {},
-              methodologyVersion: result.unifiedVerdict && result.unifiedVerdict.methodologyVersion,
-              evidenceVersion: result.unifiedVerdict && result.unifiedVerdict.evidenceVersion,
+              domains:
+                (result.unifiedVerdict && result.unifiedVerdict.domains) || {},
+              methodologyVersion:
+                result.unifiedVerdict &&
+                result.unifiedVerdict.methodologyVersion,
+              evidenceVersion:
+                result.unifiedVerdict && result.unifiedVerdict.evidenceVersion,
               bullishEvidence: result.bullishEvidence,
               bearishEvidence: result.bearishEvidence,
               contradictions: result.contradictions,
