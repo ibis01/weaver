@@ -9,9 +9,6 @@ W.gems = (() => {
 
   // Only chains with a working Token Shield verification path.
   // Constitution §3.3: DISCOVERABLE_CHAINS ⊆ VERIFIED_CHAINS.
-  // Adding a chain here without adding it to shield.js's CHAINS
-  // violates the constitution. The parity test in test/unit/gems.test.js
-  // enforces this.
   const CHAINS = {
     solana: "🟣",
     ethereum: "🔷",
@@ -22,10 +19,16 @@ W.gems = (() => {
     avalanche: "❄️",
   };
 
-  // Bump this whenever score()'s weights/logic change. Alerts and cards
-  // display it so a score from an old version is never confused with one
-  // from a newer, differently-weighted model.
   const SCORE_VERSION = "gem-v1";
+
+  // Fallback threshold — used ONLY if W.shield.isHighRisk is unavailable
+  // (e.g. shield.js failed to load in a test environment). Never used
+  // when Shield is loaded: Shield remains the single source of truth.
+  const RISK_THRESHOLD_FALLBACK = 40;
+
+  // Per-scan bounds on fresh Shield requests.
+  const MAX_FRESH_SHIELD_PER_SCAN = 12;
+  const SHIELD_CONCURRENCY = 4;
 
   // ── Helpers ────────────────────────────────────────────
   function escapeHTML(str) {
@@ -52,14 +55,57 @@ W.gems = (() => {
     return Math.round(hours / 24) + "d";
   }
 
-  // Bucket a percentage to the nearest 10 for the .meter-fill-N
-  // classes in style.css. Kept local so this module has no
-  // dependency on W.ui being fully populated (the test environment
-  // does not load it). CSP-safe: the width is set via a class, not
-  // an inline style attribute.
   function pctBucket(n) {
     const v = Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
     return Math.round(v / 10) * 10;
+  }
+
+  // ── Shield cache key (chain-aware) ────────────────────
+  // EVM addresses are case-insensitive hex; Solana addresses are
+  // case-sensitive base58. Prefix with the chain key so the same
+  // 0x... address on Ethereum and Base cannot collide.
+  //
+  // Chains with different address-normalization rules MUST be handled
+  // explicitly here rather than falling through to the EVM/Solana
+  // branches.
+  function shieldCacheKey(address, chainKey) {
+    if (typeof address !== "string" || !address.trim()) return null;
+    if (typeof chainKey !== "string" || !chainKey) return null;
+    const normalized = chainKey === "solana" ? address : address.toLowerCase();
+    return chainKey + ":" + normalized;
+  }
+
+  // ── Shield eligibility ─────────────────────────────────
+  // A candidate is Shield-eligible only when:
+  //   1. baseToken.address is a non-empty string,
+  //   2. its chain is in Gem Agent's CHAINS,
+  //   3. that chain is also in W.shield.CHAINS.
+  // Address-format validation is deferred to W.shield.check() —
+  // the authority for what constitutes a valid address per chain.
+  function isShieldEligible(gem) {
+    const addr =
+      gem && gem.pair && gem.pair.baseToken ? gem.pair.baseToken.address : null;
+    if (typeof addr !== "string" || !addr.trim()) return false;
+    const chainKey = gem.pair.chainId;
+    if (!chainKey || !CHAINS[chainKey]) return false;
+    if (!W.shield || !W.shield.CHAINS || !W.shield.CHAINS[chainKey]) {
+      return false;
+    }
+    return true;
+  }
+
+  // ── High-risk predicate ────────────────────────────────
+  // Delegates to W.shield.isHighRisk() (the authoritative predicate).
+  // Fallback exists only for environments where shield.js has not
+  // loaded. Unknown / missing / malformed scores are NEVER treated as
+  // high risk — and never as safe.
+  function isHighRisk(shield) {
+    if (!shield) return false;
+    if (W.shield && typeof W.shield.isHighRisk === "function") {
+      return W.shield.isHighRisk(shield);
+    }
+    const score = Number(shield.riskScore);
+    return Number.isFinite(score) && score >= RISK_THRESHOLD_FALLBACK;
   }
 
   // ── API call with proxy fallback ──────────────────────
@@ -96,7 +142,6 @@ W.gems = (() => {
     let s = 0;
     const reasons = [];
 
-    // Liquidity
     if (liq >= 100e3 && liq <= 10e6) {
       s += 25;
       reasons.push("Healthy liquidity ($" + kfmt(liq) + ")");
@@ -108,7 +153,6 @@ W.gems = (() => {
       reasons.push("⚠️ Micro liquidity — rug risk");
     }
 
-    // Volume / liquidity ratio
     const vl = liq ? vol / liq : 0;
     if (vl >= 1 && vl <= 30) {
       s += 20;
@@ -120,7 +164,6 @@ W.gems = (() => {
       reasons.push("Low trading interest so far");
     }
 
-    // Momentum
     if (h24 > 20 && h6 > 0) {
       s += 20;
       reasons.push("Strong momentum +" + h24.toFixed(0) + "% 24h");
@@ -131,7 +174,6 @@ W.gems = (() => {
       s += 8;
     }
 
-    // Age
     if (ageH >= 6 && ageH <= 336) {
       s += 20;
       reasons.push("Age " + ageText(ageH) + " — past infancy, still early");
@@ -142,7 +184,6 @@ W.gems = (() => {
       s += 10;
     }
 
-    // Early buying pressure
     if (h1 > 0 && h6 > 0) {
       s += 15;
       reasons.push("Buyers stepping in (1h & 6h green)");
@@ -150,8 +191,6 @@ W.gems = (() => {
 
     s = Math.max(0, Math.min(100, s));
 
-    // Non-directive classifications. Weaver does not issue trading
-    // directives. Constitution §2.4.
     const verdict =
       s >= 70
         ? ["🌱 Strong opportunity signals", "strong-opportunity"]
@@ -175,23 +214,31 @@ W.gems = (() => {
     };
   }
 
-  // ── Scan ──────────────────────────────────────────────
+  // ── Scan state ────────────────────────────────────────
   let auto = false,
     timer = null;
+  // `seen` tracks notification dedup across scans (address-only, matches
+  // pre-existing behavior). `shieldCache` is chain-aware.
   let seen = {};
   let shieldCache = {};
 
   async function checkShield(addr, chainKey, identity = {}) {
-    if (shieldCache[addr]) {
+    const key = shieldCacheKey(addr, chainKey);
+    if (!key) {
+      return { error: true, message: "Invalid address or chain" };
+    }
+    if (shieldCache[key]) {
+      const cached = shieldCache[key];
+      // Keep evidence registry warm for downstream consumers.
       W.shield?.rememberEvidence?.(
         { ...identity, address: addr, chain: chainKey },
-        shieldCache[addr],
+        cached,
       );
-      return shieldCache[addr];
+      return cached;
     }
     if (!W.shield || !W.shield.CHAINS[chainKey]) {
       const result = { unsupported: true };
-      shieldCache[addr] = result;
+      shieldCache[key] = result;
       return result;
     }
     try {
@@ -199,7 +246,7 @@ W.gems = (() => {
       const result = assessment
         ? { ...assessment, ok: true }
         : { noData: true };
-      shieldCache[addr] = result;
+      shieldCache[key] = result;
       W.shield?.rememberEvidence?.(
         { ...identity, address: addr, chain: chainKey },
         result,
@@ -207,9 +254,42 @@ W.gems = (() => {
       return result;
     } catch (e) {
       const result = { error: true, message: e.message };
-      shieldCache[addr] = result;
+      shieldCache[key] = result;
       return result;
     }
+  }
+
+  // ── Bounded-concurrency Shield enrichment ─────────────
+  // Callers pass only *uncached* candidates. Cache hits never consume a
+  // fresh-request slot. One failing worker does not abort the others.
+  async function enrichShieldResults(
+    candidates,
+    concurrency = SHIELD_CONCURRENCY,
+  ) {
+    const queue = candidates.slice();
+    if (!queue.length) return;
+    const workers = [];
+    const limit = Math.max(1, Math.min(concurrency, queue.length));
+    for (let i = 0; i < limit; i++) {
+      workers.push(
+        (async () => {
+          while (queue.length) {
+            const gem = queue.shift();
+            if (!gem) break;
+            try {
+              await checkShield(gem.pair.baseToken.address, gem.pair.chainId, {
+                symbol: gem.pair.baseToken.symbol,
+                name: gem.pair.baseToken.name,
+              });
+            } catch (e) {
+              // checkShield already swallows errors; this is belt-and-braces.
+              console.warn("[Gems] Shield enrichment failed:", e && e.message);
+            }
+          }
+        })(),
+      );
+    }
+    await Promise.all(workers);
   }
 
   function shieldSummary(s) {
@@ -217,7 +297,8 @@ W.gems = (() => {
     if (s.unsupported) return "🛡️ Shield: not available for this chain";
     if (s.error) return "🛡️ Shield: check failed — verify manually";
     if (s.noData) return "🛡️ Shield: no security data found";
-    return `🛡️ Shield: ${s.riskLevel[0]} (${s.riskScore}/100 identified-risk score, ${s.scoreVersion})`;
+    const level = s.riskLevel && s.riskLevel[0] ? s.riskLevel[0] : "—";
+    return `🛡️ Shield: ${level} (${s.riskScore}/100 identified-risk score, ${s.scoreVersion})`;
   }
 
   function autoCreateThesis(gem, addr, shield) {
@@ -271,9 +352,6 @@ W.gems = (() => {
       const pairsResp = await fetchDexScreener(
         DEXSCREENER_API + "/latest/dex/tokens/" + addresses.join(","),
       );
-      // DexScreener returns { pairs: [...] } for the multi-token
-      // endpoint. Some older proxy paths returned a bare array. Accept
-      // both shapes.
       const pairs = Array.isArray(pairsResp)
         ? pairsResp
         : pairsResp && Array.isArray(pairsResp.pairs)
@@ -283,7 +361,6 @@ W.gems = (() => {
       pairs.forEach((p) => {
         const a = p.baseToken?.address;
         if (!a) return;
-        // Constitution §3.3 — DISCOVERABLE_CHAINS ⊆ VERIFIED_CHAINS.
         if (!CHAINS[p.chainId]) return;
         if (
           !byToken[a] ||
@@ -296,34 +373,54 @@ W.gems = (() => {
       const minScore = parseFloat(view.querySelector("#g-min")?.value) || 0;
       const chainFilter = view.querySelector("#g-chain")?.value || "";
       const hideRisk = view.querySelector("#g-hide-risk")?.checked || false;
+
       const results = Object.values(byToken)
         .map((p) => ({ pair: p, analysis: score(p) }))
         .filter((g) => g.analysis.score >= minScore)
         .sort((a, b) => b.analysis.score - a.analysis.score)
         .slice(0, 24);
 
+      // ── Shield enrichment — MUST run before hideRisk filtering ──
+      // Reuse cached results; issue at most MAX_FRESH_SHIELD_PER_SCAN
+      // fresh checks for the highest-scoring uncached eligible
+      // candidates, with bounded concurrency.
+      const eligible = results.filter(isShieldEligible);
+      const uncached = [];
+      for (const g of eligible) {
+        if (uncached.length >= MAX_FRESH_SHIELD_PER_SCAN) break;
+        const key = shieldCacheKey(g.pair.baseToken.address, g.pair.chainId);
+        if (key && shieldCache[key]) continue;
+        uncached.push(g);
+      }
+      if (uncached.length) {
+        await enrichShieldResults(uncached, SHIELD_CONCURRENCY);
+      }
+
+      // ── Apply filters (chain + hideRisk) on enriched data ──
       const shown = results.filter((g) => {
         if (chainFilter && g.pair.chainId !== chainFilter) return false;
-        if (hideRisk) {
-          const sc = shieldCache[g.pair.baseToken.address];
-          if (sc && sc.riskScore >= 40) return false;
-        }
-        return true;
+        if (!hideRisk) return true;
+        const key = shieldCacheKey(g.pair.baseToken.address, g.pair.chainId);
+        const sc = key ? shieldCache[key] : null;
+        if (!sc) return true; // unknown ≠ safe, but also not high-risk
+        return !isHighRisk(sc);
       });
 
+      // ── Notifications / theses (post-enrichment, cache-only) ──
+      // Uses the freshly-warmed cache. `seen` semantics preserved:
+      // one notification per address per session.
       for (const g of results) {
         const addr = g.pair.baseToken.address;
+        const chainKey = g.pair.chainId;
         if (g.analysis.score >= 70 && !seen[addr]) {
-          const shield = await checkShield(addr, g.pair.chainId, {
-            symbol: g.pair.baseToken.symbol,
-            name: g.pair.baseToken.name,
-          });
+          const key = shieldCacheKey(addr, chainKey);
+          const shield = key ? shieldCache[key] : null;
           const reasonLines = (g.analysis.reasons || [])
             .slice(0, 4)
             .map((r) => "• " + r)
             .join("\n");
           const msg =
-            `🤖 <b>Gem detected:</b> ${g.pair.baseToken.symbol} on ${g.pair.chainId} — score ${g.analysis.score} (${g.analysis.scoreVersion})\n` +
+            `🤖 <b>Gem detected:</b> ${g.pair.baseToken.symbol} on ${chainKey} — score ${g.analysis.score} (${g.analysis.scoreVersion})\n` +
             (reasonLines ? reasonLines + "\n" : "") +
             shieldSummary(shield);
           W.ui.toast(
@@ -350,7 +447,8 @@ W.gems = (() => {
               a = g.analysis,
               t = p.baseToken;
             const addr = t.address;
-            const shield = shieldCache[addr];
+            const key = shieldCacheKey(addr, p.chainId);
+            const shield = key ? shieldCache[key] : null;
             const shieldSection = shield
               ? `<div class="kv-row"><span class="muted">Security</span><span>${escapeHTML(shieldSummary(shield))}</span></div>`
               : `<button class="btn tiny mt" data-shield-check data-addr="${escapeHTML(addr)}" data-symbol="${escapeHTML(t.symbol)}" data-chain="${escapeHTML(p.chainId)}">🛡️ Verify Security</button>`;
@@ -434,12 +532,14 @@ W.gems = (() => {
             <label class="m-0">Chain
               <select id="g-chain" class="w-auto">
                 <option value="">All</option>
-                ${Object.keys(CHAINS).map((c) => `<option value="${c}">${c}</option>`).join("")}
+                ${Object.keys(CHAINS)
+                  .map((c) => `<option value="${c}">${c}</option>`)
+                  .join("")}
               </select>
             </label>
-            <label class="small m-0">
+            <label class="small m-0" title="Hides tokens with identified high-risk Shield indicators. Unchecked or unavailable security data remains visible.">
               <input type="checkbox" id="g-hide-risk" class="w-auto">
-              Hide high-risk
+              Hide identified high-risk
             </label>
             <label class="small m-0">
               <input type="checkbox" id="g-auto" ${auto ? "checked" : ""} class="w-auto">
@@ -471,7 +571,27 @@ W.gems = (() => {
     await scan(view);
   }
 
-  return { render, scan, checkShield, CHAINS, SCORE_VERSION };
+  return {
+    render,
+    scan,
+    checkShield,
+    CHAINS,
+    SCORE_VERSION,
+    // Exposed for tests and diagnostics only. Not part of the public API.
+    _internal: {
+      shieldCacheKey,
+      isShieldEligible,
+      isHighRisk,
+      enrichShieldResults,
+      getShieldCache: () => shieldCache,
+      resetShieldCache: () => {
+        shieldCache = {};
+      },
+      resetSeen: () => {
+        seen = {};
+      },
+    },
+  };
 })();
 
 console.log("[Gems] Module loaded.");

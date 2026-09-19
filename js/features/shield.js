@@ -11,6 +11,12 @@ W.shield = (() => {
     "https://api.gopluslabs.io/api/v1/solana/token_security";
   const CACHE_TTL = 300000; // 5 minutes
 
+  // Authoritative threshold for "identified high-risk". Do not duplicate
+  // this value elsewhere in the codebase. Consumers that need a
+  // high-risk decision MUST call W.shield.isHighRisk() rather than
+  // re-implementing the comparison.
+  const RISK_THRESHOLD = 40;
+
   const CHAINS = {
     ethereum: { id: "1", name: "Ethereum", icon: "⟠" },
     bsc: { id: "56", name: "BSC", icon: "🟡" },
@@ -63,6 +69,22 @@ W.shield = (() => {
       if (record) return { ...record };
     }
     return null;
+  }
+
+  // ── Authoritative high-risk predicate ─────────────────
+  // Returns true only when the assessment carries a finite riskScore
+  // that meets or exceeds RISK_THRESHOLD.
+  //
+  // Missing, malformed, errored, noData, or unsupported assessments are
+  // NEVER high risk. Callers must not treat "not high risk" as "safe" —
+  // the correct interpretation is "not identified as high risk".
+  function isHighRisk(assessment) {
+    if (!assessment) return false;
+    if (assessment.error || assessment.noData || assessment.unsupported) {
+      return false;
+    }
+    const score = Number(assessment.riskScore);
+    return Number.isFinite(score) && score >= RISK_THRESHOLD;
   }
 
   // ── Helpers ────────────────────────────────────────────
@@ -311,7 +333,7 @@ W.shield = (() => {
     }
 
     const riskLevel =
-      riskScore >= 40
+      riskScore >= RISK_THRESHOLD
         ? ["🔴 High identified risk indicators", "high-risk"]
         : riskScore >= 20
           ? ["🟡 Risk indicators detected", "caution"]
@@ -361,7 +383,7 @@ W.shield = (() => {
 
     // ── Build HTML ──────────────────────────────────
     return `
-      <div class="card ${riskScore >= 40 ? "risk-card-high" : riskScore >= 20 ? "risk-card-mid" : "risk-card-low"}">
+      <div class="card ${riskScore >= RISK_THRESHOLD ? "risk-card-high" : riskScore >= 20 ? "risk-card-mid" : "risk-card-low"}">
         <div class="watch-head">
           <div>
             <h2>${escapeHTML(result.token_name || "Unknown")} <span class="muted">${escapeHTML(result.token_symbol || "")}</span></h2>
@@ -534,7 +556,7 @@ W.shield = (() => {
     }
 
     const riskLevel =
-      riskScore >= 40
+      riskScore >= RISK_THRESHOLD
         ? ["🔴 High identified risk indicators", "high-risk"]
         : riskScore >= 20
           ? ["🟡 Risk indicators detected", "caution"]
@@ -584,7 +606,7 @@ W.shield = (() => {
     };
 
     return `
-     <div class="card ${riskScore >= 40 ? "risk-card-high" : riskScore >= 20 ? "risk-card-mid" : "risk-card-low"}">
+     <div class="card ${riskScore >= RISK_THRESHOLD ? "risk-card-high" : riskScore >= 20 ? "risk-card-mid" : "risk-card-low"}">
         <div class="watch-head">
           <div>
             <h2>${escapeHTML(result.token_name || "Unknown")} <span class="muted">${escapeHTML(result.token_symbol || "")}</span></h2>
@@ -834,6 +856,11 @@ W.shield = (() => {
     fetchSolanaTokenSecurity,
     rememberEvidence,
     getEvidence,
+    // Authoritative high-risk predicate and threshold. Consumers (e.g.
+    // Gem Agent) MUST call isHighRisk() rather than duplicating the
+    // numeric threshold.
+    isHighRisk,
+    RISK_THRESHOLD,
     CHAINS,
   };
 })();
