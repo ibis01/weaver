@@ -339,6 +339,51 @@ W.shield = (() => {
           ? ["🟡 Risk indicators detected", "caution"]
           : ["🟢 No identified risk indicators", "no-identified-risk"];
 
+    // ── Holder concentration (measured, not judged) ─────────
+    // GoPlus's response already contains this; we surface it on the
+    // assessment so downstream modules (market-structure.js) can read
+    // it without re-fetching. This is a measurement, not a
+    // classification: the shield assessment reports what the
+    // provider said. Interpretation belongs to consumers.
+    const rawHolderCount = Number(result.holder_count);
+    const holderCount = Number.isFinite(rawHolderCount) ? rawHolderCount : null;
+
+    const holdersList = Array.isArray(result.holders) ? result.holders : [];
+    const top10Holders = holdersList
+      .slice(0, 10)
+      .map((h) => {
+        const pct = parseFloat(h.percent);
+        return {
+          address: typeof h.address === "string" ? h.address : null,
+          percent: Number.isFinite(pct) ? pct * 100 : null,
+          isContract: h.is_contract === 1,
+          isLocked: h.is_locked === 1,
+          tag: typeof h.tag === "string" ? h.tag : null,
+        };
+      })
+      .filter((h) => h.address);
+
+    const top10Pct = top10Holders.length
+      ? top10Holders.reduce((sum, h) => sum + (h.percent || 0), 0)
+      : null;
+
+    const lpHoldersList = Array.isArray(result.lp_holders)
+      ? result.lp_holders
+      : [];
+    const lockedLpCount = lpHoldersList.filter(
+      (lp) => lp.is_locked === 1,
+    ).length;
+
+    const holders = {
+      count: holderCount,
+      top10: top10Holders.length ? top10Holders : null,
+      top10Pct,
+      lpCount: lpHoldersList.length || null,
+      lockedLpCount: lpHoldersList.length ? lockedLpCount : null,
+      hasLockedLp: lpHoldersList.length ? lockedLpCount > 0 : null,
+      source: "goplus-evm",
+    };
+
     return {
       riskScore,
       risks,
@@ -347,6 +392,7 @@ W.shield = (() => {
       flags: { isHoneypot, isMintable, isProxy, isOwnerRenounced, isLpLocked },
       buyTax,
       sellTax,
+      holders,
     };
   }
 
@@ -570,6 +616,20 @@ W.shield = (() => {
       flags: { mintable, freezable, closable, metadataMutable, balanceMutable },
       transferFeePct,
       isTrusted,
+      // The GoPlus Solana endpoint does not return holder distribution
+      // in the same shape as the EVM endpoint. We declare that
+      // explicitly rather than omitting the field, so consumers can
+      // distinguish "not applicable" from "checked and found empty".
+      holders: {
+        count: null,
+        top10: null,
+        top10Pct: null,
+        lpCount: null,
+        lockedLpCount: null,
+        hasLockedLp: null,
+        source: "unavailable",
+        reason: "GoPlus Solana endpoint does not return holder distribution.",
+      },
     };
   }
 
