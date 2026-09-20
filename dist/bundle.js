@@ -12423,6 +12423,12 @@ W.gems = (() => {
   const MAX_FRESH_SHIELD_PER_SCAN = 12;
   const SHIELD_CONCURRENCY = 4;
 
+  // Per-scan bounds on fresh deployer requests. Deployer fetches
+  // are heavier than Shield checks (they may issue a Bitquery
+  // GraphQL query) so both the cap and concurrency are lower.
+  const MAX_FRESH_DEPLOYER_PER_SCAN = 6;
+  const DEPLOYER_CONCURRENCY = 3;
+
   // Gem-local Shield cache TTL. Must match shield.js's own W.store TTL
   // so the two caches expire in step. A Shield assessment older than
   // this is deleted on read and re-fetched on the next scan.
@@ -12614,6 +12620,32 @@ W.gems = (() => {
     return `<div class="kv-row"><span class="muted">Owner</span><span>${escapeHTML(summary)}</span></div>`;
   }
 
+  // ── Deployer line (Step 5 of deployer-graph design) ────
+  // Renders the deployer-graph summary as an HTML row, or "" when
+  // there is nothing to show. The summary comes from the module;
+  // this helper only wraps it in markup and escapes it.
+  //
+  // The absence of this row does not mean the deployer is safe;
+  // it means no deployer profile is cached for this token. That
+  // can be because the token is on Solana, because GoPlus did not
+  // report a creator address, because the fetch failed, or
+  // because the fetched profile qualified zero tokens.
+  function deployerLine(observation) {
+    if (!observation) return "";
+    if (!W.deployerGraph || typeof W.deployerGraph.summarise !== "function") {
+      return "";
+    }
+    let summary;
+    try {
+      summary = W.deployerGraph.summarise(observation);
+    } catch (e) {
+      console.warn("[Gems] Deployer summarisation failed:", e && e.message);
+      return "";
+    }
+    if (!summary) return "";
+    return `<div class="kv-row"><span class="muted">Deployer</span><span>${escapeHTML(summary)}</span></div>`;
+  }
+
   // ── Observation recording (Step 2 of trajectory design) ──
   // Persists a market-structure observation for a single candidate
   // when the cached Shield assessment is usable. Returns true on
@@ -12703,6 +12735,97 @@ W.gems = (() => {
       console.warn("[Gems] Owner observation failed:", e && e.message);
       return null;
     }
+  }
+
+  // ── Deployer associations (Step 5 of deployer-graph design) ──
+  // Async. Reads the cached Shield assessment for the token, then
+  // delegates to W.deployerGraph.observe(). The module itself
+  // performs the cache check, the Bitquery fetch on cache miss,
+  // and the qualification step.
+  //
+  // Mirrors the guard shape of observeOwner() and adds the async
+  // hop. Never throws — every failure path returns null.
+  //
+  // This helper is called only from enrichDeployerResults(); the
+  // per-scan fresh cap is enforced there, not here.
+  async function observeDeployer(gem) {
+    if (!W.deployerGraph || typeof W.deployerGraph.observe !== "function") {
+      return null;
+    }
+    if (!gem || !gem.pair || !gem.pair.baseToken) return null;
+
+    const addr = gem.pair.baseToken.address;
+    const chainKey = gem.pair.chainId;
+    if (!addr || !chainKey) return null;
+
+    const key = shieldCacheKey(addr, chainKey);
+    const shield = key ? getCachedShield(key) : null;
+
+    if (!shield) return null;
+    if (shield.error || shield.noData || shield.unsupported) return null;
+
+    // Solana assessments and any EVM assessment without a GoPlus
+    // creator address cannot produce a deployer profile. Skipping
+    // here avoids the unnecessary await and keeps the per-scan cap
+    // honest even if the caller did not pre-filter.
+    const creator = shield.creator;
+    if (!creator || typeof creator !== "object") return null;
+    if (typeof creator.address !== "string" || !creator.address.trim()) {
+      return null;
+    }
+
+    const symbol =
+      typeof gem.pair.baseToken.symbol === "string"
+        ? gem.pair.baseToken.symbol
+        : null;
+
+    try {
+      return await W.deployerGraph.observe(shield, chainKey, addr, symbol);
+    } catch (e) {
+      console.warn("[Gems] Deployer observation failed:", e && e.message);
+      return null;
+    }
+  }
+
+  // ── Bounded-concurrency deployer enrichment ──────────
+  // Callers pass only *uncached* eligible candidates. The pool is
+  // capped at DEPLOYER_CONCURRENCY simultaneous requests and the
+  // caller has already limited the queue to
+  // MAX_FRESH_DEPLOYER_PER_SCAN entries.
+  //
+  // Unlike enrichShieldResults(), this pool is awaited by scan().
+  // Deployer fetches are heavier and the render path needs the
+  // cache populated to show the row. The cap and concurrency
+  // bounds keep the wait under two batches in the worst case.
+  async function enrichDeployerResults(
+    candidates,
+    concurrency = DEPLOYER_CONCURRENCY,
+  ) {
+    const queue = candidates.slice();
+    if (!queue.length) return;
+    const workers = [];
+    const limit = Math.max(1, Math.min(concurrency, queue.length));
+    for (let i = 0; i < limit; i++) {
+      workers.push(
+        (async () => {
+          while (queue.length) {
+            const gem = queue.shift();
+            if (!gem) break;
+            try {
+              await observeDeployer(gem);
+            } catch (e) {
+              // observeDeployer already swallows errors; this is
+              // belt-and-braces.
+              console.warn(
+                "[Gems] Deployer enrichment failed:",
+                e && e.message,
+              );
+            }
+          }
+        })(),
+      );
+    }
+    await Promise.all(workers);
   }
 
   // ── API call with proxy fallback ──────────────────────
@@ -13041,6 +13164,57 @@ W.gems = (() => {
         observeOwner(g);
       }
 
+      // ── Deployer enrichment (bounded, cache-first) ──────
+      // Deployer fetches are async and heavier than Shield checks,
+      // so this pass is bounded on two axes:
+      //   - MAX_FRESH_DEPLOYER_PER_SCAN caps the number of fresh
+      //     Bitquery queries per scan (cached profiles don't count).
+      //   - DEPLOYER_CONCURRENCY caps the simultaneous requests.
+      //
+      // Cache hits are found via get(), which never issues a
+      // network call. Only uncached eligible candidates enter the
+      // pool. The pool is awaited before filtering so the render
+      // path sees the cache populated on the first scan rather
+      // than on the second.
+      //
+      // Failure isolation matches the other observation layers:
+      // a deployer fetch that fails, times out, or is not
+      // configured simply leaves the cache empty and the row is
+      // omitted from the card.
+      //
+      // The pre-filter additionally requires a GoPlus creator
+      // address on the cached Shield assessment. Solana
+      // assessments always have creator.address === null; some
+      // EVM assessments do too. Those candidates would only
+      // produce a null result downstream, so they must not
+      // consume a slot from the per-scan cap.
+      if (W.deployerGraph && typeof W.deployerGraph.get === "function") {
+        const deployerUncached = [];
+        for (const g of results) {
+          if (deployerUncached.length >= MAX_FRESH_DEPLOYER_PER_SCAN) break;
+          const addr = g.pair.baseToken.address;
+          const chainKey = g.pair.chainId;
+          if (!addr || !chainKey) continue;
+
+          const shieldKey = shieldCacheKey(addr, chainKey);
+          const shield = shieldKey ? getCachedShield(shieldKey) : null;
+          if (!shield) continue;
+          if (shield.error || shield.noData || shield.unsupported) continue;
+          const creator = shield.creator;
+          if (!creator || typeof creator !== "object") continue;
+          if (typeof creator.address !== "string" || !creator.address.trim()) {
+            continue;
+          }
+
+          const cached = W.deployerGraph.get(chainKey, addr);
+          if (cached) continue;
+          deployerUncached.push(g);
+        }
+        if (deployerUncached.length) {
+          await enrichDeployerResults(deployerUncached, DEPLOYER_CONCURRENCY);
+        }
+      }
+
       // ── Apply filters (chain + hideRisk) on enriched data ──
       const shown = results.filter((g) => {
         if (chainFilter && g.pair.chainId !== chainFilter) return false;
@@ -13144,6 +13318,19 @@ W.gems = (() => {
               : null;
             const ownerSection = ownerLine(ownerObservation);
 
+            // Deployer. Reads the cached deployer profile for this
+            // token (populated by observeDeployer() during the
+            // scan). Renders as a fourth row when Bitquery returned
+            // a profile that qualified the current token.
+            //
+            // Same read/write boundary as the Owner row: get(), not
+            // observe(). Rendering must not issue a network request
+            // or mutate the cache.
+            const deployerObservation = W.deployerGraph
+              ? W.deployerGraph.get(p.chainId, addr)
+              : null;
+            const deployerSection = deployerLine(deployerObservation);
+
             return `
             <div class="card" data-gem-card="${escapeHTML(addr)}">
               <div class="watch-head">
@@ -13165,6 +13352,7 @@ W.gems = (() => {
               ${structureSection}
               ${trajectorySection}
               ${ownerSection}
+              ${deployerSection}
               <p class="small muted mt-8"><b>Why it appeared:</b> ${escapeHTML(a.reasons[0] || "Insufficient evidence to summarize.")}</p>
               ${
                 a.reasons.length > 1
@@ -13288,9 +13476,13 @@ W.gems = (() => {
       trajectoryLine,
       // Owner associations wiring — exposed for isolated tests.
       ownerLine,
+      // Deployer graph wiring — exposed for isolated tests.
+      deployerLine,
       // Observation recording — exposed for isolated tests.
       recordObservation,
       observeOwner,
+      observeDeployer,
+      enrichDeployerResults,
       // Raw map for diagnostics only. Entries are {assessment, observedAt}.
       getShieldCache: () => shieldCache,
       resetShieldCache: () => {
