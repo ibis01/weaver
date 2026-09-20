@@ -3,14 +3,6 @@
 // proxies like allorigins.win / corsproxy.io / codetabs.com)
 // ================================================================
 //
-// Why this exists: GoPlus's API doesn't send CORS headers, so a
-// browser can't call it directly. Weaver was relying on free public
-// CORS-relay services as a workaround — flaky, rate-limited, and a
-// dependency you don't control. This Worker does the same job, but
-// it's yours: no rate-limit surprises, no relay disappearing, and it
-// forwards to a small, explicit allowlist of upstreams rather than
-// acting as an open "proxy any URL" relay.
-//
 // Routes (path-based, NOT a generic ?url= passthrough by design):
 //   GET  /goplus/evm/:chainId?contract_addresses=0x...
 //   GET  /goplus/solana?contract_addresses=...
@@ -27,22 +19,40 @@
 //   with:  npx wrangler secret put BITQUERY_KEY
 //   Without it, the /bitquery route returns 503.
 //
+//   The query uses dataset: realtime because Bitquery's `combined`
+//   dataset spans realtime + archive and requires a paid plan. A
+//   free/trial key gets "access restricted" on `combined`. `realtime`
+//   is included on all plans. Tradeoff: results cover recent blocks
+//   only, so a deployer address that has not been active lately will
+//   return an empty Calls array — an honest answer, not an error.
+//
+// GOPLUS RATE LIMITING:
+//   GoPlus returns HTTP 200 with a JSON body { code: 4029 } when it
+//   rate-limits the shared Cloudflare egress IP pool. Checking HTTP
+//   status alone is not sufficient — we must inspect the body. The
+//   relay() function below retries up to 3 times with exponential
+//   backoff + jitter and, if still limited, returns HTTP 429 so the
+//   client can distinguish "rate limited" from "real error".
+//
 // SECURITY NOTE — ORIGIN IS NOT A RATE LIMITER:
 //   The ALLOWED_ORIGINS check is a CORS access-control check. It
 //   prevents a browser on an unauthorized origin from reading the
 //   response. It does NOT prevent a scripted caller from sending a
-//   spoofed Origin header. There is no application-level rate
-//   limiting in this Worker. Concrete abuse protection should be
-//   applied at the deployment level (Cloudflare Rate Limiting
-//   Rules scoped to /bitquery/deployer). Treat the origin check as
-//   an access-control gate, never as abuse prevention.
+//   spoofed Origin header, nor a curl call with no Origin at all.
+//   There is no application-level rate limiting in this Worker.
+//   Concrete abuse protection should be applied at the deployment
+//   level (Cloudflare Rate Limiting Rules scoped to
+//   /bitquery/deployer). Treat the origin check as an access-control
+//   gate, never as abuse prevention.
 //
 // Deploy: see cf-worker/README.md in this folder.
 
-// Only these origins may call this worker. Add your GitHub Pages URL
-// and/or custom domain here before deploying. Keep this list tight.
+// Only these origins may call this worker from a browser. Add your
+// GitHub Pages URL and/or custom domain here before deploying.
 // Note: this is a CORS check, not authentication — see the security
-// note above.
+// note above. Requests with NO Origin header (curl, server-side
+// fetch, Wrangler tail, etc.) bypass this list by design; they are
+// not browser callers and cannot be gated by CORS.
 const ALLOWED_ORIGINS = [
   "https://ibis01.github.io",
   "http://localhost:3000",
@@ -89,17 +99,31 @@ const CHAIN_TO_BITQUERY_NETWORK = {
   avalanche: "avalanche",
   optimism: "optimism",
 };
-
 // Fixed GraphQL query. The client never sees or supplies this. Only
 // the variables (network, address, limit) are per-request. A change
 // to the query is a code change here, reviewable in a diff, not a
 // runtime input.
+//
+// EVIDENCE SEMANTICS — do not remove Receipt.ContractAddress:
+//   Bitquery distinguishes two creation cases (see
+//   docs.bitquery.io/docs/blockchain/Ethereum/calls/contract-creation):
+//     - Top-level deployment: the deployed address is
+//       Receipt.ContractAddress.
+//     - Factory/internal deployment: the deployed address is
+//       Call.To on the create call.
+//   Requesting only Call.To would silently misclassify every
+//   top-level deployment. Requesting both lets the client apply
+//   an explicit extraction policy (see deployer-graph.js).
+//
+// dataset: realtime — see the header note. Do not switch this to
+// `combined` or `archive` without confirming the Bitquery plan covers
+// it, or every call will 502 with "access restricted".
 const DEPLOYER_QUERY = `query DeployerContracts(
   $network: evm_network!
   $address: String!
   $limit: Int!
 ) {
-  EVM(network: $network, dataset: combined) {
+  EVM(network: $network, dataset: realtime) {
     Calls(
       limit: { count: $limit }
       orderBy: { ascending: Block_Time }
@@ -109,6 +133,10 @@ const DEPLOYER_QUERY = `query DeployerContracts(
         To
         From
         Create
+        Index
+      }
+      Receipt {
+        ContractAddress
       }
       Transaction {
         Hash
@@ -120,11 +148,26 @@ const DEPLOYER_QUERY = `query DeployerContracts(
     }
   }
 }`;
-
 const DEPLOYER_QUERY_LIMIT = 50;
 const EVM_ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
 const FETCH_TIMEOUT_MS = 10000;
 
+// GoPlus returns HTTP 200 with { code: 4029 } when rate-limiting. We
+// must inspect the body, not just the status, and retry with backoff.
+const GOPLUS_RATE_LIMIT_CODE = 4029;
+const GOPLUS_MAX_ATTEMPTS = 3;
+const GOPLUS_BASE_DELAY_MS = 400;
+
+// ----------------------------------------------------------------
+// CORS
+// ----------------------------------------------------------------
+//
+// The `Vary: Origin` header is set unconditionally so Cloudflare's
+// edge cache never serves a cached response to a different origin.
+//
+// `Access-Control-Allow-Origin` is only meaningful to a browser.
+// For non-browser callers (no Origin) we send "null" — no browser
+// will read it, and curl ignores it entirely.
 function corsHeaders(origin) {
   const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : "null";
   return {
@@ -143,30 +186,96 @@ function jsonResponse(obj, status, headers) {
   });
 }
 
-// GET relay — unchanged from the original Worker. Used only by the
-// GoPlus routes.
-async function relay(upstreamUrl, headers) {
+// ----------------------------------------------------------------
+// Upstream relays
+// ----------------------------------------------------------------
+
+// Small helpers for the retry loop.
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function jitter(ms) {
+  return Math.floor(Math.random() * ms);
+}
+
+// One attempt at fetching a GoPlus URL. Returns { status, text } or
+// throws on network error/timeout.
+async function fetchGoPlusOnce(upstreamUrl) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const upstreamResp = await fetch(upstreamUrl, {
+    const resp = await fetch(upstreamUrl, {
       signal: controller.signal,
       headers: { "User-Agent": "WeaverProxy/1.0" },
     });
-    const body = await upstreamResp.text();
-    return new Response(body, {
-      status: upstreamResp.status,
-      headers: { "Content-Type": "application/json", ...headers },
-    });
-  } catch (e) {
-    return jsonResponse(
-      { code: 0, message: `Upstream fetch failed: ${e.message}` },
-      502,
-      headers,
-    );
+    const text = await resp.text();
+    return { status: resp.status, text };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+// GET relay — GoPlus routes. Retries on rate-limit (code 4029) with
+// exponential backoff + jitter, then returns HTTP 429 if still limited.
+async function relay(upstreamUrl, headers) {
+  let lastPayload = null;
+
+  for (let attempt = 0; attempt < GOPLUS_MAX_ATTEMPTS; attempt++) {
+    let result;
+    try {
+      result = await fetchGoPlusOnce(upstreamUrl);
+    } catch (e) {
+      return jsonResponse(
+        { code: 0, message: `Upstream fetch failed: ${e.message}` },
+        502,
+        headers,
+      );
+    }
+
+    // Try to parse. Non-JSON means we can't inspect the code — pass it
+    // through verbatim and don't retry.
+    let parsed = null;
+    try {
+      parsed = JSON.parse(result.text);
+    } catch (_) {
+      return new Response(result.text, {
+        status: result.status,
+        headers: { "Content-Type": "application/json", ...headers },
+      });
+    }
+
+    const isRateLimited = parsed && parsed.code === GOPLUS_RATE_LIMIT_CODE;
+
+    if (!isRateLimited) {
+      return new Response(result.text, {
+        status: result.status,
+        headers: { "Content-Type": "application/json", ...headers },
+      });
+    }
+
+    // Rate-limited. Remember the payload, and retry unless we're on
+    // the last attempt.
+    lastPayload = parsed;
+    if (attempt < GOPLUS_MAX_ATTEMPTS - 1) {
+      const delay = GOPLUS_BASE_DELAY_MS * Math.pow(2, attempt) + jitter(250);
+      await sleep(delay);
+    }
+  }
+
+  // All attempts rate-limited. Return an honest 429 so the client can
+  // surface a distinct "try again shortly" message.
+  return jsonResponse(
+    {
+      code: GOPLUS_RATE_LIMIT_CODE,
+      message:
+        lastPayload && lastPayload.message
+          ? lastPayload.message
+          : "GoPlus rate limit exceeded after retries.",
+    },
+    429,
+    headers,
+  );
 }
 
 // POST relay for Bitquery. Constructs the outgoing request entirely
@@ -267,6 +376,10 @@ async function relayBitquery(env, network, address, headers) {
   });
 }
 
+// ----------------------------------------------------------------
+// Route handlers
+// ----------------------------------------------------------------
+
 async function handleDeployerRequest(request, env, headers) {
   let body;
   try {
@@ -306,14 +419,35 @@ async function handleDeployerRequest(request, env, headers) {
 }
 
 async function handleRequest(request, env) {
-  const origin = request.headers.get("Origin") || "";
+  // Read Origin case-insensitively. Headers.get() is already
+  // case-insensitive, but we normalise to "" so the downstream logic
+  // only has to test one value.
+  const originHeader = request.headers.get("Origin");
+  const origin = originHeader || "";
   const headers = corsHeaders(origin);
 
+  // Preflight. Browsers send OPTIONS with an Origin; curl almost
+  // never does. We answer either way, but only advertise the
+  // requesting origin if it is on the allowlist.
   if (request.method === "OPTIONS") {
-    return new Response(null, { headers });
+    return new Response(null, { status: 204, headers });
   }
 
-  if (!ALLOWED_ORIGINS.includes(origin)) {
+  // Access-control gate.
+  //
+  // - No Origin header      -> non-browser caller (curl, server-side
+  //                            fetch, CI). CORS does not apply, so we
+  //                            let it through. The response carries
+  //                            `Access-Control-Allow-Origin: null`,
+  //                            which no browser will honour, so this
+  //                            cannot be abused by a webpage.
+  // - Origin not allowlisted -> browser caller from a hostile site.
+  //                            Reject with 403. The body is safe to
+  //                            return: it contains no secrets, and a
+  //                            browser on a disallowed origin can't
+  //                            read it anyway.
+  // - Origin allowlisted    -> proceed.
+  if (originHeader !== null && !ALLOWED_ORIGINS.includes(origin)) {
     return jsonResponse({ error: "Origin not allowed" }, 403, headers);
   }
 

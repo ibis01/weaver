@@ -22,10 +22,33 @@
 //   record for the returned contracts.
 //
 // SCOPE — Step 4:
-//   observe() is now implemented. It reads the GoPlus creator
-//   address as the query hint, calls the Worker's
-//   /bitquery/deployer route, parses the response, applies the
-//   qualification step, and records the resulting profile.
+//   observe() reads the GoPlus creator address as the query hint,
+//   calls the Worker's /bitquery/deployer route, parses the
+//   response, applies the qualification step, and records the
+//   resulting profile.
+//
+// CREATION-EVIDENCE CONTRACT:
+//   Bitquery returns two distinct creation shapes (see
+//   docs.bitquery.io/docs/blockchain/Ethereum/calls/contract-creation):
+//
+//     top-level deployment:
+//       Receipt.ContractAddress is the deployed contract.
+//       Call.To is null/zero for a top-level CREATE.
+//
+//     factory/internal deployment:
+//       Receipt.ContractAddress is not populated (or the zero
+//       address), and the nested CREATE call carries the deployed
+//       address in Call.To.
+//
+//   Every returned row is labelled with the callType that matches
+//   the field the address was extracted from. The literal
+//   "direct" is NO LONGER a valid callType — it overstates what
+//   the response establishes for factory/internal rows.
+//
+//   Rows where neither field yields a non-zero address are
+//   UNRESOLVED. They are dropped from tokens[] and counted in
+//   unresolvedCreationCount so the profile is honest about what
+//   was not classified.
 //
 // QUALIFICATION — Step 4 policy:
 //   The Bitquery response identifies contracts the address created.
@@ -39,9 +62,6 @@
 //   All other contracts are counted in filteredContractCount.
 //   They are visible as a number, not as individual tokens, and
 //   they are NOT counted as qualified in summarise().
-//
-//   Refining this — e.g. a GoPlus follow-up per contract, or a
-//   richer Bitquery query with token metadata — is a future step.
 //
 // CACHE:
 //   - Per-origin client cache. Backed by W.store (localStorage
@@ -65,11 +85,13 @@
 window.W = window.W || {};
 
 W.deployerGraph = (() => {
-  const METHODOLOGY_VERSION = "deployer-graph-v1";
+  const METHODOLOGY_VERSION = "deployer-graph-v2";
   const KEY_PREFIX = "deployer:";
   const INDEX_KEY = "deployer:__index__";
   const RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
   const MAX_PROFILES = 100;
+
+  const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
   // Worker URL. Empty by default; set via _internal.setWorkerBase().
   // When blank, observe() returns null without a network call.
@@ -105,6 +127,16 @@ W.deployerGraph = (() => {
     const trimmed = value.trim();
     if (!trimmed) return null;
     return trimmed;
+  }
+
+  // True only for a syntactically valid 0x-prefixed 40-hex address
+  // that is NOT the zero address. Used to decide whether a Bitquery
+  // field actually carries a deployed contract address.
+  function isNonZeroAddress(value) {
+    if (typeof value !== "string") return false;
+    const norm = value.trim().toLowerCase();
+    if (!/^0x[a-f0-9]{40}$/.test(norm)) return false;
+    return norm !== ZERO_ADDRESS;
   }
 
   function keyFor(chainKey, deployerAddress) {
@@ -291,6 +323,11 @@ W.deployerGraph = (() => {
         filteredContractCount: Number.isFinite(profile.filteredContractCount)
           ? Math.max(0, Math.floor(profile.filteredContractCount))
           : 0,
+        unresolvedCreationCount: Number.isFinite(
+          profile.unresolvedCreationCount,
+        )
+          ? Math.max(0, Math.floor(profile.unresolvedCreationCount))
+          : 0,
         creatorMetadata:
           profile.creatorMetadata && typeof profile.creatorMetadata === "object"
             ? cloneValue(profile.creatorMetadata)
@@ -439,11 +476,63 @@ W.deployerGraph = (() => {
     return calls;
   }
 
-  function extractContractAddress(call) {
+  // ── Creation-evidence extraction ─────────────────────────
+  //
+  // Bitquery returns two distinct creation shapes (see the header
+  // and the Worker's DEPLOYER_QUERY comment):
+  //
+  //   top-level deployment:
+  //     Receipt.ContractAddress is the deployed contract.
+  //     Call.To is null/zero for a top-level CREATE.
+  //
+  //   factory/internal deployment:
+  //     Receipt.ContractAddress is not populated (or is the zero
+  //     address), and the nested CREATE call carries the deployed
+  //     address in Call.To.
+  //
+  // This function never guesses. If neither field yields a
+  // non-zero address, it returns null and the caller counts the
+  // row as unresolved — it is NOT recorded as a deployment.
+  //
+  // The `callType` returned here is the ONLY value that should
+  // end up in deploymentEvidence. The literal "direct" is no
+  // longer a valid label.
+  function extractCreationEvidence(call) {
     if (!call || typeof call !== "object") return null;
-    const c = call.Call;
-    if (!c || typeof c !== "object") return null;
-    return normalizeAddress(c.To);
+
+    const receipt = call.Receipt;
+    const receiptAddress =
+      receipt && typeof receipt === "object" ? receipt.ContractAddress : null;
+
+    const inner = call.Call;
+    const callTo = inner && typeof inner === "object" ? inner.To : null;
+
+    const txHash = extractTxHash(call);
+    const blockTime = extractDeployedAt(call);
+
+    if (isNonZeroAddress(receiptAddress)) {
+      return {
+        deployedAddress: normalizeAddress(receiptAddress),
+        callType: "top-level",
+        evidenceFields: ["Receipt.ContractAddress", "Transaction.Hash"],
+        txHash,
+        deployedAt: blockTime,
+      };
+    }
+
+    if (isNonZeroAddress(callTo)) {
+      return {
+        deployedAddress: normalizeAddress(callTo),
+        callType: "factory-internal",
+        evidenceFields: ["Call.To", "Transaction.Hash"],
+        txHash,
+        deployedAt: blockTime,
+      };
+    }
+
+    // Neither field carries a usable address. Do NOT default to
+    // "direct". The caller excludes this row.
+    return null;
   }
 
   function extractTxHash(call) {
@@ -463,16 +552,37 @@ W.deployerGraph = (() => {
     return Number.isFinite(parsed) ? parsed : null;
   }
 
-  function buildTokenFromCall(call, contractAddr, deployerAddress) {
+  // Builds a token record from a row whose creation evidence has
+  // already been extracted. The evidence object carries the
+  // callType and the field provenance; both are persisted so a
+  // later audit can distinguish a top-level deployment from a
+  // factory-internal one without re-querying.
+  function buildTokenFromCall(evidence, deployerAddress) {
     return {
-      tokenAddress: contractAddr,
-      deployedAt: extractDeployedAt(call),
-      deploymentTxHash: extractTxHash(call),
+      tokenAddress: evidence.deployedAddress,
+      deployedAt: Number.isFinite(evidence.deployedAt)
+        ? evidence.deployedAt
+        : null,
+      deploymentTxHash:
+        typeof evidence.txHash === "string" ? evidence.txHash : null,
       deploymentEvidence: {
         source: "bitquery",
         method: "evm-call-create",
         deployerAddress: deployerAddress,
-        callType: "direct",
+        callType: evidence.callType, // "top-level" | "factory-internal"
+        deployedAddress: evidence.deployedAddress,
+        evidenceFields: Array.isArray(evidence.evidenceFields)
+          ? evidence.evidenceFields.slice()
+          : [],
+        // What this evidence does NOT establish:
+        //   - It does not establish that the deployer is the
+        //     current owner.
+        //   - It does not establish that the deployed contract is
+        //     a token.
+        //   - For callType "factory-internal", the `From` in the
+        //     Bitquery row is the factory address, not the EOA
+        //     that deployed the factory. Consumers must not
+        //     conflate the two.
       },
       riskScore: null,
       shieldObservedAt: null,
@@ -566,16 +676,22 @@ W.deployerGraph = (() => {
       // Qualification: only the current token is verified as a
       // token (GoPlus recognized it — that is why we have a
       // creator address to query with). All other contracts are
-      // counted in filteredContractCount.
+      // counted in filteredContractCount. Rows whose creation
+      // evidence cannot be resolved are counted separately in
+      // unresolvedCreationCount and never enter tokens[].
       const tokens = [];
       let filteredContractCount = 0;
+      let unresolvedCreationCount = 0;
 
       for (const call of calls) {
-        const contractAddr = extractContractAddress(call);
-        if (!contractAddr) continue;
+        const evidence = extractCreationEvidence(call);
+        if (!evidence) {
+          unresolvedCreationCount++;
+          continue;
+        }
 
-        if (contractAddr === tokenAddr) {
-          tokens.push(buildTokenFromCall(call, contractAddr, creatorAddress));
+        if (evidence.deployedAddress === tokenAddr) {
+          tokens.push(buildTokenFromCall(evidence, creatorAddress));
         } else {
           filteredContractCount++;
         }
@@ -584,6 +700,7 @@ W.deployerGraph = (() => {
       const profile = {
         tokens,
         filteredContractCount,
+        unresolvedCreationCount,
         creatorMetadata: {
           goplusCreatorAddress: creatorAddress,
           // We do not have a per-token Bitquery deployer lookup, so
@@ -627,10 +744,11 @@ W.deployerGraph = (() => {
       keyFor,
       normalizeAddress,
       normalizeChain,
+      isNonZeroAddress,
       isExpired,
       pruneAndEvict,
       extractCalls,
-      extractContractAddress,
+      extractCreationEvidence,
       extractTxHash,
       extractDeployedAt,
       setWorkerBase,
@@ -639,6 +757,7 @@ W.deployerGraph = (() => {
       KEY_PREFIX,
       RETENTION_MS,
       MAX_PROFILES,
+      ZERO_ADDRESS,
     },
   };
 })();
