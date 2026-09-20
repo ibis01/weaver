@@ -27,16 +27,18 @@
 //   The drawer receives an already-summarised trajectory string. It
 //   does not read W.observations or call summariseTrajectory(). The
 //   caller is responsible for both. When the summary is absent or
-//   empty, the trajectory line is omitted from the body — its
-//   absence does not mean the token is stable, it means no delta
-//   could be computed from the retained history.
+//   empty, the trajectory line is omitted from the body.
 //
 // OWNER POLICY:
 //   Same contract as the trajectory line. The drawer receives an
 //   already-summarised owner string. It does not read
-//   W.ownerAssociations — the caller does. The absence of the line
-//   does not mean the token's owner is safe; it means no owner
-//   association was observed this session.
+//   W.ownerAssociations — the caller does.
+//
+// DEPLOYER POLICY:
+//   Same contract again. The drawer receives an already-summarised
+//   deployer string. It does not read W.deployerGraph — the caller
+//   does. The absence of the line does not mean the deployer is
+//   safe; it means no deployer profile was available for this token.
 //
 // CSP Compliant: no style="" attributes. All user content passes
 // through W.fmt.escapeHTML before insertion.
@@ -187,11 +189,6 @@ W.ui.evidenceDrawer = (() => {
   // Renders the optional trajectory line. Returns "" when no
   // summary is supplied, so the caller can concatenate the result
   // unconditionally.
-  //
-  // The drawer does not fetch or compute the trajectory — it
-  // receives an already-summarised string. Keeping the drawer a
-  // pure renderer means it has no dependency on W.observations or
-  // W.marketStructure.
   function renderTrajectoryLine(summary) {
     if (typeof summary !== "string" || !summary.trim()) return "";
     return '<p class="small"><b>Trajectory:</b> ' + esc(summary) + "</p>";
@@ -200,13 +197,20 @@ W.ui.evidenceDrawer = (() => {
   // Renders the optional owner-association line. Same pattern as
   // renderTrajectoryLine: the drawer receives an already-summarised
   // string from the caller and does not read W.ownerAssociations.
-  //
-  // The absence of this line does not mean the token's owner is
-  // safe or trusted; it means no owner association was observed
-  // for this token in the current session.
   function renderOwnerLine(summary) {
     if (typeof summary !== "string" || !summary.trim()) return "";
     return '<p class="small"><b>Owner:</b> ' + esc(summary) + "</p>";
+  }
+
+  // Renders the optional deployer line. Same pattern as the owner
+  // and trajectory lines. The drawer receives an already-summarised
+  // string from the caller and does not read W.deployerGraph.
+  //
+  // The absence of this line does not mean the deployer is safe;
+  // it means no deployer profile was available for this token.
+  function renderDeployerLine(summary) {
+    if (typeof summary !== "string" || !summary.trim()) return "";
+    return '<p class="small"><b>Deployer:</b> ' + esc(summary) + "</p>";
   }
 
   function open(result) {
@@ -227,6 +231,13 @@ W.ui.evidenceDrawer = (() => {
     const ownerSummary =
       typeof r.ownerSummary === "string" && r.ownerSummary.trim()
         ? r.ownerSummary
+        : null;
+
+    // Same shape again: optional. Absent when no deployer profile
+    // is cached for the token.
+    const deployerSummary =
+      typeof r.deployerSummary === "string" && r.deployerSummary.trim()
+        ? r.deployerSummary
         : null;
 
     const supporting = [
@@ -292,6 +303,7 @@ W.ui.evidenceDrawer = (() => {
       (meta ? '<p class="small muted">' + esc(meta) + "</p>" : "") +
       renderTrajectoryLine(trajectorySummary) +
       renderOwnerLine(ownerSummary) +
+      renderDeployerLine(deployerSummary) +
       '<div class="mt-12">' +
       "<h4>🟢 Supporting evidence</h4>" +
       renderItems(supporting, "None recorded.") +
@@ -322,6 +334,7 @@ W.ui.evidenceDrawer = (() => {
       renderProvenance,
       renderTrajectoryLine,
       renderOwnerLine,
+      renderDeployerLine,
       carryProvenance,
       normalizeRelationship,
     },

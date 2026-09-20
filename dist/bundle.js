@@ -21422,75 +21422,105 @@ W.tokenAnalysis = (() => {
         });
       }
 
-      const whyBtn = view.querySelector("[data-action='why']");
-      if (whyBtn) {
-        whyBtn.addEventListener("click", () => {
-          if (W.ui && W.ui.evidenceDrawer) {
-            // Read the trajectory from persisted history, if any.
-            // Optional — the token may never have been scanned by
-            // the Gem Agent, or the observations module may be
-            // unavailable. In both cases the drawer renders without
-            // the trajectory line.
-            let trajectorySummary = null;
-            try {
-              const trajectory = W.observations?.trajectory?.(
-                result.assetId?.chainId,
-                result.assetId?.contractAddress,
-              );
-              if (trajectory) {
-                trajectorySummary =
-                  W.marketStructure?.summariseTrajectory?.(trajectory) ?? null;
-              }
-            } catch (e) {
-              console.warn(
-                "[TokenAnalysis] Trajectory read failed:",
-                e && e.message,
-              );
-            }
+            const whyBtn = view.querySelector("[data-action='why']");
+            if (whyBtn) {
+              whyBtn.addEventListener("click", () => {
+                if (W.ui && W.ui.evidenceDrawer) {
+                  // Read the trajectory from persisted history, if any.
+                  // Optional — the token may never have been scanned by
+                  // the Gem Agent, or the observations module may be
+                  // unavailable. In both cases the drawer renders without
+                  // the trajectory line.
+                  let trajectorySummary = null;
+                  try {
+                    const trajectory = W.observations?.trajectory?.(
+                      result.assetId?.chainId,
+                      result.assetId?.contractAddress,
+                    );
+                    if (trajectory) {
+                      trajectorySummary =
+                        W.marketStructure?.summariseTrajectory?.(trajectory) ??
+                        null;
+                    }
+                  } catch (e) {
+                    console.warn(
+                      "[TokenAnalysis] Trajectory read failed:",
+                      e && e.message,
+                    );
+                  }
 
-            // Read the owner association from the session map, if
-            // any. Optional in the same way: the token may never
-            // have been observed by the Gem Agent this session, or
-            // the module may be unavailable.
-            //
-            // This uses the read-only get() accessor, not observe().
-            // The drawer must not mutate session state on open.
-            let ownerSummary = null;
-            try {
-              const association = W.ownerAssociations?.get?.(
-                result.assetId?.chainId,
-                result.assetId?.contractAddress,
-              );
-              if (association) {
-                ownerSummary =
-                  W.ownerAssociations?.summarise?.(association) ?? null;
-              }
-            } catch (e) {
-              console.warn(
-                "[TokenAnalysis] Owner association read failed:",
-                e && e.message,
-              );
-            }
+                  // Read the owner association from the session map, if
+                  // any. Optional in the same way: the token may never
+                  // have been observed by the Gem Agent this session, or
+                  // the module may be unavailable.
+                  //
+                  // This uses the read-only get() accessor, not observe().
+                  // The drawer must not mutate session state on open.
+                  let ownerSummary = null;
+                  try {
+                    const association = W.ownerAssociations?.get?.(
+                      result.assetId?.chainId,
+                      result.assetId?.contractAddress,
+                    );
+                    if (association) {
+                      ownerSummary =
+                        W.ownerAssociations?.summarise?.(association) ?? null;
+                    }
+                  } catch (e) {
+                    console.warn(
+                      "[TokenAnalysis] Owner association read failed:",
+                      e && e.message,
+                    );
+                  }
 
-            W.ui.evidenceDrawer.open({
-              explanation: result.explanation,
-              domains:
-                (result.unifiedVerdict && result.unifiedVerdict.domains) || {},
-              methodologyVersion:
-                result.unifiedVerdict &&
-                result.unifiedVerdict.methodologyVersion,
-              evidenceVersion:
-                result.unifiedVerdict && result.unifiedVerdict.evidenceVersion,
-              bullishEvidence: result.bullishEvidence,
-              bearishEvidence: result.bearishEvidence,
-              contradictions: result.contradictions,
-              evidenceQuality: result.evidenceQuality,
-              trajectorySummary,
-              ownerSummary,
-            });
-          }
-        });
-      }
+                  // Read the cached deployer profile, if any. Same
+                  // optional contract: the token may never have been
+                  // scanned by the Gem Agent, the profile may not be
+                  // cached, or the module may be unavailable.
+                  //
+                  // This uses the read-only get() accessor. The drawer
+                  // must not call observe() — that would issue a network
+                  // request and mutate the cache on every open.
+                  let deployerSummary = null;
+                  try {
+                    const profile = W.deployerGraph?.get?.(
+                      result.assetId?.chainId,
+                      result.assetId?.contractAddress,
+                    );
+                    if (profile) {
+                      deployerSummary =
+                        W.deployerGraph?.summarise?.(profile) ?? null;
+                    }
+                  } catch (e) {
+                    console.warn(
+                      "[TokenAnalysis] Deployer read failed:",
+                      e && e.message,
+                    );
+                  }
+
+                  W.ui.evidenceDrawer.open({
+                    explanation: result.explanation,
+                    domains:
+                      (result.unifiedVerdict &&
+                        result.unifiedVerdict.domains) ||
+                      {},
+                    methodologyVersion:
+                      result.unifiedVerdict &&
+                      result.unifiedVerdict.methodologyVersion,
+                    evidenceVersion:
+                      result.unifiedVerdict &&
+                      result.unifiedVerdict.evidenceVersion,
+                    bullishEvidence: result.bullishEvidence,
+                    bearishEvidence: result.bearishEvidence,
+                    contradictions: result.contradictions,
+                    evidenceQuality: result.evidenceQuality,
+                    trajectorySummary,
+                    ownerSummary,
+                    deployerSummary,
+                  });
+                }
+              });
+            }
       const newBtn = view.querySelector("[data-action='new-analysis']");
       if (newBtn) {
         newBtn.addEventListener("click", () => {
@@ -21601,16 +21631,18 @@ W.tokenAnalysis = (() => {
 //   The drawer receives an already-summarised trajectory string. It
 //   does not read W.observations or call summariseTrajectory(). The
 //   caller is responsible for both. When the summary is absent or
-//   empty, the trajectory line is omitted from the body — its
-//   absence does not mean the token is stable, it means no delta
-//   could be computed from the retained history.
+//   empty, the trajectory line is omitted from the body.
 //
 // OWNER POLICY:
 //   Same contract as the trajectory line. The drawer receives an
 //   already-summarised owner string. It does not read
-//   W.ownerAssociations — the caller does. The absence of the line
-//   does not mean the token's owner is safe; it means no owner
-//   association was observed this session.
+//   W.ownerAssociations — the caller does.
+//
+// DEPLOYER POLICY:
+//   Same contract again. The drawer receives an already-summarised
+//   deployer string. It does not read W.deployerGraph — the caller
+//   does. The absence of the line does not mean the deployer is
+//   safe; it means no deployer profile was available for this token.
 //
 // CSP Compliant: no style="" attributes. All user content passes
 // through W.fmt.escapeHTML before insertion.
@@ -21761,11 +21793,6 @@ W.ui.evidenceDrawer = (() => {
   // Renders the optional trajectory line. Returns "" when no
   // summary is supplied, so the caller can concatenate the result
   // unconditionally.
-  //
-  // The drawer does not fetch or compute the trajectory — it
-  // receives an already-summarised string. Keeping the drawer a
-  // pure renderer means it has no dependency on W.observations or
-  // W.marketStructure.
   function renderTrajectoryLine(summary) {
     if (typeof summary !== "string" || !summary.trim()) return "";
     return '<p class="small"><b>Trajectory:</b> ' + esc(summary) + "</p>";
@@ -21774,13 +21801,20 @@ W.ui.evidenceDrawer = (() => {
   // Renders the optional owner-association line. Same pattern as
   // renderTrajectoryLine: the drawer receives an already-summarised
   // string from the caller and does not read W.ownerAssociations.
-  //
-  // The absence of this line does not mean the token's owner is
-  // safe or trusted; it means no owner association was observed
-  // for this token in the current session.
   function renderOwnerLine(summary) {
     if (typeof summary !== "string" || !summary.trim()) return "";
     return '<p class="small"><b>Owner:</b> ' + esc(summary) + "</p>";
+  }
+
+  // Renders the optional deployer line. Same pattern as the owner
+  // and trajectory lines. The drawer receives an already-summarised
+  // string from the caller and does not read W.deployerGraph.
+  //
+  // The absence of this line does not mean the deployer is safe;
+  // it means no deployer profile was available for this token.
+  function renderDeployerLine(summary) {
+    if (typeof summary !== "string" || !summary.trim()) return "";
+    return '<p class="small"><b>Deployer:</b> ' + esc(summary) + "</p>";
   }
 
   function open(result) {
@@ -21801,6 +21835,13 @@ W.ui.evidenceDrawer = (() => {
     const ownerSummary =
       typeof r.ownerSummary === "string" && r.ownerSummary.trim()
         ? r.ownerSummary
+        : null;
+
+    // Same shape again: optional. Absent when no deployer profile
+    // is cached for the token.
+    const deployerSummary =
+      typeof r.deployerSummary === "string" && r.deployerSummary.trim()
+        ? r.deployerSummary
         : null;
 
     const supporting = [
@@ -21866,6 +21907,7 @@ W.ui.evidenceDrawer = (() => {
       (meta ? '<p class="small muted">' + esc(meta) + "</p>" : "") +
       renderTrajectoryLine(trajectorySummary) +
       renderOwnerLine(ownerSummary) +
+      renderDeployerLine(deployerSummary) +
       '<div class="mt-12">' +
       "<h4>🟢 Supporting evidence</h4>" +
       renderItems(supporting, "None recorded.") +
@@ -21896,6 +21938,7 @@ W.ui.evidenceDrawer = (() => {
       renderProvenance,
       renderTrajectoryLine,
       renderOwnerLine,
+      renderDeployerLine,
       carryProvenance,
       normalizeRelationship,
     },
