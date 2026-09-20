@@ -1,4 +1,4 @@
-
+// test/unit/owner-associations.test.js
 //
 // Owner associations — session-scoped owner observations.
 //
@@ -389,6 +389,75 @@ describe("Owner associations — session module", () => {
       expect(s).to.not.include("trusted");
       expect(s).to.not.include("same team");
       expect(s).to.not.include("creator");
+    });
+  });
+
+  // ── get (read-only accessor) ───────────────────────────────
+
+  describe("get", () => {
+    it("returns null when no association exists for the token", () => {
+      expect(global.W.ownerAssociations.get(CHAIN, TOKEN_A)).to.equal(null);
+    });
+
+    it("returns null for missing or invalid inputs", () => {
+      expect(global.W.ownerAssociations.get(null, TOKEN_A)).to.equal(null);
+      expect(global.W.ownerAssociations.get("", TOKEN_A)).to.equal(null);
+      expect(global.W.ownerAssociations.get(CHAIN, null)).to.equal(null);
+      expect(global.W.ownerAssociations.get(CHAIN, "")).to.equal(null);
+      expect(global.W.ownerAssociations.get(CHAIN, "   ")).to.equal(null);
+    });
+
+    it("returns the association when the token has been observed", () => {
+      global.W.ownerAssociations.observe(assessment(), CHAIN, TOKEN_A, "A");
+      const o = global.W.ownerAssociations.get(CHAIN, TOKEN_A);
+      expect(o).to.be.an("object");
+      expect(o.ownerAddress).to.equal(OWNER_LOWER);
+      expect(o.seenOnTokens).to.have.length(1);
+    });
+
+    it("does not mutate session state", async () => {
+      global.W.ownerAssociations.observe(assessment(), CHAIN, TOKEN_A, "A");
+      const first = global.W.ownerAssociations.get(CHAIN, TOKEN_A);
+      const firstAt = first.seenOnTokens[0].observedAt;
+
+      await new Promise((r) => setTimeout(r, 5));
+
+      const second = global.W.ownerAssociations.get(CHAIN, TOKEN_A);
+      expect(second.seenOnTokens[0].observedAt).to.equal(firstAt);
+    });
+
+    it("returns the accumulated association across multiple tokens", () => {
+      global.W.ownerAssociations.observe(assessment(), CHAIN, TOKEN_A, "A");
+      global.W.ownerAssociations.observe(assessment(), CHAIN, TOKEN_B, "B");
+      const o = global.W.ownerAssociations.get(CHAIN, TOKEN_A);
+      expect(o.seenOnTokens).to.have.length(2);
+    });
+
+    it("scopes the lookup by chain", () => {
+      global.W.ownerAssociations.observe(
+        assessment(),
+        "ethereum",
+        TOKEN_A,
+        "A",
+      );
+      expect(global.W.ownerAssociations.get("base", TOKEN_A)).to.equal(null);
+      expect(global.W.ownerAssociations.get("ethereum", TOKEN_A)).to.be.an(
+        "object",
+      );
+    });
+
+    it("returns a clone so the caller cannot mutate session state", () => {
+      global.W.ownerAssociations.observe(assessment(), CHAIN, TOKEN_A, "A");
+      const o1 = global.W.ownerAssociations.get(CHAIN, TOKEN_A);
+      o1.seenOnTokens[0].symbol = "CORRUPTED";
+      const o2 = global.W.ownerAssociations.get(CHAIN, TOKEN_A);
+      expect(o2.seenOnTokens[0].symbol).to.equal("A");
+    });
+
+    it("does not throw for any input", () => {
+      expect(() => global.W.ownerAssociations.get()).to.not.throw();
+      expect(() => global.W.ownerAssociations.get(null, null)).to.not.throw();
+      expect(() => global.W.ownerAssociations.get(123, 456)).to.not.throw();
     });
   });
 

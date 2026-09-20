@@ -149,6 +149,39 @@ W.ownerAssociations = (() => {
     }
   }
 
+  // Read-only accessor. Returns the accumulated association for a
+  // token without mutating session state. The association is keyed
+  // by owner address, so this walks the session map to find the one
+  // whose tokens include the given tokenAddress. For a session with
+  // tens of tokens this is trivially cheap.
+  //
+  // Returns null when the module has no observation for the token.
+  // Never throws.
+  //
+  // This is the analogue of W.observations.history(): the drawer
+  // path must not call observe() on open, because observe() updates
+  // observedAt and riskScore on every call. Reads must not write.
+  function get(chainKey, tokenAddress) {
+    try {
+      if (typeof chainKey !== "string" || !chainKey.trim()) return null;
+      const tokenAddr = normalizeEvmAddress(tokenAddress);
+      if (!tokenAddr) return null;
+
+      const chain = chainKey.trim();
+      for (const key of Object.keys(sessionMap)) {
+        const association = sessionMap[key];
+        if (association.chain !== chain) continue;
+        if (association.tokens[tokenAddr]) {
+          return buildObservation(association);
+        }
+      }
+      return null;
+    } catch (e) {
+      console.warn("[OwnerAssociations] get failed:", e && e.message);
+      return null;
+    }
+  }
+
   function buildObservation(association) {
     // Clone each token entry so the caller cannot mutate session
     // state by holding onto the returned object.
@@ -211,6 +244,7 @@ W.ownerAssociations = (() => {
 
   return {
     observe,
+    get,
     summarise,
     reset,
     METHODOLOGY_VERSION,

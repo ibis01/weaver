@@ -991,6 +991,30 @@ W.tokenAnalysis = (() => {
               );
             }
 
+            // Read the owner association from the session map, if
+            // any. Optional in the same way: the token may never
+            // have been observed by the Gem Agent this session, or
+            // the module may be unavailable.
+            //
+            // This uses the read-only get() accessor, not observe().
+            // The drawer must not mutate session state on open.
+            let ownerSummary = null;
+            try {
+              const association = W.ownerAssociations?.get?.(
+                result.assetId?.chainId,
+                result.assetId?.contractAddress,
+              );
+              if (association) {
+                ownerSummary =
+                  W.ownerAssociations?.summarise?.(association) ?? null;
+              }
+            } catch (e) {
+              console.warn(
+                "[TokenAnalysis] Owner association read failed:",
+                e && e.message,
+              );
+            }
+
             W.ui.evidenceDrawer.open({
               explanation: result.explanation,
               domains:
@@ -1005,6 +1029,7 @@ W.tokenAnalysis = (() => {
               contradictions: result.contradictions,
               evidenceQuality: result.evidenceQuality,
               trajectorySummary,
+              ownerSummary,
             });
           }
         });

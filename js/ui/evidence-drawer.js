@@ -31,6 +31,13 @@
 //   absence does not mean the token is stable, it means no delta
 //   could be computed from the retained history.
 //
+// OWNER POLICY:
+//   Same contract as the trajectory line. The drawer receives an
+//   already-summarised owner string. It does not read
+//   W.ownerAssociations — the caller does. The absence of the line
+//   does not mean the token's owner is safe; it means no owner
+//   association was observed this session.
+//
 // CSP Compliant: no style="" attributes. All user content passes
 // through W.fmt.escapeHTML before insertion.
 // ===============================================================
@@ -190,6 +197,18 @@ W.ui.evidenceDrawer = (() => {
     return '<p class="small"><b>Trajectory:</b> ' + esc(summary) + "</p>";
   }
 
+  // Renders the optional owner-association line. Same pattern as
+  // renderTrajectoryLine: the drawer receives an already-summarised
+  // string from the caller and does not read W.ownerAssociations.
+  //
+  // The absence of this line does not mean the token's owner is
+  // safe or trusted; it means no owner association was observed
+  // for this token in the current session.
+  function renderOwnerLine(summary) {
+    if (typeof summary !== "string" || !summary.trim()) return "";
+    return '<p class="small"><b>Owner:</b> ' + esc(summary) + "</p>";
+  }
+
   function open(result) {
     const r = result || {};
     const b = bucket(r.domains);
@@ -200,6 +219,14 @@ W.ui.evidenceDrawer = (() => {
     const trajectorySummary =
       typeof r.trajectorySummary === "string" && r.trajectorySummary.trim()
         ? r.trajectorySummary
+        : null;
+
+    // Same shape as trajectorySummary: optional, absent when the
+    // token has no owner association this session, when the
+    // module is unavailable, or when the caller does not supply it.
+    const ownerSummary =
+      typeof r.ownerSummary === "string" && r.ownerSummary.trim()
+        ? r.ownerSummary
         : null;
 
     const supporting = [
@@ -264,6 +291,7 @@ W.ui.evidenceDrawer = (() => {
       "</p>" +
       (meta ? '<p class="small muted">' + esc(meta) + "</p>" : "") +
       renderTrajectoryLine(trajectorySummary) +
+      renderOwnerLine(ownerSummary) +
       '<div class="mt-12">' +
       "<h4>🟢 Supporting evidence</h4>" +
       renderItems(supporting, "None recorded.") +
@@ -293,6 +321,7 @@ W.ui.evidenceDrawer = (() => {
       renderItems,
       renderProvenance,
       renderTrajectoryLine,
+      renderOwnerLine,
       carryProvenance,
       normalizeRelationship,
     },
