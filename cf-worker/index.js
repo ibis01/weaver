@@ -88,17 +88,36 @@ const ALLOWED_EVM_CHAIN_IDS = new Set([
 
 // Bitquery network names for the chains the deployer route supports.
 // This is deliberately narrower than ALLOWED_EVM_CHAIN_IDS — Bitquery
-// does not have equally good creation-call coverage on every chain.
+// does not have equally good creation-call coverage on every chain,
+// AND the V2 streaming endpoint does not support every EVM chain.
 // Chains absent from this map are rejected before any upstream call.
+//
+// SUPPORTED ON V2 (streaming.bitquery.io):
+//   eth, bsc, base, arbitrum, optimism, matic — verified against
+//   Bitquery's "Bitquery in One Page" reference, which states V2
+//   covers "exactly these chains and no others":
+//   eth, bsc, base, arbitrum, optimism, matic, robinhood, arc,
+//   arc_testnet.
+//
+// EXPLICITLY NOT SUPPORTED ON V2:
+//   avalanche, fantom, cronos, gnosis — these are V1-only on
+//   Bitquery. Querying them on the V2 streaming endpoint produces
+//   an upstream error that surfaces as HTTP 502. Do not add them
+//   here without first confirming V2 support and, if supported,
+//   a live query. A 502 on a mapped chain is worse than a 400
+//   "unsupported chain" because it looks like a transient failure.
+//
+// If a chain is removed from this map, the route returns a clean
+// 400 with "Unsupported chain: <name>" before any network call.
 const CHAIN_TO_BITQUERY_NETWORK = {
   ethereum: "eth",
   bsc: "bsc",
   base: "base",
   arbitrum: "arbitrum",
   polygon: "matic",
-  avalanche: "avalanche",
   optimism: "optimism",
 };
+
 // Fixed GraphQL query. The client never sees or supplies this. Only
 // the variables (network, address, limit) are per-request. A change
 // to the query is a code change here, reviewable in a diff, not a
@@ -148,6 +167,7 @@ const DEPLOYER_QUERY = `query DeployerContracts(
     }
   }
 }`;
+
 const DEPLOYER_QUERY_LIMIT = 50;
 const EVM_ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
 const FETCH_TIMEOUT_MS = 10000;
