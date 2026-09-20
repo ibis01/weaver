@@ -262,6 +262,21 @@ artifact. The <details> block keeps it out of the way for readers who
 open the file looking for the current design.
 -->
 
-*(Paste original Phase 1 content here.)*
+### Supported chains for `/bitquery/deployer`
+
+| Chain     | Bitquery `network` | Status |
+| --------- | ------------------ | ------ |
+| Ethereum  | `eth`              | ✅     |
+| BSC       | `bsc`              | ✅     |
+| Base      | `base`             | ✅     |
+| Arbitrum  | `arbitrum`         | ✅     |
+| Polygon   | `matic`            | ✅     |
+| Optimism  | `optimism`         | ✅     |
+| Avalanche | *(unmapped)*       | ❌ V1-only on Bitquery; V2 streaming endpoint does not support it. Requests return HTTP 400 `Unsupported chain`. |
+
+Chains absent from this table are rejected by the Worker before any
+upstream call. To add a chain, it must first be confirmed as supported
+on Bitquery's V2 streaming endpoint (`streaming.bitquery.io/graphql`)
+and then added to `CHAIN_TO_BITQUERY_NETWORK` in `cf-worker/index.js`.
 
 </details>
