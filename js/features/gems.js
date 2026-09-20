@@ -734,8 +734,15 @@ W.gems = (() => {
             // this token (populated by observeOwner() during the
             // scan). Renders as a third row when the same owner
             // address has been observed on other tokens this session.
+            //
+            // This uses the read-only get() accessor, not observe().
+            // observe() writes to the session map — it advances
+            // observedAt, lastObservedAt, and riskScore. Rendering
+            // a card must not mutate observation state. The
+            // recording phase (observeOwner in the scan loop) is
+            // the only writer.
             const ownerObservation = W.ownerAssociations
-              ? W.ownerAssociations.observe(shield, p.chainId, addr, t.symbol)
+              ? W.ownerAssociations.get(p.chainId, addr)
               : null;
             const ownerSection = ownerLine(ownerObservation);
 
