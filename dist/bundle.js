@@ -17165,9 +17165,6 @@ W.trackRecord = (() => {
   const DANGEROUS_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 
   // ── Outcome-evaluation cooldown ───────────────────────
-  // Avoid re-sweeping DexScreener every time the user navigates
-  // to /track. The cooldown keys off the pending set's signature,
-  // so a new gem call still triggers an immediate check.
   const OUTCOME_COOLDOWN_MS = 60_000;
   const OUTCOME_FETCH_TIMEOUT_MS = 9000;
   let lastOutcomeSignature = "";
@@ -17201,7 +17198,8 @@ W.trackRecord = (() => {
   // Narrow signature for identity comparison during migration.
   // Full snapshot comparison fails because canonical and legacy
   // snapshots are structurally different. The fields below are what
-  // actually determine whether two records describe the same analysis.
+  // actually determine whether two records describe the same analysis
+  // at the *identity* level.
   function snapshotSignature(snapshot) {
     if (!snapshot || typeof snapshot !== "object") return "null";
     const verdict = snapshot.unifiedVerdict || {};
@@ -17213,6 +17211,120 @@ W.trackRecord = (() => {
         snapshot.scoringVersion ?? verdict.evidenceVersion ?? null,
       analysisTimestamp: ts ? ts : null,
     });
+  }
+
+  // ── Normalized content projection ─────────────────────
+  // Canonical and legacy-v0 snapshots describe the same analysis
+  // under structurally incompatible shapes. The projection maps both
+  // onto a common semantic shape so that "same analysis" can be
+  // compared as a value, not as a structural match.
+  //
+  // Design rules:
+  //
+  //   1. Include only fields that are (a) present in both formats
+  //      and (b) semantically meaningful for identity.
+  //
+  //   2. Normalize format-specific representations of the same
+  //      semantic value to a common form:
+  //        - analysisTimestamp: 0 / null / undefined all mean
+  //          "unset" and normalize to null
+  //        - scenarioClassification: canonical may store this as a
+  //          top-level object, a top-level string, or null; legacy
+  //          always stores it as { classification: "UNKNOWN" } for
+  //          the unset case. Both normalize to null.
+  //
+  //   3. Exclude storage-layer fields that describe HOW the
+  //      analysis was stored, not WHAT it concluded:
+  //        - evidenceQuality: derived
+  //        - domains: provider availability varies by scan
+  //        - evidenceBuilderVersion, technicalAnalysis,
+  //          fundamentalAssessment, securityAssessment: legacy-only
+  //        - methodologyVersion: overlaps with scoringVersion
+  //
+  //   4. Do NOT include the `missing` evidence count. Legacy records
+  //      always populate it with a migration placeholder
+  //      ("Legacy record did not include structured evidence"), and
+  //      canonical records never do. Including it would create a
+  //      false conflict on every legitimate canonical-to-legacy
+  //      dedupe, defeating the purpose of the gate.
+  //
+  // Two snapshots whose projections are equal describe the same
+  // analysis. Two snapshots whose projections differ describe
+  // different analyses and must be preserved as a conflict.
+  function analysisProjection(snapshot) {
+    const empty = {
+      asset: null,
+      score: null,
+      confidence: null,
+      scoringVersion: null,
+      analysisTimestamp: null,
+      scenarioClassification: null,
+      supportingEvidenceCount: 0,
+      contradictingEvidenceCount: 0,
+    };
+    if (!snapshot || typeof snapshot !== "object") return empty;
+
+    const verdict = snapshot.unifiedVerdict || {};
+
+    // analysisTimestamp: 0, null, undefined → null. The narrow
+    // signature already applies this rule; the projection repeats it
+    // so the two stay in agreement.
+    const rawTs = snapshot.analysisTimestamp;
+    const analysisTimestamp =
+      typeof rawTs === "number" && Number.isFinite(rawTs) && rawTs !== 0
+        ? rawTs
+        : null;
+
+    // scenarioClassification: read from any of the shapes either
+    // format may produce. "UNKNOWN" and empty strings normalize to
+    // null because they mean "no scenario was recorded".
+    let scenarioClassification = null;
+    if (snapshot.scenario && typeof snapshot.scenario === "object") {
+      scenarioClassification = snapshot.scenario.classification ?? null;
+    } else if (typeof snapshot.scenario === "string") {
+      scenarioClassification = snapshot.scenario;
+    } else if (typeof verdict.scenario === "string") {
+      scenarioClassification = verdict.scenario;
+    }
+    if (
+      typeof scenarioClassification !== "string" ||
+      !scenarioClassification.trim() ||
+      scenarioClassification === "UNKNOWN"
+    ) {
+      scenarioClassification = null;
+    }
+
+    // Evidence counts: only supporting and contradicting items
+    // count. The `missing` array is a list of gaps, not evidence,
+    // and its content is format-specific.
+    const evidence = snapshot.evidence;
+    const supportingEvidenceCount = Array.isArray(evidence?.supporting)
+      ? evidence.supporting.length
+      : 0;
+    const contradictingEvidenceCount = Array.isArray(evidence?.contradicting)
+      ? evidence.contradicting.length
+      : 0;
+
+    return {
+      asset: typeof snapshot.asset === "string" ? snapshot.asset : null,
+      score: Number.isFinite(verdict.score) ? verdict.score : null,
+      confidence: Number.isFinite(verdict.confidence)
+        ? verdict.confidence
+        : null,
+      scoringVersion:
+        snapshot.scoringVersion ?? verdict.evidenceVersion ?? null,
+      analysisTimestamp,
+      scenarioClassification,
+      supportingEvidenceCount,
+      contradictingEvidenceCount,
+    };
+  }
+
+  // Full immutable-content hash. Two snapshots that share a narrow
+  // identity signature but differ in their projected content are
+  // different analyses and must not be deduplicated.
+  function immutableContentHash(snapshot) {
+    return contentHash(analysisProjection(snapshot));
   }
 
   function legacyV0Snapshot(raw) {
@@ -17574,14 +17686,19 @@ W.trackRecord = (() => {
           };
           const existing = byId.get(stableId);
           if (existing) {
+            // Same narrow identity AND same projected content is a
+            // true duplicate. Same identity with different content
+            // is a conflict.
             if (
               snapshotSignature(existing.weaverSnapshot) ===
-              snapshotSignature(legacySnapshot)
+                snapshotSignature(legacySnapshot) &&
+              immutableContentHash(existing.weaverSnapshot) ===
+                immutableContentHash(legacySnapshot)
             ) {
               deduped++;
               continue;
             }
-            const conflictId = `${stableId}-legacy-${contentHash(legacySnapshot)}`;
+            const conflictId = `${stableId}-legacy-${immutableContentHash(legacySnapshot)}`;
             if (!byId.has(conflictId)) {
               migrated.id = conflictId;
               migrated.migration = {
@@ -17638,14 +17755,19 @@ W.trackRecord = (() => {
           output.push(normalized);
           continue;
         }
+        // Same narrow identity AND same projected content is a true
+        // duplicate. Same identity with different content is a
+        // conflict.
         if (
           snapshotSignature(existing.weaverSnapshot) ===
-          snapshotSignature(normalized.weaverSnapshot)
+            snapshotSignature(normalized.weaverSnapshot) &&
+          immutableContentHash(existing.weaverSnapshot) ===
+            immutableContentHash(normalized.weaverSnapshot)
         ) {
           deduped++;
           continue;
         }
-        const conflictId = `${normalized.id}-legacy-${contentHash(normalized.weaverSnapshot)}`;
+        const conflictId = `${normalized.id}-legacy-${immutableContentHash(normalized.weaverSnapshot)}`;
         if (!byId.has(conflictId)) {
           const conflictRecord = deepClone(normalized);
           conflictRecord.id = conflictId;
@@ -17807,14 +17929,6 @@ W.trackRecord = (() => {
     });
   }
 
-  /**
-   * Public gem-call track record. Unlike manual captures, gem-agent
-   * entries never involve a personal position — there's no entry/exit
-   * quantity to redact, so these are safe to show publicly by
-   * construction, not because of a redaction step someone could forget.
-   * Dedupes by contract address + chain so a re-scanned gem doesn't
-   * create a second entry.
-   */
   function createFromGemAlert({
     symbol,
     chainId,
@@ -17850,9 +17964,6 @@ W.trackRecord = (() => {
     );
   }
 
-  // ── Fetch with timeout ────────────────────────────────
-  // Mirrors gems.js's fetchDexScreener timeout. Without this, a hung
-  // DexScreener response would block render() indefinitely.
   async function fetchWithTimeout(url, timeoutMs = OUTCOME_FETCH_TIMEOUT_MS) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -17863,21 +17974,6 @@ W.trackRecord = (() => {
     }
   }
 
-  /**
-   * Re-checks price for open gem-agent records against DexScreener (the
-   * same source Gem Agent scored them from) and files the outcome via
-   * the existing calculateOutcome() math — treated as a nominal
-   * one-unit position so realizedResultPct is exact even though no real
-   * trade happened. Never invents a status for a record it can't price.
-   *
-   * REPORTED_FLAT is treated as re-evaluable: a call that is flat at
-   * capture time may still move later, and a public track record should
-   * reflect the current state, not a stale snapshot.
-   *
-   * Cooldown: within OUTCOME_COOLDOWN_MS, if the pending-set signature
-   * hasn't changed, this is a no-op. Callers can override with
-   * { force: true }.
-   */
   async function evaluateGemOutcomes(options = {}) {
     const force = options.force === true;
 
@@ -17889,9 +17985,6 @@ W.trackRecord = (() => {
 
     const pending = allGemRecords.filter(evaluable);
 
-    // Warn once per session if any gem-agent record can never be
-    // evaluated (missing capture price). These stay "Pending" in the
-    // UI by design — we never invent a status.
     if (!warnedUnevaluable) {
       const unevaluable = allGemRecords.filter(
         (r) =>
@@ -17952,7 +18045,6 @@ W.trackRecord = (() => {
         const data = await res.json();
         pairs = Array.isArray(data) ? data : data.pairs || [];
       } catch (e) {
-        // Graceful degradation — leave these pending, don't fabricate.
         console.warn(
           "[TrackRecord] Outcome fetch failed for chain",
           chainId,
@@ -17981,9 +18073,6 @@ W.trackRecord = (() => {
               ? "REPORTED_LOSS"
               : "REPORTED_FLAT";
 
-        // Only increment `updated` if the write actually succeeded.
-        // updateOutcome returns null on failure (and logs the reason),
-        // so a silent quota error can't inflate the success count.
         const written = updateOutcome(record.id, {
           status,
           observedPriceAtOutcome: currentPrice,
@@ -18371,6 +18460,8 @@ W.trackRecord = (() => {
     buildCSV,
     exportCSV,
     render,
+    // Exposed for tests only.
+    _internal: { analysisProjection, immutableContentHash, contentHash },
   };
 })();
 
