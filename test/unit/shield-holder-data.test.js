@@ -66,3 +66,107 @@ describe("Shield — holder data on the assessment", () => {
     expect(a.holders.top10Pct).to.equal(null);
   });
 });
+  // ── Owner address on the assessment ───────────────────────
+
+  describe("owner address", () => {
+    const baseEvmRaw = () => ({
+      is_honeypot: "0",
+      is_mintable: "0",
+      is_proxy: "0",
+      buy_tax: "0",
+      sell_tax: "0",
+    });
+
+    it("exposes an owner block on the EVM assessment", () => {
+      const a = W.shield.assessEvmRisk(baseEvmRaw());
+      expect(a.owner).to.be.an("object");
+      expect(a.owner).to.have.property("address");
+      expect(a.owner).to.have.property("source");
+    });
+
+    it("populates owner.address from result.owner_address, lowercased", () => {
+      const a = W.shield.assessEvmRisk({
+        ...baseEvmRaw(),
+        owner_address: "0xABCDEF0000000000000000000000000000000001",
+      });
+      expect(a.owner.address).to.equal(
+        "0xabcdef0000000000000000000000000000000001",
+      );
+      expect(a.owner.source).to.equal("goplus-evm");
+    });
+
+    it("trims whitespace around the owner address", () => {
+      const a = W.shield.assessEvmRisk({
+        ...baseEvmRaw(),
+        owner_address: "  0xABCDEF0000000000000000000000000000000001  ",
+      });
+      expect(a.owner.address).to.equal(
+        "0xabcdef0000000000000000000000000000000001",
+      );
+    });
+
+    it("returns null owner.address when the field is absent", () => {
+      const a = W.shield.assessEvmRisk(baseEvmRaw());
+      expect(a.owner.address).to.equal(null);
+      expect(a.owner.source).to.equal("goplus-evm");
+    });
+
+    it("returns null owner.address when the field is an empty string", () => {
+      const a = W.shield.assessEvmRisk({
+        ...baseEvmRaw(),
+        owner_address: "",
+      });
+      expect(a.owner.address).to.equal(null);
+    });
+
+    it("returns null owner.address when the field is whitespace-only", () => {
+      const a = W.shield.assessEvmRisk({
+        ...baseEvmRaw(),
+        owner_address: "   \t  ",
+      });
+      expect(a.owner.address).to.equal(null);
+    });
+
+    it("returns null owner.address when the field is not a string", () => {
+      const a = W.shield.assessEvmRisk({
+        ...baseEvmRaw(),
+        owner_address: 12345,
+      });
+      expect(a.owner.address).to.equal(null);
+    });
+
+    it("does not read result.owner as the owner address", () => {
+      // result.owner is used by the owner-renounced calculation.
+      // It must not be reused as the owner-address source.
+      const a = W.shield.assessEvmRisk({
+        ...baseEvmRaw(),
+        owner: "0xABCDEF0000000000000000000000000000000001",
+        owner_change: "1",
+      });
+      expect(a.owner.address).to.equal(null);
+    });
+
+    it("does not read creator_address as the owner address", () => {
+      const a = W.shield.assessEvmRisk({
+        ...baseEvmRaw(),
+        creator_address: "0xABCDEF0000000000000000000000000000000002",
+      });
+      expect(a.owner.address).to.equal(null);
+    });
+
+    it("exposes an owner block with source 'unavailable' on the Solana assessment", () => {
+      const raw = {
+        mintable: { status: "0" },
+        freezable: { status: "0" },
+        closable: { status: "0" },
+        metadata_mutable: { status: "0" },
+        balance_mutable_authority: { status: "0" },
+      };
+      const a = W.shield.assessSolanaRisk(raw);
+      expect(a.owner).to.be.an("object");
+      expect(a.owner.address).to.equal(null);
+      expect(a.owner.source).to.equal("unavailable");
+      expect(a.owner.reason).to.be.a("string");
+      expect(a.owner.reason.length).to.be.greaterThan(0);
+    });
+  });

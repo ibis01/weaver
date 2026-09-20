@@ -384,6 +384,28 @@ W.shield = (() => {
       source: "goplus-evm",
     };
 
+    // ── Owner address (measured, not inferred) ─────────────
+    // result.owner_address is the owner address reported by GoPlus
+    // at observation time. It is NOT result.owner (which the
+    // owner-renounced calculation reads above), NOT
+    // creator_address, and NOT any holder tag. GoPlus may omit the
+    // field, return an empty string, or return a non-string value
+    // when the owner cannot be determined; all three cases
+    // normalize to null. Never fabricate an address.
+    //
+    // This field is a measurement of what the provider reported,
+    // not a claim that Weaver independently established current
+    // on-chain authority.
+    const ownerAddress =
+      typeof result.owner_address === "string" && result.owner_address.trim()
+        ? result.owner_address.trim().toLowerCase()
+        : null;
+
+    const owner = {
+      address: ownerAddress,
+      source: "goplus-evm",
+    };
+
     return {
       riskScore,
       risks,
@@ -393,6 +415,7 @@ W.shield = (() => {
       buyTax,
       sellTax,
       holders,
+      owner,
     };
   }
 
@@ -629,6 +652,15 @@ W.shield = (() => {
         hasLockedLp: null,
         source: "unavailable",
         reason: "GoPlus Solana endpoint does not return holder distribution.",
+      },
+      // Same declared-gap pattern for the owner address. The field
+      // is present so consumers can distinguish "not applicable"
+      // from "checked and found empty".
+      owner: {
+        address: null,
+        source: "unavailable",
+        reason:
+          "GoPlus Solana endpoint does not return an owner address field.",
       },
     };
   }
