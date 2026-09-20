@@ -438,6 +438,26 @@ async function handleDeployerRequest(request, env, headers) {
   return relayBitquery(env, network, address.toLowerCase(), headers);
 }
 
+// ----------------------------------------------------------------
+// Router
+// ----------------------------------------------------------------
+//
+// Order of checks (each returns early):
+//
+//   1. OPTIONS          → 204 preflight
+//   2. bad Origin       → 403
+//   3. /bitquery/deployer  (non-POST) → 405
+//   4. /bitquery/deployer  (POST)     → handleDeployerRequest
+//   5. /goplus/*        (non-GET)     → 405
+//   6. /goplus/*        (GET, no contract_addresses) → 400
+//   7. /goplus/evm/:id  (GET, has param)             → relay
+//   8. /goplus/solana   (GET, has param)             → relay
+//   9. anything else                                 → 404
+//
+// Route matching happens BEFORE the contract_addresses check so
+// that a request to an unknown path returns 404, not 400. The
+// contract_addresses requirement applies only to routes the Worker
+// actually serves.
 async function handleRequest(request, env) {
   // Read Origin case-insensitively. Headers.get() is already
   // case-insensitive, but we normalise to "" so the downstream logic
@@ -474,7 +494,7 @@ async function handleRequest(request, env) {
   const url = new URL(request.url);
   const parts = url.pathname.split("/").filter(Boolean);
 
-  // Bitquery route — POST only, exact path match.
+  // ── Bitquery route — POST only, exact path match. ────────────
   if (
     parts.length === 2 &&
     parts[0] === "bitquery" &&
@@ -486,38 +506,48 @@ async function handleRequest(request, env) {
     return handleDeployerRequest(request, env, headers);
   }
 
-  // All other routes are GET-only.
-  if (request.method !== "GET") {
-    return jsonResponse({ error: "Method not allowed" }, 405, headers);
-  }
+  // ── GoPlus routes — GET only, path-based. ────────────────────
+  //
+  // Path shape is evaluated first so that:
+  //   - non-GET methods on a valid GoPlus path return 405
+  //   - missing contract_addresses on a valid GoPlus path returns 400
+  //   - any other path (including /nope) falls through to 404
+  const isGoplusEvm = parts[0] === "goplus" && parts[1] === "evm" && !!parts[2];
+  const isGoplusSolana = parts[0] === "goplus" && parts[1] === "solana";
 
-  const contractAddresses = url.searchParams.get("contract_addresses");
-  if (!contractAddresses) {
-    return jsonResponse(
-      { error: "Missing contract_addresses query param" },
-      400,
-      headers,
-    );
-  }
+  if (isGoplusEvm || isGoplusSolana) {
+    if (request.method !== "GET") {
+      return jsonResponse({ error: "Method not allowed" }, 405, headers);
+    }
 
-  if (parts[0] === "goplus" && parts[1] === "evm" && parts[2]) {
-    const chainId = parts[2];
-    if (!ALLOWED_EVM_CHAIN_IDS.has(chainId)) {
+    const contractAddresses = url.searchParams.get("contract_addresses");
+    if (!contractAddresses) {
       return jsonResponse(
-        { error: `Unsupported chain id: ${chainId}` },
+        { error: "Missing contract_addresses query param" },
         400,
         headers,
       );
     }
-    const upstream = `${GOPLUS_EVM_BASE}/${chainId}?contract_addresses=${encodeURIComponent(contractAddresses)}`;
-    return relay(upstream, headers);
-  }
 
-  if (parts[0] === "goplus" && parts[1] === "solana") {
+    if (isGoplusEvm) {
+      const chainId = parts[2];
+      if (!ALLOWED_EVM_CHAIN_IDS.has(chainId)) {
+        return jsonResponse(
+          { error: `Unsupported chain id: ${chainId}` },
+          400,
+          headers,
+        );
+      }
+      const upstream = `${GOPLUS_EVM_BASE}/${chainId}?contract_addresses=${encodeURIComponent(contractAddresses)}`;
+      return relay(upstream, headers);
+    }
+
+    // isGoplusSolana
     const upstream = `${GOPLUS_SOLANA_BASE}?contract_addresses=${encodeURIComponent(contractAddresses)}`;
     return relay(upstream, headers);
   }
 
+  // ── Unknown path — 404, regardless of query params or method. ─
   return jsonResponse({ error: "Not found" }, 404, headers);
 }
 
