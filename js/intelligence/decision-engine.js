@@ -13,6 +13,19 @@
 //   - Nulls are never coerced to 0.5 for display or scoring.
 //   - Signals with no evidence are skipped, not defaulted.
 //
+// ELIGIBILITY POLICY:
+//   A decision priority carries an `eligibility` field:
+//     "ELIGIBLE"               — every factor was known; score is a number
+//     "INSUFFICIENT_EVIDENCE"  — at least one factor was unknown;
+//                                 score is null, not zero.
+//
+//   The numeric score is null whenever any of relevance, impact,
+//   urgency, or confidence is null. "Unknown" is not "zero". The
+//   prior behavior of coercing null to 0 caused items with high
+//   relevance/impact/urgency but unknown confidence to disappear
+//   entirely from the actionable list. They now surface as
+//   INSUFFICIENT_EVIDENCE and the renderer displays them honestly.
+//
 // USER CALIBRATION:
 //   - Exposed as assessment.userCalibration.
 //   - DISPLAY METRIC ONLY. Never modifies evidence.confidence.
@@ -30,10 +43,10 @@ W.decisionEngine = (() => {
 
   // Signal types that are risk signals by definition. Their priority
   // is REVIEW_RISK regardless of numeric thresholds.
-  const RISK_SIGNAL_TYPES = new Set([
-    "THESIS_DETERIORATION",
-    "SECURITY_RISK",
-  ]);
+  const RISK_SIGNAL_TYPES = new Set(["THESIS_DETERIORATION", "SECURITY_RISK"]);
+
+  const ELIGIBLE = "ELIGIBLE";
+  const INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE";
 
   // ── Helper: Compute Personal Context (enriched) ─────────────
   function computePersonalContext(
@@ -129,7 +142,8 @@ W.decisionEngine = (() => {
 
   // ── Helper: Compute Assessment ──────────────────────────────
   function computeAssessment(signal, personalContext, evidence) {
-    // 1. Relevance
+    // 1. Relevance — always a number. Built entirely from numeric
+    //    inputs that have well-defined zero defaults.
     let relevance = 0;
     if (personalContext.portfolioWeight > 0)
       relevance += personalContext.portfolioWeight * 0.4;
@@ -144,16 +158,30 @@ W.decisionEngine = (() => {
     }
     relevance = Math.min(1, relevance);
 
-    // 2. Impact
-    const eventSeverity = signal.rawData?.impactValue || 0.5;
-    const confidenceForImpact = evidence.confidence ?? 0;
-    let impact =
-      confidenceForImpact *
-      eventSeverity *
-      (personalContext.portfolioWeight * 2 + 0.2);
-    impact = Math.min(1, impact);
+    // 2. Confidence — preserve null. The `?? 0` pattern that used to
+    //    live here collapsed "unknown" into "zero" and made the item
+    //    silently unrankable.
+    const confidence =
+      evidence.confidence !== null && evidence.confidence !== undefined
+        ? evidence.confidence
+        : null;
 
-    // 3. Urgency
+    // 3. Impact — null when confidence is unknown, never 0.
+    //    "We don't know how confident the evidence is" is not the
+    //    same as "the impact is zero". Coercing to zero here was the
+    //    first of the two places the reviewer identified where an
+    //    unknown-confidence signal was silently penalized.
+    const eventSeverity = signal.rawData?.impactValue || 0.5;
+    let impact = null;
+    if (confidence !== null) {
+      impact =
+        confidence *
+        eventSeverity *
+        (personalContext.portfolioWeight * 2 + 0.2);
+      impact = Math.min(1, impact);
+    }
+
+    // 4. Urgency — always a number.
     let urgency = 0.5;
     if (signal.type === "UNLOCK") {
       const now = Date.now();
@@ -167,15 +195,11 @@ W.decisionEngine = (() => {
       urgency = 0.5;
     }
 
-    // Confidence stays null if unknown.
-    const confidence =
-      evidence.confidence !== null && evidence.confidence !== undefined
-        ? evidence.confidence
-        : null;
-
     const reasoning = [
       `Relevance: ${(relevance * 100).toFixed(0)}%`,
-      `Impact: ${(impact * 100).toFixed(0)}% (event severity ${(eventSeverity * 100).toFixed(0)}%, portfolio weight ${(personalContext.portfolioWeight * 100).toFixed(0)}%)`,
+      impact === null
+        ? `Impact: unavailable (event severity ${(eventSeverity * 100).toFixed(0)}%, confidence unknown)`
+        : `Impact: ${(impact * 100).toFixed(0)}% (event severity ${(eventSeverity * 100).toFixed(0)}%, portfolio weight ${(personalContext.portfolioWeight * 100).toFixed(0)}%)`,
       `Urgency: ${(urgency * 100).toFixed(0)}%`,
     ];
     if (confidence !== null) {
@@ -213,12 +237,34 @@ W.decisionEngine = (() => {
       ? assessment.reasoning
       : [];
 
-    const score =
-      assessment.relevance *
-      assessment.impact *
-      assessment.urgency *
-      (assessment.confidence ?? 0);
+    // Score is null when any factor is null. "Unknown" is not
+    // "zero" — a low score and an unavailable score are different
+    // claims, and the caller must be able to distinguish them.
+    const hasAllFactors =
+      assessment.relevance !== null &&
+      assessment.relevance !== undefined &&
+      assessment.impact !== null &&
+      assessment.impact !== undefined &&
+      assessment.urgency !== null &&
+      assessment.urgency !== undefined &&
+      assessment.confidence !== null &&
+      assessment.confidence !== undefined;
 
+    const score = hasAllFactors
+      ? assessment.relevance *
+        assessment.impact *
+        assessment.urgency *
+        assessment.confidence
+      : null;
+
+    const eligibility = hasAllFactors ? ELIGIBLE : INSUFFICIENT_EVIDENCE;
+
+    // Action recommendation. The branching logic below depends on
+    // numeric thresholds. When a factor is null, its comparisons are
+    // false, so the item falls through to the neutral MONITOR action.
+    // That is the honest behavior for insufficient-evidence items —
+    // MONITOR is not a claim that the signal is weak, only that the
+    // system cannot yet recommend a stronger action.
     let recommendedAction = "MONITOR";
 
     if (RISK_SIGNAL_TYPES.has(signal.type)) {
@@ -235,21 +281,29 @@ W.decisionEngine = (() => {
       recommendedAction = "REVIEW_THESIS";
     } else if (
       assessment.confidence !== null &&
+      assessment.confidence !== undefined &&
       assessment.confidence > 0.8 &&
       assessment.relevance > 0.3
     ) {
       recommendedAction = "LOG_DECISION";
     }
 
+    const scoreText =
+      score === null
+        ? "Score: unavailable (insufficient evidence)"
+        : `Score: ${(score * 100).toFixed(0)}%`;
+
     const explanation =
       `Signal: ${signal.type} for ${signal.assetId.symbol}. ` +
-      `Score: ${(score * 100).toFixed(0)}%.` +
+      scoreText +
+      "." +
       (reasoning.length ? ` ${reasoning.join(". ")}` : "");
 
     return {
       signalId: signal.id,
       assessment,
       score,
+      eligibility,
       recommendedAction,
       explanation,
       methodologyVersion: SCORE_VERSION,
@@ -317,8 +371,21 @@ W.decisionEngine = (() => {
       decisions.push(priority);
     }
 
-    decisions.sort((a, b) => b.score - a.score);
-     return decisions.filter((d) => d.score > 0);
+    // Sort eligible items by score descending; insufficient-evidence
+    // items sort to the bottom (their score is null, coerced to -1
+    // only for comparison purposes).
+    decisions.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+
+    // The returned list includes both:
+    //   - ELIGIBLE items with a positive score (as before)
+    //   - INSUFFICIENT_EVIDENCE items (new — they previously
+    //     disappeared because `null > 0` is false)
+    //
+    // Signals with known confidence but low scores are still filtered
+    // out, preserving the prior behavior for the eligible case.
+    return decisions.filter(
+      (d) => d.eligibility === INSUFFICIENT_EVIDENCE || d.score > 0,
+    );
   }
 
   // ── Presentation ──────────────────────────────────
@@ -355,8 +422,11 @@ W.decisionEngine = (() => {
 
       const scoreSpan = document.createElement("span");
       scoreSpan.className = "muted small";
-      const scorePct = (item.score * 100).toFixed(0);
-      scoreSpan.textContent = `Score: ${scorePct}%`;
+      const scorePct =
+        item.score === null
+          ? "Evidence incomplete"
+          : `Score: ${(item.score * 100).toFixed(0)}%`;
+      scoreSpan.textContent = scorePct;
 
       header.appendChild(assetName);
       header.appendChild(scoreSpan);
@@ -374,7 +444,7 @@ W.decisionEngine = (() => {
           symbol: item._assetSymbol,
           type: item._signalType,
           title: item._signalTitle,
-          impactValue: item.assessment?.impact || 0.5,
+          impactValue: item.assessment?.impact ?? 0.5,
         };
         const userContext = {
           portfolio: W.portfolio?.all() || [],
@@ -495,6 +565,7 @@ W.decisionEngine = (() => {
     computeAssessment,
     computeDecisionPriority,
     SCORE_VERSION,
+    ELIGIBILITY: { ELIGIBLE, INSUFFICIENT_EVIDENCE },
   };
 })();
 
