@@ -11910,6 +11910,29 @@ W.gems = (() => {
     return `<div class="kv-row"><span class="muted">Trajectory</span><span>${escapeHTML(summary)}</span></div>`;
   }
 
+  // ── Owner line (Step 4 of owner-associations design) ──
+  // Renders the owner-association summary as an HTML row, or "" when
+  // there is nothing to show. The summary comes from the module; this
+  // helper only wraps it in markup and escapes it.
+  function ownerLine(observation) {
+    if (!observation) return "";
+    if (
+      !W.ownerAssociations ||
+      typeof W.ownerAssociations.summarise !== "function"
+    ) {
+      return "";
+    }
+    let summary;
+    try {
+      summary = W.ownerAssociations.summarise(observation);
+    } catch (e) {
+      console.warn("[Gems] Owner summarisation failed:", e && e.message);
+      return "";
+    }
+    if (!summary) return "";
+    return `<div class="kv-row"><span class="muted">Owner</span><span>${escapeHTML(summary)}</span></div>`;
+  }
+
   // ── Observation recording (Step 2 of trajectory design) ──
   // Persists a market-structure observation for a single candidate
   // when the cached Shield assessment is usable. Returns true on
@@ -11949,6 +11972,55 @@ W.gems = (() => {
     } catch (e) {
       console.warn("[Gems] Observation recording failed:", e && e.message);
       return false;
+    }
+  }
+
+  // ── Owner associations (Step 3 of owner-associations design) ──
+  // Records the GoPlus-reported owner address for a candidate, so
+  // the session can track whether the same address appears as owner
+  // on multiple tokens. Mirrors the guard shape of
+  // recordObservation() above: skip on missing module, missing
+  // inputs, or unusable shield state; wrap the module call in
+  // try/catch; never throw.
+  //
+  // The module itself checks assessment.owner and normalizes the
+  // address. This helper's only extra concern is skipping the four
+  // shield states that carry no measurement (error, noData,
+  // unsupported) so the module is not entered for them.
+  //
+  // Solana assessments are not special-cased here. The module
+  // rejects them because owner.address is null for Solana; the
+  // helper passes the assessment through and lets the module
+  // return null.
+  function observeOwner(gem) {
+    if (
+      !W.ownerAssociations ||
+      typeof W.ownerAssociations.observe !== "function"
+    ) {
+      return null;
+    }
+    if (!gem || !gem.pair || !gem.pair.baseToken) return null;
+
+    const addr = gem.pair.baseToken.address;
+    const chainKey = gem.pair.chainId;
+    if (!addr || !chainKey) return null;
+
+    const key = shieldCacheKey(addr, chainKey);
+    const shield = key ? getCachedShield(key) : null;
+
+    if (!shield) return null;
+    if (shield.error || shield.noData || shield.unsupported) return null;
+
+    const symbol =
+      typeof gem.pair.baseToken.symbol === "string"
+        ? gem.pair.baseToken.symbol
+        : null;
+
+    try {
+      return W.ownerAssociations.observe(shield, chainKey, addr, symbol);
+    } catch (e) {
+      console.warn("[Gems] Owner observation failed:", e && e.message);
+      return null;
     }
   }
 
@@ -12266,23 +12338,26 @@ W.gems = (() => {
         await enrichShieldResults(uncached, SHIELD_CONCURRENCY);
       }
 
-      // ── Record observations (Step 2 of trajectory design) ──
-      // Persist a market-structure observation for every candidate
-      // with a usable cached Shield assessment, regardless of
-      // whether it survives the chain and hide-risk filters below.
-      // The trajectory layer must reflect what this scan observed,
-      // not what the user is currently looking at.
+      // ── Record observations ─────────────────────────────
+      // Persist a market-structure observation (trajectory history)
+      // and an owner observation (session owner map) for every
+      // candidate with a usable cached Shield assessment, regardless
+      // of whether it survives the chain and hide-risk filters below.
+      // Both observation layers must reflect what this scan saw, not
+      // what the user is currently looking at.
       //
       // MAX_FRESH_SHIELD_PER_SCAN bounds network requests; it does
       // not bound observation recording. Cached assessments are
       // recorded too — the observation captures what Weaver knew at
       // scan time, not when GoPlus originally fetched the data.
       //
-      // Solana assessments are skipped inside recordObservation
-      // because the provider does not return holder distribution
-      // for them.
+      // Solana assessments are skipped inside both helpers: the
+      // GoPlus Solana endpoint returns neither holder distribution
+      // nor an owner address, so recording would only produce
+      // all-null entries with no derivable signal.
       for (const g of results) {
         recordObservation(g);
+        observeOwner(g);
       }
 
       // ── Apply filters (chain + hideRisk) on enriched data ──
@@ -12372,6 +12447,15 @@ W.gems = (() => {
             const trajectory = fetchTrajectory(p.chainId, addr);
             const trajectorySection = trajectoryLine(trajectory);
 
+            // Owner. Reads the session-scoped owner association for
+            // this token (populated by observeOwner() during the
+            // scan). Renders as a third row when the same owner
+            // address has been observed on other tokens this session.
+            const ownerObservation = W.ownerAssociations
+              ? W.ownerAssociations.observe(shield, p.chainId, addr, t.symbol)
+              : null;
+            const ownerSection = ownerLine(ownerObservation);
+
             return `
             <div class="card" data-gem-card="${escapeHTML(addr)}">
               <div class="watch-head">
@@ -12392,6 +12476,7 @@ W.gems = (() => {
               <div class="shield-slot">${shieldSection}</div>
               ${structureSection}
               ${trajectorySection}
+              ${ownerSection}
               <p class="small muted mt-8"><b>Why it appeared:</b> ${escapeHTML(a.reasons[0] || "Insufficient evidence to summarize.")}</p>
               ${
                 a.reasons.length > 1
@@ -12513,8 +12598,11 @@ W.gems = (() => {
       marketStructureLine,
       fetchTrajectory,
       trajectoryLine,
+      // Owner associations wiring — exposed for isolated tests.
+      ownerLine,
       // Observation recording — exposed for isolated tests.
       recordObservation,
+      observeOwner,
       // Raw map for diagnostics only. Entries are {assessment, observedAt}.
       getShieldCache: () => shieldCache,
       resetShieldCache: () => {
