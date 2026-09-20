@@ -133,7 +133,7 @@ limiting rules. It requires no code change and no client-side change.
   never supplies a GraphQL query, and the Worker never reflects a
   client-supplied query into the upstream request.
 - Only these chains are supported by the deployer route: ethereum,
-  bsc, base, arbitrum, polygon, avalanche, optimism. Chains absent
+  bsc, base, arbitrum, polygon, optimism. Chains absent
   from `CHAIN_TO_BITQUERY_NETWORK` are rejected before any upstream
   call.
 - If you later add more upstreams (e.g. RugCheck for the "Meme Gems"
