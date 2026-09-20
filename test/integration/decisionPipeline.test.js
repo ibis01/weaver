@@ -56,6 +56,7 @@ describe("Decision Pipeline Scenarios", () => {
     expect(assessment.confidence).to.equal(0.9);
     expect(assessment.impact).to.be.greaterThan(0.6);
     expect(priority.score).to.be.greaterThan(0);
+    expect(priority.eligibility).to.equal("ELIGIBLE");
     expect(priority.methodologyVersion).to.equal("decision-engine-v1");
     expect(priority.explanation).to.include("Confidence: 90%");
     expect(priority.recommendedAction).to.be.oneOf([
@@ -99,8 +100,15 @@ describe("Decision Pipeline Scenarios", () => {
       assessment,
     );
 
+    // The point of this scenario is that unknown confidence must
+    // propagate as null end-to-end, never as a fabricated 0. Under
+    // the previous code, "score = 0" was itself a fabrication — the
+    // item looked like it had been measured and evaluated as low
+    // priority, when in fact it had not been evaluated at all.
     expect(assessment.confidence).to.equal(null);
-    expect(priority.score).to.equal(0);
+    expect(assessment.impact).to.equal(null);
+    expect(priority.score).to.equal(null);
+    expect(priority.eligibility).to.equal("INSUFFICIENT_EVIDENCE");
     expect(priority.explanation).to.include("Confidence: unavailable");
     expect(priority.recommendedAction).to.equal("MONITOR");
   });
