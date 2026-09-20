@@ -67,6 +67,7 @@ const files = [
   "js/intelligence/unified-verdict.js",
   "js/intelligence/market-structure.js",
   "js/intelligence/owner-associations.js",
+  "js/intelligence/deployer-graph.js",
 
   // ── Features ──────────────────────────────────────────────────
   "js/features/portfolio.js",
