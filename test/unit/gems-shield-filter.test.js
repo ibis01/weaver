@@ -1,4 +1,4 @@
-// test/unit/gems-shield-filter.test.js
+
 // P0 — Gem Agent high-risk filter correctness.
 //
 // NOTE: These tests bypass W.gems.render() and construct the scan
@@ -190,13 +190,14 @@ describe("Gem Agent — Shield filter correctness (P0)", () => {
       return { riskScore: 70 };
     };
 
-    // Prime the Gem-local cache before the scan.
+    // Prime the cache via the TTL-aware helper so the entry shape
+    // matches what checkShield() writes.
     const key = global.W.gems._internal.shieldCacheKey(ADDR_A, "ethereum");
-    global.W.gems._internal.getShieldCache()[key] = {
+    global.W.gems._internal.setCachedShield(key, {
       riskScore: 70,
       riskLevel: ["🔴 High identified risk indicators", "high-risk"],
       scoreVersion: "shield-evm-v1",
-    };
+    });
 
     installFetch([mockPair("ethereum", ADDR_A, "CACHED_RISKY")]);
     const root = buildScanDom({ hideRisk: true });
@@ -403,13 +404,13 @@ describe("Gem Agent — Shield filter correctness (P0)", () => {
       scoreVersion: "shield-evm-v1",
     });
 
-    // Prime cache so the first scan uses it directly.
+    // Prime cache via the TTL-aware helper.
     const key = global.W.gems._internal.shieldCacheKey(ADDR_A, "ethereum");
-    global.W.gems._internal.getShieldCache()[key] = {
+    global.W.gems._internal.setCachedShield(key, {
       riskScore: 80,
       riskLevel: ["🔴 High identified risk indicators", "high-risk"],
       scoreVersion: "shield-evm-v1",
-    };
+    });
 
     let root = buildScanDom({ hideRisk: true });
     await scanAndSettle(root);
@@ -432,17 +433,21 @@ describe("Gem Agent — Shield filter correctness (P0)", () => {
 
   // ── Amendment 7 regression ────────────────────────────
   it("Amendment 7 — cross-chain cache isolation (Ethereum vs Base)", () => {
-    const { shieldCacheKey, getShieldCache } = global.W.gems._internal;
+    const { shieldCacheKey, getCachedShield, setCachedShield } =
+      global.W.gems._internal;
     const ethKey = shieldCacheKey(ADDR_MIXED, "ethereum");
     const baseKey = shieldCacheKey(ADDR_MIXED, "base");
     expect(ethKey).to.not.equal(baseKey);
 
-    const cache = getShieldCache();
-    cache[ethKey] = { riskScore: 10 };
-    cache[baseKey] = { riskScore: 90 };
+    // Write through the production helper so the entry shape matches
+    // what checkShield() stores in real scans. A raw write here would
+    // bypass the { assessment, observedAt } wrapper and pass trivially.
+    setCachedShield(ethKey, { riskScore: 10 });
+    setCachedShield(baseKey, { riskScore: 90 });
 
-    expect(cache[ethKey].riskScore).to.equal(10);
-    expect(cache[baseKey].riskScore).to.equal(90);
-    expect(ethKey).to.not.equal(baseKey);
+    // Read through the TTL-aware helper. If the two keys collided,
+    // one of these would return the other chain's assessment.
+    expect(getCachedShield(ethKey).riskScore).to.equal(10);
+    expect(getCachedShield(baseKey).riskScore).to.equal(90);
   });
 });

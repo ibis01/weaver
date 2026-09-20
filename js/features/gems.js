@@ -21,14 +21,14 @@ W.gems = (() => {
 
   const SCORE_VERSION = "gem-v1";
 
-  // Fallback threshold — used ONLY if W.shield.isHighRisk is unavailable
-  // (e.g. shield.js failed to load in a test environment). Never used
-  // when Shield is loaded: Shield remains the single source of truth.
-  const RISK_THRESHOLD_FALLBACK = 40;
-
   // Per-scan bounds on fresh Shield requests.
   const MAX_FRESH_SHIELD_PER_SCAN = 12;
   const SHIELD_CONCURRENCY = 4;
+
+  // Gem-local Shield cache TTL. Must match shield.js's own W.store TTL
+  // so the two caches expire in step. A Shield assessment older than
+  // this is deleted on read and re-fetched on the next scan.
+  const SHIELD_CACHE_TTL = 300000; // 5 minutes
 
   // ── Helpers ────────────────────────────────────────────
   function escapeHTML(str) {
@@ -95,17 +95,18 @@ W.gems = (() => {
   }
 
   // ── High-risk predicate ────────────────────────────────
-  // Delegates to W.shield.isHighRisk() (the authoritative predicate).
-  // Fallback exists only for environments where shield.js has not
-  // loaded. Unknown / missing / malformed scores are NEVER treated as
-  // high risk — and never as safe.
+  // W.shield.isHighRisk() is the single authority. Gem Agent must not
+  // duplicate the threshold, because a second source of truth is the
+  // exact failure mode the P0 was fixing. If Shield is unavailable,
+  // the answer is "not identified as high risk" — matching Shield's
+  // own default for missing data. Unknown ≠ high risk, unknown ≠ safe.
   function isHighRisk(shield) {
     if (!shield) return false;
-    if (W.shield && typeof W.shield.isHighRisk === "function") {
-      return W.shield.isHighRisk(shield);
-    }
-    const score = Number(shield.riskScore);
-    return Number.isFinite(score) && score >= RISK_THRESHOLD_FALLBACK;
+    return (
+      W.shield &&
+      typeof W.shield.isHighRisk === "function" &&
+      W.shield.isHighRisk(shield)
+    );
   }
 
   // ── API call with proxy fallback ──────────────────────
@@ -217,20 +218,44 @@ W.gems = (() => {
   // ── Scan state ────────────────────────────────────────
   let auto = false,
     timer = null;
-  // `seen` tracks notification dedup across scans. Chain-aware: the same
-  // 0x... address on Ethereum and Base are two distinct candidates and
-  // must not collapse into one notification. Keyed with the same
+
+  // `seen` tracks notification dedup across scans. Chain-aware: the
+  // same 0x... address on Ethereum and Base are two distinct candidates
+  // and must not collapse into one notification. Keyed with the same
   // normalization as shieldCacheKey so the two caches stay in lockstep.
   let seen = {};
+
+  // `shieldCache` stores { assessment, observedAt } per chain-aware key.
+  // Entries expire after SHIELD_CACHE_TTL. Do not read this map
+  // directly — use getCachedShield() / setCachedShield() so the TTL is
+  // always enforced.
   let shieldCache = {};
+
+  function getCachedShield(key) {
+    const entry = shieldCache[key];
+    if (!entry) return null;
+    if (Date.now() - entry.observedAt > SHIELD_CACHE_TTL) {
+      delete shieldCache[key];
+      return null;
+    }
+    // The assessment may be a successful result, an error result, an
+    // unsupported-chain result, or a noData result. All four are valid
+    // cached states with the same TTL. Callers must not treat the
+    // presence of a cached value as proof of a successful check.
+    return entry.assessment;
+  }
+
+  function setCachedShield(key, assessment) {
+    shieldCache[key] = { assessment, observedAt: Date.now() };
+  }
 
   async function checkShield(addr, chainKey, identity = {}) {
     const key = shieldCacheKey(addr, chainKey);
     if (!key) {
       return { error: true, message: "Invalid address or chain" };
     }
-    if (shieldCache[key]) {
-      const cached = shieldCache[key];
+    const cached = getCachedShield(key);
+    if (cached) {
       // Keep evidence registry warm for downstream consumers.
       W.shield?.rememberEvidence?.(
         { ...identity, address: addr, chain: chainKey },
@@ -240,7 +265,7 @@ W.gems = (() => {
     }
     if (!W.shield || !W.shield.CHAINS[chainKey]) {
       const result = { unsupported: true };
-      shieldCache[key] = result;
+      setCachedShield(key, result);
       return result;
     }
     try {
@@ -248,7 +273,7 @@ W.gems = (() => {
       const result = assessment
         ? { ...assessment, ok: true }
         : { noData: true };
-      shieldCache[key] = result;
+      setCachedShield(key, result);
       W.shield?.rememberEvidence?.(
         { ...identity, address: addr, chain: chainKey },
         result,
@@ -256,7 +281,7 @@ W.gems = (() => {
       return result;
     } catch (e) {
       const result = { error: true, message: e.message };
-      shieldCache[key] = result;
+      setCachedShield(key, result);
       return result;
     }
   }
@@ -391,7 +416,7 @@ W.gems = (() => {
       for (const g of eligible) {
         if (uncached.length >= MAX_FRESH_SHIELD_PER_SCAN) break;
         const key = shieldCacheKey(g.pair.baseToken.address, g.pair.chainId);
-        if (key && shieldCache[key]) continue;
+        if (key && getCachedShield(key)) continue;
         uncached.push(g);
       }
       if (uncached.length) {
@@ -403,23 +428,21 @@ W.gems = (() => {
         if (chainFilter && g.pair.chainId !== chainFilter) return false;
         if (!hideRisk) return true;
         const key = shieldCacheKey(g.pair.baseToken.address, g.pair.chainId);
-        const sc = key ? shieldCache[key] : null;
+        const sc = key ? getCachedShield(key) : null;
         if (!sc) return true; // unknown ≠ safe, but also not high-risk
         return !isHighRisk(sc);
       });
 
       // ── Notifications / theses (post-enrichment, cache-only) ──
-      // Uses the freshly-warmed cache. `seen` is chain-aware: the same
-      // 0x... address on two chains is two candidates, so cross-chain
-      // notifications do not collapse. Telegram notify key uses the
-      // same chain-aware identity, otherwise Telegram's own dedup
-      // would suppress the second chain's alert.
+      // `seen` is chain-aware. Telegram notify key uses the same
+      // chain-aware identity, otherwise Telegram's own dedup would
+      // suppress the second chain's alert.
       for (const g of results) {
         const addr = g.pair.baseToken.address;
         const chainKey = g.pair.chainId;
         const cacheKey = shieldCacheKey(addr, chainKey);
         if (g.analysis.score >= 70 && cacheKey && !seen[cacheKey]) {
-          const shield = shieldCache[cacheKey] || null;
+          const shield = getCachedShield(cacheKey) || null;
           const reasonLines = (g.analysis.reasons || [])
             .slice(0, 4)
             .map((r) => "• " + r)
@@ -468,7 +491,7 @@ W.gems = (() => {
               t = p.baseToken;
             const addr = t.address;
             const key = shieldCacheKey(addr, p.chainId);
-            const shield = key ? shieldCache[key] : null;
+            const shield = key ? getCachedShield(key) : null;
             const shieldSection = shield
               ? `<div class="kv-row"><span class="muted">Security</span><span>${escapeHTML(shieldSummary(shield))}</span></div>`
               : `<button class="btn tiny mt" data-shield-check data-addr="${escapeHTML(addr)}" data-symbol="${escapeHTML(t.symbol)}" data-chain="${escapeHTML(p.chainId)}">🛡️ Verify Security</button>`;
@@ -603,6 +626,10 @@ W.gems = (() => {
       isShieldEligible,
       isHighRisk,
       enrichShieldResults,
+      // TTL-aware helpers — tests should use these, not the raw map.
+      getCachedShield,
+      setCachedShield,
+      // Raw map for diagnostics only. Entries are {assessment, observedAt}.
       getShieldCache: () => shieldCache,
       resetShieldCache: () => {
         shieldCache = {};
