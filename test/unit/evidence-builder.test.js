@@ -1,8 +1,8 @@
 const { expect } = require("chai");
 
-const realBuilderPath = require.resolve(
-  "../../js/intelligence/evidence-builder.js",
-);
+const realBuilderPath =
+  require.resolve("../../js/intelligence/evidence-builder.js");
+const realTypesPath = require.resolve("../../js/intelligence/types.js");
 
 describe("Evidence Builder", () => {
   let savedBuild;
@@ -11,6 +11,13 @@ describe("Evidence Builder", () => {
   before(() => {
     savedBuild = global.W.evidence.build;
     savedIntelligence = global.W.intelligence;
+    // Load the real canonical confidence model. The builder delegates
+    // to W.intelligence.computeConfidence(), so the test must exercise
+    // the real function rather than the setup.js mock (which returns a
+    // fixed 0.8 regardless of input and cannot represent the
+    // "unknown ⇒ null" contract).
+    delete require.cache[realTypesPath];
+    require(realTypesPath);
     delete require.cache[realBuilderPath];
     require(realBuilderPath);
   });
@@ -42,20 +49,20 @@ describe("Evidence Builder", () => {
     expect(e.incomplete).to.equal(false);
   });
 
-  it("returns null confidence when NO factors are known", () => {
-    const orig = global.W.intelligence;
-    global.W.intelligence = {};
-    try {
-      const e = global.W.evidence.build(signal(), {});
-      expect(e.confidence).to.be.null;
-      expect(e.incomplete).to.equal(true);
-      expect(e.sourceReliability).to.be.null;
-      expect(e.dataFreshness).to.be.null;
-      expect(e.dataCompleteness).to.be.null;
-      expect(e.interpretationConfidence).to.be.null;
-    } finally {
-      global.W.intelligence = orig;
-    }
+  it("returns null confidence when dataCompleteness is missing", () => {
+    const e = global.W.evidence.build(signal(), {
+      interpretationConfidence: 0.8,
+    });
+    expect(e.confidence).to.be.null;
+    expect(e.incomplete).to.equal(true);
+  });
+
+  it("returns null confidence when interpretationConfidence is missing", () => {
+    const e = global.W.evidence.build(signal(), {
+      dataCompleteness: 0.9,
+    });
+    expect(e.confidence).to.be.null;
+    expect(e.incomplete).to.equal(true);
   });
 
   it("does not fabricate sourceReliability when the helper is missing", () => {
@@ -86,20 +93,25 @@ describe("Evidence Builder", () => {
       interpretationConfidence: 0.8,
     });
     expect(e.incomplete).to.equal(true);
-    expect(e.confidence).to.be.a("number");
-    expect(e.confidence).to.be.lessThan(0.95);
+    // Under the canonical contract, one missing factor means we
+    // refuse to make a numeric claim. "Unknown" is null, not a
+    // reduced number.
+    expect(e.confidence).to.equal(null);
   });
 
-  it("reduces confidence more when more factors are unknown", () => {
+  it("returns null when any factor is unknown — never a reduced number", () => {
     const allKnown = global.W.evidence.build(signal(), {
       dataCompleteness: 0.9,
       interpretationConfidence: 0.9,
     });
+    expect(allKnown.confidence).to.be.a("number");
+
     const someUnknown = global.W.evidence.build(signal(), {
       dataCompleteness: 0.9,
       interpretationConfidence: null,
     });
-    expect(someUnknown.confidence).to.be.lessThan(allKnown.confidence);
+    expect(someUnknown.confidence).to.equal(null);
+    expect(someUnknown.incomplete).to.equal(true);
   });
 
   it("defaults corroborationCount to 1 when not supplied", () => {
@@ -140,7 +152,47 @@ describe("Evidence Builder", () => {
       expect(text).to.include("Freshness: unknown");
       expect(text).to.include("Completeness: unknown");
       expect(text).to.include("Interpretation: unknown");
+      // All four factors are unknown, so the reasoning reports the
+      // most specific state rather than the model-missing state.
       expect(text).to.include("no factors known");
+    } finally {
+      global.W.intelligence = orig;
+    }
+  });
+
+  it("reports 'model not loaded' when only the canonical function is missing", () => {
+    // Partial intelligence model: getSourceReliability and
+    // computeFreshness are present, computeConfidence is not. This is
+    // the edge case where factors are known but the model cannot
+    // combine them.
+    //
+    // The real getSourceReliability and computeFreshness read their
+    // underlying data maps from W.intelligence at call time (that is
+    // how they survive load order). So the partial mock must carry
+    // those maps too, not just the functions, or the functions will
+    // dereference undefined.
+    const orig = global.W.intelligence;
+    const {
+      getSourceReliability,
+      computeFreshness,
+      sourceReliability,
+      freshnessWindows,
+    } = orig;
+    global.W.intelligence = {
+      getSourceReliability,
+      computeFreshness,
+      sourceReliability,
+      freshnessWindows,
+      // computeConfidence intentionally omitted.
+    };
+    try {
+      const e = global.W.evidence.build(signal(), {
+        dataCompleteness: 0.9,
+        interpretationConfidence: 0.8,
+      });
+      expect(e.confidence).to.equal(null);
+      const text = e.reasoning.join(" | ");
+      expect(text).to.include("confidence model not loaded");
     } finally {
       global.W.intelligence = orig;
     }

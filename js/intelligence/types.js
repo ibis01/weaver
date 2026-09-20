@@ -5,7 +5,11 @@
 // These types define the structure of all intelligence data.
 // Every intelligence module MUST use these contracts.
 //
-// Confidence is computed, not hardcoded.
+// Confidence is computed, not hardcoded. There is exactly ONE
+// confidence function in Weaver: W.intelligence.computeConfidence().
+// Every other module (evidence-builder.js, decision-engine.js) must
+// delegate to it rather than re-deriving a formula. If a second
+// formula ever appears, that is a bug.
 //
 // ===============================================================
 
@@ -39,7 +43,8 @@ W.intelligence = W.intelligence || {};
  * @property {number} corroborationCount - number of independent sources confirming
  * @property {number} dataCompleteness - 0–1, full/partial data
  * @property {number} interpretationConfidence - 0–1, model-specific confidence
- * @property {number} confidence - 0–1, computed product with corroboration boost
+ * @property {number|null} confidence - 0–1, or null when any factor is unknown
+ * @property {boolean} incomplete
  * @property {string[]} reasoning
  */
 
@@ -64,9 +69,9 @@ W.intelligence = W.intelligence || {};
  * @typedef {Object} Assessment
  * @property {string} signalId
  * @property {number} relevance - 0–1, from PersonalContext
- * @property {number} impact - 0–1, from Evidence + user exposure
+ * @property {number|null} impact - 0–1, or null when confidence is unknown
  * @property {number} urgency - 0–1, time decay or volatility
- * @property {number} confidence - 0–1, from Evidence.confidence
+ * @property {number|null} confidence - 0–1, or null when unknown
  * @property {string[]} reasoning
  */
 
@@ -74,8 +79,9 @@ W.intelligence = W.intelligence || {};
  * @typedef {Object} DecisionPriority
  * @property {string} signalId
  * @property {Assessment} assessment
- * @property {number} score - weighted sum (relevance * impact * urgency * confidence)
- * @property {string} recommendedAction - 'MONITOR' | 'REVIEW_THESIS' | 'REVIEW_RISK' | 'LOG_DECISION'
+ * @property {number|null} score - weighted product, or null when any factor unknown
+ * @property {string} eligibility - 'ELIGIBLE' | 'INSUFFICIENT_EVIDENCE'
+ * @property {string} recommendedAction
  * @property {string} explanation
  */
 
@@ -107,34 +113,47 @@ W.intelligence.freshnessWindows = {
 };
 
 // ── Compute confidence from evidence components ─────────────
-// sourceReliability and dataFreshness are always computable — the
-// former is a documented per-source constant (see sourceReliability
-// map above), the latter is real elapsed-time math. dataCompleteness
-// and interpretationConfidence are NOT given defaults here: if a
-// caller genuinely hasn't supplied them, that means we don't actually
-// know how complete the data is or how confident the interpretation
-// is — and inventing 0.8/0.7 to fill that gap is exactly the
-// synthetic-confidence problem WEAVER_CONSTITUTION §2.7 and §2.9
-// exist to prevent. Missing means the overall confidence is null,
-// not a plausible-looking number.
+//
+// This is the single authoritative confidence function. Any module
+// that needs a confidence value MUST call this function rather than
+// re-deriving a formula.
+//
+// MISSING-DATA POLICY:
+//   Every factor is required. If any of sourceReliability,
+//   dataFreshness, dataCompleteness, or interpretationConfidence is
+//   missing or non-finite, the function returns `null`.
+//
+//   `null` means "we do not have enough information to make a
+//   numeric claim" — it does NOT mean "zero confidence". Callers
+//   must surface that distinction honestly rather than coercing to
+//   a number.
+//
+//   Earlier versions defaulted sourceReliability to 0.5 and
+//   dataFreshness to 0.8. Those defaults were the exact
+//   synthetic-confidence pattern §2.7 and §2.9 exist to prevent.
+//   They have been removed.
+//
+// CORROBORATION:
+//   corroborationCount defaults to 1. A value below 1 is clamped
+//   to 1. The boost is capped at 1.5×.
+//
 function computeConfidence(evidence) {
+  if (!evidence || typeof evidence !== "object") return null;
+
   const {
-    sourceReliability = 0.5,
-    dataFreshness = 0.8,
+    sourceReliability,
+    dataFreshness,
     corroborationCount = 1,
     dataCompleteness,
     interpretationConfidence,
   } = evidence;
 
-  if (dataCompleteness === null || dataCompleteness === undefined) {
-    return null;
-  }
-  if (
-    interpretationConfidence === null ||
-    interpretationConfidence === undefined
-  ) {
-    return null;
-  }
+  // Every factor must be present and finite. Missing means we cannot
+  // make a numeric confidence claim, and "unknown ≠ zero" applies.
+  if (!Number.isFinite(sourceReliability)) return null;
+  if (!Number.isFinite(dataFreshness)) return null;
+  if (!Number.isFinite(dataCompleteness)) return null;
+  if (!Number.isFinite(interpretationConfidence)) return null;
 
   const clamp = (v) => Math.max(0, Math.min(1, v));
   const sr = clamp(sourceReliability);
@@ -142,12 +161,18 @@ function computeConfidence(evidence) {
   const cc = Math.max(1, Math.floor(corroborationCount));
   const dc = clamp(dataCompleteness);
   const ic = clamp(interpretationConfidence);
+
   const corroborationBoost = Math.min(1.5, 1 + (cc - 1) * 0.15);
   let confidence = sr * df * dc * ic * corroborationBoost;
   confidence = clamp(confidence);
+
+  // Floor at 0.05 for cases where all four factors are non-zero but
+  // the product rounds to a value indistinguishable from "we didn't
+  // measure". This is a display aid, not a claim about precision.
   if (confidence < 0.05 && (sr > 0 || df > 0 || dc > 0 || ic > 0)) {
     confidence = 0.05;
   }
+
   return confidence;
 }
 

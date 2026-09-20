@@ -6,14 +6,18 @@
 // computed source reliability, freshness, completeness, and
 // interpretation confidence.
 //
+// CONFIDENCE AUTHORITY:
+//   The builder no longer computes confidence itself. It constructs
+//   the evidence object, gathers the four factors, and delegates
+//   the numeric confidence claim to
+//   W.intelligence.computeConfidence() — the single authoritative
+//   function. If that function returns null, confidence is null.
+//
 // MISSING DATA POLICY:
 //   When a factor cannot be legitimately computed, it is `null`.
-//   It is never replaced by a plausible-looking default. The overall
-//   confidence is a product of KNOWN factors only; each unknown
-//   factor reduces confidence rather than being invented.
-//
-//   If no factor is known, confidence is `null` and the evidence is
-//   marked `incomplete: true`.
+//   It is never replaced by a plausible-looking default. When any
+//   factor is null, the canonical confidence function returns null
+//   and the evidence is marked `incomplete: true`.
 //
 // CORROBORATION:
 //   `corroborationCount` defaults to 1 (single source). This is a
@@ -59,6 +63,7 @@ W.evidence = W.evidence || {};
     return {
       getSourceReliability: intel.getSourceReliability,
       computeFreshness: intel.computeFreshness,
+      computeConfidence: intel.computeConfidence,
     };
   }
 
@@ -77,7 +82,8 @@ W.evidence = W.evidence || {};
       throw new Error("Invalid signal: missing id or source");
     }
 
-    const { getSourceReliability, computeFreshness } = helpers();
+    const { getSourceReliability, computeFreshness, computeConfidence } =
+      helpers();
 
     // 1. Source reliability — static per source. Null when the
     //    reliability table isn't available. We do not guess 0.5.
@@ -102,7 +108,7 @@ W.evidence = W.evidence || {};
     }
 
     // 4. Data completeness — must be supplied. We have no basis for
-    //    inventing a number. Missing → null → evidence incomplete.
+    //    inventing a number. Missing → null → canonical returns null.
     let dataCompleteness = options.dataCompleteness;
     if (dataCompleteness === undefined || dataCompleteness === null) {
       dataCompleteness = null;
@@ -110,8 +116,7 @@ W.evidence = W.evidence || {};
       dataCompleteness = Math.max(0, Math.min(1, dataCompleteness));
     }
 
-    // 5. Interpretation confidence — same rule. If the caller did not
-    //    supply one, we do not fabricate one per signal type.
+    // 5. Interpretation confidence — same rule.
     let interpretationConfidence = options.interpretationConfidence;
     if (
       interpretationConfidence === undefined ||
@@ -126,8 +131,6 @@ W.evidence = W.evidence || {};
     }
 
     // ── Provenance fields ─────────────────────────────────────
-    // methodologyVersion comes from the caller's options first, then
-    // the signal itself. Neither source is invented.
     const methodologyVersion =
       typeof options.methodologyVersion === "string" &&
       options.methodologyVersion.trim()
@@ -137,11 +140,32 @@ W.evidence = W.evidence || {};
           ? signal.methodologyVersion.trim()
           : null;
 
-    // relationship defaults to "unknown" — a caller that knows how
-    // the signal relates to the scenario must say so explicitly.
     const relationship = normalizeRelationship(options.relationship);
 
     const observedAt = safeIso(signal.timestamp);
+
+    // ── Confidence — delegate to the canonical function ──────
+    // The builder does not compute a numeric confidence itself.
+    // If W.intelligence.computeConfidence is unavailable, or if any
+    // of the four factors is null, the result is null.
+    let confidence = null;
+    const canonicalAvailable = typeof computeConfidence === "function";
+    if (canonicalAvailable) {
+      confidence = computeConfidence({
+        sourceReliability,
+        dataFreshness,
+        corroborationCount,
+        dataCompleteness,
+        interpretationConfidence,
+      });
+    }
+
+    const unknownCount = [
+      sourceReliability,
+      dataFreshness,
+      dataCompleteness,
+      interpretationConfidence,
+    ].filter((v) => v === null).length;
 
     const evidence = {
       signalId: signal.id,
@@ -157,51 +181,10 @@ W.evidence = W.evidence || {};
       corroborationCount,
       dataCompleteness,
       interpretationConfidence,
+      confidence,
+      incomplete: unknownCount > 0,
       reasoning: [],
     };
-
-    // ── Confidence computation ─────────────────────────────────
-    // Product of known factors only. Unknown factors are excluded
-    // and penalise the result rather than being replaced with
-    // invented numbers.
-    const knownFactors = [];
-    if (sourceReliability !== null) knownFactors.push(sourceReliability);
-    if (dataFreshness !== null) knownFactors.push(dataFreshness);
-    if (dataCompleteness !== null) knownFactors.push(dataCompleteness);
-    if (interpretationConfidence !== null)
-      knownFactors.push(interpretationConfidence);
-
-    const unknownCount = [
-      sourceReliability,
-      dataFreshness,
-      dataCompleteness,
-      interpretationConfidence,
-    ].filter((v) => v === null).length;
-
-    let confidence = null;
-
-    if (knownFactors.length > 0) {
-      // Base: product of known factors.
-      confidence = knownFactors.reduce((a, b) => a * b, 1);
-
-      // Corroboration boost: only applied when a caller supplied a
-      // corroboration count greater than 1.
-      if (corroborationCount > 1) {
-        confidence *= 1 + (corroborationCount - 1) * 0.1;
-      }
-
-      // Unknown-factor penalty: each unknown factor reduces
-      // confidence by 30%. "We don't know" lowers certainty —
-      // it does not raise it.
-      confidence *= Math.pow(0.7, unknownCount);
-
-      confidence = Math.max(0, Math.min(1, confidence));
-    }
-    // If knownFactors is empty, confidence remains null. We have no
-    // basis for a numeric claim.
-
-    evidence.confidence = confidence;
-    evidence.incomplete = unknownCount > 0;
 
     // ── Reasoning ──────────────────────────────────────────────
     evidence.reasoning.push(
@@ -225,11 +208,24 @@ W.evidence = W.evidence || {};
         ? `Interpretation: ${(interpretationConfidence * 100).toFixed(0)}%`
         : "Interpretation: unknown",
     );
-    evidence.reasoning.push(
-      confidence !== null
-        ? `Overall confidence: ${(confidence * 100).toFixed(0)}%${unknownCount > 0 ? " (reduced — some factors unknown)" : ""}`
-        : "Overall confidence: unavailable (no factors known)",
-    );
+
+    // The reasoning message distinguishes three null cases so a
+    // reader can tell "we have no factors at all" from "the model
+    // itself is missing" from "some factors are missing". The most
+    // specific explanation wins.
+    let confidenceMessage;
+    if (confidence !== null) {
+      confidenceMessage = `Overall confidence: ${(confidence * 100).toFixed(0)}%`;
+    } else if (unknownCount === 4) {
+      confidenceMessage = "Overall confidence: unavailable (no factors known)";
+    } else if (!canonicalAvailable) {
+      confidenceMessage =
+        "Overall confidence: unavailable (confidence model not loaded)";
+    } else {
+      confidenceMessage =
+        "Overall confidence: unavailable (one or more factors unknown)";
+    }
+    evidence.reasoning.push(confidenceMessage);
 
     return evidence;
   }
