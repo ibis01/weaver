@@ -226,39 +226,66 @@ describe("Evidence provenance (P1)", () => {
 
   // ── Drawer bucketing ──────────────────────────────────────────
 
-  describe("evidence-drawer bucket() classifies domains by status", () => {
-    it("marks 'verified' domains as supporting", () => {
-      const b = W.ui.evidenceDrawer._internal.bucket({
-        security: { status: "verified", source: "goplus" },
-      });
-      expect(b.supporting).to.have.length(1);
-      expect(b.contradicting).to.have.length(0);
-      expect(b.unknowns).to.have.length(0);
-    });
+   describe("evidence-drawer bucket() classifies domains by declared relationship", () => {
+     it("status 'verified' does NOT imply supporting", () => {
+       const b = W.ui.evidenceDrawer._internal.bucket({
+         security: { status: "verified", source: "goplus" },
+       });
+       expect(b.supporting).to.have.length(0);
+       expect(b.contradicting).to.have.length(0);
+       expect(b.unknowns).to.have.length(1);
+       expect(b.unknowns[0].relationship).to.equal("unknown");
+     });
 
-    it("marks 'failed' domains as contradicting", () => {
-      const b = W.ui.evidenceDrawer._internal.bucket({
-        security: { status: "failed", source: "goplus" },
-      });
-      expect(b.contradicting).to.have.length(1);
-    });
+     it("status 'failed' does NOT imply contradicting", () => {
+       const b = W.ui.evidenceDrawer._internal.bucket({
+         security: { status: "failed", source: "goplus" },
+       });
+       expect(b.contradicting).to.have.length(0);
+       expect(b.unknowns).to.have.length(1);
+       expect(b.unknowns[0].relationship).to.equal("unknown");
+     });
 
-    it("marks unknown-status domains as unknowns", () => {
-      const b = W.ui.evidenceDrawer._internal.bucket({
-        security: { status: "unknown" },
-      });
-      expect(b.unknowns).to.have.length(1);
-    });
+     it("an explicitly declared supporting relationship is honored", () => {
+       const b = W.ui.evidenceDrawer._internal.bucket({
+         security: { status: "verified", relationship: "supporting" },
+       });
+       expect(b.supporting).to.have.length(1);
+       expect(b.supporting[0].relationship).to.equal("supporting");
+     });
 
-    it("a domain with no relationship gets 'unknown', not 'supporting'", () => {
-      const b = W.ui.evidenceDrawer._internal.bucket({
-        something: { status: "partial" },
-      });
-      expect(b.supporting).to.have.length(0);
-      expect(b.unknowns).to.have.length(1);
-      expect(b.unknowns[0].relationship).to.equal("unknown");
-    });
-  });
+     it("an explicitly declared contradicting relationship is honored", () => {
+       const b = W.ui.evidenceDrawer._internal.bucket({
+         security: { status: "verified", relationship: "contradicting" },
+       });
+       expect(b.contradicting).to.have.length(1);
+     });
+
+     it("an invalid relationship falls back to 'unknown'", () => {
+       const b = W.ui.evidenceDrawer._internal.bucket({
+         security: { status: "verified", relationship: "bullish" },
+       });
+       expect(b.unknowns).to.have.length(1);
+       expect(b.unknowns[0].relationship).to.equal("unknown");
+     });
+
+     it("neutral relationship is placed under Unknowns", () => {
+       const b = W.ui.evidenceDrawer._internal.bucket({
+         something: { status: "available", relationship: "neutral" },
+       });
+       expect(b.supporting).to.have.length(0);
+       expect(b.contradicting).to.have.length(0);
+       expect(b.unknowns).to.have.length(1);
+       expect(b.unknowns[0].relationship).to.equal("neutral");
+     });
+
+     it("status is preserved on the item for display", () => {
+       const b = W.ui.evidenceDrawer._internal.bucket({
+         security: { status: "verified", relationship: "supporting" },
+       });
+       expect(b.supporting[0].status).to.equal("verified");
+     });
+   });
 
   // ── Backwards-compat ──────────────────────────────────────────
 

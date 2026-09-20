@@ -9,11 +9,19 @@
 // Constitution §2.7 (Evidence Provenance): sources and methodology
 // surfaced alongside conclusions.
 //
-// Every evidence item renders six provenance fields:
-//   source, observedAt, freshness, methodologyVersion,
-//   relationship, reliability.
-// Missing values render as "unknown". A missing relationship is
-// never silently upgraded to "supporting".
+// RELATIONSHIP POLICY:
+//   `relationship` describes how an item relates to the scenario
+//   being evaluated: supporting, contradicting, neutral, or unknown.
+//   It is NEVER inferred from `status`.
+//
+//   A domain with status "verified" has not necessarily supported
+//   the thesis — it means the data was successfully obtained.
+//   A domain with status "failed" has not necessarily contradicted
+//   the thesis — it means the data was not obtained.
+//
+//   When a domain does not declare its relationship, the drawer
+//   places it under "Unknowns". It is never silently upgraded to
+//   "supporting" or demoted to "contradicting".
 //
 // CSP Compliant: no style="" attributes. All user content passes
 // through W.fmt.escapeHTML before insertion.
@@ -26,22 +34,36 @@ W.ui.evidenceDrawer = (() => {
   const esc = (s) =>
     W.fmt?.escapeHTML ? W.fmt.escapeHTML(String(s ?? "")) : String(s ?? "");
 
+  const RELATIONSHIP_VALUES = new Set([
+    "supporting",
+    "contradicting",
+    "neutral",
+    "unknown",
+  ]);
+
+  function normalizeRelationship(value) {
+    if (typeof value !== "string") return "unknown";
+    const v = value.trim().toLowerCase();
+    return RELATIONSHIP_VALUES.has(v) ? v : "unknown";
+  }
+
+  // ── Bucketing ───────────────────────────────────────────
+  // Relationship drives the bucket. Status is preserved on the item
+  // for display but does not determine where the item appears.
+  //
+  // A domain declaring relationship: "neutral" is placed under
+  // Unknowns — the drawer has three sections and neutral evidence
+  // is neither for nor against the thesis. Callers that want a
+  // distinct "neutral" section can extend the return shape, but the
+  // current three-bucket contract is unchanged.
   function bucket(domains) {
     const out = { supporting: [], contradicting: [], unknowns: [] };
     if (!domains || typeof domains !== "object") return out;
     Object.entries(domains).forEach(([name, d]) => {
-      // Relationship is inferred from the domain's own status field.
-      // That is the domain's claim about itself, not ours.
-      const status = (d && d.status) || "unknown";
-      const relationship =
-        status === "verified" || status === "available"
-          ? "supporting"
-          : status === "failed"
-            ? "contradicting"
-            : "unknown";
+      const relationship = normalizeRelationship(d && d.relationship);
       const e = {
         name,
-        status,
+        status: (d && d.status) || "unknown",
         source: d && d.source,
         observedAt: d && (d.observedAt || d.asOf),
         freshness: d && d.freshness,
@@ -130,6 +152,10 @@ W.ui.evidenceDrawer = (() => {
   // Carry provenance fields from a source evidence object onto the
   // drawer item, so renderItems() has all six fields regardless of
   // which layer produced the item.
+  //
+  // relationship is NOT defaulted to "supporting" here — a caller
+  // that produced bullish evidence has already declared that
+  // relationship upstream, and this carry function preserves it.
   function carryProvenance(item, source) {
     const s = source || {};
     return {
@@ -138,7 +164,7 @@ W.ui.evidenceDrawer = (() => {
       observedAt: item.observedAt ?? s.observedAt ?? s.timestamp,
       freshness: item.freshness ?? s.freshness,
       methodologyVersion: item.methodologyVersion ?? s.methodologyVersion,
-      relationship: item.relationship ?? s.relationship ?? "unknown",
+      relationship: item.relationship ?? normalizeRelationship(s.relationship),
       reliability: item.reliability ?? s.reliability,
     };
   }
@@ -232,7 +258,13 @@ W.ui.evidenceDrawer = (() => {
   return {
     open,
     // Exposed for tests only.
-    _internal: { bucket, renderItems, renderProvenance, carryProvenance },
+    _internal: {
+      bucket,
+      renderItems,
+      renderProvenance,
+      carryProvenance,
+      normalizeRelationship,
+    },
   };
 })();
 
