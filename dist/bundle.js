@@ -13066,6 +13066,30 @@ W.shield = (() => {
       source: "goplus-evm",
     };
 
+    // ── Creator metadata (measured, not inferred) ──────────
+    // result.creator_address is the creator address reported by
+    // GoPlus. It is metadata, not on-chain creation evidence, and
+    // it is NOT the deployer of record for the Deployer Graph
+    // Phase 2 work. That identity will come from a separate
+    // contract-creation lookup against an on-chain provider.
+    //
+    // This field exists so the Phase 2 reconciliation step can
+    // record agreement or mismatch between GoPlus creator metadata
+    // and provider-based creation evidence.
+    //
+    // It is NOT result.owner, NOT result.owner_address, and NOT
+    // any holder tag.
+    const creatorAddress =
+      typeof result.creator_address === "string" &&
+      result.creator_address.trim()
+        ? result.creator_address.trim().toLowerCase()
+        : null;
+
+    const creator = {
+      address: creatorAddress,
+      source: "goplus-evm",
+    };
+
     return {
       riskScore,
       risks,
@@ -13076,6 +13100,7 @@ W.shield = (() => {
       sellTax,
       holders,
       owner,
+      creator,
     };
   }
 
@@ -13321,6 +13346,13 @@ W.shield = (() => {
         source: "unavailable",
         reason:
           "GoPlus Solana endpoint does not return an owner address field.",
+      },
+      // Same declared-gap pattern for creator metadata.
+      creator: {
+        address: null,
+        source: "unavailable",
+        reason:
+          "GoPlus Solana endpoint does not return a creator address field.",
       },
     };
   }
