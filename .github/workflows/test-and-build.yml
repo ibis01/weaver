@@ -1,0 +1,28 @@
+name: test-and-build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cf-worker/package-lock.json
+
+      - name: Install cf-worker dependencies
+        working-directory: cf-worker
+        run: npm ci
+
+      - name: Run Worker tests
+        working-directory: cf-worker
+        run: npx vitest run
