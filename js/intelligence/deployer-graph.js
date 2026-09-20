@@ -17,21 +17,31 @@
 //     deployerAddress     address established from on-chain creation
 //                         evidence (Bitquery Call.Create Call.From)
 //
-//   This module only knows about `deployerAddress`. It does not
-//   read GoPlus owner or creator metadata. The creator field is
-//   preserved elsewhere for reconciliation; it is not the deployer
-//   of record.
+//   This module uses `creator.address` only as the query hint to
+//   Bitquery. The Bitquery response establishes the deployer of
+//   record for the returned contracts.
 //
-// SCOPE — Step 2:
-//   - Cache schema and eviction only. No provider fetch.
-//   - The `observe()` orchestrator (which will call a provider on
-//     cache miss) is added in Step 4 once the CF Worker path and
-//     the Bitquery query exist.
-//   - `record()` is the write entry point. Step 4's provider
-//     wiring calls it after a successful fetch. Tests use it to
-//     prime the cache.
-//   - `get()` is the only read path for render consumers. It never
-//     issues a network request.
+// SCOPE — Step 4:
+//   observe() is now implemented. It reads the GoPlus creator
+//   address as the query hint, calls the Worker's
+//   /bitquery/deployer route, parses the response, applies the
+//   qualification step, and records the resulting profile.
+//
+// QUALIFICATION — Step 4 policy:
+//   The Bitquery response identifies contracts the address created.
+//   It does NOT confirm that each contract is a fungible token.
+//
+//   Only contracts we can independently confirm as tokens enter
+//   tokens[]. Currently the only such contract is the token Weaver
+//   is analyzing (GoPlus recognized it as a token — that is why we
+//   have a creator address to query with).
+//
+//   All other contracts are counted in filteredContractCount.
+//   They are visible as a number, not as individual tokens, and
+//   they are NOT counted as qualified in summarise().
+//
+//   Refining this — e.g. a GoPlus follow-up per contract, or a
+//   richer Bitquery query with token metadata — is a future step.
 //
 // CACHE:
 //   - Per-origin client cache. Backed by W.store (localStorage
@@ -61,10 +71,13 @@ W.deployerGraph = (() => {
   const RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
   const MAX_PROFILES = 100;
 
+  // Worker URL. Empty by default; set via _internal.setWorkerBase().
+  // When blank, observe() returns null without a network call.
+  let workerBase = "";
+
   // In-memory mirror of the index. Populated on first read after
   // page load or reset. Kept in sync by writeIndex(). Cleared by
-  // reset(). This avoids re-reading the index key from W.store on
-  // every record() call during a batch of writes.
+  // reset().
   let cachedIndex = null;
   const warned = new Set();
 
@@ -72,6 +85,10 @@ W.deployerGraph = (() => {
     if (warned.has(tag)) return;
     warned.add(tag);
     console.warn("[DeployerGraph]", message);
+  }
+
+  function setWorkerBase(url) {
+    workerBase = typeof url === "string" ? url.trim().replace(/\/+$/, "") : "";
   }
 
   // ── Normalization ────────────────────────────────────────
@@ -172,9 +189,6 @@ W.deployerGraph = (() => {
     return now - entry.observedAt > RETENTION_MS;
   }
 
-  // Pure function over a list of { key, entry }. Returns the list
-  // to keep after TTL pruning and LRU eviction. Testable in
-  // isolation.
   function pruneAndEvict(entries, maxCount = MAX_PROFILES, now = Date.now()) {
     if (!Array.isArray(entries)) return [];
     const cutoff = now - RETENTION_MS;
@@ -219,21 +233,9 @@ W.deployerGraph = (() => {
   }
 
   // ── Public: record ───────────────────────────────────────
-  // Write entry point. The provider wiring in Step 4 calls this
-  // after a successful Bitquery fetch. Tests use it to prime the
-  // cache. Returns true on success, false on any failure. Never
-  // throws.
-  //
-  // Profile shape accepted:
-  //   {
-  //     tokens: [...],              // required, array (may be empty)
-  //     filteredContractCount: 0,   // optional
-  //     creatorMetadata: {...},     // optional
-  //     source: "bitquery",         // optional, defaults to "bitquery"
-  //     observedAt: 1234567890,     // optional, defaults to now
-  //   }
-  //
-  // The module adds chain, deployerAddress, and methodologyVersion.
+  // Write entry point. observe() calls this after a successful
+  // Bitquery fetch. Tests use it to prime the cache. Returns true
+  // on success, false on any failure. Never throws.
   function record(chainKey, deployerAddress, profile) {
     try {
       const chain = normalizeChain(chainKey);
@@ -243,9 +245,6 @@ W.deployerGraph = (() => {
       if (!profile || typeof profile !== "object") return false;
       if (!Array.isArray(profile.tokens)) return false;
 
-      // Reject the record if any token is invalid. The provider
-      // wiring must produce clean profiles; a malformed token
-      // should fail loudly rather than silently disappearing.
       for (const token of profile.tokens) {
         if (!isValidToken(token)) {
           warnOnce(
@@ -260,8 +259,6 @@ W.deployerGraph = (() => {
         ? profile.observedAt
         : Date.now();
 
-      // Build the entry. Tokens are cloned and their addresses
-      // normalized so later lookups can compare directly.
       const normalizedTokens = profile.tokens.map((token) => ({
         tokenAddress: normalizeAddress(token.tokenAddress),
         deployedAt: Number.isFinite(token.deployedAt) ? token.deployedAt : null,
@@ -301,12 +298,10 @@ W.deployerGraph = (() => {
         tokens: normalizedTokens,
       };
 
-      // Read the current cache, add the new entry, prune and evict.
       const existing = readAllEntries().filter((e) => e.key !== key);
       const combined = [...existing, { key, entry }];
       const kept = pruneAndEvict(combined, MAX_PROFILES, Date.now());
 
-      // Determine which keys to delete.
       const keptKeys = new Set(kept.map((e) => e.key));
       const toDelete = combined
         .filter((e) => !keptKeys.has(e.key))
@@ -315,7 +310,6 @@ W.deployerGraph = (() => {
         deleteEntry(k);
       }
 
-      // Write the new entry.
       try {
         W.store?.set?.(key, entry);
       } catch (e) {
@@ -323,9 +317,7 @@ W.deployerGraph = (() => {
         return false;
       }
 
-      // Update the index to reflect the kept keys.
       writeIndex(kept.map((e) => e.key));
-
       return true;
     } catch (e) {
       warnOnce("record", "record failed: " + (e && e.message));
@@ -334,12 +326,15 @@ W.deployerGraph = (() => {
   }
 
   // ── Public: get ──────────────────────────────────────────
-  // Read-only lookup. Walks the cache to find the profile whose
-  // tokens include the given tokenAddress. Never issues a network
-  // request. Never mutates session state.
+  // Read-only lookup. Never issues a network request. Never
+  // mutates session state. Expired entries are skipped without
+  // being deleted; the next record() performs TTL cleanup.
   //
-  // Expired entries are skipped without being deleted. The next
-  // record() call performs TTL cleanup.
+  // This is a SEMANTIC lookup: "find the profile relevant to this
+  // token". A profile with no matching token in its tokens array
+  // is not returned, even if it exists in the cache. Use the
+  // internal readEntry(keyFor(...)) to fetch a profile by deployer
+  // identity.
   function get(chainKey, tokenAddress) {
     try {
       const chain = normalizeChain(chainKey);
@@ -368,17 +363,6 @@ W.deployerGraph = (() => {
 
   // ── Public: summarise ────────────────────────────────────
   // Reports counts, never rates.
-  //
-  //   "Deployer previously created 3 qualified tokens — 1 flagged high-risk"
-  //
-  // The high-risk clause is omitted when the count is zero, because
-  // "0 flagged high-risk" reads too close to "safe". Tokens whose
-  // riskScore is null (never Shield-enriched) are not counted as
-  // high-risk — unknown is not high risk and unknown is not safe.
-  //
-  // The predicate is called at summarise time via
-  // W.shield.isHighRisk() so the count reflects the current Shield
-  // threshold. If the predicate is unavailable, the count is zero.
   function summarise(observation) {
     try {
       if (!observation || typeof observation !== "object") return null;
@@ -407,7 +391,6 @@ W.deployerGraph = (() => {
       const noun = n === 1 ? "qualified token" : "qualified tokens";
 
       if (highRiskCount > 0) {
-        const flag = highRiskCount === 1 ? "flagged" : "flagged";
         return (
           "Deployer previously created " +
           n +
@@ -415,9 +398,7 @@ W.deployerGraph = (() => {
           noun +
           " — " +
           highRiskCount +
-          " " +
-          flag +
-          " high-risk"
+          " flagged high-risk"
         );
       }
       return "Deployer previously created " + n + " " + noun;
@@ -441,19 +422,219 @@ W.deployerGraph = (() => {
     }
   }
 
+  // ── Bitquery response parsing ────────────────────────────
+
+  function extractCalls(parsed) {
+    if (!parsed || typeof parsed !== "object") return null;
+    if (Array.isArray(parsed.errors) && parsed.errors.length > 0) {
+      // A GraphQL response with errors is not a valid data source.
+      return null;
+    }
+    const data = parsed.data;
+    if (!data || typeof data !== "object") return null;
+    const evm = data.EVM;
+    if (!evm || typeof evm !== "object") return null;
+    const calls = evm.Calls;
+    if (!Array.isArray(calls)) return null;
+    return calls;
+  }
+
+  function extractContractAddress(call) {
+    if (!call || typeof call !== "object") return null;
+    const c = call.Call;
+    if (!c || typeof c !== "object") return null;
+    return normalizeAddress(c.To);
+  }
+
+  function extractTxHash(call) {
+    if (!call || typeof call !== "object") return null;
+    const tx = call.Transaction;
+    if (!tx || typeof tx !== "object") return null;
+    return typeof tx.Hash === "string" ? tx.Hash : null;
+  }
+
+  function extractDeployedAt(call) {
+    if (!call || typeof call !== "object") return null;
+    const b = call.Block;
+    if (!b || typeof b !== "object") return null;
+    const t = b.Time;
+    if (typeof t !== "string") return null;
+    const parsed = Date.parse(t);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function buildTokenFromCall(call, contractAddr, deployerAddress) {
+    return {
+      tokenAddress: contractAddr,
+      deployedAt: extractDeployedAt(call),
+      deploymentTxHash: extractTxHash(call),
+      deploymentEvidence: {
+        source: "bitquery",
+        method: "evm-call-create",
+        deployerAddress: deployerAddress,
+        callType: "direct",
+      },
+      riskScore: null,
+      shieldObservedAt: null,
+      shieldSource: null,
+    };
+  }
+
+  // ── Worker fetch ─────────────────────────────────────────
+
+  async function fetchDeployerProfile(chain, deployerAddress) {
+    if (!workerBase) {
+      warnOnce(
+        "worker-base",
+        "Worker proxy base is not configured; deployer fetch skipped",
+      );
+      return null;
+    }
+
+    let response;
+    try {
+      response = await fetch(workerBase + "/bitquery/deployer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chain: chain,
+          deployerAddress: deployerAddress,
+        }),
+      });
+    } catch (e) {
+      warnOnce("fetch-failed", "Deployer fetch failed: " + (e && e.message));
+      return null;
+    }
+
+    if (!response || !response.ok) {
+      const status = response ? response.status : "unknown";
+      warnOnce("fetch-status", "Deployer fetch returned HTTP " + status);
+      return null;
+    }
+
+    try {
+      return await response.json();
+    } catch (e) {
+      warnOnce(
+        "fetch-parse",
+        "Deployer response was not JSON: " + (e && e.message),
+      );
+      return null;
+    }
+  }
+
+  // ── Public: observe ──────────────────────────────────────
+  // Async orchestrator. Reads creator.address from the assessment
+  // as the Bitquery query hint, fetches the deployer profile on
+  // cache miss, applies the qualification step, and records.
+  // Returns the profile or null. Never throws.
+  //
+  // On success, the returned profile is read directly by deployer
+  // key — not by token lookup. A profile that qualifies zero
+  // tokens (because the current token was not among the Bitquery
+  // creation calls) is still a valid recorded result and is
+  // returned. get(chain, tokenAddress) remains a token-keyed
+  // semantic lookup for render consumers and will not surface
+  // such a profile.
+  async function observe(assessment, chainKey, tokenAddress, symbol) {
+    try {
+      if (!assessment || typeof assessment !== "object") return null;
+      if (assessment.error || assessment.noData || assessment.unsupported) {
+        return null;
+      }
+
+      const chain = normalizeChain(chainKey);
+      const tokenAddr = normalizeAddress(tokenAddress);
+      if (!chain || !tokenAddr) return null;
+
+      const creator = assessment.creator;
+      if (!creator || typeof creator !== "object") return null;
+      const creatorAddress = normalizeAddress(creator.address);
+      if (!creatorAddress) return null;
+
+      // Cache check — return the cached profile without a network
+      // call when one exists.
+      const cached = get(chain, tokenAddr);
+      if (cached) return cached;
+
+      const parsed = await fetchDeployerProfile(chain, creatorAddress);
+      if (!parsed) return null;
+
+      const calls = extractCalls(parsed);
+      if (calls === null) return null;
+
+      // Qualification: only the current token is verified as a
+      // token (GoPlus recognized it — that is why we have a
+      // creator address to query with). All other contracts are
+      // counted in filteredContractCount.
+      const tokens = [];
+      let filteredContractCount = 0;
+
+      for (const call of calls) {
+        const contractAddr = extractContractAddress(call);
+        if (!contractAddr) continue;
+
+        if (contractAddr === tokenAddr) {
+          tokens.push(buildTokenFromCall(call, contractAddr, creatorAddress));
+        } else {
+          filteredContractCount++;
+        }
+      }
+
+      const profile = {
+        tokens,
+        filteredContractCount,
+        creatorMetadata: {
+          goplusCreatorAddress: creatorAddress,
+          // We do not have a per-token Bitquery deployer lookup, so
+          // we cannot compare Bitquery's per-token deployer against
+          // GoPlus's creator_address. The value is honest: the
+          // comparison was not performed.
+          agreement: "unavailable",
+        },
+        source: "bitquery",
+        observedAt: Date.now(),
+      };
+
+      if (!record(chain, creatorAddress, profile)) {
+        return null;
+      }
+
+      // Return the stored profile by deployer key, not by token
+      // lookup. get() is token-keyed and returns null when the
+      // profile has no matching token — which happens when the
+      // current token is not among the Bitquery creation calls.
+      // The profile is still recorded and should be returned.
+      const storedKey = keyFor(chain, creatorAddress);
+      if (!storedKey) return null;
+      const stored = readEntry(storedKey);
+      return stored ? cloneValue(stored) : null;
+    } catch (e) {
+      warnOnce("observe", "observe failed: " + (e && e.message));
+      return null;
+    }
+  }
+
   return {
+    observe,
     record,
     get,
     summarise,
     reset,
     METHODOLOGY_VERSION,
-    // Exposed for tests only.
+    // Exposed for tests and diagnostics only.
     _internal: {
       keyFor,
       normalizeAddress,
       normalizeChain,
       isExpired,
       pruneAndEvict,
+      extractCalls,
+      extractContractAddress,
+      extractTxHash,
+      extractDeployedAt,
+      setWorkerBase,
+      getWorkerBase: () => workerBase,
       INDEX_KEY,
       KEY_PREFIX,
       RETENTION_MS,
