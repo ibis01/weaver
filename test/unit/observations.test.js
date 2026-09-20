@@ -1,4 +1,4 @@
-// test/unit/observations.test.js
+
 //
 // Trajectory observations — storage and delta computation.
 //
@@ -32,9 +32,6 @@ describe("Observations — time-series storage", () => {
   // ── Key normalization ──────────────────────────────────────
 
   describe("key normalization", () => {
-    // Accessed via a function body, so the lookup defers until the
-    // test runs — by which time before() has already loaded the
-    // module.
     const k = (c, a) => global.W.observations._internal.key(c, a);
 
     it("lowercases EVM addresses", () => {
@@ -143,6 +140,31 @@ describe("Observations — time-series storage", () => {
 
       const h = global.W.observations.history(CHAIN, ADDR);
       expect(h.map((o) => o.holderCount)).to.deep.equal([1, 2, 3]);
+    });
+
+    it("history returns [] when stored data is not an array", () => {
+      const k = global.W.observations._internal.key(CHAIN, ADDR);
+      global.W.store.set(k, { not: "an array" });
+      expect(global.W.observations.history(CHAIN, ADDR)).to.deep.equal([]);
+    });
+
+    it("history returns [] when stored data is a string", () => {
+      const k = global.W.observations._internal.key(CHAIN, ADDR);
+      global.W.store.set(k, "corrupted");
+      expect(global.W.observations.history(CHAIN, ADDR)).to.deep.equal([]);
+    });
+
+    it("history drops non-object entries from the stored array", () => {
+      const k = global.W.observations._internal.key(CHAIN, ADDR);
+      global.W.store.set(k, [
+        null,
+        "not an observation",
+        { observedAt: Date.now(), holderCount: 1 },
+        { noObservedAt: true },
+      ]);
+      const h = global.W.observations.history(CHAIN, ADDR);
+      expect(h).to.have.length(1);
+      expect(h[0].holderCount).to.equal(1);
     });
 
     it("record clamps future timestamps to now", () => {
@@ -332,6 +354,32 @@ describe("Observations — time-series storage", () => {
       expect(t.holderCount.change5m.absolute).to.equal(null);
       expect(t.holderCount.change5m.direction).to.equal("unknown");
     });
+
+    it("computes null delta when a past observation lacks the metric", () => {
+      const now = Date.now();
+      global.W.observations.record(
+        CHAIN,
+        ADDR,
+        makeObs({
+          observedAt: now - 5 * 60 * 1000,
+          holderCount: undefined,
+        }),
+      );
+      global.W.observations.record(
+        CHAIN,
+        ADDR,
+        makeObs({ observedAt: now, holderCount: 100 }),
+      );
+
+      const t = global.W.observations.trajectory(CHAIN, ADDR);
+      expect(t.holderCount.current).to.equal(100);
+      // The past lacked the metric, so no delta is computable even
+      // though the current has a value. Not a fabricated absolute
+      // of 100.
+      expect(t.holderCount.change5m.absolute).to.equal(null);
+      expect(t.holderCount.change5m.percent).to.equal(null);
+      expect(t.holderCount.change5m.direction).to.equal("unknown");
+    });
   });
 
   // ── directionFor ───────────────────────────────────────────
@@ -366,6 +414,46 @@ describe("Observations — time-series storage", () => {
     it("returns 'falling' for negative changes beyond threshold", () => {
       expect(f(-2)).to.equal("falling");
       expect(f(-50)).to.equal("falling");
+    });
+  });
+
+  // ── deltaFor zero-baseline handling ────────────────────────
+
+  describe("deltaFor with zero baselines", () => {
+    let f;
+    before(() => {
+      f = global.W.observations._internal.deltaFor;
+    });
+
+    it("returns null percent when the baseline is zero and current is nonzero", () => {
+      // A percentage change from zero is mathematically undefined.
+      // The function must not fabricate 100%, Infinity, or any other
+      // number — null is the honest answer.
+      expect(f(5, 0)).to.deep.equal({ absolute: 5, percent: null });
+    });
+
+    it("returns 0 percent when both baseline and current are zero", () => {
+      // No change from a zero baseline is 0%, which is defined.
+      expect(f(0, 0)).to.deep.equal({ absolute: 0, percent: 0 });
+    });
+
+    it("returns null absolute and null percent when either side is null", () => {
+      expect(f(null, 5)).to.deep.equal({ absolute: null, percent: null });
+      expect(f(5, null)).to.deep.equal({ absolute: null, percent: null });
+    });
+
+    it("returns null absolute and null percent when either side is non-finite", () => {
+      expect(f(NaN, 5)).to.deep.equal({ absolute: null, percent: null });
+      expect(f(5, NaN)).to.deep.equal({ absolute: null, percent: null });
+      expect(f(Infinity, 5)).to.deep.equal({ absolute: null, percent: null });
+    });
+
+    it("computes percent normally when baseline is positive", () => {
+      expect(f(50, 40)).to.deep.equal({ absolute: 10, percent: 25 });
+    });
+
+    it("computes a negative percent when current is below baseline", () => {
+      expect(f(30, 40)).to.deep.equal({ absolute: -10, percent: -25 });
     });
   });
 
