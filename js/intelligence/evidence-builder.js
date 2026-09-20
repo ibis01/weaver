@@ -20,6 +20,12 @@
 //   fact about the signal, not an estimate. A caller that has
 //   checked for independent corroboration should pass the count.
 //
+// PROVENANCE:
+//   Every built record carries source, observedAt, freshness,
+//   methodologyVersion, relationship, and reliability so downstream
+//   consumers (drawer, track record) can display them without
+//   needing to know which layer produced the evidence.
+//
 // LOAD ORDER:
 //   This module looks up W.intelligence at CALL time, not at load
 //   time. That is required because concat.js loads evidence-builder.js
@@ -34,6 +40,19 @@ window.W = window.W || {};
 W.evidence = W.evidence || {};
 
 (function () {
+  const RELATIONSHIP_VALUES = new Set([
+    "supporting",
+    "contradicting",
+    "neutral",
+    "unknown",
+  ]);
+
+  function normalizeRelationship(value) {
+    if (typeof value !== "string") return "unknown";
+    const v = value.trim().toLowerCase();
+    return RELATIONSHIP_VALUES.has(v) ? v : "unknown";
+  }
+
   // Resolve helpers at call time so load order does not matter.
   function helpers() {
     const intel = W.intelligence || {};
@@ -41,6 +60,16 @@ W.evidence = W.evidence || {};
       getSourceReliability: intel.getSourceReliability,
       computeFreshness: intel.computeFreshness,
     };
+  }
+
+  function safeIso(value) {
+    if (!value) return null;
+    try {
+      const d = new Date(value);
+      return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   function build(signal, options = {}) {
@@ -96,8 +125,33 @@ W.evidence = W.evidence || {};
       );
     }
 
+    // ── Provenance fields ─────────────────────────────────────
+    // methodologyVersion comes from the caller's options first, then
+    // the signal itself. Neither source is invented.
+    const methodologyVersion =
+      typeof options.methodologyVersion === "string" &&
+      options.methodologyVersion.trim()
+        ? options.methodologyVersion.trim()
+        : typeof signal.methodologyVersion === "string" &&
+            signal.methodologyVersion.trim()
+          ? signal.methodologyVersion.trim()
+          : null;
+
+    // relationship defaults to "unknown" — a caller that knows how
+    // the signal relates to the scenario must say so explicitly.
+    const relationship = normalizeRelationship(options.relationship);
+
+    const observedAt = safeIso(signal.timestamp);
+
     const evidence = {
       signalId: signal.id,
+      source: signal.source,
+      observedAt,
+      freshness: dataFreshness,
+      methodologyVersion,
+      relationship,
+      reliability: sourceReliability,
+      // ── Existing factor fields (kept for compatibility) ────
       sourceReliability,
       dataFreshness,
       corroborationCount,

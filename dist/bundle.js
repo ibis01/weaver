@@ -3886,16 +3886,48 @@ console.log("[AI Providers] Registry initialized.");
 //   - `null` confidence marks the record `incomplete`.
 //   - Callers must handle null confidence honestly — either by
 //     excluding the record or by surfacing "evidence incomplete".
+//
+// PROVENANCE POLICY (WEAVER_CONSTITUTION §2.7):
+//   - Every evidence record carries source, observedAt, freshness,
+//     methodologyVersion, relationship, and reliability.
+//   - Missing values are `null`, never fabricated.
+//   - `relationship` defaults to "unknown" when not supplied by the
+//     caller. It is never silently classified as "supporting".
+//
+// LOAD ORDER:
+//   This module MERGES into W.evidence. It does not replace it.
+//   evidence-builder.js augments the same namespace; a wholesale
+//   replace here would drop functions another module attached first.
+//   This matters in the test suite, where evidence-builder.js may
+//   run before evidence.js.
 // ===============================================================
 
 window.W = window.W || {};
 W.intelligence = W.intelligence || {};
 
-W.evidence = (() => {
+W.evidence = W.evidence || {};
+
+(function () {
   // Confidence is intentionally NOT a required field. A valid record
   // may legitimately have null confidence — meaning "the fact is
   // established but its numerical certainty is not estimated".
   const REQUIRED_FIELDS = ["claim", "evidence", "source", "timestamp"];
+
+  // Relationship describes how an evidence item relates to the
+  // scenario being evaluated. It is NOT inferred. A missing or
+  // invalid value is "unknown" — the drawer must not upgrade it.
+  const RELATIONSHIP_VALUES = new Set([
+    "supporting",
+    "contradicting",
+    "neutral",
+    "unknown",
+  ]);
+
+  function normalizeRelationship(value) {
+    if (typeof value !== "string") return "unknown";
+    const v = value.trim().toLowerCase();
+    return RELATIONSHIP_VALUES.has(v) ? v : "unknown";
+  }
 
   function create(data) {
     if (!data || typeof data !== "object") {
@@ -3909,13 +3941,39 @@ W.evidence = (() => {
       rawConfidence >= 0 &&
       rawConfidence <= 1;
 
+    const timestamp = data.timestamp
+      ? new Date(data.timestamp).toISOString()
+      : new Date().toISOString();
+
+    // observedAt defaults to the record's own timestamp when not
+    // supplied. They coincide in most cases; a caller that knows the
+    // underlying fact was observed at a different time can override.
+    let observedAt = timestamp;
+    if (data.observedAt) {
+      try {
+        const d = new Date(data.observedAt);
+        if (Number.isFinite(d.getTime())) observedAt = d.toISOString();
+      } catch (_) {
+        // Leave as timestamp — invalid input does not throw.
+      }
+    }
+
     const record = {
       claim: typeof data.claim === "string" ? data.claim.trim() : null,
       evidence: typeof data.evidence === "string" ? data.evidence.trim() : null,
       source: typeof data.source === "string" ? data.source.trim() : null,
-      timestamp: data.timestamp
-        ? new Date(data.timestamp).toISOString()
-        : new Date().toISOString(),
+      timestamp,
+      // ── Provenance fields (P1) ────────────────────────────────
+      observedAt,
+      freshness: Number.isFinite(data.freshness) ? data.freshness : null,
+      methodologyVersion:
+        typeof data.methodologyVersion === "string" &&
+        data.methodologyVersion.trim()
+          ? data.methodologyVersion.trim()
+          : null,
+      relationship: normalizeRelationship(data.relationship),
+      reliability: Number.isFinite(data.reliability) ? data.reliability : null,
+      // ── Confidence ────────────────────────────────────────────
       confidence: hasValidConfidence ? rawConfidence : null,
       incomplete: !hasValidConfidence,
     };
@@ -3965,12 +4023,21 @@ W.evidence = (() => {
     );
   }
 
-  return {
+  // ── Merge into the shared namespace ─────────────────────
+  // Object.assign preserves any functions attached by other modules
+  // (specifically evidence-builder.js's `build`). This mirrors the
+  // policy documented in evidence-builder.js.
+  Object.assign(W.evidence, {
     create,
     validate,
     sortByConfidence,
     filterByConfidence,
-  };
+    _internal: {
+      ...(W.evidence._internal || {}),
+      normalizeRelationship,
+      RELATIONSHIP_VALUES,
+    },
+  });
 })();
 
 console.log("[Evidence Engine] Module loaded.");
@@ -3997,6 +4064,12 @@ console.log("[Evidence Engine] Module loaded.");
 //   fact about the signal, not an estimate. A caller that has
 //   checked for independent corroboration should pass the count.
 //
+// PROVENANCE:
+//   Every built record carries source, observedAt, freshness,
+//   methodologyVersion, relationship, and reliability so downstream
+//   consumers (drawer, track record) can display them without
+//   needing to know which layer produced the evidence.
+//
 // LOAD ORDER:
 //   This module looks up W.intelligence at CALL time, not at load
 //   time. That is required because concat.js loads evidence-builder.js
@@ -4011,6 +4084,19 @@ window.W = window.W || {};
 W.evidence = W.evidence || {};
 
 (function () {
+  const RELATIONSHIP_VALUES = new Set([
+    "supporting",
+    "contradicting",
+    "neutral",
+    "unknown",
+  ]);
+
+  function normalizeRelationship(value) {
+    if (typeof value !== "string") return "unknown";
+    const v = value.trim().toLowerCase();
+    return RELATIONSHIP_VALUES.has(v) ? v : "unknown";
+  }
+
   // Resolve helpers at call time so load order does not matter.
   function helpers() {
     const intel = W.intelligence || {};
@@ -4018,6 +4104,16 @@ W.evidence = W.evidence || {};
       getSourceReliability: intel.getSourceReliability,
       computeFreshness: intel.computeFreshness,
     };
+  }
+
+  function safeIso(value) {
+    if (!value) return null;
+    try {
+      const d = new Date(value);
+      return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   function build(signal, options = {}) {
@@ -4073,8 +4169,33 @@ W.evidence = W.evidence || {};
       );
     }
 
+    // ── Provenance fields ─────────────────────────────────────
+    // methodologyVersion comes from the caller's options first, then
+    // the signal itself. Neither source is invented.
+    const methodologyVersion =
+      typeof options.methodologyVersion === "string" &&
+      options.methodologyVersion.trim()
+        ? options.methodologyVersion.trim()
+        : typeof signal.methodologyVersion === "string" &&
+            signal.methodologyVersion.trim()
+          ? signal.methodologyVersion.trim()
+          : null;
+
+    // relationship defaults to "unknown" — a caller that knows how
+    // the signal relates to the scenario must say so explicitly.
+    const relationship = normalizeRelationship(options.relationship);
+
+    const observedAt = safeIso(signal.timestamp);
+
     const evidence = {
       signalId: signal.id,
+      source: signal.source,
+      observedAt,
+      freshness: dataFreshness,
+      methodologyVersion,
+      relationship,
+      reliability: sourceReliability,
+      // ── Existing factor fields (kept for compatibility) ────
       sourceReliability,
       dataFreshness,
       corroborationCount,
@@ -10769,14 +10890,14 @@ W.gems = (() => {
 
   const SCORE_VERSION = "gem-v1";
 
-  // Fallback threshold — used ONLY if W.shield.isHighRisk is unavailable
-  // (e.g. shield.js failed to load in a test environment). Never used
-  // when Shield is loaded: Shield remains the single source of truth.
-  const RISK_THRESHOLD_FALLBACK = 40;
-
   // Per-scan bounds on fresh Shield requests.
   const MAX_FRESH_SHIELD_PER_SCAN = 12;
   const SHIELD_CONCURRENCY = 4;
+
+  // Gem-local Shield cache TTL. Must match shield.js's own W.store TTL
+  // so the two caches expire in step. A Shield assessment older than
+  // this is deleted on read and re-fetched on the next scan.
+  const SHIELD_CACHE_TTL = 300000; // 5 minutes
 
   // ── Helpers ────────────────────────────────────────────
   function escapeHTML(str) {
@@ -10843,17 +10964,18 @@ W.gems = (() => {
   }
 
   // ── High-risk predicate ────────────────────────────────
-  // Delegates to W.shield.isHighRisk() (the authoritative predicate).
-  // Fallback exists only for environments where shield.js has not
-  // loaded. Unknown / missing / malformed scores are NEVER treated as
-  // high risk — and never as safe.
+  // W.shield.isHighRisk() is the single authority. Gem Agent must not
+  // duplicate the threshold, because a second source of truth is the
+  // exact failure mode the P0 was fixing. If Shield is unavailable,
+  // the answer is "not identified as high risk" — matching Shield's
+  // own default for missing data. Unknown ≠ high risk, unknown ≠ safe.
   function isHighRisk(shield) {
     if (!shield) return false;
-    if (W.shield && typeof W.shield.isHighRisk === "function") {
-      return W.shield.isHighRisk(shield);
-    }
-    const score = Number(shield.riskScore);
-    return Number.isFinite(score) && score >= RISK_THRESHOLD_FALLBACK;
+    return (
+      W.shield &&
+      typeof W.shield.isHighRisk === "function" &&
+      W.shield.isHighRisk(shield)
+    );
   }
 
   // ── API call with proxy fallback ──────────────────────
@@ -10965,20 +11087,44 @@ W.gems = (() => {
   // ── Scan state ────────────────────────────────────────
   let auto = false,
     timer = null;
-  // `seen` tracks notification dedup across scans. Chain-aware: the same
-  // 0x... address on Ethereum and Base are two distinct candidates and
-  // must not collapse into one notification. Keyed with the same
+
+  // `seen` tracks notification dedup across scans. Chain-aware: the
+  // same 0x... address on Ethereum and Base are two distinct candidates
+  // and must not collapse into one notification. Keyed with the same
   // normalization as shieldCacheKey so the two caches stay in lockstep.
   let seen = {};
+
+  // `shieldCache` stores { assessment, observedAt } per chain-aware key.
+  // Entries expire after SHIELD_CACHE_TTL. Do not read this map
+  // directly — use getCachedShield() / setCachedShield() so the TTL is
+  // always enforced.
   let shieldCache = {};
+
+  function getCachedShield(key) {
+    const entry = shieldCache[key];
+    if (!entry) return null;
+    if (Date.now() - entry.observedAt > SHIELD_CACHE_TTL) {
+      delete shieldCache[key];
+      return null;
+    }
+    // The assessment may be a successful result, an error result, an
+    // unsupported-chain result, or a noData result. All four are valid
+    // cached states with the same TTL. Callers must not treat the
+    // presence of a cached value as proof of a successful check.
+    return entry.assessment;
+  }
+
+  function setCachedShield(key, assessment) {
+    shieldCache[key] = { assessment, observedAt: Date.now() };
+  }
 
   async function checkShield(addr, chainKey, identity = {}) {
     const key = shieldCacheKey(addr, chainKey);
     if (!key) {
       return { error: true, message: "Invalid address or chain" };
     }
-    if (shieldCache[key]) {
-      const cached = shieldCache[key];
+    const cached = getCachedShield(key);
+    if (cached) {
       // Keep evidence registry warm for downstream consumers.
       W.shield?.rememberEvidence?.(
         { ...identity, address: addr, chain: chainKey },
@@ -10988,7 +11134,7 @@ W.gems = (() => {
     }
     if (!W.shield || !W.shield.CHAINS[chainKey]) {
       const result = { unsupported: true };
-      shieldCache[key] = result;
+      setCachedShield(key, result);
       return result;
     }
     try {
@@ -10996,7 +11142,7 @@ W.gems = (() => {
       const result = assessment
         ? { ...assessment, ok: true }
         : { noData: true };
-      shieldCache[key] = result;
+      setCachedShield(key, result);
       W.shield?.rememberEvidence?.(
         { ...identity, address: addr, chain: chainKey },
         result,
@@ -11004,7 +11150,7 @@ W.gems = (() => {
       return result;
     } catch (e) {
       const result = { error: true, message: e.message };
-      shieldCache[key] = result;
+      setCachedShield(key, result);
       return result;
     }
   }
@@ -11139,7 +11285,7 @@ W.gems = (() => {
       for (const g of eligible) {
         if (uncached.length >= MAX_FRESH_SHIELD_PER_SCAN) break;
         const key = shieldCacheKey(g.pair.baseToken.address, g.pair.chainId);
-        if (key && shieldCache[key]) continue;
+        if (key && getCachedShield(key)) continue;
         uncached.push(g);
       }
       if (uncached.length) {
@@ -11151,23 +11297,21 @@ W.gems = (() => {
         if (chainFilter && g.pair.chainId !== chainFilter) return false;
         if (!hideRisk) return true;
         const key = shieldCacheKey(g.pair.baseToken.address, g.pair.chainId);
-        const sc = key ? shieldCache[key] : null;
+        const sc = key ? getCachedShield(key) : null;
         if (!sc) return true; // unknown ≠ safe, but also not high-risk
         return !isHighRisk(sc);
       });
 
       // ── Notifications / theses (post-enrichment, cache-only) ──
-      // Uses the freshly-warmed cache. `seen` is chain-aware: the same
-      // 0x... address on two chains is two candidates, so cross-chain
-      // notifications do not collapse. Telegram notify key uses the
-      // same chain-aware identity, otherwise Telegram's own dedup
-      // would suppress the second chain's alert.
+      // `seen` is chain-aware. Telegram notify key uses the same
+      // chain-aware identity, otherwise Telegram's own dedup would
+      // suppress the second chain's alert.
       for (const g of results) {
         const addr = g.pair.baseToken.address;
         const chainKey = g.pair.chainId;
         const cacheKey = shieldCacheKey(addr, chainKey);
         if (g.analysis.score >= 70 && cacheKey && !seen[cacheKey]) {
-          const shield = shieldCache[cacheKey] || null;
+          const shield = getCachedShield(cacheKey) || null;
           const reasonLines = (g.analysis.reasons || [])
             .slice(0, 4)
             .map((r) => "• " + r)
@@ -11216,7 +11360,7 @@ W.gems = (() => {
               t = p.baseToken;
             const addr = t.address;
             const key = shieldCacheKey(addr, p.chainId);
-            const shield = key ? shieldCache[key] : null;
+            const shield = key ? getCachedShield(key) : null;
             const shieldSection = shield
               ? `<div class="kv-row"><span class="muted">Security</span><span>${escapeHTML(shieldSummary(shield))}</span></div>`
               : `<button class="btn tiny mt" data-shield-check data-addr="${escapeHTML(addr)}" data-symbol="${escapeHTML(t.symbol)}" data-chain="${escapeHTML(p.chainId)}">🛡️ Verify Security</button>`;
@@ -11351,6 +11495,10 @@ W.gems = (() => {
       isShieldEligible,
       isHighRisk,
       enrichShieldResults,
+      // TTL-aware helpers — tests should use these, not the raw map.
+      getCachedShield,
+      setCachedShield,
+      // Raw map for diagnostics only. Entries are {assessment, observedAt}.
       getShieldCache: () => shieldCache,
       resetShieldCache: () => {
         shieldCache = {};
@@ -19187,6 +19335,12 @@ W.tokenAnalysis = (() => {
 // Constitution §2.7 (Evidence Provenance): sources and methodology
 // surfaced alongside conclusions.
 //
+// Every evidence item renders six provenance fields:
+//   source, observedAt, freshness, methodologyVersion,
+//   relationship, reliability.
+// Missing values render as "unknown". A missing relationship is
+// never silently upgraded to "supporting".
+//
 // CSP Compliant: no style="" attributes. All user content passes
 // through W.fmt.escapeHTML before insertion.
 // ===============================================================
@@ -19202,18 +19356,70 @@ W.ui.evidenceDrawer = (() => {
     const out = { supporting: [], contradicting: [], unknowns: [] };
     if (!domains || typeof domains !== "object") return out;
     Object.entries(domains).forEach(([name, d]) => {
+      // Relationship is inferred from the domain's own status field.
+      // That is the domain's claim about itself, not ours.
+      const status = (d && d.status) || "unknown";
+      const relationship =
+        status === "verified" || status === "available"
+          ? "supporting"
+          : status === "failed"
+            ? "contradicting"
+            : "unknown";
       const e = {
         name,
-        status: (d && d.status) || "unknown",
+        status,
         source: d && d.source,
+        observedAt: d && (d.observedAt || d.asOf),
+        freshness: d && d.freshness,
+        methodologyVersion: d && d.methodologyVersion,
+        relationship,
+        reliability: d && d.reliability,
         reasons: Array.isArray(d && d.reasons) ? d.reasons : [],
       };
-      if (e.status === "verified" || e.status === "available")
-        out.supporting.push(e);
-      else if (e.status === "failed") out.contradicting.push(e);
+      if (relationship === "supporting") out.supporting.push(e);
+      else if (relationship === "contradicting") out.contradicting.push(e);
       else out.unknowns.push(e);
     });
     return out;
+  }
+
+  // ── Provenance rendering ────────────────────────────────
+  // Every field renders. Missing values become the literal string
+  // "unknown" — they are never omitted, because an omitted field
+  // reads as "not applicable" rather than "not known".
+  function formatProvenanceField(label, rawValue) {
+    const v =
+      rawValue === null || rawValue === undefined || rawValue === ""
+        ? "unknown"
+        : String(rawValue);
+    return label + ": " + v;
+  }
+
+  function formatPercent(value) {
+    return Number.isFinite(value) ? Math.round(value * 100) + "%" : null;
+  }
+
+  function formatDate(value) {
+    if (!value) return null;
+    try {
+      const d = new Date(value);
+      if (!Number.isFinite(d.getTime())) return null;
+      return d.toLocaleString();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function renderProvenance(it) {
+    const fields = [
+      formatProvenanceField("Source", it.source),
+      formatProvenanceField("Observed", formatDate(it.observedAt)),
+      formatProvenanceField("Freshness", formatPercent(it.freshness)),
+      formatProvenanceField("Methodology", it.methodologyVersion),
+      formatProvenanceField("Relationship", it.relationship),
+      formatProvenanceField("Reliability", formatPercent(it.reliability)),
+    ];
+    return '<p class="muted text-2xs mt-4">' + esc(fields.join(" · ")) + "</p>";
   }
 
   function renderItems(items, empty) {
@@ -19223,18 +19429,21 @@ W.ui.evidenceDrawer = (() => {
       items
         .map((it) => {
           const title = esc(it.title || it.name || "Evidence");
-          const meta = esc([it.status, it.source].filter(Boolean).join(" · "));
+          const meta = esc(it.status || "");
           const detail = it.detail || it.evidence;
           const reasons = (it.reasons || [])
             .map((r) => '<p class="muted small mt-4">• ' + esc(r) + "</p>")
             .join("");
           return (
-            "<li><div class=\"flex-between\"><b>" +
+            '<li><div class="flex-between"><b>' +
             title +
             '</b><span class="muted small">' +
             meta +
             "</span></div>" +
-            (detail ? '<p class="muted small mt-4">' + esc(detail) + "</p>" : "") +
+            renderProvenance(it) +
+            (detail
+              ? '<p class="muted small mt-4">' + esc(detail) + "</p>"
+              : "") +
             reasons +
             "</li>"
           );
@@ -19244,37 +19453,75 @@ W.ui.evidenceDrawer = (() => {
     );
   }
 
+  // Carry provenance fields from a source evidence object onto the
+  // drawer item, so renderItems() has all six fields regardless of
+  // which layer produced the item.
+  function carryProvenance(item, source) {
+    const s = source || {};
+    return {
+      ...item,
+      source: item.source ?? s.source,
+      observedAt: item.observedAt ?? s.observedAt ?? s.timestamp,
+      freshness: item.freshness ?? s.freshness,
+      methodologyVersion: item.methodologyVersion ?? s.methodologyVersion,
+      relationship: item.relationship ?? s.relationship ?? "unknown",
+      reliability: item.reliability ?? s.reliability,
+    };
+  }
+
   function open(result) {
     const r = result || {};
     const b = bucket(r.domains);
+
     const supporting = [
-      ...(r.bullishEvidence || []).map((e) => ({
-        title: e.title,
-        detail: e.evidence,
-        status: "supporting",
-      })),
+      ...(r.bullishEvidence || []).map((e) =>
+        carryProvenance(
+          {
+            title: e.title,
+            detail: e.evidence,
+            status: "supporting",
+            relationship: "supporting",
+          },
+          e,
+        ),
+      ),
       ...b.supporting,
     ];
+
     const contradicting = [
-      ...(r.bearishEvidence || []).map((e) => ({
-        title: e.title,
-        detail: e.evidence,
-        status: "contradicting",
-      })),
-      ...(r.contradictions || []).map((c) => ({
-        title: c.bull + " vs " + c.bear,
-        detail: c.details,
-        status: "contradicting",
-      })),
+      ...(r.bearishEvidence || []).map((e) =>
+        carryProvenance(
+          {
+            title: e.title,
+            detail: e.evidence,
+            status: "contradicting",
+            relationship: "contradicting",
+          },
+          e,
+        ),
+      ),
+      ...(r.contradictions || []).map((c) =>
+        carryProvenance({
+          title: c.bull + " vs " + c.bear,
+          detail: c.details,
+          status: "contradicting",
+          relationship: "contradicting",
+        }),
+      ),
       ...b.contradicting,
     ];
+
     const unknowns = [
       ...b.unknowns,
-      ...((r.evidenceQuality && r.evidenceQuality.reasons) || []).map((x) => ({
-        title: "Evidence gap",
-        detail: x,
-      })),
+      ...((r.evidenceQuality && r.evidenceQuality.reasons) || []).map((x) =>
+        carryProvenance({
+          title: "Evidence gap",
+          detail: x,
+          relationship: "unknown",
+        }),
+      ),
     ];
+
     const meta = [
       r.methodologyVersion ? "Methodology " + r.methodologyVersion : null,
       r.evidenceVersion ? "Evidence " + r.evidenceVersion : null,
@@ -19308,7 +19555,11 @@ W.ui.evidenceDrawer = (() => {
     return m;
   }
 
-  return { open };
+  return {
+    open,
+    // Exposed for tests only.
+    _internal: { bucket, renderItems, renderProvenance, carryProvenance },
+  };
 })();
 
 console.log("[EvidenceDrawer] Module loaded (CSP compliant).");
