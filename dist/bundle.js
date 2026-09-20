@@ -11435,7 +11435,7 @@ W.time = W.time || {};
   console.log("[TimeMachine] Module loaded.");
 })();
 // ---- js/features/gems.js ----
-// js/features/gems.js – Gem Agent: Token Hunter
+//   Gem Agent: Token Hunter
 
 window.W = window.W || {};
 
@@ -11588,6 +11588,48 @@ W.gems = (() => {
     }
     if (!parts.length) return "";
     return `<div class="kv-row"><span class="muted">Structure</span><span>${escapeHTML(parts.join(" · "))}</span></div>`;
+  }
+
+  // ── Observation recording (Step 2 of trajectory design) ──
+  // Persists a market-structure observation for a single candidate
+  // when the cached Shield assessment is usable. Returns true on
+  // success, false otherwise. Never throws.
+  //
+  // Guards:
+  //   - W.observations must be loaded (Step 1 module)
+  //   - gem must carry a pair with a baseToken address
+  //   - a cached Shield assessment must exist for the token
+  //   - the assessment must not be an error/noData/unsupported state
+  //   - the observation must not carry source "unavailable"
+  //     (Solana — the GoPlus Solana endpoint does not return
+  //     holder distribution, so recording would only produce
+  //     all-null entries that cannot yield trajectory deltas)
+  function recordObservation(gem) {
+    if (!W.observations || typeof W.observations.record !== "function") {
+      return false;
+    }
+    if (!gem || !gem.pair || !gem.pair.baseToken) return false;
+
+    const addr = gem.pair.baseToken.address;
+    const chainKey = gem.pair.chainId;
+    if (!addr || !chainKey) return false;
+
+    const key = shieldCacheKey(addr, chainKey);
+    const shield = key ? getCachedShield(key) : null;
+
+    if (!shield) return false;
+    if (shield.error || shield.noData || shield.unsupported) return false;
+
+    const observation = buildObservation(shield, gem.pair);
+    if (!observation) return false;
+    if (observation.source === "unavailable") return false;
+
+    try {
+      return W.observations.record(chainKey, addr, observation);
+    } catch (e) {
+      console.warn("[Gems] Observation recording failed:", e && e.message);
+      return false;
+    }
   }
 
   // ── API call with proxy fallback ──────────────────────
@@ -11904,6 +11946,25 @@ W.gems = (() => {
         await enrichShieldResults(uncached, SHIELD_CONCURRENCY);
       }
 
+      // ── Record observations (Step 2 of trajectory design) ──
+      // Persist a market-structure observation for every candidate
+      // with a usable cached Shield assessment, regardless of
+      // whether it survives the chain and hide-risk filters below.
+      // The trajectory layer must reflect what this scan observed,
+      // not what the user is currently looking at.
+      //
+      // MAX_FRESH_SHIELD_PER_SCAN bounds network requests; it does
+      // not bound observation recording. Cached assessments are
+      // recorded too — the observation captures what Weaver knew at
+      // scan time, not when GoPlus originally fetched the data.
+      //
+      // Solana assessments are skipped inside recordObservation
+      // because the provider does not return holder distribution
+      // for them.
+      for (const g of results) {
+        recordObservation(g);
+      }
+
       // ── Apply filters (chain + hideRisk) on enriched data ──
       const shown = results.filter((g) => {
         if (chainFilter && g.pair.chainId !== chainFilter) return false;
@@ -12123,6 +12184,8 @@ W.gems = (() => {
       // Market structure wiring — exposed for isolated tests.
       buildObservation,
       marketStructureLine,
+      // Observation recording — exposed for isolated tests.
+      recordObservation,
       // Raw map for diagnostics only. Entries are {assessment, observedAt}.
       getShieldCache: () => shieldCache,
       resetShieldCache: () => {
