@@ -15,6 +15,7 @@ const path = require("path");
 const files = [
   // ── Core ──────────────────────────────────────────────────────
   "js/storage/storage.js",
+  "js/storage/observations.js",
   "js/lib/crypto/secure.js",
   "js/lib/crypto/secure-session.js",
   "js/lib/sentry-init.js",
