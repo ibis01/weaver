@@ -23,6 +23,14 @@
 //   places it under "Unknowns". It is never silently upgraded to
 //   "supporting" or demoted to "contradicting".
 //
+// TRAJECTORY POLICY:
+//   The drawer receives an already-summarised trajectory string. It
+//   does not read W.observations or call summariseTrajectory(). The
+//   caller is responsible for both. When the summary is absent or
+//   empty, the trajectory line is omitted from the body — its
+//   absence does not mean the token is stable, it means no delta
+//   could be computed from the retained history.
+//
 // CSP Compliant: no style="" attributes. All user content passes
 // through W.fmt.escapeHTML before insertion.
 // ===============================================================
@@ -169,9 +177,30 @@ W.ui.evidenceDrawer = (() => {
     };
   }
 
+  // Renders the optional trajectory line. Returns "" when no
+  // summary is supplied, so the caller can concatenate the result
+  // unconditionally.
+  //
+  // The drawer does not fetch or compute the trajectory — it
+  // receives an already-summarised string. Keeping the drawer a
+  // pure renderer means it has no dependency on W.observations or
+  // W.marketStructure.
+  function renderTrajectoryLine(summary) {
+    if (typeof summary !== "string" || !summary.trim()) return "";
+    return '<p class="small"><b>Trajectory:</b> ' + esc(summary) + "</p>";
+  }
+
   function open(result) {
     const r = result || {};
     const b = bucket(r.domains);
+
+    // Optional. Absent when the token has no retained history,
+    // when the observations module is unavailable, or when the
+    // caller does not supply it. The drawer renders normally.
+    const trajectorySummary =
+      typeof r.trajectorySummary === "string" && r.trajectorySummary.trim()
+        ? r.trajectorySummary
+        : null;
 
     const supporting = [
       ...(r.bullishEvidence || []).map((e) =>
@@ -234,6 +263,7 @@ W.ui.evidenceDrawer = (() => {
       esc(r.explanation || "Evidence behind the current scenario.") +
       "</p>" +
       (meta ? '<p class="small muted">' + esc(meta) + "</p>" : "") +
+      renderTrajectoryLine(trajectorySummary) +
       '<div class="mt-12">' +
       "<h4>🟢 Supporting evidence</h4>" +
       renderItems(supporting, "None recorded.") +
@@ -262,6 +292,7 @@ W.ui.evidenceDrawer = (() => {
       bucket,
       renderItems,
       renderProvenance,
+      renderTrajectoryLine,
       carryProvenance,
       normalizeRelationship,
     },

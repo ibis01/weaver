@@ -969,6 +969,28 @@ W.tokenAnalysis = (() => {
       if (whyBtn) {
         whyBtn.addEventListener("click", () => {
           if (W.ui && W.ui.evidenceDrawer) {
+            // Read the trajectory from persisted history, if any.
+            // Optional — the token may never have been scanned by
+            // the Gem Agent, or the observations module may be
+            // unavailable. In both cases the drawer renders without
+            // the trajectory line.
+            let trajectorySummary = null;
+            try {
+              const trajectory = W.observations?.trajectory?.(
+                result.assetId?.chainId,
+                result.assetId?.contractAddress,
+              );
+              if (trajectory) {
+                trajectorySummary =
+                  W.marketStructure?.summariseTrajectory?.(trajectory) ?? null;
+              }
+            } catch (e) {
+              console.warn(
+                "[TokenAnalysis] Trajectory read failed:",
+                e && e.message,
+              );
+            }
+
             W.ui.evidenceDrawer.open({
               explanation: result.explanation,
               domains:
@@ -982,6 +1004,7 @@ W.tokenAnalysis = (() => {
               bearishEvidence: result.bearishEvidence,
               contradictions: result.contradictions,
               evidenceQuality: result.evidenceQuality,
+              trajectorySummary,
             });
           }
         });
