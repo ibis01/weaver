@@ -11269,6 +11269,50 @@ W.gems = (() => {
     );
   }
 
+  // ── Market structure (observation only) ───────────────
+  // Produces an observation from the Shield assessment. Does NOT
+  // classify or filter — Shield's isHighRisk() remains the single
+  // authority for risk decisions. Degrades gracefully when
+  // W.marketStructure is not loaded (test environments, load-order
+  // issues): the observation is null and the renderer omits the row.
+  function buildObservation(shield, pair) {
+    if (!shield || !pair) return null;
+    if (!W.marketStructure || typeof W.marketStructure.observe !== "function") {
+      return null;
+    }
+    try {
+      return W.marketStructure.observe(shield, pair);
+    } catch (e) {
+      // Observation is best-effort evidence, never a hard dependency.
+      console.warn(
+        "[Gems] Market structure observation failed:",
+        e && e.message,
+      );
+      return null;
+    }
+  }
+
+  // Renders the observation as an HTML row, or "" when there is
+  // nothing meaningful to show. "unknown" values are hidden rather
+  // than displayed as noise — but the absence of a row does NOT mean
+  // the token is safe; it means the observation layer had no
+  // measured values. Consumers must not read the absence of this
+  // row as a positive signal.
+  function marketStructureLine(observation) {
+    if (!observation) return "";
+    const c = observation.concentration;
+    const l = observation.liquidity;
+    const parts = [];
+    if (c && c.status !== "unknown" && Number.isFinite(c.top10Pct)) {
+      parts.push(`Top 10: ${c.top10Pct.toFixed(1)}% (${c.status})`);
+    }
+    if (l && l.status !== "unknown") {
+      parts.push(`LP: ${l.status}`);
+    }
+    if (!parts.length) return "";
+    return `<div class="kv-row"><span class="muted">Structure</span><span>${escapeHTML(parts.join(" · "))}</span></div>`;
+  }
+
   // ── API call with proxy fallback ──────────────────────
   async function fetchDexScreener(url) {
     let lastErr;
@@ -11655,6 +11699,15 @@ W.gems = (() => {
             const shieldSection = shield
               ? `<div class="kv-row"><span class="muted">Security</span><span>${escapeHTML(shieldSummary(shield))}</span></div>`
               : `<button class="btn tiny mt" data-shield-check data-addr="${escapeHTML(addr)}" data-symbol="${escapeHTML(t.symbol)}" data-chain="${escapeHTML(p.chainId)}">🛡️ Verify Security</button>`;
+
+            // Market structure observation. Derived from the cached
+            // shield assessment and the DexScreener pair — no new
+            // network call. Renders as an additional row when there is
+            // something measured; omitted when both concentration and
+            // LP status are unknown.
+            const observation = buildObservation(shield, p);
+            const structureSection = marketStructureLine(observation);
+
             return `
             <div class="card" data-gem-card="${escapeHTML(addr)}">
               <div class="watch-head">
@@ -11673,6 +11726,7 @@ W.gems = (() => {
               <div class="kv-row"><span class="muted">Liquidity / 24h Vol</span><span>$${kfmt(a.liq)} / $${kfmt(a.vol)}</span></div>
               <div class="kv-row"><span class="muted">1h / 6h / 24h</span><span>${W.fmt.pct(a.h1)} ${W.fmt.pct(a.h6)} ${W.fmt.pct(a.h24)}</span></div>
               <div class="shield-slot">${shieldSection}</div>
+              ${structureSection}
               <p class="small muted mt-8"><b>Why it appeared:</b> ${escapeHTML(a.reasons[0] || "Insufficient evidence to summarize.")}</p>
               ${
                 a.reasons.length > 1
@@ -11789,6 +11843,9 @@ W.gems = (() => {
       // TTL-aware helpers — tests should use these, not the raw map.
       getCachedShield,
       setCachedShield,
+      // Market structure wiring — exposed for isolated tests.
+      buildObservation,
+      marketStructureLine,
       // Raw map for diagnostics only. Entries are {assessment, observedAt}.
       getShieldCache: () => shieldCache,
       resetShieldCache: () => {
