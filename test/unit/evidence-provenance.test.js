@@ -14,13 +14,21 @@ const { expect } = require("chai");
 
 describe("Evidence provenance (P1)", () => {
   before(() => {
-    // Force-fresh loads. test/setup.js installs a mock on W.evidence,
-    // and evidence-builder.test.js may restore it in an after() hook.
-    // A plain require() would hit the CommonJS cache and never re-run
-    // the module body, leaving the mock in place. Deleting the cache
-    // entry guarantees the real implementations attach to W.evidence
-    // for this suite.
+    // Force-fresh loads. test/setup.js installs a mock on W.evidence
+    // and W.intelligence, and other test files may have loaded the
+    // real modules and then restored the mock in their after() hooks.
+    // A plain require() hits the CommonJS cache and never re-runs the
+    // module body, which leaves us with an inconsistent namespace:
+    // real functions from one source, missing maps from another.
+    //
+    // types.js must load first — it defines computeConfidence,
+    // computeFreshness, getSourceReliability, AND the
+    // freshnessWindows / sourceReliability maps they read. Loading
+    // the builder without it produces NaN freshness and null
+    // confidence, because the functions run but their data isn't
+    // there.
     const paths = [
+      "../../js/intelligence/types.js",
       "../../js/intelligence/evidence.js",
       "../../js/intelligence/evidence-builder.js",
       "../../js/ui/evidence-drawer.js",
@@ -39,6 +47,9 @@ describe("Evidence provenance (P1)", () => {
       claim: "RSI oversold on 4h",
       evidence: "RSI(14) = 27.3",
       source: "technicalAnalysis",
+      // evidence.create() accepts a string timestamp because it calls
+      // new Date(...) internally rather than doing arithmetic on the
+      // raw value. String timestamps are valid here.
       timestamp: "2026-09-20T10:00:00.000Z",
     });
 
@@ -114,10 +125,14 @@ describe("Evidence provenance (P1)", () => {
   // ── evidence-builder.build() ──────────────────────────────────
 
   describe("evidence-builder.build() carries provenance", () => {
+    // Signal timestamp is a number per the Signal typedef in
+    // types.js. computeFreshness does Date.now() - timestamp; a
+    // string here evaluates to NaN and propagates through
+    // confidence as null. Use a real millisecond timestamp.
     const signal = () => ({
       id: "sig-1",
       source: "dexscreener",
-      timestamp: "2026-09-20T10:00:00.000Z",
+      timestamp: Date.now(),
       type: "PRICE_MOVE",
     });
 
@@ -127,7 +142,14 @@ describe("Evidence provenance (P1)", () => {
     });
 
     it("populates observedAt from the signal timestamp", () => {
-      const e = W.evidence.build(signal());
+      // Use a fixed numeric timestamp so observedAt is deterministic.
+      const fixedMs = Date.parse("2026-09-20T10:00:00.000Z");
+      const e = W.evidence.build({
+        id: "sig-1",
+        source: "dexscreener",
+        timestamp: fixedMs,
+        type: "PRICE_MOVE",
+      });
       expect(e.observedAt).to.equal("2026-09-20T10:00:00.000Z");
     });
 
@@ -169,14 +191,30 @@ describe("Evidence provenance (P1)", () => {
       const e = W.evidence.build(signal());
       expect(e).to.have.property("freshness");
       expect(e).to.have.property("dataFreshness");
-      expect(e.freshness).to.equal(e.dataFreshness);
+      // Both fields must hold the same value. When the freshness
+      // model is available, both are finite numbers in [0, 1].
+      // Guard against the NaN-equals-NaN trap: NaN === NaN is
+      // false in JavaScript, so a naive equality assertion on two
+      // NaN values reports a confusing failure. Assert the shape
+      // explicitly instead.
+      if (e.dataFreshness === null) {
+        expect(e.freshness).to.equal(null);
+      } else {
+        expect(Number.isFinite(e.freshness)).to.equal(true);
+        expect(e.freshness).to.equal(e.dataFreshness);
+      }
     });
 
     it("aliases reliability to the computed sourceReliability", () => {
       const e = W.evidence.build(signal());
       expect(e).to.have.property("reliability");
       expect(e).to.have.property("sourceReliability");
-      expect(e.reliability).to.equal(e.sourceReliability);
+      if (e.sourceReliability === null) {
+        expect(e.reliability).to.equal(null);
+      } else {
+        expect(Number.isFinite(e.reliability)).to.equal(true);
+        expect(e.reliability).to.equal(e.sourceReliability);
+      }
     });
   });
 
@@ -226,66 +264,66 @@ describe("Evidence provenance (P1)", () => {
 
   // ── Drawer bucketing ──────────────────────────────────────────
 
-   describe("evidence-drawer bucket() classifies domains by declared relationship", () => {
-     it("status 'verified' does NOT imply supporting", () => {
-       const b = W.ui.evidenceDrawer._internal.bucket({
-         security: { status: "verified", source: "goplus" },
-       });
-       expect(b.supporting).to.have.length(0);
-       expect(b.contradicting).to.have.length(0);
-       expect(b.unknowns).to.have.length(1);
-       expect(b.unknowns[0].relationship).to.equal("unknown");
-     });
+  describe("evidence-drawer bucket() classifies domains by declared relationship", () => {
+    it("status 'verified' does NOT imply supporting", () => {
+      const b = W.ui.evidenceDrawer._internal.bucket({
+        security: { status: "verified", source: "goplus" },
+      });
+      expect(b.supporting).to.have.length(0);
+      expect(b.contradicting).to.have.length(0);
+      expect(b.unknowns).to.have.length(1);
+      expect(b.unknowns[0].relationship).to.equal("unknown");
+    });
 
-     it("status 'failed' does NOT imply contradicting", () => {
-       const b = W.ui.evidenceDrawer._internal.bucket({
-         security: { status: "failed", source: "goplus" },
-       });
-       expect(b.contradicting).to.have.length(0);
-       expect(b.unknowns).to.have.length(1);
-       expect(b.unknowns[0].relationship).to.equal("unknown");
-     });
+    it("status 'failed' does NOT imply contradicting", () => {
+      const b = W.ui.evidenceDrawer._internal.bucket({
+        security: { status: "failed", source: "goplus" },
+      });
+      expect(b.contradicting).to.have.length(0);
+      expect(b.unknowns).to.have.length(1);
+      expect(b.unknowns[0].relationship).to.equal("unknown");
+    });
 
-     it("an explicitly declared supporting relationship is honored", () => {
-       const b = W.ui.evidenceDrawer._internal.bucket({
-         security: { status: "verified", relationship: "supporting" },
-       });
-       expect(b.supporting).to.have.length(1);
-       expect(b.supporting[0].relationship).to.equal("supporting");
-     });
+    it("an explicitly declared supporting relationship is honored", () => {
+      const b = W.ui.evidenceDrawer._internal.bucket({
+        security: { status: "verified", relationship: "supporting" },
+      });
+      expect(b.supporting).to.have.length(1);
+      expect(b.supporting[0].relationship).to.equal("supporting");
+    });
 
-     it("an explicitly declared contradicting relationship is honored", () => {
-       const b = W.ui.evidenceDrawer._internal.bucket({
-         security: { status: "verified", relationship: "contradicting" },
-       });
-       expect(b.contradicting).to.have.length(1);
-     });
+    it("an explicitly declared contradicting relationship is honored", () => {
+      const b = W.ui.evidenceDrawer._internal.bucket({
+        security: { status: "verified", relationship: "contradicting" },
+      });
+      expect(b.contradicting).to.have.length(1);
+    });
 
-     it("an invalid relationship falls back to 'unknown'", () => {
-       const b = W.ui.evidenceDrawer._internal.bucket({
-         security: { status: "verified", relationship: "bullish" },
-       });
-       expect(b.unknowns).to.have.length(1);
-       expect(b.unknowns[0].relationship).to.equal("unknown");
-     });
+    it("an invalid relationship falls back to 'unknown'", () => {
+      const b = W.ui.evidenceDrawer._internal.bucket({
+        security: { status: "verified", relationship: "bullish" },
+      });
+      expect(b.unknowns).to.have.length(1);
+      expect(b.unknowns[0].relationship).to.equal("unknown");
+    });
 
-     it("neutral relationship is placed under Unknowns", () => {
-       const b = W.ui.evidenceDrawer._internal.bucket({
-         something: { status: "available", relationship: "neutral" },
-       });
-       expect(b.supporting).to.have.length(0);
-       expect(b.contradicting).to.have.length(0);
-       expect(b.unknowns).to.have.length(1);
-       expect(b.unknowns[0].relationship).to.equal("neutral");
-     });
+    it("neutral relationship is placed under Unknowns", () => {
+      const b = W.ui.evidenceDrawer._internal.bucket({
+        something: { status: "available", relationship: "neutral" },
+      });
+      expect(b.supporting).to.have.length(0);
+      expect(b.contradicting).to.have.length(0);
+      expect(b.unknowns).to.have.length(1);
+      expect(b.unknowns[0].relationship).to.equal("neutral");
+    });
 
-     it("status is preserved on the item for display", () => {
-       const b = W.ui.evidenceDrawer._internal.bucket({
-         security: { status: "verified", relationship: "supporting" },
-       });
-       expect(b.supporting[0].status).to.equal("verified");
-     });
-   });
+    it("status is preserved on the item for display", () => {
+      const b = W.ui.evidenceDrawer._internal.bucket({
+        security: { status: "verified", relationship: "supporting" },
+      });
+      expect(b.supporting[0].status).to.equal("verified");
+    });
+  });
 
   // ── Backwards-compat ──────────────────────────────────────────
 
@@ -295,7 +333,8 @@ describe("Evidence provenance (P1)", () => {
         {
           id: "s",
           source: "dexscreener",
-          timestamp: "2026-09-20T10:00:00Z",
+          timestamp: Date.now(),
+          type: "PRICE_MOVE",
         },
         {
           dataCompleteness: 1,
