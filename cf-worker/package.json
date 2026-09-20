@@ -1,3 +1,19 @@
 {
-  "type": "module"
+  "name": "cf-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Replaces the public CORS-relay fallback chain in shield.js with a small Worker you control.",
+  "main": "index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.12.0",
+    "vitest": "^3.2.0",
+    "wrangler": "^4.135.0"
+  }
 }
