@@ -134,8 +134,14 @@ W.intelligence.freshnessWindows = {
 //   They have been removed.
 //
 // CORROBORATION:
-//   corroborationCount defaults to 1. A value below 1 is clamped
-//   to 1. The boost is capped at 1.5×.
+//   corroborationCount defaults to 1 — "the signal arrived from one
+//   source". That is a factual statement, not a numeric estimate.
+//   NaN / Infinity / non-numeric values are rejected outright
+//   (return null) rather than silently defaulted, because a caller
+//   that supplies malformed metadata has already violated the
+//   contract and silent substitution would hide the bug. Well-
+//   behaved callers go through evidence-builder.build(), which
+//   sanitizes the input before reaching this function.
 //
 function computeConfidence(evidence) {
   if (!evidence || typeof evidence !== "object") return null;
@@ -154,6 +160,12 @@ function computeConfidence(evidence) {
   if (!Number.isFinite(dataFreshness)) return null;
   if (!Number.isFinite(dataCompleteness)) return null;
   if (!Number.isFinite(interpretationConfidence)) return null;
+  // corroborationCount is numeric metadata, not a factor — but it
+  // feeds the boost calculation. NaN / Infinity here would propagate
+  // into the final confidence as NaN, violating the
+  // "unknown ⇒ null, never a fabricated number" contract. Reject
+  // non-finite values rather than silently defaulting.
+  if (!Number.isFinite(corroborationCount)) return null;
 
   const clamp = (v) => Math.max(0, Math.min(1, v));
   const sr = clamp(sourceReliability);
@@ -175,7 +187,6 @@ function computeConfidence(evidence) {
 
   return confidence;
 }
-
 function computeFreshness(timestamp, signalType) {
   const age = Date.now() - timestamp;
   const window = W.intelligence.freshnessWindows[signalType] || 3600;

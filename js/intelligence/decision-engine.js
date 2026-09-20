@@ -171,7 +171,13 @@ W.decisionEngine = (() => {
     //    same as "the impact is zero". Coercing to zero here was the
     //    first of the two places the reviewer identified where an
     //    unknown-confidence signal was silently penalized.
-    const eventSeverity = signal.rawData?.impactValue || 0.5;
+    //
+    //    The severity extraction must use Number.isFinite rather than
+    //    `||`. `0 || 0.5` evaluates to 0.5, so an explicitly-supplied
+    //    zero severity was silently inflated to 0.5. "Zero" and
+    //    "absent" are different claims and must be preserved as such.
+    const rawSeverity = signal.rawData?.impactValue;
+    const eventSeverity = Number.isFinite(rawSeverity) ? rawSeverity : 0.5;
     let impact = null;
     if (confidence !== null) {
       impact =

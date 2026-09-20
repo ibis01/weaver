@@ -102,8 +102,20 @@ W.evidence = W.evidence || {};
     // 3. Corroboration — number of independent sources confirming.
     //    Defaults to 1. This is factual: the signal arrived from one
     //    source. It is not a claim about corroboration research.
+    //
+    //    The sanitization must reject NaN and Infinity, not just
+    //    non-numeric or below-threshold values. `typeof NaN === "number"`
+    //    is true and `NaN < 1` is false, so the previous check let NaN
+    //    through into the canonical confidence function. The canonical
+    //    function now rejects non-finite input as a last line of
+    //    defence, but a well-behaved builder should not hand it
+    //    malformed metadata in the first place.
     let corroborationCount = options.corroborationCount;
-    if (typeof corroborationCount !== "number" || corroborationCount < 1) {
+    if (
+      typeof corroborationCount !== "number" ||
+      !Number.isFinite(corroborationCount) ||
+      corroborationCount < 1
+    ) {
       corroborationCount = 1;
     }
 
