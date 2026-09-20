@@ -4,3 +4,12 @@ compatibility_date = "2024-09-01"
 
 # Free tier: 100,000 requests/day, no billing required.
 # No KV/D1/R2 bindings needed — this worker is stateless.
+
+# Required secret. Deploy (or `wrangler dev`) will fail if this is
+# not configured. Set it with:
+#   npx wrangler secret put BITQUERY_KEY
+#
+# The GoPlus routes work without this secret; only the
+# /bitquery/deployer route returns 503 when it is missing.
+[secrets]
+required = ["BITQUERY_KEY"]
