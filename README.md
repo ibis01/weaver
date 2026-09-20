@@ -22,9 +22,9 @@ not a prediction.
 - **An evidence engine.** Every conclusion carries its source, timestamp,
   methodology version, and a relationship label
   (`supporting` / `contradicting` / `neutral` / `unknown`).
-- **A time-series observer.** Market-structure observations persist within
-  a session-scoped retention window and are compared over time for
-  standard intervals (`5m`, `15m`, `1h`).
+- **A time-series observer.** Market-structure observations persist in a
+  bounded client-side cache (2-hour retention window) and are compared
+  over time for standard intervals (`5m`, `15m`, `1h`).
 - **A session tracker.** Owner addresses reported by GoPlus are tracked
   within a session so the same address appearing on multiple tokens is
   visible, without claiming anything about who deployed or controls
@@ -400,11 +400,12 @@ circuit breakers.
   constraint. Owner observations on Solana carry `source: "unavailable"`
   and `address: null`; the module rejects them and no owner association
   is recorded.
-- **Trajectory and owner associations are session-scoped.** Observations
-  live in `localStorage` for trajectory (2-hour retention window) or in
-  memory for owner associations (session only). Reloading the page
-  discards owner associations. Change metrics do not survive beyond the
-  trajectory retention window.
+- **Trajectory is per-origin client-scoped; owner associations are
+  session-scoped.** Trajectory observations live in `localStorage` with a
+  2-hour retention window, so they survive a page reload within that
+  window. Owner associations live in memory only and are discarded on
+  reload. Change metrics do not survive beyond the trajectory retention
+  window.
 - **Change metrics are sparser than they appear.** A 5-minute delta
   requires two observations at least ~2.5 minutes apart. Back-to-back
   scans produce multi-sample history but no computable delta for the
