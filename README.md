@@ -2,7 +2,8 @@
 
 **Weaver is an evidence-first crypto intelligence tool.** It scans new tokens,
 audits contract security, evaluates evidence quality, tracks outcomes over
-time, and explains every conclusion it draws.
+time, observes how the market and owner signals change across sessions, and
+explains every conclusion it draws.
 
 It is not a trading bot. It does not execute trades. It does not issue BUY
 or SELL directives. Every output is a statement of what the data supports —
@@ -16,10 +17,18 @@ not a prediction.
   tokens across chains with Token Shield coverage.
 - **A security auditor.** Runs contract security checks via GoPlus and
   surfaces honeypot indicators, mint/freeze authorities, holder
-  concentration, liquidity lock status, and tax exposure.
+  concentration, liquidity lock status, tax exposure, and the
+  provider-reported owner address.
 - **An evidence engine.** Every conclusion carries its source, timestamp,
   methodology version, and a relationship label
   (`supporting` / `contradicting` / `neutral` / `unknown`).
+- **A time-series observer.** Market-structure observations persist within
+  a session-scoped retention window and are compared over time for
+  standard intervals (`5m`, `15m`, `1h`).
+- **A session tracker.** Owner addresses reported by GoPlus are tracked
+  within a session so the same address appearing on multiple tokens is
+  visible, without claiming anything about who deployed or controls
+  those tokens.
 - **A historical record.** Every analysis can be captured as an immutable
   snapshot. Outcomes are recorded separately from decisions. The Track
   Record module migrates legacy data deterministically and quarantines
@@ -36,9 +45,13 @@ not a prediction.
   reports the gap. Missing data is `null`, never `0`, and never fabricated.
   The invariant enforced throughout the intelligence layer is:
 
-  > unknown ≠ zero  
-  > unknown ≠ safe  
+  > unknown ≠ zero
+  > unknown ≠ safe
   > missing ≠ fabricated
+
+- **Not a deployer tracker.** The address Weaver observes is the owner
+  address reported by GoPlus, not necessarily the contract creator. Weaver
+  never claims to know who deployed a token.
 
 ---
 
@@ -55,37 +68,54 @@ External APIs (CoinGecko, Binance, DEX Screener, GoPlus, …)
               ▼
        Proxy layer (proxy-server.js, cf-worker/)
               │
-              ▼
-   ┌──────────────────────┐
-   │  Signal collection    │   js/intelligence/events.js
-   └──────────┬───────────┘
-              ▼
-   ┌──────────────────────┐
-   │  Evidence build       │   js/intelligence/evidence.js
-   │  (source, freshness,  │   js/intelligence/evidence-builder.js
-   │   reliability)        │
-   └──────────┬───────────┘
-              ▼
-   ┌──────────────────────┐
-   │  Canonical confidence │   js/intelligence/types.js
-   │  computeConfidence()  │   (single authority)
-   └──────────┬───────────┘
-              ▼
-   ┌──────────────────────┐
-   │  Decision engine      │   js/intelligence/decision-engine.js
-   │  (relevance, impact,  │
-   │   urgency, eligibility)│
-   └──────────┬───────────┘
-              ▼
-   ┌──────────────────────┐
-   │  Unified verdict      │   js/intelligence/unified-verdict.js
-   └──────────┬───────────┘
-              ▼
-   ┌──────────────────────┐
-   │  Evidence drawer      │   js/ui/evidence-drawer.js
-   │  Track record         │   js/features/track-record.js
-   └──────────────────────┘
+              ├───────────────────────────────────────┐
+              ▼                                       ▼
+   ┌──────────────────────┐                ┌──────────────────────┐
+   │  Signal collection    │                │  Shield assessments   │
+   │  events.js            │                │  shield.js            │
+   └──────────┬───────────┘                └──────────┬───────────┘
+              ▼                                       │
+   ┌──────────────────────┐                          │
+   │  Evidence build       │                          │
+   │  evidence.js          │                          │
+   │  evidence-builder.js  │                          │
+   └──────────┬───────────┘                          │
+              ▼                                       ▼
+   ┌──────────────────────┐                ┌──────────────────────┐
+   │  Canonical confidence │                │  Observations         │
+   │  types.js             │                │  market-structure.js  │
+   │  (single authority)   │                │  owner-associations.js│
+   └──────────┬───────────┘                │  observations.js      │
+              ▼                             │  (session-scoped)    │
+   ┌──────────────────────┐                └──────────┬───────────┘
+   │  Decision engine      │                          │
+   │  decision-engine.js   │                          │
+   └──────────┬───────────┘                          │
+              ▼                                       │
+   ┌──────────────────────┐                          │
+   │  Unified verdict      │                          │
+   │  unified-verdict.js   │                          │
+   └──────────┬───────────┘                          │
+              └────────────────┬─────────────────────┘
+                               ▼
+                    ┌──────────────────────┐
+                    │  Presentation         │
+                    │  evidence-drawer.js   │
+                    │  track-record.js      │
+                    │  gems.js              │
+                    │  token-analysis.js    │
+                    └──────────────────────┘
 ```
+
+Two parallel tracks feed presentation:
+
+- The **evidence pipeline** transforms signals into a unified verdict.
+- The **observation layer** records measured market structure and owner
+  addresses from the Shield assessment, and produces session-scoped
+  history for the same tokens.
+
+Neither track classifies risk. `W.shield.isHighRisk()` remains the single
+authority for the high-risk decision.
 
 ### Canonical confidence
 
@@ -106,7 +136,8 @@ in the codebase is a bug.
 `W.shield.isHighRisk()` is the **single authority** for the high-risk
 decision. The numeric threshold (`RISK_THRESHOLD = 40`) lives in
 `js/features/shield.js` and nowhere else. Consumer modules (Gem Agent,
-Token Analysis) delegate rather than duplicating the comparison.
+Token Analysis, Owner Associations) delegate rather than duplicating the
+comparison.
 
 Security assessments carry:
 
@@ -114,6 +145,8 @@ Security assessments carry:
 - `flags` (EVM: booleans; Solana: `{ active, authority }` objects)
 - `holders` (concentration data; `source: "unavailable"` on chains where
   the provider does not return it)
+- `owner` (`{ address, source }`; `source: "unavailable"` on Solana, and
+  `address: null` when GoPlus reports no owner)
 
 The Gem-local Shield cache has a five-minute TTL matching `shield.js`'s
 own `W.store` TTL. Cache entries carry an `observedAt` timestamp; expired
@@ -130,6 +163,69 @@ does **not** imply `relationship: "supporting"`; status describes whether
 the data was obtained, relationship describes whether it supports the
 thesis. The drawer places a domain under Unknowns unless the relationship
 is declared explicitly.
+
+### Trajectory observations
+
+`js/storage/observations.js` persists `js/intelligence/market-structure.js`
+observations keyed by `(chain, address)` and prunes them to a bounded
+retention window: 2 hours and 30 observations per token, both applied on
+every read and write.
+
+`trajectory()` computes deltas against the past for the standard intervals
+(`change5m`, `change15m`, `change1h`). Delta computation uses
+**half-interval tolerance**: a 5-minute delta is computed only against an
+observation whose `observedAt` is within 2.5 minutes of the target time.
+Outside tolerance, the delta is `null`, never zero. This is the same
+"unknown ≠ zero" invariant that governs the confidence and Shield layers.
+
+`W.marketStructure.summariseTrajectory(trajectory)` renders a one-line
+summary of the shortest available interval per metric (concentration,
+holder count, liquidity). Direction labels (`rising` / `falling` /
+`stable`) are presentational descriptors, not risk classifications.
+
+The Gem card shows a **Trajectory** row when a delta is available. The
+Evidence Drawer's "Why?" view shows a **Trajectory** line beneath the
+methodology meta. Both are omitted when no delta is computable — their
+absence does not mean the token is stable; it means no delta could be
+computed from the retained history.
+
+### Owner associations
+
+`js/intelligence/owner-associations.js` records the address that GoPlus
+reports as `owner_address` for EVM tokens, and observes whether the same
+address appears as owner on multiple tokens during a session. It is
+session-scoped: nothing persists across page reloads.
+
+**Terminology.** The module does not call the value a "deployer". GoPlus
+exposes `owner_address` and `creator_address` as separate fields, and the
+owner is not necessarily the creator. The strongest supported statement
+is:
+
+> The same address was observed as the owner of multiple tokens.
+
+Not "this team controls multiple tokens". An owner address can be a
+multisig, a contract, or a shared admin wallet.
+
+**Deduplication.** Outer key is `(chain, ownerAddress)`; per-token key
+within each association is the normalized token address. Re-observing the
+same token updates its entry but does not increase the count — three scans
+over the same five tokens produce "seen on 5 tokens", not "seen on 15".
+
+**Risk authority.** `isHighRisk` is obtained exclusively through
+`W.shield.isHighRisk()`. The module does not duplicate the Shield
+threshold.
+
+`summarise()` reports counts, never rates:
+
+> Owner address seen on 3 tokens — 1 flagged high-risk
+
+The high-risk clause is omitted when the count is zero, because "0
+flagged high-risk" reads too close to "safe".
+
+The Gem card shows an **Owner** row. The Evidence Drawer's "Why?" view
+shows an **Owner** line. Both use the read-only `get(chain, token)`
+accessor — the open path must not call `observe()`, because `observe()`
+updates `observedAt` and `riskScore` on every call. Reads must not write.
 
 ### Track Record
 
@@ -161,10 +257,12 @@ reason. Migration from legacy storage formats:
 │   ├── api/                 API schemas, request guard, prices, snapshots
 │   ├── data/                News and market data adapters
 │   ├── features/            User-facing modules (one file per feature)
-│   ├── intelligence/        Signal → evidence → decision pipeline
+│   ├── intelligence/        Signal → evidence → decision pipeline,
+│   │                        market structure, owner associations
 │   ├── lib/crypto/          Encryption for secure settings
 │   ├── models/              Canonical data models (AssetId, etc.)
-│   ├── storage/             Encrypted settings, session storage
+│   ├── storage/             Encrypted settings, session storage,
+│   │                        time-series observations
 │   ├── ui/                  Theme, dashboard, drawer, particles
 │   └── utils/               Format, finance, logger, perf, debounce
 ├── test/
@@ -214,9 +312,13 @@ npx playwright test test/e2e/track-record.spec.js
 ### Test discipline
 
 - Tests that depend on a shared namespace (`W.evidence`,
-  `W.marketStructure`, `W.intelligence`) **load the module themselves**
-  inside a `before()` hook. Relying on another test file to have loaded
-  it makes the suite order-dependent.
+  `W.marketStructure`, `W.ownerAssociations`, `W.intelligence`) **load
+  the module themselves** inside a `before()` hook. Relying on another
+  test file to have loaded it makes the suite order-dependent.
+- Any access to a shared namespace inside a `describe` body must be
+  wrapped in a function, because describe bodies evaluate before
+  `before()` hooks run. Property access belongs inside `it` bodies or
+  inside function wrappers.
 - When a test asserts a new contract that contradicts an old one, the
   test is updated to match the contract — not the contract updated to
   match the test.
@@ -224,8 +326,8 @@ npx playwright test test/e2e/track-record.spec.js
 
 ### Current counts
 
-As of the latest commit, `npm run test:unit` reports approximately 243
-passing tests. The number is not a target; it reflects the actual suite.
+As of the latest commit, `npm run test:unit` reports over 400 passing
+tests. The number is not a target; it reflects the actual suite.
 
 ---
 
@@ -241,9 +343,9 @@ npm run minify             # Minify dist/bundle.js in place
 
 The build script (`concat.js`) concatenates the modules listed in `files`
 in a specific order. Load-order matters for some modules — see the
-comments at the top of `evidence.js` and `evidence-builder.js`. Both
-bundles are generated from the same source string, so they are guaranteed
-to be in sync.
+comments at the top of `evidence.js`, `evidence-builder.js`, and
+`owner-associations.js`. Both bundles are generated from the same source
+string, so they are guaranteed to be in sync.
 
 **Do not hand-edit `dist/*`.** The bundles are committed so that GitHub
 Pages can serve them directly. Any source change must be followed by
@@ -261,6 +363,10 @@ Three workflows run on `main`:
 | `data.yml` | Cron every 30 min | Fetches CoinGecko, CryptoCompare, and alternative.me snapshots into `data/`, validates the JSON schema, and commits if changed |
 | `performance.yml` | Manual, weekly | Runs the k6 benchmark against a deployed proxy URL |
 
+The `ci.yml` workflow installs Playwright unconditionally and runs the E2E
+stage unconditionally. There is no detection check that could silently
+skip it.
+
 The `data.yml` job validates every response before committing: type
 checks on the top-level shape, minimum-length checks on arrays, and a
 required-field check on each entry. Invalid responses are not committed.
@@ -274,7 +380,7 @@ required-field check on each entry. Invalid responses are not committed.
 | CoinGecko | Prices, market caps, global stats | `js/api/prices.js`, `data/top.json`, `data/global.json` |
 | Binance | OHLCV klines for technical analysis | Proxy layer |
 | DEX Screener | New pairs, boosts, profiles, prices | `js/features/gems.js` |
-| GoPlus | Contract security (EVM and Solana) | `js/features/shield.js` |
+| GoPlus | Contract security, owner address (EVM and Solana) | `js/features/shield.js` |
 | alternative.me | Fear & Greed index | `data/fng.json` |
 | CryptoCompare | News headlines | `data/news.json` |
 
@@ -290,10 +396,29 @@ circuit breakers.
   endpoint does not return it in the same shape as the EVM endpoint.
   Market Structure observations on Solana therefore carry
   `source: "unavailable"` and `null` values for all concentration fields.
-- **Trajectory is not yet implemented.** Market Structure produces a
-  single observation per scan. Change metrics (`change5m`, `change15m`,
-  `change1h`) require a persistent observation store, which is a
-  separate task.
+- **Owner address is unavailable on Solana.** Same provider shape
+  constraint. Owner observations on Solana carry `source: "unavailable"`
+  and `address: null`; the module rejects them and no owner association
+  is recorded.
+- **Trajectory and owner associations are session-scoped.** Observations
+  live in `localStorage` for trajectory (2-hour retention window) or in
+  memory for owner associations (session only). Reloading the page
+  discards owner associations. Change metrics do not survive beyond the
+  trajectory retention window.
+- **Change metrics are sparser than they appear.** A 5-minute delta
+  requires two observations at least ~2.5 minutes apart. Back-to-back
+  scans produce multi-sample history but no computable delta for the
+  longer intervals. This is by design — half-interval tolerance ensures
+  a delta is only reported when it reflects the interval it names.
+- **Owner address is not a deployer.** The value comes from GoPlus's
+  `owner_address` field, which is the current owner/admin authority, not
+  the contract creator. Weaver never claims to know who deployed a
+  token. On-chain deployment history is a separate, larger problem
+  (Deployer Graph Phase 2) that requires a provider audit and is not
+  implemented.
+- **No cross-chain identity clustering.** The same address on Ethereum
+  and Base produces two separate associations. Cross-chain identity is
+  Phase 3, which depends on Phase 2.
 - **No historical outcome backfill.** Track Record captures outcomes for
   gem-agent calls going forward. Legacy records cannot have their outcomes
   reconstructed.
@@ -315,6 +440,11 @@ circuit breakers.
 - `WEAVER_CONSTITUTION.md` — the design principles referenced throughout
   the source. Includes the "unknown ≠ zero", "unknown ≠ safe", and
   "evidence provenance" rules.
-- `docs/` — design documents and historical audits.
+- `docs/trajectory-design.md` — the design for the observations module,
+  retention policy, and delta computation.
+- `docs/owner-associations-design.md` — the design for owner
+  observations, including the terminology boundary between owner and
+  deployer.
+- `docs/` — additional design documents and historical audits.
 - `data-path-audit.md` — a review of how data flows between the storage
   and intelligence layers.
