@@ -153,6 +153,46 @@ W.gems = (() => {
     return `<div class="kv-row"><span class="muted">Structure</span><span>${escapeHTML(parts.join(" · "))}</span></div>`;
   }
 
+  // ── Trajectory (Step 3 of trajectory design) ──────────
+  // Reads the current trajectory for a token from the observations
+  // module. Returns null when the module is missing, no history
+  // exists, or the read fails. Never throws.
+  function fetchTrajectory(chainKey, address) {
+    if (!W.observations || typeof W.observations.trajectory !== "function") {
+      return null;
+    }
+    try {
+      return W.observations.trajectory(chainKey, address);
+    } catch (e) {
+      console.warn("[Gems] Trajectory read failed:", e && e.message);
+      return null;
+    }
+  }
+
+  // Renders a trajectory as an HTML row, or "" when there is
+  // nothing to show (no trajectory, no available deltas, or the
+  // market-structure module is not loaded). The absence of this
+  // row does NOT mean the token is safe or stable; it means no
+  // delta could be computed from the retained history.
+  function trajectoryLine(trajectory) {
+    if (!trajectory) return "";
+    if (
+      !W.marketStructure ||
+      typeof W.marketStructure.summariseTrajectory !== "function"
+    ) {
+      return "";
+    }
+    let summary;
+    try {
+      summary = W.marketStructure.summariseTrajectory(trajectory);
+    } catch (e) {
+      console.warn("[Gems] Trajectory summarisation failed:", e && e.message);
+      return "";
+    }
+    if (!summary) return "";
+    return `<div class="kv-row"><span class="muted">Trajectory</span><span>${escapeHTML(summary)}</span></div>`;
+  }
+
   // ── Observation recording (Step 2 of trajectory design) ──
   // Persists a market-structure observation for a single candidate
   // when the cached Shield assessment is usable. Returns true on
@@ -609,6 +649,12 @@ W.gems = (() => {
             const observation = buildObservation(shield, p);
             const structureSection = marketStructureLine(observation);
 
+            // Trajectory. Reads persisted history for the token and
+            // computes deltas for the standard intervals. Renders as
+            // a second row when at least one delta is available.
+            const trajectory = fetchTrajectory(p.chainId, addr);
+            const trajectorySection = trajectoryLine(trajectory);
+
             return `
             <div class="card" data-gem-card="${escapeHTML(addr)}">
               <div class="watch-head">
@@ -628,6 +674,7 @@ W.gems = (() => {
               <div class="kv-row"><span class="muted">1h / 6h / 24h</span><span>${W.fmt.pct(a.h1)} ${W.fmt.pct(a.h6)} ${W.fmt.pct(a.h24)}</span></div>
               <div class="shield-slot">${shieldSection}</div>
               ${structureSection}
+              ${trajectorySection}
               <p class="small muted mt-8"><b>Why it appeared:</b> ${escapeHTML(a.reasons[0] || "Insufficient evidence to summarize.")}</p>
               ${
                 a.reasons.length > 1
@@ -747,6 +794,8 @@ W.gems = (() => {
       // Market structure wiring — exposed for isolated tests.
       buildObservation,
       marketStructureLine,
+      fetchTrajectory,
+      trajectoryLine,
       // Observation recording — exposed for isolated tests.
       recordObservation,
       // Raw map for diagnostics only. Entries are {assessment, observedAt}.

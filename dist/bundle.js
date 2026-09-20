@@ -8036,9 +8036,66 @@ W.marketStructure = (() => {
     return parts.join(" · ");
   }
 
+  // Human-readable one-line summary of a trajectory object.
+  // Returns null when no delta is available — the caller omits the
+  // row rather than printing placeholder noise.
+  //
+  // Format: "Top 10 ↑ 3.1% 5m · Holders ↑ 12 5m · Liquidity ↓ 8.5% 5m"
+  //
+  // For each metric, the shortest available interval wins
+  // (5m > 15m > 1h). Deltas with direction "unknown" are skipped.
+  // Arrows: ↑ rising, ↓ falling, → stable.
+  function summariseTrajectory(trajectory) {
+    if (!trajectory || typeof trajectory !== "object") return null;
+
+    function pickDelta(metric) {
+      if (!metric || typeof metric !== "object") return null;
+      for (const key of ["change5m", "change15m", "change1h"]) {
+        const d = metric[key];
+        if (d && typeof d.direction === "string" && d.direction !== "unknown") {
+          return { ...d, interval: key.replace("change", "") };
+        }
+      }
+      return null;
+    }
+
+    function arrow(direction) {
+      if (direction === "rising") return "↑";
+      if (direction === "falling") return "↓";
+      return "→";
+    }
+
+    const parts = [];
+
+    const conc = pickDelta(trajectory.concentration?.top10Pct);
+    if (conc && Number.isFinite(conc.percent)) {
+      parts.push(
+        `Top 10 ${arrow(conc.direction)} ${Math.abs(conc.percent).toFixed(1)}% ${conc.interval}`,
+      );
+    }
+
+    const holders = pickDelta(trajectory.holderCount);
+    if (holders && Number.isFinite(holders.absolute)) {
+      parts.push(
+        `Holders ${arrow(holders.direction)} ${Math.abs(holders.absolute)} ${holders.interval}`,
+      );
+    }
+
+    const liq = pickDelta(trajectory.liquidity?.usd);
+    if (liq && Number.isFinite(liq.percent)) {
+      parts.push(
+        `Liquidity ${arrow(liq.direction)} ${Math.abs(liq.percent).toFixed(1)}% ${liq.interval}`,
+      );
+    }
+
+    if (!parts.length) return null;
+    return parts.join(" · ");
+  }
+
   return {
     observe,
     summarise,
+    summariseTrajectory,
     METHODOLOGY_VERSION,
     // Exposed for tests only.
     _internal: { concentrationStatus, liquidityStatus, readFlag },
@@ -11590,6 +11647,46 @@ W.gems = (() => {
     return `<div class="kv-row"><span class="muted">Structure</span><span>${escapeHTML(parts.join(" · "))}</span></div>`;
   }
 
+  // ── Trajectory (Step 3 of trajectory design) ──────────
+  // Reads the current trajectory for a token from the observations
+  // module. Returns null when the module is missing, no history
+  // exists, or the read fails. Never throws.
+  function fetchTrajectory(chainKey, address) {
+    if (!W.observations || typeof W.observations.trajectory !== "function") {
+      return null;
+    }
+    try {
+      return W.observations.trajectory(chainKey, address);
+    } catch (e) {
+      console.warn("[Gems] Trajectory read failed:", e && e.message);
+      return null;
+    }
+  }
+
+  // Renders a trajectory as an HTML row, or "" when there is
+  // nothing to show (no trajectory, no available deltas, or the
+  // market-structure module is not loaded). The absence of this
+  // row does NOT mean the token is safe or stable; it means no
+  // delta could be computed from the retained history.
+  function trajectoryLine(trajectory) {
+    if (!trajectory) return "";
+    if (
+      !W.marketStructure ||
+      typeof W.marketStructure.summariseTrajectory !== "function"
+    ) {
+      return "";
+    }
+    let summary;
+    try {
+      summary = W.marketStructure.summariseTrajectory(trajectory);
+    } catch (e) {
+      console.warn("[Gems] Trajectory summarisation failed:", e && e.message);
+      return "";
+    }
+    if (!summary) return "";
+    return `<div class="kv-row"><span class="muted">Trajectory</span><span>${escapeHTML(summary)}</span></div>`;
+  }
+
   // ── Observation recording (Step 2 of trajectory design) ──
   // Persists a market-structure observation for a single candidate
   // when the cached Shield assessment is usable. Returns true on
@@ -12046,6 +12143,12 @@ W.gems = (() => {
             const observation = buildObservation(shield, p);
             const structureSection = marketStructureLine(observation);
 
+            // Trajectory. Reads persisted history for the token and
+            // computes deltas for the standard intervals. Renders as
+            // a second row when at least one delta is available.
+            const trajectory = fetchTrajectory(p.chainId, addr);
+            const trajectorySection = trajectoryLine(trajectory);
+
             return `
             <div class="card" data-gem-card="${escapeHTML(addr)}">
               <div class="watch-head">
@@ -12065,6 +12168,7 @@ W.gems = (() => {
               <div class="kv-row"><span class="muted">1h / 6h / 24h</span><span>${W.fmt.pct(a.h1)} ${W.fmt.pct(a.h6)} ${W.fmt.pct(a.h24)}</span></div>
               <div class="shield-slot">${shieldSection}</div>
               ${structureSection}
+              ${trajectorySection}
               <p class="small muted mt-8"><b>Why it appeared:</b> ${escapeHTML(a.reasons[0] || "Insufficient evidence to summarize.")}</p>
               ${
                 a.reasons.length > 1
@@ -12184,6 +12288,8 @@ W.gems = (() => {
       // Market structure wiring — exposed for isolated tests.
       buildObservation,
       marketStructureLine,
+      fetchTrajectory,
+      trajectoryLine,
       // Observation recording — exposed for isolated tests.
       recordObservation,
       // Raw map for diagnostics only. Entries are {assessment, observedAt}.

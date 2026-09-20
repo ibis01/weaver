@@ -157,9 +157,66 @@ W.marketStructure = (() => {
     return parts.join(" · ");
   }
 
+  // Human-readable one-line summary of a trajectory object.
+  // Returns null when no delta is available — the caller omits the
+  // row rather than printing placeholder noise.
+  //
+  // Format: "Top 10 ↑ 3.1% 5m · Holders ↑ 12 5m · Liquidity ↓ 8.5% 5m"
+  //
+  // For each metric, the shortest available interval wins
+  // (5m > 15m > 1h). Deltas with direction "unknown" are skipped.
+  // Arrows: ↑ rising, ↓ falling, → stable.
+  function summariseTrajectory(trajectory) {
+    if (!trajectory || typeof trajectory !== "object") return null;
+
+    function pickDelta(metric) {
+      if (!metric || typeof metric !== "object") return null;
+      for (const key of ["change5m", "change15m", "change1h"]) {
+        const d = metric[key];
+        if (d && typeof d.direction === "string" && d.direction !== "unknown") {
+          return { ...d, interval: key.replace("change", "") };
+        }
+      }
+      return null;
+    }
+
+    function arrow(direction) {
+      if (direction === "rising") return "↑";
+      if (direction === "falling") return "↓";
+      return "→";
+    }
+
+    const parts = [];
+
+    const conc = pickDelta(trajectory.concentration?.top10Pct);
+    if (conc && Number.isFinite(conc.percent)) {
+      parts.push(
+        `Top 10 ${arrow(conc.direction)} ${Math.abs(conc.percent).toFixed(1)}% ${conc.interval}`,
+      );
+    }
+
+    const holders = pickDelta(trajectory.holderCount);
+    if (holders && Number.isFinite(holders.absolute)) {
+      parts.push(
+        `Holders ${arrow(holders.direction)} ${Math.abs(holders.absolute)} ${holders.interval}`,
+      );
+    }
+
+    const liq = pickDelta(trajectory.liquidity?.usd);
+    if (liq && Number.isFinite(liq.percent)) {
+      parts.push(
+        `Liquidity ${arrow(liq.direction)} ${Math.abs(liq.percent).toFixed(1)}% ${liq.interval}`,
+      );
+    }
+
+    if (!parts.length) return null;
+    return parts.join(" · ");
+  }
+
   return {
     observe,
     summarise,
+    summariseTrajectory,
     METHODOLOGY_VERSION,
     // Exposed for tests only.
     _internal: { concentrationStatus, liquidityStatus, readFlag },
