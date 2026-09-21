@@ -21543,7 +21543,7 @@ W.tokenAnalysis = (() => {
 
           <div class="qa mt-12">
             ${W.trackRecord ? '<button class="btn tiny primary" id="ta-save-track" data-action="capture-track-record">Capture historical snapshot</button>' : ""}
-            <a class="btn tiny" href="#/track">🧾 View track record</a>
+            <a class="btn tiny" href="#/track">🧾 View all track records →</a>
             <button class="btn tiny" data-action="new-analysis">← New Analysis</button>
           </div>
         </div>
