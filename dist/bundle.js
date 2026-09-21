@@ -21345,7 +21345,6 @@ W.tokenAnalysis = (() => {
 
           <div class="card mt-16 ${actionClass}">
             <h3>${safeText(result.scenario || "Neutral / insufficient evidence")}</h3>
-              <button class="btn tiny" data-action="why">Why?</button>
             <p class="small">Evidence quality: <b>${safeText(result.evidenceQuality?.status || "UNAVAILABLE")}</b> · Scenario strength: ${fmtPct(result.actionConfidence)}</p>
             ${
               result.unifiedVerdict
@@ -21360,6 +21359,7 @@ W.tokenAnalysis = (() => {
             <p class="small muted">${safeText(result.actionInterpretation || "The available evidence does not support a directional scenario.")}</p>
             ${result.actionReasons?.length ? `<p class="small muted">${result.actionReasons.map(safeText).join(" · ")}</p>` : ""}
             ${result.evidenceQuality?.reasons?.length ? `<p class="small muted">Limitations: ${result.evidenceQuality.reasons.map(safeText).join(" · ")}</p>` : ""}
+            <button class="btn primary mt-8" data-action="why">🔍 View supporting evidence</button>
           </div>
 
           ${
