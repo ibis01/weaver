@@ -40,6 +40,13 @@
 //   does. The absence of the line does not mean the deployer is
 //   safe; it means no deployer profile was available for this token.
 //
+// TRACK RECORD POLICY:
+//   Same contract again. The drawer receives an already-summarised
+//   Track Record string from the caller and does not read
+//   W.trackRecord. Absence of the line does not mean the user has
+//   no history with this asset; it means no matching records were
+//   found at the moment the drawer opened.
+//
 // CSP Compliant: no style="" attributes. All user content passes
 // through W.fmt.escapeHTML before insertion.
 // ===============================================================
@@ -213,6 +220,21 @@ W.ui.evidenceDrawer = (() => {
     return '<p class="small"><b>Deployer:</b> ' + esc(summary) + "</p>";
   }
 
+  // Renders the optional Track Record line. Same contract as the
+  // trajectory, owner, and deployer lines: the drawer receives an
+  // already-summarised string from the caller and does not read
+  // W.trackRecord.
+  //
+  // The absence of this line does not mean this user has no history
+  // with this asset; it means no matching Track Record entries were
+  // found at the moment the drawer opened.
+  function renderTrackRecordLine(summary) {
+    if (typeof summary !== "string" || !summary.trim()) return "";
+    return (
+      '<p class="small"><b>Your Track Record:</b> ' + esc(summary) + "</p>"
+    );
+  }
+
   function open(result) {
     const r = result || {};
     const b = bucket(r.domains);
@@ -238,6 +260,13 @@ W.ui.evidenceDrawer = (() => {
     const deployerSummary =
       typeof r.deployerSummary === "string" && r.deployerSummary.trim()
         ? r.deployerSummary
+        : null;
+
+    // Same shape again: optional. Absent when no Track Record entry
+    // matches this asset, or when the caller does not supply it.
+    const trackRecordSummary =
+      typeof r.trackRecordSummary === "string" && r.trackRecordSummary.trim()
+        ? r.trackRecordSummary
         : null;
 
     const supporting = [
@@ -304,6 +333,7 @@ W.ui.evidenceDrawer = (() => {
       renderTrajectoryLine(trajectorySummary) +
       renderOwnerLine(ownerSummary) +
       renderDeployerLine(deployerSummary) +
+      renderTrackRecordLine(trackRecordSummary) +
       '<div class="mt-12">' +
       "<h4>🟢 Supporting evidence</h4>" +
       renderItems(supporting, "None recorded.") +
@@ -335,6 +365,7 @@ W.ui.evidenceDrawer = (() => {
       renderTrajectoryLine,
       renderOwnerLine,
       renderDeployerLine,
+      renderTrackRecordLine,
       carryProvenance,
       normalizeRelationship,
     },

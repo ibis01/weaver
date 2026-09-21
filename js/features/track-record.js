@@ -1338,6 +1338,92 @@ W.trackRecord = (() => {
     console.warn("[TrackRecord] Migration deferred:", error.message);
   }
 
+  // ── Summary for the Evidence Drawer ─────────────────────────
+  //
+  // Produces a one-line summary of this user's Track Record for a
+  // given asset identity. Called by token-analysis.js when opening
+  // the drawer. Read-only: does not mutate any record.
+  //
+  // Returns null when:
+  //   - the track record has no matching records
+  //   - the identity has no usable key (no symbol, address, or id)
+  //   - any internal error occurs
+  //
+  // The caller treats null as "omit the line", not as "no history".
+  // A user with zero recorded decisions has no line — Weaver does
+  // not fabricate a negative claim.
+  function summariseForAsset(identity = {}) {
+    try {
+      const records = all();
+      if (!Array.isArray(records) || !records.length) return null;
+
+      const symbol =
+        typeof identity.symbol === "string"
+          ? identity.symbol.trim().toUpperCase()
+          : null;
+      const address =
+        typeof identity.contractAddress === "string"
+          ? identity.contractAddress.trim().toLowerCase()
+          : null;
+      const coingeckoId =
+        typeof identity.coingeckoId === "string"
+          ? identity.coingeckoId.trim().toLowerCase()
+          : null;
+
+      if (!symbol && !address && !coingeckoId) return null;
+
+      const matches = records.filter((rec) => {
+        if (!rec || typeof rec !== "object") return false;
+        const recSymbol =
+          typeof rec.symbol === "string"
+            ? rec.symbol.trim().toUpperCase()
+            : typeof rec.asset === "string"
+              ? rec.asset.trim().toUpperCase()
+              : null;
+        if (symbol && recSymbol === symbol) return true;
+        const recCg =
+          typeof rec.coingeckoId === "string"
+            ? rec.coingeckoId.trim().toLowerCase()
+            : null;
+        if (coingeckoId && recCg === coingeckoId) return true;
+        const recAddr =
+          typeof rec.contractAddress === "string"
+            ? rec.contractAddress.trim().toLowerCase()
+            : null;
+        if (address && recAddr === address) return true;
+        return false;
+      });
+
+      if (!matches.length) return null;
+
+      const total = matches.length;
+      const withDecision = matches.filter(
+        (m) => m.decision && typeof m.decision === "object",
+      ).length;
+      const withOutcome = matches.filter(
+        (m) =>
+          m.outcome &&
+          typeof m.outcome === "object" &&
+          m.holdingDurationMs !== undefined,
+      ).length;
+
+      const noun = total === 1 ? "record" : "records";
+      let text = `${total} ${noun} for this asset`;
+      if (withDecision > 0 && withDecision < total) {
+        text += ` — ${withDecision} with a recorded decision`;
+      } else if (withDecision === total && total > 0) {
+        text += " — all have a recorded decision";
+      }
+      if (withOutcome > 0) {
+        text += `, ${withOutcome} resolved`;
+      }
+      return text;
+    } catch (e) {
+      console.warn("[TrackRecord] summariseForAsset failed:", e && e.message);
+      return null;
+    }
+  }
+
   return {
     STORAGE_KEY,
     SCHEMA_VERSION,
@@ -1362,7 +1448,7 @@ W.trackRecord = (() => {
     buildCSV,
     exportCSV,
     render,
-    // Exposed for tests only.
+    summariseForAsset,
     _internal: { analysisProjection, immutableContentHash, contentHash },
   };
 })();
