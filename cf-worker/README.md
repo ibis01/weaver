@@ -89,7 +89,12 @@ curl "https://weaver-proxy.<your-subdomain>.workers.dev/goplus/evm/1?contract_ad
 ```
 
 You should get back GoPlus's JSON response for USDT on Ethereum. A
-request without a matching `Origin` header should get `403`.
+A browser request from a disallowed Origin gets `403`. A request
+with no `Origin` header at all is allowed through — CORS does not
+apply to non-browser callers (curl, server-side fetch, CI), and the
+response carries `Access-Control-Allow-Origin: null` so no browser will
+read it. This matches the Worker code and is verified by the
+`allows requests with no Origin header (curl, server-side)` test.
 
 Bitquery route (requires a `BITQUERY_KEY` that grants the query access):
 
