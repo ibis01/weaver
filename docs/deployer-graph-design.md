@@ -1,6 +1,11 @@
 # Design — Deployer Graph (Phase 2)
 
-**Status:** implemented; pending CI verification and Step 4 integration audit.
+**Status:** implemented and closed.
+- Phase 2 scope: direct creation-call history only (see §1.1).
+- CI: `test-and-build` passes on current `main`.
+- Step 4 integration audit: complete; live-verified against Uniswap V3 factory.
+- Factory-aware provenance (EOA → Factory → Contract) is explicitly out of scope
+  and belongs to a future phase.
 **Supersedes:** the earlier "Owner associations (Phase 1)" draft, preserved
 verbatim under *Historical context* below for traceability.
 **Implementation:** `js/intelligence/deployer-graph.js`
