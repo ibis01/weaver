@@ -112,14 +112,21 @@ describe("CF Worker — Bitquery deployer route", () => {
 
   // ── Origin gate ────────────────────────────────────────────
 
-  it("rejects POST with no Origin header (403)", async () => {
-    const r = req("/bitquery/deployer", {
-      method: "POST",
-      body: JSON.stringify({ chain: "ethereum", deployerAddress: DEPLOYER }),
-    });
-    const resp = await handleRequest(r, env());
-    expect(resp.status).to.equal(403);
-  });
+     it("allows POST with no Origin header through the Origin gate", async () => {
+       // No Origin header → non-browser caller (curl, server-side fetch).
+       // CORS does not apply, so the Worker lets it through the gate.
+       // Use an unsupported chain so the request stops at body validation
+       // (400) without hitting the network. If the Origin gate had fired,
+       // we would see 403 instead.
+       const r = req("/bitquery/deployer", {
+         method: "POST",
+         body: JSON.stringify({ chain: "solana", deployerAddress: DEPLOYER }),
+       });
+       const resp = await handleRequest(r, env());
+       expect(resp.status).to.equal(400);
+       const body = await resp.json();
+       expect(body.error).to.match(/Unsupported chain/);
+     });
 
   it("rejects POST with a disallowed Origin (403)", async () => {
     const r = req("/bitquery/deployer", {
