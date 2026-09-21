@@ -965,105 +965,121 @@ W.tokenAnalysis = (() => {
         });
       }
 
-            const whyBtn = view.querySelector("[data-action='why']");
-            if (whyBtn) {
-              whyBtn.addEventListener("click", () => {
-                if (W.ui && W.ui.evidenceDrawer) {
-                  // Read the trajectory from persisted history, if any.
-                  // Optional — the token may never have been scanned by
-                  // the Gem Agent, or the observations module may be
-                  // unavailable. In both cases the drawer renders without
-                  // the trajectory line.
-                  let trajectorySummary = null;
-                  try {
-                    const trajectory = W.observations?.trajectory?.(
-                      result.assetId?.chainId,
-                      result.assetId?.contractAddress,
-                    );
-                    if (trajectory) {
-                      trajectorySummary =
-                        W.marketStructure?.summariseTrajectory?.(trajectory) ??
-                        null;
-                    }
-                  } catch (e) {
-                    console.warn(
-                      "[TokenAnalysis] Trajectory read failed:",
-                      e && e.message,
-                    );
-                  }
-
-                  // Read the owner association from the session map, if
-                  // any. Optional in the same way: the token may never
-                  // have been observed by the Gem Agent this session, or
-                  // the module may be unavailable.
-                  //
-                  // This uses the read-only get() accessor, not observe().
-                  // The drawer must not mutate session state on open.
-                  let ownerSummary = null;
-                  try {
-                    const association = W.ownerAssociations?.get?.(
-                      result.assetId?.chainId,
-                      result.assetId?.contractAddress,
-                    );
-                    if (association) {
-                      ownerSummary =
-                        W.ownerAssociations?.summarise?.(association) ?? null;
-                    }
-                  } catch (e) {
-                    console.warn(
-                      "[TokenAnalysis] Owner association read failed:",
-                      e && e.message,
-                    );
-                  }
-
-                  // Read the cached deployer profile, if any. Same
-                  // optional contract: the token may never have been
-                  // scanned by the Gem Agent, the profile may not be
-                  // cached, or the module may be unavailable.
-                  //
-                  // This uses the read-only get() accessor. The drawer
-                  // must not call observe() — that would issue a network
-                  // request and mutate the cache on every open.
-                  let deployerSummary = null;
-                  try {
-                    const profile = W.deployerGraph?.get?.(
-                      result.assetId?.chainId,
-                      result.assetId?.contractAddress,
-                    );
-                    if (profile) {
-                      deployerSummary =
-                        W.deployerGraph?.summarise?.(profile) ?? null;
-                    }
-                  } catch (e) {
-                    console.warn(
-                      "[TokenAnalysis] Deployer read failed:",
-                      e && e.message,
-                    );
-                  }
-
-                  W.ui.evidenceDrawer.open({
-                    explanation: result.explanation,
-                    domains:
-                      (result.unifiedVerdict &&
-                        result.unifiedVerdict.domains) ||
-                      {},
-                    methodologyVersion:
-                      result.unifiedVerdict &&
-                      result.unifiedVerdict.methodologyVersion,
-                    evidenceVersion:
-                      result.unifiedVerdict &&
-                      result.unifiedVerdict.evidenceVersion,
-                    bullishEvidence: result.bullishEvidence,
-                    bearishEvidence: result.bearishEvidence,
-                    contradictions: result.contradictions,
-                    evidenceQuality: result.evidenceQuality,
-                    trajectorySummary,
-                    ownerSummary,
-                    deployerSummary,
-                  });
-                }
-              });
+      const whyBtn = view.querySelector("[data-action='why']");
+      if (whyBtn) {
+        whyBtn.addEventListener("click", () => {
+          if (W.ui && W.ui.evidenceDrawer) {
+            // Read the trajectory from persisted history, if any.
+            // Optional — the token may never have been scanned by
+            // the Gem Agent, or the observations module may be
+            // unavailable. In both cases the drawer renders without
+            // the trajectory line.
+            let trajectorySummary = null;
+            try {
+              const trajectory = W.observations?.trajectory?.(
+                result.assetId?.chainId,
+                result.assetId?.contractAddress,
+              );
+              if (trajectory) {
+                trajectorySummary =
+                  W.marketStructure?.summariseTrajectory?.(trajectory) ?? null;
+              }
+            } catch (e) {
+              console.warn(
+                "[TokenAnalysis] Trajectory read failed:",
+                e && e.message,
+              );
             }
+
+            // Read the owner association from the session map, if
+            // any. Optional in the same way: the token may never
+            // have been observed by the Gem Agent this session, or
+            // the module may be unavailable.
+            //
+            // This uses the read-only get() accessor, not observe().
+            // The drawer must not mutate session state on open.
+            let ownerSummary = null;
+            try {
+              const association = W.ownerAssociations?.get?.(
+                result.assetId?.chainId,
+                result.assetId?.contractAddress,
+              );
+              if (association) {
+                ownerSummary =
+                  W.ownerAssociations?.summarise?.(association) ?? null;
+              }
+            } catch (e) {
+              console.warn(
+                "[TokenAnalysis] Owner association read failed:",
+                e && e.message,
+              );
+            }
+
+            // Read the cached deployer profile, if any. Same
+            // optional contract: the token may never have been
+            // scanned by the Gem Agent, the profile may not be
+            // cached, or the module may be unavailable.
+            //
+            // This uses the read-only get() accessor. The drawer
+            // must not call observe() — that would issue a network
+            // request and mutate the cache on every open.
+            let deployerSummary = null;
+            try {
+              const profile = W.deployerGraph?.get?.(
+                result.assetId?.chainId,
+                result.assetId?.contractAddress,
+              );
+              if (profile) {
+                deployerSummary = W.deployerGraph?.summarise?.(profile) ?? null;
+              }
+            } catch (e) {
+              console.warn(
+                "[TokenAnalysis] Deployer read failed:",
+                e && e.message,
+              );
+            }
+
+            // Read the user's own Track Record for this asset, if
+            // any. Optional in the same way as the three summaries
+            // above: the user may never have captured a decision
+            // for this asset, or the module may be unavailable.
+            //
+            // This is a read-only query; it does not mutate any
+            // record and does not issue a network request.
+            let trackRecordSummary = null;
+            try {
+              trackRecordSummary =
+                W.trackRecord?.summariseForAsset?.(result.assetId || {}) ??
+                null;
+            } catch (e) {
+              console.warn(
+                "[TokenAnalysis] Track Record read failed:",
+                e && e.message,
+              );
+            }
+
+            W.ui.evidenceDrawer.open({
+              explanation: result.explanation,
+              domains:
+                (result.unifiedVerdict && result.unifiedVerdict.domains) || {},
+              methodologyVersion:
+                result.unifiedVerdict &&
+                result.unifiedVerdict.methodologyVersion,
+              evidenceVersion:
+                result.unifiedVerdict && result.unifiedVerdict.evidenceVersion,
+              bullishEvidence: result.bullishEvidence,
+              bearishEvidence: result.bearishEvidence,
+              contradictions: result.contradictions,
+              evidenceQuality: result.evidenceQuality,
+              trajectorySummary,
+              ownerSummary,
+              deployerSummary,
+              trackRecordSummary,
+            });
+          }
+        });
+      }
+
       const newBtn = view.querySelector("[data-action='new-analysis']");
       if (newBtn) {
         newBtn.addEventListener("click", () => {

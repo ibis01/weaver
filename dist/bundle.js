@@ -20570,6 +20570,92 @@ W.trackRecord = (() => {
     console.warn("[TrackRecord] Migration deferred:", error.message);
   }
 
+  // ── Summary for the Evidence Drawer ─────────────────────────
+  //
+  // Produces a one-line summary of this user's Track Record for a
+  // given asset identity. Called by token-analysis.js when opening
+  // the drawer. Read-only: does not mutate any record.
+  //
+  // Returns null when:
+  //   - the track record has no matching records
+  //   - the identity has no usable key (no symbol, address, or id)
+  //   - any internal error occurs
+  //
+  // The caller treats null as "omit the line", not as "no history".
+  // A user with zero recorded decisions has no line — Weaver does
+  // not fabricate a negative claim.
+  function summariseForAsset(identity = {}) {
+    try {
+      const records = all();
+      if (!Array.isArray(records) || !records.length) return null;
+
+      const symbol =
+        typeof identity.symbol === "string"
+          ? identity.symbol.trim().toUpperCase()
+          : null;
+      const address =
+        typeof identity.contractAddress === "string"
+          ? identity.contractAddress.trim().toLowerCase()
+          : null;
+      const coingeckoId =
+        typeof identity.coingeckoId === "string"
+          ? identity.coingeckoId.trim().toLowerCase()
+          : null;
+
+      if (!symbol && !address && !coingeckoId) return null;
+
+      const matches = records.filter((rec) => {
+        if (!rec || typeof rec !== "object") return false;
+        const recSymbol =
+          typeof rec.symbol === "string"
+            ? rec.symbol.trim().toUpperCase()
+            : typeof rec.asset === "string"
+              ? rec.asset.trim().toUpperCase()
+              : null;
+        if (symbol && recSymbol === symbol) return true;
+        const recCg =
+          typeof rec.coingeckoId === "string"
+            ? rec.coingeckoId.trim().toLowerCase()
+            : null;
+        if (coingeckoId && recCg === coingeckoId) return true;
+        const recAddr =
+          typeof rec.contractAddress === "string"
+            ? rec.contractAddress.trim().toLowerCase()
+            : null;
+        if (address && recAddr === address) return true;
+        return false;
+      });
+
+      if (!matches.length) return null;
+
+      const total = matches.length;
+      const withDecision = matches.filter(
+        (m) => m.decision && typeof m.decision === "object",
+      ).length;
+      const withOutcome = matches.filter(
+        (m) =>
+          m.outcome &&
+          typeof m.outcome === "object" &&
+          m.holdingDurationMs !== undefined,
+      ).length;
+
+      const noun = total === 1 ? "record" : "records";
+      let text = `${total} ${noun} for this asset`;
+      if (withDecision > 0 && withDecision < total) {
+        text += ` — ${withDecision} with a recorded decision`;
+      } else if (withDecision === total && total > 0) {
+        text += " — all have a recorded decision";
+      }
+      if (withOutcome > 0) {
+        text += `, ${withOutcome} resolved`;
+      }
+      return text;
+    } catch (e) {
+      console.warn("[TrackRecord] summariseForAsset failed:", e && e.message);
+      return null;
+    }
+  }
+
   return {
     STORAGE_KEY,
     SCHEMA_VERSION,
@@ -20594,7 +20680,7 @@ W.trackRecord = (() => {
     buildCSV,
     exportCSV,
     render,
-    // Exposed for tests only.
+    summariseForAsset,
     _internal: { analysisProjection, immutableContentHash, contentHash },
   };
 })();
@@ -21568,105 +21654,121 @@ W.tokenAnalysis = (() => {
         });
       }
 
-            const whyBtn = view.querySelector("[data-action='why']");
-            if (whyBtn) {
-              whyBtn.addEventListener("click", () => {
-                if (W.ui && W.ui.evidenceDrawer) {
-                  // Read the trajectory from persisted history, if any.
-                  // Optional — the token may never have been scanned by
-                  // the Gem Agent, or the observations module may be
-                  // unavailable. In both cases the drawer renders without
-                  // the trajectory line.
-                  let trajectorySummary = null;
-                  try {
-                    const trajectory = W.observations?.trajectory?.(
-                      result.assetId?.chainId,
-                      result.assetId?.contractAddress,
-                    );
-                    if (trajectory) {
-                      trajectorySummary =
-                        W.marketStructure?.summariseTrajectory?.(trajectory) ??
-                        null;
-                    }
-                  } catch (e) {
-                    console.warn(
-                      "[TokenAnalysis] Trajectory read failed:",
-                      e && e.message,
-                    );
-                  }
-
-                  // Read the owner association from the session map, if
-                  // any. Optional in the same way: the token may never
-                  // have been observed by the Gem Agent this session, or
-                  // the module may be unavailable.
-                  //
-                  // This uses the read-only get() accessor, not observe().
-                  // The drawer must not mutate session state on open.
-                  let ownerSummary = null;
-                  try {
-                    const association = W.ownerAssociations?.get?.(
-                      result.assetId?.chainId,
-                      result.assetId?.contractAddress,
-                    );
-                    if (association) {
-                      ownerSummary =
-                        W.ownerAssociations?.summarise?.(association) ?? null;
-                    }
-                  } catch (e) {
-                    console.warn(
-                      "[TokenAnalysis] Owner association read failed:",
-                      e && e.message,
-                    );
-                  }
-
-                  // Read the cached deployer profile, if any. Same
-                  // optional contract: the token may never have been
-                  // scanned by the Gem Agent, the profile may not be
-                  // cached, or the module may be unavailable.
-                  //
-                  // This uses the read-only get() accessor. The drawer
-                  // must not call observe() — that would issue a network
-                  // request and mutate the cache on every open.
-                  let deployerSummary = null;
-                  try {
-                    const profile = W.deployerGraph?.get?.(
-                      result.assetId?.chainId,
-                      result.assetId?.contractAddress,
-                    );
-                    if (profile) {
-                      deployerSummary =
-                        W.deployerGraph?.summarise?.(profile) ?? null;
-                    }
-                  } catch (e) {
-                    console.warn(
-                      "[TokenAnalysis] Deployer read failed:",
-                      e && e.message,
-                    );
-                  }
-
-                  W.ui.evidenceDrawer.open({
-                    explanation: result.explanation,
-                    domains:
-                      (result.unifiedVerdict &&
-                        result.unifiedVerdict.domains) ||
-                      {},
-                    methodologyVersion:
-                      result.unifiedVerdict &&
-                      result.unifiedVerdict.methodologyVersion,
-                    evidenceVersion:
-                      result.unifiedVerdict &&
-                      result.unifiedVerdict.evidenceVersion,
-                    bullishEvidence: result.bullishEvidence,
-                    bearishEvidence: result.bearishEvidence,
-                    contradictions: result.contradictions,
-                    evidenceQuality: result.evidenceQuality,
-                    trajectorySummary,
-                    ownerSummary,
-                    deployerSummary,
-                  });
-                }
-              });
+      const whyBtn = view.querySelector("[data-action='why']");
+      if (whyBtn) {
+        whyBtn.addEventListener("click", () => {
+          if (W.ui && W.ui.evidenceDrawer) {
+            // Read the trajectory from persisted history, if any.
+            // Optional — the token may never have been scanned by
+            // the Gem Agent, or the observations module may be
+            // unavailable. In both cases the drawer renders without
+            // the trajectory line.
+            let trajectorySummary = null;
+            try {
+              const trajectory = W.observations?.trajectory?.(
+                result.assetId?.chainId,
+                result.assetId?.contractAddress,
+              );
+              if (trajectory) {
+                trajectorySummary =
+                  W.marketStructure?.summariseTrajectory?.(trajectory) ?? null;
+              }
+            } catch (e) {
+              console.warn(
+                "[TokenAnalysis] Trajectory read failed:",
+                e && e.message,
+              );
             }
+
+            // Read the owner association from the session map, if
+            // any. Optional in the same way: the token may never
+            // have been observed by the Gem Agent this session, or
+            // the module may be unavailable.
+            //
+            // This uses the read-only get() accessor, not observe().
+            // The drawer must not mutate session state on open.
+            let ownerSummary = null;
+            try {
+              const association = W.ownerAssociations?.get?.(
+                result.assetId?.chainId,
+                result.assetId?.contractAddress,
+              );
+              if (association) {
+                ownerSummary =
+                  W.ownerAssociations?.summarise?.(association) ?? null;
+              }
+            } catch (e) {
+              console.warn(
+                "[TokenAnalysis] Owner association read failed:",
+                e && e.message,
+              );
+            }
+
+            // Read the cached deployer profile, if any. Same
+            // optional contract: the token may never have been
+            // scanned by the Gem Agent, the profile may not be
+            // cached, or the module may be unavailable.
+            //
+            // This uses the read-only get() accessor. The drawer
+            // must not call observe() — that would issue a network
+            // request and mutate the cache on every open.
+            let deployerSummary = null;
+            try {
+              const profile = W.deployerGraph?.get?.(
+                result.assetId?.chainId,
+                result.assetId?.contractAddress,
+              );
+              if (profile) {
+                deployerSummary = W.deployerGraph?.summarise?.(profile) ?? null;
+              }
+            } catch (e) {
+              console.warn(
+                "[TokenAnalysis] Deployer read failed:",
+                e && e.message,
+              );
+            }
+
+            // Read the user's own Track Record for this asset, if
+            // any. Optional in the same way as the three summaries
+            // above: the user may never have captured a decision
+            // for this asset, or the module may be unavailable.
+            //
+            // This is a read-only query; it does not mutate any
+            // record and does not issue a network request.
+            let trackRecordSummary = null;
+            try {
+              trackRecordSummary =
+                W.trackRecord?.summariseForAsset?.(result.assetId || {}) ??
+                null;
+            } catch (e) {
+              console.warn(
+                "[TokenAnalysis] Track Record read failed:",
+                e && e.message,
+              );
+            }
+
+            W.ui.evidenceDrawer.open({
+              explanation: result.explanation,
+              domains:
+                (result.unifiedVerdict && result.unifiedVerdict.domains) || {},
+              methodologyVersion:
+                result.unifiedVerdict &&
+                result.unifiedVerdict.methodologyVersion,
+              evidenceVersion:
+                result.unifiedVerdict && result.unifiedVerdict.evidenceVersion,
+              bullishEvidence: result.bullishEvidence,
+              bearishEvidence: result.bearishEvidence,
+              contradictions: result.contradictions,
+              evidenceQuality: result.evidenceQuality,
+              trajectorySummary,
+              ownerSummary,
+              deployerSummary,
+              trackRecordSummary,
+            });
+          }
+        });
+      }
+
       const newBtn = view.querySelector("[data-action='new-analysis']");
       if (newBtn) {
         newBtn.addEventListener("click", () => {
@@ -21789,6 +21891,13 @@ W.tokenAnalysis = (() => {
 //   deployer string. It does not read W.deployerGraph — the caller
 //   does. The absence of the line does not mean the deployer is
 //   safe; it means no deployer profile was available for this token.
+//
+// TRACK RECORD POLICY:
+//   Same contract again. The drawer receives an already-summarised
+//   Track Record string from the caller and does not read
+//   W.trackRecord. Absence of the line does not mean the user has
+//   no history with this asset; it means no matching records were
+//   found at the moment the drawer opened.
 //
 // CSP Compliant: no style="" attributes. All user content passes
 // through W.fmt.escapeHTML before insertion.
@@ -21963,6 +22072,21 @@ W.ui.evidenceDrawer = (() => {
     return '<p class="small"><b>Deployer:</b> ' + esc(summary) + "</p>";
   }
 
+  // Renders the optional Track Record line. Same contract as the
+  // trajectory, owner, and deployer lines: the drawer receives an
+  // already-summarised string from the caller and does not read
+  // W.trackRecord.
+  //
+  // The absence of this line does not mean this user has no history
+  // with this asset; it means no matching Track Record entries were
+  // found at the moment the drawer opened.
+  function renderTrackRecordLine(summary) {
+    if (typeof summary !== "string" || !summary.trim()) return "";
+    return (
+      '<p class="small"><b>Your Track Record:</b> ' + esc(summary) + "</p>"
+    );
+  }
+
   function open(result) {
     const r = result || {};
     const b = bucket(r.domains);
@@ -21988,6 +22112,13 @@ W.ui.evidenceDrawer = (() => {
     const deployerSummary =
       typeof r.deployerSummary === "string" && r.deployerSummary.trim()
         ? r.deployerSummary
+        : null;
+
+    // Same shape again: optional. Absent when no Track Record entry
+    // matches this asset, or when the caller does not supply it.
+    const trackRecordSummary =
+      typeof r.trackRecordSummary === "string" && r.trackRecordSummary.trim()
+        ? r.trackRecordSummary
         : null;
 
     const supporting = [
@@ -22054,6 +22185,7 @@ W.ui.evidenceDrawer = (() => {
       renderTrajectoryLine(trajectorySummary) +
       renderOwnerLine(ownerSummary) +
       renderDeployerLine(deployerSummary) +
+      renderTrackRecordLine(trackRecordSummary) +
       '<div class="mt-12">' +
       "<h4>🟢 Supporting evidence</h4>" +
       renderItems(supporting, "None recorded.") +
@@ -22085,6 +22217,7 @@ W.ui.evidenceDrawer = (() => {
       renderTrajectoryLine,
       renderOwnerLine,
       renderDeployerLine,
+      renderTrackRecordLine,
       carryProvenance,
       normalizeRelationship,
     },
