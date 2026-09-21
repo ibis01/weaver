@@ -1,11 +1,21 @@
 # Design — Deployer Graph (Phase 2)
 
 **Status:** implemented and closed.
+
 - Phase 2 scope: direct creation-call history only (see §1.1).
 - CI: `test-and-build` passes on current `main`.
-- Step 4 integration audit: complete; live-verified against Uniswap V3 factory.
-- Factory-aware provenance (EOA → Factory → Contract) is explicitly out of scope
-  and belongs to a future phase.
+- Step 4 integration audit: complete; live-verified against the
+  Uniswap V3 factory (`0x1F98...F984`), which returned real
+  `factory-internal` rows with `Receipt.ContractAddress` zero and
+  `Call.To` populated.
+- Factory-aware provenance (`EOA → Factory → Contract`) is
+  explicitly out of scope. It belongs to a future phase and is not
+  a "small improvement" to this one.
+- Realtime dataset limitation is documented in §1.1 and honoured by
+  the UI: empty result means "no qualifying creation calls in the
+  available dataset", never "never deployed".
+
+
 **Supersedes:** the earlier "Owner associations (Phase 1)" draft, preserved
 verbatim under *Historical context* below for traceability.
 **Implementation:** `js/intelligence/deployer-graph.js`
