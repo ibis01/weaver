@@ -93,9 +93,9 @@ W.deployerGraph = (() => {
 
   const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
-  // Worker URL. Empty by default; set via _internal.setWorkerBase().
-  // When blank, observe() returns null without a network call.
-  let workerBase = "";
+  // Worker URL. Defaults to the deployed Weaver proxy; can be overridden
+  // for testing via _internal.setWorkerBase().
+  let workerBase = "https://weaver-proxy.ibis01-weaver.workers.dev";
 
   // In-memory mirror of the index. Populated on first read after
   // page load or reset. Kept in sync by writeIndex(). Cleared by
