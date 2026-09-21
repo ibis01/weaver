@@ -1397,14 +1397,31 @@ W.trackRecord = (() => {
       if (!matches.length) return null;
 
       const total = matches.length;
+      // A record has a decision only when the user actually recorded one.
+      // The default value is "NO_DECISION", which is stored but does not
+      // represent a decision the user made.
       const withDecision = matches.filter(
-        (m) => m.decision && typeof m.decision === "object",
+        (m) =>
+          m.userDecision &&
+          typeof m.userDecision === "object" &&
+          typeof m.userDecision.action === "string" &&
+          m.userDecision.action !== "NO_DECISION",
       ).length;
+
+      // A record is resolved only when the user reported an outcome.
+      // The existence of holdingDurationMs is NOT a resolution signal —
+      // it is present on every record (possibly as null) because it is
+      // computed from entry/exit timestamps whenever they exist.
+      const resolvedStatuses = new Set([
+        "REPORTED_GAIN",
+        "REPORTED_LOSS",
+        "REPORTED_FLAT",
+      ]);
       const withOutcome = matches.filter(
         (m) =>
           m.outcome &&
           typeof m.outcome === "object" &&
-          m.holdingDurationMs !== undefined,
+          resolvedStatuses.has(m.outcome.status),
       ).length;
 
       const noun = total === 1 ? "record" : "records";
