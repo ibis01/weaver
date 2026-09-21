@@ -15,6 +15,17 @@ W.trackRecord = (() => {
     "track_record_v1",
   ];
   const MAX_REVISIONS = 100;
+  // SCHEMA_VERSION is the on-disk record format version. It is written
+  // onto every new record and validated on read.
+  //
+  // This is deliberately distinct from the module feature version,
+  // logged at the bottom of this file as "track-record-v2.1". The
+  // feature version tracks design iterations; the schema version tracks
+  // the persisted record shape. They advance independently.
+  //
+  // ACCEPTED_SCHEMA_VERSIONS includes "track-record-v2.1" because an
+  // earlier iteration wrote records under that identifier and they must
+  // remain readable. New records are written as v1.
   const SCHEMA_VERSION = "track-record-v1";
   const ACCEPTED_SCHEMA_VERSIONS = new Set([
     SCHEMA_VERSION,
