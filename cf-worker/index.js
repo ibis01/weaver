@@ -34,6 +34,14 @@
 //   backoff + jitter and, if still limited, returns HTTP 429 so the
 //   client can distinguish "rate limited" from "real error".
 //
+// GOPLUS AUTHENTICATION:
+//   Set GOPLUS_KEY with `npx wrangler secret put GOPLUS_KEY` to move
+//   from the shared unauthenticated rate pool to a dedicated access
+//   token with a higher per-minute limit. The key is attached as a
+//   Bearer token on every GoPlus fetch. When GOPLUS_KEY is not set,
+//   the Worker still works — it just uses the shared channel and is
+//   more likely to be rate-limited.
+//
 // SECURITY NOTE — ORIGIN IS NOT A RATE LIMITER:
 //   The ALLOWED_ORIGINS check is a CORS access-control check. It
 //   prevents a browser on an unauthorized origin from reading the
@@ -221,13 +229,23 @@ function jitter(ms) {
 
 // One attempt at fetching a GoPlus URL. Returns { status, text } or
 // throws on network error/timeout.
-async function fetchGoPlusOnce(upstreamUrl) {
+async function fetchGoPlusOnce(upstreamUrl, env) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+  // Attach the GoPlus API key when configured. Without it, the request
+  // still works but uses the shared public channel and is subject to
+  // the aggressive shared-IP rate limit. With it, the request uses a
+  // dedicated access token and a higher per-minute limit.
+  const headers = { "User-Agent": "WeaverProxy/1.0" };
+  if (env && typeof env.GOPLUS_KEY === "string" && env.GOPLUS_KEY) {
+    headers.Authorization = `Bearer ${env.GOPLUS_KEY}`;
+  }
+
   try {
     const resp = await fetch(upstreamUrl, {
       signal: controller.signal,
-      headers: { "User-Agent": "WeaverProxy/1.0" },
+      headers,
     });
     const text = await resp.text();
     return { status: resp.status, text };
@@ -238,13 +256,17 @@ async function fetchGoPlusOnce(upstreamUrl) {
 
 // GET relay — GoPlus routes. Retries on rate-limit (code 4029) with
 // exponential backoff + jitter, then returns HTTP 429 if still limited.
-async function relay(upstreamUrl, headers) {
+//
+// env is threaded through so fetchGoPlusOnce can attach the optional
+// GOPLUS_KEY. Passing env even when the key is absent is safe — the
+// helper treats a missing key as "unauthenticated request".
+async function relay(upstreamUrl, headers, env) {
   let lastPayload = null;
 
   for (let attempt = 0; attempt < GOPLUS_MAX_ATTEMPTS; attempt++) {
     let result;
     try {
-      result = await fetchGoPlusOnce(upstreamUrl);
+      result = await fetchGoPlusOnce(upstreamUrl, env);
     } catch (e) {
       return jsonResponse(
         { code: 0, message: `Upstream fetch failed: ${e.message}` },
@@ -539,12 +561,12 @@ async function handleRequest(request, env) {
         );
       }
       const upstream = `${GOPLUS_EVM_BASE}/${chainId}?contract_addresses=${encodeURIComponent(contractAddresses)}`;
-      return relay(upstream, headers);
+      return relay(upstream, headers, env);
     }
 
     // isGoplusSolana
     const upstream = `${GOPLUS_SOLANA_BASE}?contract_addresses=${encodeURIComponent(contractAddresses)}`;
-    return relay(upstream, headers);
+    return relay(upstream, headers, env);
   }
 
   // ── Unknown path — 404, regardless of query params or method. ─
