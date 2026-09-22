@@ -17710,6 +17710,35 @@ async function deleteVault(syncCode) {
   W.store.delete(key);
 }
 
+// ── Orphaned-vault cleanup ────────────────────────────────────
+// One-time cleanup for users who hit the pre-fix regeneration bug
+// (render()/syncVault() minted a new code on every call, orphaning
+// the vault stored under the previous code). Runs at most once per
+// session, and only when the current code already has its own
+// vault — that way an unmerged "Generate New" doesn't delete the
+// user's only working backup.
+let prunedThisSession = false;
+function pruneOrphanedVaults() {
+  if (prunedThisSession) return;
+  prunedThisSession = true;
+  const currentCode = W.store.get("sync_code_current", null);
+  if (!currentCode) return;
+
+  if (!W.store.get(`vault_${currentCode}`, null)) return;
+
+  try {
+    const keys = Object.keys(localStorage).filter((k) =>
+      k.startsWith("vault_WEVR-"),
+    );
+    for (const k of keys) {
+      const keyCode = k.replace(/^vault_/, "");
+      if (keyCode !== currentCode) {
+        W.store.delete(k);
+      }
+    }
+  } catch (_) {}
+}
+
 // ── UI Functions ──────────────────────────────────────────────
 
 // Generates a new code and stores BOTH the plaintext and the salted
@@ -17790,7 +17819,9 @@ async function syncVault() {
 }
 
 async function restoreVault() {
-  const code = prompt("Enter your sync code (e.g. WEVR-7F3A-91BE-24C8-5E6D-0A1B-C2D3-E4F5-6789):");
+  const code = prompt(
+    "Enter your sync code (e.g. WEVR-7F3A-91BE-24C8-5E6D-0A1B-C2D3-E4F5-6789):",
+  );
   if (!code) return;
   if (!validateSyncCode(code)) {
     W.ui.toast("Invalid sync code format.", "warn");
@@ -17838,6 +17869,12 @@ async function restoreVault() {
 // ── RENDER FUNCTION ────────────────────────────────────
 function render(view) {
   if (view?.dataset?.route && view.dataset.route !== "sync") return;
+
+  // One-time cleanup for users who accumulated orphaned vault_<code>
+  // entries under the pre-fix regeneration behavior. Runs at most
+  // once per session; see pruneOrphanedVaults above for the safety
+  // guard that prevents it from deleting the user's only backup.
+  pruneOrphanedVaults();
 
   // Read the existing code. Never regenerate on render: the user may
   // have written the code down, and regenerating would silently
@@ -17946,33 +17983,6 @@ const Sync = {
   restoreVault,
   render,
 };
-
-
-// This is cleanup for users who hit the pre-fix regeneration bug and
-// accumulated orphaned vaults.
-let prunedThisSession = false;
-function pruneOrphanedVaults() {
-  if (prunedThisSession) return;
-  prunedThisSession = true;
-  const currentCode = W.store.get("sync_code_current", null);
-  if (!currentCode) return;
-
-  // Don't prune if the current code has no vault yet — the older
-  // vaults may still be the user's only working backup.
-  if (!W.store.get(`vault_${currentCode}`, null)) return;
-
-  try {
-    const keys = Object.keys(localStorage).filter((k) =>
-      k.startsWith("vault_WEVR-"),
-    );
-    for (const k of keys) {
-      const keyCode = k.replace(/^vault_/, "");
-      if (keyCode !== currentCode) {
-        W.store.delete(k);
-      }
-    }
-  } catch (_) {}
-}
 
 // Register with Weaver
 window.W = window.W || {};
