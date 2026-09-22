@@ -20480,7 +20480,11 @@ W.trackRecord = (() => {
 
   async function render(view) {
     try {
-      await evaluateGemOutcomes();
+      // It fetches current DexScreener prices, which would contradict
+      // both the module header ("Historical views never fetch current
+      // market data") and the disclosure rendered above the list. The
+      // evaluator remains a public function for callers that explicitly
+      // want a live outcome check; #/track renders only stored state.
     } catch (e) {
       console.warn("[TrackRecord] Gem outcome evaluation skipped:", e.message);
     }
