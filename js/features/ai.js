@@ -390,7 +390,13 @@ const AiModule = (() => {
   }
 
   // ── 6. NATURAL LANGUAGE QUERIES ──────────────────────
-  async function ask(question, useLLM = true) {
+  //
+  // ask() has a recursive fallback path: when the LLM call fails, we
+  // retry with useLLM = false to give a rule-based answer instead.
+  // Without the cachedContext parameter, that retry would re-fetch
+  // fearGreed/global and re-run regime detection for no benefit. The
+  // third argument carries the context across the recursive call.
+  async function ask(question, useLLM = true, cachedContext = null) {
     const isPortfolioQuery =
       /portfolio|holdings|own|invest|balance|worth|value/i.test(question);
     const isPriceQuery = /price|worth|cost|value|how much/i.test(question);
@@ -432,21 +438,32 @@ const AiModule = (() => {
       }
     }
 
-    try {
-      const fg = await W.api.fearGreed();
-      const g = await W.api.global();
-      marketContext = `Fear & Greed: ${fg.value} (${fg.value_classification}). `;
-      marketContext += `BTC Dominance: ${g.data.market_cap_percentage.btc.toFixed(1)}%. `;
-      marketContext += `Market Cap: ${W.fmt.money(g.data.total_market_cap.usd, { compact: true })}. `;
+    // Market / regime context: fetched on the first entry, reused on
+    // the recursive fallback. The fetch is unconditional on first
+    // entry because the LLM system prompt includes marketContext for
+    // every question — a portfolio question can still benefit from
+    // regime awareness. The recursion, however, should not pay that
+    // cost twice.
+    if (cachedContext) {
+      marketContext = cachedContext.marketContext;
+      regimeContext = cachedContext.regimeContext;
+    } else {
+      try {
+        const fg = await W.api.fearGreed();
+        const g = await W.api.global();
+        marketContext = `Fear & Greed: ${fg.value} (${fg.value_classification}). `;
+        marketContext += `BTC Dominance: ${g.data.market_cap_percentage.btc.toFixed(1)}%. `;
+        marketContext += `Market Cap: ${W.fmt.money(g.data.total_market_cap.usd, { compact: true })}. `;
 
-      // Use new Regime Engine (Section 27)
-      const regimeData = W.regime.detect({
-        fearGreed: fg.value,
-        btcDominance: g.data.market_cap_percentage.btc,
-        capChange: g.data.market_cap_change_percentage_24h_usd,
-      });
-      regimeContext = `Current Market Regime: ${regimeData.regime} (Confidence: ${(regimeData.confidence * 100).toFixed(0)}%). Supporting signals: ${regimeData.signals.map((s) => `${s.type} (${s.value})`).join(", ")}.`;
-    } catch (e) {}
+        // Use new Regime Engine (Section 27)
+        const regimeData = W.regime.detect({
+          fearGreed: fg.value,
+          btcDominance: g.data.market_cap_percentage.btc,
+          capChange: g.data.market_cap_change_percentage_24h_usd,
+        });
+        regimeContext = `Current Market Regime: ${regimeData.regime} (Confidence: ${(regimeData.confidence * 100).toFixed(0)}%). Supporting signals: ${regimeData.signals.map((s) => `${s.type} (${s.value})`).join(", ")}.`;
+      } catch (e) {}
+    }
 
     if (!useLLM) {
       if (isPriceQuery && !isPortfolioQuery) {
@@ -508,7 +525,9 @@ ${behaviorContext}
       return result;
     } catch (e) {
       console.warn("[AI] LLM fallback:", e);
-      return await ask(question, false);
+      // Pass the already-fetched context so the recursive call does
+      // not re-fetch fearGreed/global and re-run regime detection.
+      return await ask(question, false, { marketContext, regimeContext });
     }
   }
 
