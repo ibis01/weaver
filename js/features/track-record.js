@@ -1270,24 +1270,22 @@ W.trackRecord = (() => {
         r.outcome.status,
       ),
     );
-    const wins = resolved.filter(
-      (r) => r.outcome.status === "REPORTED_GAIN",
-    ).length;
-    const winRate = resolved.length
-      ? Math.round((wins / resolved.length) * 100)
-      : null;
+        const wins = resolved.filter(
+          (r) => r.outcome.status === "REPORTED_GAIN",
+        ).length;
 
-    const publicSection = `
+        const publicSection = `
       <div class="card">
         <div class="flex-between"><h3>🌐 Weaver's Public Track Record</h3></div>
         <p class="muted small">Every Gem Agent call, tracked automatically — wins and losses shown equally. These are Weaver's own market calls, never a user's personal trades.</p>
         <p class="small">
           ${
             resolved.length
-              ? `<b>${wins}W / ${resolved.length - wins}L or flat</b> · Win rate ${winRate}% of ${resolved.length} resolved`
+              ? `${resolved.length} resolved call${resolved.length === 1 ? "" : "s"} · ${wins} gain${wins === 1 ? "" : "s"}, ${resolved.length - wins} loss or flat`
               : "No resolved calls yet."
           }
           ${gemRecords.length - resolved.length > 0 ? ` · ${gemRecords.length - resolved.length} pending` : ""}
+      
         </p>
         ${
           gemRecords.length
