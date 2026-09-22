@@ -1312,27 +1312,22 @@ W.trackRecord = (() => {
         (button.onclick = () => {
           const entry = button.closest("[data-record-id]");
           const changes = {};
-f (field.dataset.field === "revisionReason") return;
-          entry.querySelectorAll("[data-field]").forEach((field) => {
-            // revisionReason is the third argument to update(), not a
-f (field.dataset.field === "revisionReason") return;
-            const value = field.value;
-f (field.dataset.field === "revisionReason") return;
-            if (
-f (field.dataset.field === "revisionReason") return;
-              field.dataset.field.includes("Price") ||
-f (field.dataset.field === "revisionReason") return;
-              field.dataset.field === "outcome.positionSize"
-f (field.dataset.field === "revisionReason") return;
-            )
-f (field.dataset.field === "revisionReason") return;
-              changes[field.dataset.field] =
-f (field.dataset.field === "revisionReason") return;
-                value === "" ? null : Number(value);
-f (field.dataset.field === "revisionReason") return;
-            else changes[field.dataset.field] = value || null;
-f (field.dataset.field === "revisionReason") return;
-          });
+                   entry.querySelectorAll("[data-field]").forEach((field) => {
+                     // revisionReason is passed to update() as its third
+                     // argument below, not as a record field. Including it
+                     // here makes update() reject the save with
+                     // "Immutable or invalid field: revisionReason".
+                     if (field.dataset.field === "revisionReason") return;
+
+                     const value = field.value;
+                     if (
+                       field.dataset.field.includes("Price") ||
+                       field.dataset.field === "outcome.positionSize"
+                     )
+                       changes[field.dataset.field] =
+                         value === "" ? null : Number(value);
+                     else changes[field.dataset.field] = value || null;
+                   });
           const result = update(
             entry.dataset.recordId,
             changes,
@@ -1396,58 +1391,57 @@ f (field.dataset.field === "revisionReason") return;
 
       if (!symbol && !address && !coingeckoId) return null;
 
-           const matches = records.filter((rec) => {
-             if (!rec || typeof rec !== "object") return false;
+      const matches = records.filter((rec) => {
+        if (!rec || typeof rec !== "object") return false;
 
-             // Canonical identity lives in rec.assetId (see canonicalAssetId).
-             // Legacy records may carry the same fields at the top level;
-             // check both shapes so matching works for every record the
-             // module has ever written.
-             const id =
-               rec.assetId && typeof rec.assetId === "object"
-                 ? rec.assetId
-                 : rec;
+        // Canonical identity lives in rec.assetId (see canonicalAssetId).
+        // Legacy records may carry the same fields at the top level;
+        // check both shapes so matching works for every record the
+        // module has ever written.
+        const id =
+          rec.assetId && typeof rec.assetId === "object" ? rec.assetId : rec;
 
-             const recSymbol =
-               typeof id.symbol === "string"
-                 ? id.symbol.trim().toUpperCase()
-                 : typeof rec.symbol === "string"
-                   ? rec.symbol.trim().toUpperCase()
-                   : typeof rec.asset === "string"
-                     ? rec.asset.trim().toUpperCase()
-                     : null;
-             if (symbol && recSymbol === symbol) return true;
+        const recSymbol =
+          typeof id.symbol === "string"
+            ? id.symbol.trim().toUpperCase()
+            : typeof rec.symbol === "string"
+              ? rec.symbol.trim().toUpperCase()
+              : typeof rec.asset === "string"
+                ? rec.asset.trim().toUpperCase()
+                : null;
+        if (symbol && recSymbol === symbol) return true;
 
-             const recCg =
-               typeof id.coingeckoId === "string"
-                 ? id.coingeckoId.trim().toLowerCase()
-                 : typeof rec.coingeckoId === "string"
-                   ? rec.coingeckoId.trim().toLowerCase()
-                   : null;
-             if (coingeckoId && recCg === coingeckoId) return true;
+        const recCg =
+          typeof id.coingeckoId === "string"
+            ? id.coingeckoId.trim().toLowerCase()
+            : typeof rec.coingeckoId === "string"
+              ? rec.coingeckoId.trim().toLowerCase()
+              : null;
+        if (coingeckoId && recCg === coingeckoId) return true;
 
-             const recAddr =
-               typeof id.contractAddress === "string"
-                 ? id.contractAddress.trim().toLowerCase()
-                 : typeof rec.contractAddress === "string"
-                   ? rec.contractAddress.trim().toLowerCase()
-                   : null;
-             if (address && recAddr === address) return true;
+        const recAddr =
+          typeof id.contractAddress === "string"
+            ? id.contractAddress.trim().toLowerCase()
+            : typeof rec.contractAddress === "string"
+              ? rec.contractAddress.trim().toLowerCase()
+              : null;
+        if (address && recAddr === address) return true;
 
-             return false;
-           });
-          !["UNSET", "NO_DECISION"].includes(m.userDecision.action),
+        return false;
+      });
+      if (!matches.length) return null;
 
       const total = matches.length;
       // A record has a decision only when the user actually recorded one.
-      // The default value is "NO_DECISION", which is stored but does not
-      // represent a decision the user made.
+      // Fresh records default to "UNSET"; an untouched record carries
+      // the explicit value "NO_DECISION". Neither represents a decision
+      // the user actually made.
       const withDecision = matches.filter(
         (m) =>
           m.userDecision &&
           typeof m.userDecision === "object" &&
           typeof m.userDecision.action === "string" &&
-          m.userDecision.action !== "NO_DECISION",
+          !["UNSET", "NO_DECISION"].includes(m.userDecision.action),
       ).length;
 
       // A record is resolved only when the user reported an outcome.
