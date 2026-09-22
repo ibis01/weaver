@@ -429,6 +429,33 @@ const Sync = {
   render,
 };
 
+
+// This is cleanup for users who hit the pre-fix regeneration bug and
+// accumulated orphaned vaults.
+let prunedThisSession = false;
+function pruneOrphanedVaults() {
+  if (prunedThisSession) return;
+  prunedThisSession = true;
+  const currentCode = W.store.get("sync_code_current", null);
+  if (!currentCode) return;
+
+  // Don't prune if the current code has no vault yet — the older
+  // vaults may still be the user's only working backup.
+  if (!W.store.get(`vault_${currentCode}`, null)) return;
+
+  try {
+    const keys = Object.keys(localStorage).filter((k) =>
+      k.startsWith("vault_WEVR-"),
+    );
+    for (const k of keys) {
+      const keyCode = k.replace(/^vault_/, "");
+      if (keyCode !== currentCode) {
+        W.store.delete(k);
+      }
+    }
+  } catch (_) {}
+}
+
 // Register with Weaver
 window.W = window.W || {};
 W.features = W.features || {};
