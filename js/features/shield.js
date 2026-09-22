@@ -321,9 +321,13 @@ W.shield = (() => {
     const isOwnerRenounced =
       result.owner_change === "1" ||
       result.owner === "0x0000000000000000000000000000000000000000";
-    const isLpLocked = (result.lp_holders || []).some(
-      (lp) => lp.is_locked === 1,
-    );
+       const lpHoldersRaw = Array.isArray(result.lp_holders)
+         ? result.lp_holders
+         : [];
+       const hasLpData = lpHoldersRaw.length > 0;
+       const isLpLocked = hasLpData
+         ? lpHoldersRaw.some((lp) => lp.is_locked === 1)
+         : null;
     const buyTax = (parseFloat(result.buy_tax) * 100).toFixed(1);
     const sellTax = (parseFloat(result.sell_tax) * 100).toFixed(1);
 
@@ -342,10 +346,10 @@ W.shield = (() => {
       riskScore += 15;
       risks.push("⚠️ Proxy contract (hidden logic)");
     }
-    if (!isLpLocked) {
-      riskScore += 15;
-      risks.push("⚠️ Liquidity not locked");
-    }
+    if (isLpLocked === false) {
+          riskScore += 15;
+          risks.push("⚠️ Liquidity not locked");
+        }
     if (parseFloat(buyTax) > 5) {
       riskScore += 10;
       risks.push(`⚠️ High buy tax (${buyTax}%)`);
@@ -676,7 +680,8 @@ W.shield = (() => {
       risks.push(`⚠️ Transfer fee: ${transferFeePct}%`);
     }
 
-    const riskLevel =
+    const riskLevel = ( 
+      riskScore =  Math.min(100, riskScore));
       riskScore >= RISK_THRESHOLD
         ? ["🔴 High identified risk indicators", "high-risk"]
         : riskScore >= 20
@@ -935,7 +940,7 @@ W.shield = (() => {
       const m = W.ui.modal({
         title: "Example Contracts",
         body: `<div class="qa">${list}</div>`,
-        footer: `<button class="btn ghost" onclick="this.closest('.modal').parentElement.innerHTML=''">Close</button>`,
+        footer: `<button class="btn ghost" data-a="modal-close">Close</button>`,
       });
       m.el.querySelectorAll("[data-addr]").forEach((chip) => {
         chip.onclick = () => {
