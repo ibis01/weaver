@@ -21,14 +21,33 @@ self.addEventListener("install", (e) => {
 
 self.addEventListener("activate", (e) => {
   e.waitUntil(
-    caches
-      .keys()
-      .then((keys) =>
-        Promise.all(
-          keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)),
-        ),
-      )
-      .then(() => clients.claim()),
+    (async () => {
+      // 1. Delete caches with a different name (existing behavior).
+      const names = await caches.keys();
+      await Promise.all(
+        names.filter((n) => n !== CACHE).map((n) => caches.delete(n)),
+      );
+
+      // 2. Prune stale bundle entries from the current cache. Bundle
+      // URLs carry a ?v= cache-buster, so each new deploy introduces
+      // a new cache key for dist/bundle.min.js while the previous
+      // version's entry lingers. Since SW activation only fires when
+      // the SW file itself changes — i.e. on a deploy — any cached
+      // bundle at this point is stale and will be re-fetched under
+      // the current version on the next navigation.
+      const cache = await caches.open(CACHE);
+      const cached = await cache.keys();
+      await Promise.all(
+        cached.map((req) => {
+          const url = new URL(req.url);
+          if (url.pathname.endsWith("/dist/bundle.min.js")) {
+            return cache.delete(req);
+          }
+        }),
+      );
+
+      await clients.claim();
+    })(),
   );
 });
 

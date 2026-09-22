@@ -88,7 +88,7 @@ const AiModule = (() => {
       riskScore:
         top3Concentration * 0.3 +
         vol * 0.2 +
-        (100 - correlationScore) * 0.2 +
+        correlationScore * 0.2 +
         (100 - liquidityScore) * 0.15 +
         (100 - sectorScore) * 0.15,
     };
