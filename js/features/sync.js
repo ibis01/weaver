@@ -7,12 +7,23 @@
 //   - PBKDF2 key derivation (600,000 iterations)
 //   - AES-256-GCM encryption/decryption
 //   - UI for managing sync codes and vault operations
-//   - Secure storage: only salted hash of sync code is stored
+//
+// Storage model:
+//   - Vault: encrypted blob in localStorage under vault_<code>
+//   - Sync code: stored in plaintext under sync_code_current so the
+//     UI can display it on revisit. A salted hash is also kept under
+//     sync_code_hash for verification when restoring.
+//
+// SCOPE NOTE:
+//   This module is a LOCAL encrypted backup. It does not transfer
+//   data between devices: vault_<code> lives in localStorage, which
+//   is per-browser. Restoring on another device would require a
+//   transport layer that does not currently exist.
 //
 // Security notes:
 //   - Sync codes are 16 bytes (128 bits) – not enumerable
 //   - Encryption keys derived from user password (not sync code)
-//   - Firestore rules should NOT be "allow read, write: if true"
+//   - The password never leaves this device
 // ================================================================
 
 // ── Constants ────────────────────────────────────────────────
@@ -182,11 +193,17 @@ async function deleteVault(syncCode) {
 }
 
 // ── UI Functions ──────────────────────────────────────────────
+
+// Generates a new code and stores BOTH the plaintext and the salted
+// hash. The plaintext is needed by render() to display the code on
+// revisit without regenerating it. Only called from the explicit
+// "Generate New" button or from syncVault()/render() when there is
+// no existing code yet.
 async function generateAndDisplayCode() {
   const code = generateSyncCode();
-  // Store hash only
   const { hash, salt } = await hashSyncCode(code);
   W.store.set("sync_code_hash", { hash, salt });
+  W.store.set("sync_code_current", code);
   const display = document.getElementById("sync-code-display");
   if (display) display.textContent = code;
   return code;
@@ -235,28 +252,22 @@ async function syncVault() {
     return;
   }
 
-  // Get existing sync code hash or generate new one
-  let storedHash = W.store.get("sync_code_hash", null);
-  let code = null;
-  if (storedHash) {
-    // We need the plaintext code to display; but we only have hash.
-    // We'll generate a new code and replace the hash.
-    code = generateSyncCode();
-    const newHash = await hashSyncCode(code);
-    W.store.set("sync_code_hash", newHash);
-  } else {
-    code = generateSyncCode();
-    const newHash = await hashSyncCode(code);
-    W.store.set("sync_code_hash", newHash);
+  // Reuse the existing code. Regenerating it here would invalidate
+  // any code the user has already saved, orphaning the previously
+  // stored vault under vault_<oldcode>. Only generate when there is
+  // no code yet, or the user explicitly clicks "Generate New".
+  let code = W.store.get("sync_code_current", null);
+  if (!code || !validateSyncCode(code)) {
+    code = await generateAndDisplayCode();
   }
 
   try {
     await saveVault(data, password, code);
-    W.ui.toast(`✅ Vault synced! Code: ${code}`, "ok");
+    W.ui.toast(`✅ Vault saved! Code: ${code}`, "ok");
     const display = document.getElementById("sync-code-display");
     if (display) display.textContent = code;
   } catch (e) {
-    W.ui.toast(`❌ Sync failed: ${e.message}`, "warn");
+    W.ui.toast(`❌ Save failed: ${e.message}`, "warn");
   }
 }
 
@@ -268,7 +279,9 @@ async function restoreVault() {
     return;
   }
 
-  // Verify against stored hash (if present)
+  // Verify against stored hash if present. This confirms the code is
+  // one this device has seen before. It does NOT prove a vault exists
+  // for it — loadVault() will check that separately.
   const storedHash = W.store.get("sync_code_hash", null);
   if (storedHash) {
     const valid = await verifySyncCode(code, storedHash.hash, storedHash.salt);
@@ -307,28 +320,22 @@ async function restoreVault() {
 // ── RENDER FUNCTION ────────────────────────────────────
 function render(view) {
   if (view?.dataset?.route && view.dataset.route !== "sync") return;
-  // Get existing code or generate one
-  let code = null;
-  const storedHash = W.store.get("sync_code_hash", null);
-  if (!storedHash) {
-    // Generate a new code and store hash
-    (async () => {
-      code = generateSyncCode();
-      const newHash = await hashSyncCode(code);
-      W.store.set("sync_code_hash", newHash);
-      const display = view.querySelector("#sync-code-display");
-      if (display) display.textContent = code;
-    })();
-  } else {
-    // We don't know the plaintext code; generate a new one for display
-    // and update the hash (this invalidates old code, but user can still restore with old code if they have it)
+
+  // Read the existing code. Never regenerate on render: the user may
+  // have written the code down, and regenerating would silently
+  // invalidate it, orphaning their stored vault.
+  let code = W.store.get("sync_code_current", null);
+  if (!code || !validateSyncCode(code)) {
+    // No code yet — this is a first-visit case. Generate one and
+    // display it. The user has nothing to lose because no vault
+    // exists yet.
     code = generateSyncCode();
-    (async () => {
-      const newHash = await hashSyncCode(code);
-      W.store.set("sync_code_hash", newHash);
+    hashSyncCode(code).then(({ hash, salt }) => {
+      W.store.set("sync_code_hash", { hash, salt });
+      W.store.set("sync_code_current", code);
       const display = view.querySelector("#sync-code-display");
       if (display) display.textContent = code;
-    })();
+    });
   }
 
   view.innerHTML = `
@@ -357,16 +364,19 @@ function render(view) {
         <li>✅ PBKDF2 with 600,000 iterations</li>
         <li>✅ AES-256-GCM authenticated encryption</li>
         <li>✅ Random salt and IV per encryption</li>
-        <li>✅ Sync code stored only as salted hash</li>
-        <li>✅ Data stored locally — you control your keys</li>
+        <li>✅ Data stored locally in your browser — it does not leave this device</li>
         <li>⚠️ Store your sync code and password safely — they cannot be recovered</li>
+        <li>⚠️ This is a local encrypted backup, not multi-device sync</li>
       </ul>
     </div>
   `;
 
   // ── Wire up buttons ──────────────────────────────────────
   view.querySelector("#sync-generate").onclick = async () => {
-    const newCode = await generateAndDisplayCode();
+    // Explicit user action: safe to mint a new code. The previous
+    // vault (if any) remains stored under vault_<oldcode> and can
+    // still be restored by re-entering the old code manually.
+    await generateAndDisplayCode();
     W.ui.toast("New sync code generated 🔑", "ok");
   };
 
@@ -374,10 +384,10 @@ function render(view) {
 
   view.querySelector("#sync-save").onclick = () => {
     const status = view.querySelector("#sync-status");
-    status.innerHTML = '<p class="muted small">⏳ Starting sync...</p>';
+    status.innerHTML = '<p class="muted small">⏳ Starting save...</p>';
     syncVault()
       .then(() => {
-        status.innerHTML = '<p class="up small">✅ Sync completed</p>';
+        status.innerHTML = '<p class="up small">✅ Save completed</p>';
       })
       .catch((e) => {
         status.innerHTML = `<p class="down small">❌ ${e.message}</p>`;
@@ -396,7 +406,7 @@ function render(view) {
       });
   };
 
-  // Update display if code changes
+  // Ensure the display is populated if a code was found in storage.
   const display = view.querySelector("#sync-code-display");
   if (display && code) display.textContent = code;
 }
@@ -433,4 +443,4 @@ if (typeof document !== "undefined") {
   });
 }
 
-console.log("[Sync] Module loaded securely (with hash storage).");
+console.log("[Sync] Module loaded (local encrypted backup).");

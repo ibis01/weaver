@@ -38,6 +38,16 @@ W.web3 = W.web3 || {};
     W.store.set("web3_state", state);
   }
 
+  // ── Wallet listener bookkeeping ───────────────────────
+  // EIP-1193 does not deduplicate listeners: every call to
+  // window.ethereum.on("accountsChanged", ...) adds another handler
+  // that fires on every future event. Without a guard and a cleanup
+  // path, reconnecting the wallet N times makes the handler fire N
+  // times per event (N toasts, N renders). Store named handler
+  // references so disconnectWallet() can remove them.
+  let walletListenersAttached = false;
+  let walletHandlers = null;
+
   // ── Validate Address ──────────────────────────────────
   function validateAddress(address, chain) {
     if (chain === "sol") {
@@ -226,27 +236,33 @@ W.web3 = W.web3 || {};
   }
 
   // ── Setup EIP-1193 Wallet Listeners ───────────────────
+  //
+  // Idempotent: if listeners are already attached, this returns
+  // immediately. The handler references are kept so disconnectWallet
+  // can remove them.
   function setupWalletListeners() {
     if (!window.ethereum) return;
+    if (walletListenersAttached) return;
 
-    // Listen for account changes (e.g., user switches or disconnects in wallet)
-    window.ethereum.on("accountsChanged", (accounts) => {
+    const onAccountsChanged = (accounts) => {
       if (accounts.length === 0) {
-        // User disconnected from the wallet side
         disconnectWallet();
       } else {
-        // User switched to a different account in the wallet
         state.evm = { address: accounts[0] };
         saveState();
         render(document.getElementById("view"));
         W.ui?.toast?.("Wallet account updated", "info");
       }
-    });
+    };
 
-    // Listen for chain changes (EIP-1193 best practice: reload on chain change)
-    window.ethereum.on("chainChanged", () => {
+    const onChainChanged = () => {
       window.location.reload();
-    });
+    };
+
+    window.ethereum.on("accountsChanged", onAccountsChanged);
+    window.ethereum.on("chainChanged", onChainChanged);
+    walletHandlers = { onAccountsChanged, onChainChanged };
+    walletListenersAttached = true;
   }
 
   // ── Connect Wallet (EIP-1193) ────────────────────────
@@ -264,7 +280,7 @@ W.web3 = W.web3 || {};
       if (accounts && accounts.length > 0) {
         state.evm = { address: accounts[0] };
         saveState();
-        setupWalletListeners(); // Ensure listeners are active
+        setupWalletListeners(); // Idempotent — safe to call on every connect
         W.ui?.toast?.("Wallet connected securely", "ok");
         render(document.getElementById("view"));
       }
@@ -278,6 +294,26 @@ W.web3 = W.web3 || {};
   function disconnectWallet() {
     state.evm = null;
     saveState();
+
+    // Remove the EIP-1193 listeners so they don't fire against a
+    // disconnected state, and so reconnecting doesn't stack handlers.
+    if (window.ethereum && walletHandlers) {
+      try {
+        window.ethereum.removeListener(
+          "accountsChanged",
+          walletHandlers.onAccountsChanged,
+        );
+        window.ethereum.removeListener(
+          "chainChanged",
+          walletHandlers.onChainChanged,
+        );
+      } catch (_) {
+        // Some wallets throw if the handler isn't found. Harmless.
+      }
+    }
+    walletHandlers = null;
+    walletListenersAttached = false;
+
     W.ui?.toast?.("Wallet disconnected", "ok");
     render(document.getElementById("view"));
   }
@@ -343,6 +379,16 @@ W.web3 = W.web3 || {};
       }
     }
   }
+
+  // ── Re-attach listeners on page load if wallet is already connected ──
+  // When the user reloads while their wallet is still connected, the
+  // EIP-1193 listeners from the previous page context are gone.
+  // Re-attach them so account/chain changes are detected without
+  // requiring a manual reconnect.
+  if (state.evm?.address && window.ethereum) {
+    setupWalletListeners();
+  }
+
   // ── Exports ───────────────────────────────────────────
   W.web3 = {
     validateAddress,
