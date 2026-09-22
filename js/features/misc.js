@@ -316,8 +316,8 @@ W.misc = (() => {
       </div>
     `;
     view.querySelectorAll("[data-width]").forEach((el) => {
-  el.style.width = `${el.dataset.width}%`;
-     });
+      el.style.width = `${el.dataset.width}%`;
+    });
     view.querySelectorAll('input[type="checkbox"][data-drop]').forEach((cb) => {
       cb.onchange = () => {
         const done = W.store.get(KEY, {});
@@ -351,7 +351,7 @@ W.misc = (() => {
         <div class="pro-price">
           <b>$9</b>
           <span class="muted">/month (planned)</span>
-          <button class="btn primary" onclick="W.ui.toast('Pro launches soon — you are on the list! ✨','ok')">Join Waitlist</button>
+                    <button class="btn primary" data-action="join-waitlist">Join Waitlist</button>
         </div>
       </div>
       <div class="grid-2">
@@ -366,6 +366,16 @@ W.misc = (() => {
         ).join("")}
       </div>
     `;
+
+    // CSP-safe event wiring. The button previously used an inline
+    // onclick= handler, which the production CSP blocks. Attach the
+    // listener here, after view.innerHTML has populated the view, so
+    // the button is present in the DOM.
+    const waitlistBtn = view.querySelector('[data-action="join-waitlist"]');
+    if (waitlistBtn) {
+      waitlistBtn.onclick = () =>
+        W.ui.toast("Pro launches soon — you are on the list! ✨", "ok");
+    }
   }
 
   // ── Passphrase Helpers ─────────────────────────────────
