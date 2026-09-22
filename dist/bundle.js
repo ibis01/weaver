@@ -20420,22 +20420,26 @@ W.trackRecord = (() => {
       next[group][field] = changes[path];
     }
 
-    // Revision bookkeeping: record the previous value of each
-    // changed field so the change is auditable.
-    const revision = {
-      at: Date.now(),
-      reason: reason.trim(),
-      changes: {},
-    };
+    // Revision bookkeeping: one entry per changed field. Preserves
+    // per-field audit granularity — a caller inspecting revisions can
+    // see which specific field changed in which edit, not just that
+    // "something was edited". The v2.1 integration test asserts this
+    // shape: three field changes in one update() → three revision
+    // entries.
+    if (!Array.isArray(next.revisions)) next.revisions = [];
     for (const path of keys) {
       const [group, field] = path.split(".");
-      revision.changes[path] = {
-        from: record[group] ? record[group][field] : null,
-        to: next[group][field],
-      };
+      next.revisions.push({
+        at: Date.now(),
+        reason: reason.trim(),
+        changes: {
+          [path]: {
+            from: record[group] ? record[group][field] : null,
+            to: next[group][field],
+          },
+        },
+      });
     }
-    if (!Array.isArray(next.revisions)) next.revisions = [];
-    next.revisions.push(revision);
     if (next.revisions.length > MAX_REVISIONS) {
       next.revisions = next.revisions.slice(-MAX_REVISIONS);
     }
