@@ -13659,7 +13659,7 @@ W.gems = (() => {
 console.log("[Gems] Module loaded.");
 // ---- js/features/shield.js ----
 // ================================================================
-// js/features/shield.js – Token Shield (Contract Security Auditor)
+// Token Shield (Contract Security Auditor)
 // ================================================================
 
 window.W = window.W || {};
@@ -13981,13 +13981,15 @@ W.shield = (() => {
     const isOwnerRenounced =
       result.owner_change === "1" ||
       result.owner === "0x0000000000000000000000000000000000000000";
-       const lpHoldersRaw = Array.isArray(result.lp_holders)
-         ? result.lp_holders
-         : [];
-       const hasLpData = lpHoldersRaw.length > 0;
-       const isLpLocked = hasLpData
-         ? lpHoldersRaw.some((lp) => lp.is_locked === 1)
-         : null;
+
+    const lpHoldersRaw = Array.isArray(result.lp_holders)
+      ? result.lp_holders
+      : [];
+    const hasLpData = lpHoldersRaw.length > 0;
+    const isLpLocked = hasLpData
+      ? lpHoldersRaw.some((lp) => lp.is_locked === 1)
+      : null;
+
     const buyTax = (parseFloat(result.buy_tax) * 100).toFixed(1);
     const sellTax = (parseFloat(result.sell_tax) * 100).toFixed(1);
 
@@ -14007,9 +14009,9 @@ W.shield = (() => {
       risks.push("⚠️ Proxy contract (hidden logic)");
     }
     if (isLpLocked === false) {
-          riskScore += 15;
-          risks.push("⚠️ Liquidity not locked");
-        }
+      riskScore += 15;
+      risks.push("⚠️ Liquidity not locked");
+    }
     if (parseFloat(buyTax) > 5) {
       riskScore += 10;
       risks.push(`⚠️ High buy tax (${buyTax}%)`);
@@ -14022,6 +14024,9 @@ W.shield = (() => {
       riskScore += 5;
       risks.push("⚠️ Owner not renounced");
     }
+
+    // Clamp risk score to 100 before risk level classification
+    riskScore = Math.min(100, riskScore);
 
     const riskLevel =
       riskScore >= RISK_THRESHOLD
@@ -14198,7 +14203,7 @@ W.shield = (() => {
           <div class="kv-row"><span>Mintable (Infinite Supply)</span> <b class="${isMintable ? "down" : "up"}">${isMintable ? "YES ⚠️" : "NO ✅"}</b></div>
           <div class="kv-row"><span>Proxy Contract (Hidden Logic)</span> <b class="${isProxy ? "down" : "up"}">${isProxy ? "YES ⚠️" : "NO ✅"}</b></div>
           <div class="kv-row"><span>Owner Renounced</span> <b class="${isOwnerRenounced ? "up" : "down"}">${isOwnerRenounced ? "YES ✅" : "NO ⚠️"}</b></div>
-          <div class="kv-row"><span>Liquidity Locked</span> <b class="${isLpLocked ? "up" : "down"}">${isLpLocked ? "YES ✅" : "NO 🚨"}</b></div>
+          <div class="kv-row"><span>Liquidity Locked</span> <b class="${isLpLocked === true ? "up" : isLpLocked === false ? "down" : "muted"}">${isLpLocked === true ? "YES ✅" : isLpLocked === false ? "NO 🚨" : "UNKNOWN ⚠️"}</b></div>
         </div>
         <div class="card">
           <h3>💰 Taxes & Fees</h3>
@@ -14340,8 +14345,10 @@ W.shield = (() => {
       risks.push(`⚠️ Transfer fee: ${transferFeePct}%`);
     }
 
-    const riskLevel = ( 
-      riskScore =  Math.min(100, riskScore));
+    // Clamp risk score to 100 before risk level classification
+    riskScore = Math.min(100, riskScore);
+
+    const riskLevel =
       riskScore >= RISK_THRESHOLD
         ? ["🔴 High identified risk indicators", "high-risk"]
         : riskScore >= 20
