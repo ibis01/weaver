@@ -13981,9 +13981,27 @@ W.shield = (() => {
     const isOwnerRenounced =
       result.owner_change === "1" ||
       result.owner === "0x0000000000000000000000000000000000000000";
-    const isLpLocked = (result.lp_holders || []).some(
-      (lp) => lp.is_locked === 1,
-    );
+    const lpHoldersInput = Array.isArray(result.lp_holders)
+      ? result.lp_holders
+      : null;
+    const lpLockStatus =
+      lpHoldersInput && lpHoldersInput.length
+        ? lpHoldersInput.some(
+            (lp) => lp && (lp.is_locked === 1 || lp.is_locked === "1"),
+          )
+          ? "locked"
+          : lpHoldersInput.every(
+                (lp) => lp && (lp.is_locked === 0 || lp.is_locked === "0"),
+              )
+            ? "unlocked"
+            : "unknown"
+        : "unknown";
+    const isLpLocked =
+      lpLockStatus === "locked"
+        ? true
+        : lpLockStatus === "unlocked"
+          ? false
+          : null;
     const buyTax = (parseFloat(result.buy_tax) * 100).toFixed(1);
     const sellTax = (parseFloat(result.sell_tax) * 100).toFixed(1);
 
@@ -14002,9 +14020,11 @@ W.shield = (() => {
       riskScore += 15;
       risks.push("⚠️ Proxy contract (hidden logic)");
     }
-    if (!isLpLocked) {
+    if (lpLockStatus === "unlocked") {
       riskScore += 15;
       risks.push("⚠️ Liquidity not locked");
+    } else if (lpLockStatus === "unknown") {
+      risks.push("⚠️ Liquidity lock status unavailable");
     }
     if (parseFloat(buyTax) > 5) {
       riskScore += 10;
@@ -14019,6 +14039,7 @@ W.shield = (() => {
       risks.push("⚠️ Owner not renounced");
     }
 
+    riskScore = Math.min(100, riskScore);
     const riskLevel =
       riskScore >= RISK_THRESHOLD
         ? ["🔴 High identified risk indicators", "high-risk"]
@@ -14054,11 +14075,9 @@ W.shield = (() => {
       ? top10Holders.reduce((sum, h) => sum + (h.percent || 0), 0)
       : null;
 
-    const lpHoldersList = Array.isArray(result.lp_holders)
-      ? result.lp_holders
-      : [];
+    const lpHoldersList = lpHoldersInput || [];
     const lockedLpCount = lpHoldersList.filter(
-      (lp) => lp.is_locked === 1,
+      (lp) => lp && (lp.is_locked === 1 || lp.is_locked === "1"),
     ).length;
 
     const holders = {
@@ -14067,7 +14086,8 @@ W.shield = (() => {
       top10Pct,
       lpCount: lpHoldersList.length || null,
       lockedLpCount: lpHoldersList.length ? lockedLpCount : null,
-      hasLockedLp: lpHoldersList.length ? lockedLpCount > 0 : null,
+      hasLockedLp: isLpLocked,
+      lpLockStatus,
       source: "goplus-evm",
     };
 
@@ -14122,7 +14142,14 @@ W.shield = (() => {
       risks,
       riskLevel,
       scoreVersion: SHIELD_SCORE_VERSION_EVM,
-      flags: { isHoneypot, isMintable, isProxy, isOwnerRenounced, isLpLocked },
+      flags: {
+        isHoneypot,
+        isMintable,
+        isProxy,
+        isOwnerRenounced,
+        isLpLocked,
+        lpLockStatus,
+      },
       buyTax,
       sellTax,
       holders,
@@ -14149,6 +14176,7 @@ W.shield = (() => {
     const isProxy = assessment.flags.isProxy;
     const isOwnerRenounced = assessment.flags.isOwnerRenounced;
     const isLpLocked = assessment.flags.isLpLocked;
+    const lpLockStatus = assessment.flags.lpLockStatus;
     const buyTax = assessment.buyTax;
     const sellTax = assessment.sellTax;
     const holderCount = result.holder_count || 0;
@@ -14160,7 +14188,9 @@ W.shield = (() => {
 
     // ── Top holders ──────────────────────────────────
     const topHolders = (result.holders || []).slice(0, 5);
-    const lpHolders = (result.lp_holders || []).slice(0, 3);
+    const lpHolders = Array.isArray(result.lp_holders)
+      ? result.lp_holders.slice(0, 3)
+      : [];
 
     // ── Build HTML ──────────────────────────────────
     return `
@@ -14194,7 +14224,7 @@ W.shield = (() => {
           <div class="kv-row"><span>Mintable (Infinite Supply)</span> <b class="${isMintable ? "down" : "up"}">${isMintable ? "YES ⚠️" : "NO ✅"}</b></div>
           <div class="kv-row"><span>Proxy Contract (Hidden Logic)</span> <b class="${isProxy ? "down" : "up"}">${isProxy ? "YES ⚠️" : "NO ✅"}</b></div>
           <div class="kv-row"><span>Owner Renounced</span> <b class="${isOwnerRenounced ? "up" : "down"}">${isOwnerRenounced ? "YES ✅" : "NO ⚠️"}</b></div>
-          <div class="kv-row"><span>Liquidity Locked</span> <b class="${isLpLocked ? "up" : "down"}">${isLpLocked ? "YES ✅" : "NO 🚨"}</b></div>
+          <div class="kv-row"><span>Liquidity Locked</span> <b class="${lpLockStatus === "locked" ? "up" : lpLockStatus === "unlocked" ? "down" : "muted"}">${lpLockStatus === "locked" ? "YES ✅" : lpLockStatus === "unlocked" ? "NO 🚨" : "UNKNOWN"}</b></div>
         </div>
         <div class="card">
           <h3>💰 Taxes & Fees</h3>
@@ -14246,7 +14276,7 @@ W.shield = (() => {
                     <tr>
                       <td><code>${shortAddr(lp.address)}</code></td>
                       <td>${(parseFloat(lp.percent) * 100).toFixed(2)}%</td>
-                      <td>${lp.is_locked === 1 ? '<span class="tag buy">🔒 Locked</span>' : '<span class="tag sell">⚠️ Unlocked</span>'}</td>
+                      <td>${lp && (lp.is_locked === 1 || lp.is_locked === "1") ? '<span class="tag buy">🔒 Locked</span>' : lp && (lp.is_locked === 0 || lp.is_locked === "0") ? '<span class="tag sell">⚠️ Unlocked</span>' : '<span class="tag muted">Unknown</span>'}</td>
                     </tr>
                   `,
                     )
@@ -14336,6 +14366,7 @@ W.shield = (() => {
       risks.push(`⚠️ Transfer fee: ${transferFeePct}%`);
     }
 
+    riskScore = Math.min(100, riskScore);
     const riskLevel =
       riskScore >= RISK_THRESHOLD
         ? ["🔴 High identified risk indicators", "high-risk"]
@@ -14348,7 +14379,15 @@ W.shield = (() => {
       risks,
       riskLevel,
       scoreVersion: SHIELD_SCORE_VERSION_SOLANA,
-      flags: { mintable, freezable, closable, metadataMutable, balanceMutable },
+      flags: {
+        mintable,
+        freezable,
+        closable,
+        metadataMutable,
+        balanceMutable,
+        isLpLocked: null,
+        lpLockStatus: "unknown",
+      },
       transferFeePct,
       isTrusted,
       // The GoPlus Solana endpoint does not return holder distribution
@@ -14365,6 +14404,7 @@ W.shield = (() => {
         source: "unavailable",
         reason: "GoPlus Solana endpoint does not return holder distribution.",
       },
+      lpLockStatus: "unknown",
       // Same declared-gap pattern for the owner address. The field
       // is present so consumers can distinguish "not applicable"
       // from "checked and found empty".
