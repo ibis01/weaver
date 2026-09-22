@@ -862,7 +862,13 @@ W.gems = (() => {
                 ? priceAtCapture
                 : null,
               scenario: "Bullish scenario",
-              confidence: g.analysis.score,
+              // The Gem pipeline computes a composite evaluation score,
+              // not a calibrated confidence. Track Record's `confidence`
+              // field is semantically distinct — passing the score here
+              // would store a value that score() never produced as one.
+              // Until the Gem pipeline has a real confidence, the
+              // honest value is null.
+              confidence: null,
               reasons: g.analysis.reasons,
               methodologyVersion: g.analysis.scoreVersion,
             });

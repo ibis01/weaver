@@ -1383,28 +1383,46 @@ W.trackRecord = (() => {
 
       if (!symbol && !address && !coingeckoId) return null;
 
-      const matches = records.filter((rec) => {
-        if (!rec || typeof rec !== "object") return false;
-        const recSymbol =
-          typeof rec.symbol === "string"
-            ? rec.symbol.trim().toUpperCase()
-            : typeof rec.asset === "string"
-              ? rec.asset.trim().toUpperCase()
-              : null;
-        if (symbol && recSymbol === symbol) return true;
-        const recCg =
-          typeof rec.coingeckoId === "string"
-            ? rec.coingeckoId.trim().toLowerCase()
-            : null;
-        if (coingeckoId && recCg === coingeckoId) return true;
-        const recAddr =
-          typeof rec.contractAddress === "string"
-            ? rec.contractAddress.trim().toLowerCase()
-            : null;
-        if (address && recAddr === address) return true;
-        return false;
-      });
+           const matches = records.filter((rec) => {
+             if (!rec || typeof rec !== "object") return false;
 
+             // Canonical identity lives in rec.assetId (see canonicalAssetId).
+             // Legacy records may carry the same fields at the top level;
+             // check both shapes so matching works for every record the
+             // module has ever written.
+             const id =
+               rec.assetId && typeof rec.assetId === "object"
+                 ? rec.assetId
+                 : rec;
+
+             const recSymbol =
+               typeof id.symbol === "string"
+                 ? id.symbol.trim().toUpperCase()
+                 : typeof rec.symbol === "string"
+                   ? rec.symbol.trim().toUpperCase()
+                   : typeof rec.asset === "string"
+                     ? rec.asset.trim().toUpperCase()
+                     : null;
+             if (symbol && recSymbol === symbol) return true;
+
+             const recCg =
+               typeof id.coingeckoId === "string"
+                 ? id.coingeckoId.trim().toLowerCase()
+                 : typeof rec.coingeckoId === "string"
+                   ? rec.coingeckoId.trim().toLowerCase()
+                   : null;
+             if (coingeckoId && recCg === coingeckoId) return true;
+
+             const recAddr =
+               typeof id.contractAddress === "string"
+                 ? id.contractAddress.trim().toLowerCase()
+                 : typeof rec.contractAddress === "string"
+                   ? rec.contractAddress.trim().toLowerCase()
+                   : null;
+             if (address && recAddr === address) return true;
+
+             return false;
+           });
       if (!matches.length) return null;
 
       const total = matches.length;
