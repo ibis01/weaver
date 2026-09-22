@@ -20550,15 +20550,26 @@ W.trackRecord = (() => {
         (button.onclick = () => {
           const entry = button.closest("[data-record-id]");
           const changes = {};
+f (field.dataset.field === "revisionReason") return;
           entry.querySelectorAll("[data-field]").forEach((field) => {
+            // revisionReason is the third argument to update(), not a
+f (field.dataset.field === "revisionReason") return;
             const value = field.value;
+f (field.dataset.field === "revisionReason") return;
             if (
+f (field.dataset.field === "revisionReason") return;
               field.dataset.field.includes("Price") ||
+f (field.dataset.field === "revisionReason") return;
               field.dataset.field === "outcome.positionSize"
+f (field.dataset.field === "revisionReason") return;
             )
+f (field.dataset.field === "revisionReason") return;
               changes[field.dataset.field] =
+f (field.dataset.field === "revisionReason") return;
                 value === "" ? null : Number(value);
+f (field.dataset.field === "revisionReason") return;
             else changes[field.dataset.field] = value || null;
+f (field.dataset.field === "revisionReason") return;
           });
           const result = update(
             entry.dataset.recordId,
@@ -20663,7 +20674,7 @@ W.trackRecord = (() => {
 
              return false;
            });
-      if (!matches.length) return null;
+          !["UNSET", "NO_DECISION"].includes(m.userDecision.action),
 
       const total = matches.length;
       // A record has a decision only when the user actually recorded one.
