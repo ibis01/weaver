@@ -11230,17 +11230,28 @@ const AiModule = (() => {
       );
       const price = coin?.market_data?.current_price?.usd || 0;
       return (txs.items || [])
-        .filter(
-          (t) => (parseFloat(t.total?.value || 0) / 1e18) * price >= minUsd,
-        )
-        .slice(0, 5)
-        .map((t) => ({
-          from: t.from?.hash || "unknown",
-          to: t.to?.hash || "unknown",
-          amount: parseFloat(t.total?.value || 0) / 1e18,
-          value: (parseFloat(t.total?.value || 0) / 1e18) * price,
-          timestamp: new Date(t.timestamp).getTime(),
-        }));
+        .map((t) => {
+          // Blockscout returns total.value as the raw smallest-unit
+          // amount and total.decimals as the token's decimals. Reading
+          // decimals per transfer is required because a hardcoded 1e18
+          // is correct only for 18-decimal tokens: for USDC (6),
+          // USDT (6), WBTC (8), and similar, the USD value is off by
+          // 10^(18-decimals), small enough to silently fail the
+          // minUsd filter and return an empty list.
+          const rawDecimals = Number(t.total?.decimals);
+          const decimals = Number.isFinite(rawDecimals) ? rawDecimals : 18;
+          const divisor = Math.pow(10, decimals);
+          const amount = parseFloat(t.total?.value || 0) / divisor;
+          return {
+            from: t.from?.hash || "unknown",
+            to: t.to?.hash || "unknown",
+            amount,
+            value: amount * price,
+            timestamp: new Date(t.timestamp).getTime(),
+          };
+        })
+        .filter((t) => t.value >= minUsd)
+        .slice(0, 5);
     } catch (e) {
       console.warn("[AI] Whale activity error:", e);
       return null;
@@ -11268,6 +11279,12 @@ const AiModule = (() => {
           const recent = (txs.items || []).filter(
             (t) => new Date(t.timestamp).getTime() > weekAgo,
           );
+          // Values here are raw smallest-unit amounts, not normalized
+          // by token decimals. That is intentional: the only use of
+          // netFlow is the sign test below (`netFlow > 0`), and
+          // scaling by a positive constant does not change the sign.
+          // Do not add a decimal-normalization step — it would add
+          // cost and HTTP lookups for no behavioural change.
           const netFlow = recent.reduce((sum, t) => {
             if (t.to?.hash === h.address.hash)
               sum += parseFloat(t.total?.value || 0);
