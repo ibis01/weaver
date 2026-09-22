@@ -340,7 +340,9 @@ W.trackRecord = (() => {
     if (entry !== null && exit !== null && quantity !== null) {
       result.realizedResult = (exit - entry) * quantity;
       if (entry !== 0)
-        result.realizedResultPct = ((exit - entry) / entry) * 100;
+        if (Number.isFinite(entry) && entry > 0 && Number.isFinite(exit)) {
+          result.realizedResultPct = ((exit - entry) / entry) * 100;
+        }
     }
     const start = timeMs(outcome.entryTimestamp) ?? timeMs(decisionTimestamp);
     const end =
@@ -977,7 +979,12 @@ W.trackRecord = (() => {
         const currentPrice = pair ? parseFloat(pair.priceUsd) : null;
         if (!Number.isFinite(currentPrice)) continue;
 
-        const entry = record.weaverSnapshot.priceAtCapture;
+        const entry = Number.isFinite(record.weaverSnapshot?.priceAtCapture)
+          ? record.weaverSnapshot.priceAtCapture
+          : null;
+        if (!Number.isFinite(entry) || entry <= 0) {
+          continue;
+        }
         const pct = ((currentPrice - entry) / entry) * 100;
         const status =
           pct > 2
@@ -1270,11 +1277,11 @@ W.trackRecord = (() => {
         r.outcome.status,
       ),
     );
-        const wins = resolved.filter(
-          (r) => r.outcome.status === "REPORTED_GAIN",
-        ).length;
+    const wins = resolved.filter(
+      (r) => r.outcome.status === "REPORTED_GAIN",
+    ).length;
 
-        const publicSection = `
+    const publicSection = `
       <div class="card">
         <div class="flex-between"><h3>🌐 Weaver's Public Track Record</h3></div>
         <p class="muted small">Every Gem Agent call, tracked automatically — wins and losses shown equally. These are Weaver's own market calls, never a user's personal trades.</p>
@@ -1312,22 +1319,22 @@ W.trackRecord = (() => {
         (button.onclick = () => {
           const entry = button.closest("[data-record-id]");
           const changes = {};
-                   entry.querySelectorAll("[data-field]").forEach((field) => {
-                     // revisionReason is passed to update() as its third
-                     // argument below, not as a record field. Including it
-                     // here makes update() reject the save with
-                     // "Immutable or invalid field: revisionReason".
-                     if (field.dataset.field === "revisionReason") return;
+          entry.querySelectorAll("[data-field]").forEach((field) => {
+            // revisionReason is passed to update() as its third
+            // argument below, not as a record field. Including it
+            // here makes update() reject the save with
+            // "Immutable or invalid field: revisionReason".
+            if (field.dataset.field === "revisionReason") return;
 
-                     const value = field.value;
-                     if (
-                       field.dataset.field.includes("Price") ||
-                       field.dataset.field === "outcome.positionSize"
-                     )
-                       changes[field.dataset.field] =
-                         value === "" ? null : Number(value);
-                     else changes[field.dataset.field] = value || null;
-                   });
+            const value = field.value;
+            if (
+              field.dataset.field.includes("Price") ||
+              field.dataset.field === "outcome.positionSize"
+            )
+              changes[field.dataset.field] =
+                value === "" ? null : Number(value);
+            else changes[field.dataset.field] = value || null;
+          });
           const result = update(
             entry.dataset.recordId,
             changes,
