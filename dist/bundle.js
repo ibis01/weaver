@@ -13981,9 +13981,13 @@ W.shield = (() => {
     const isOwnerRenounced =
       result.owner_change === "1" ||
       result.owner === "0x0000000000000000000000000000000000000000";
-    const isLpLocked = (result.lp_holders || []).some(
-      (lp) => lp.is_locked === 1,
-    );
+       const lpHoldersRaw = Array.isArray(result.lp_holders)
+         ? result.lp_holders
+         : [];
+       const hasLpData = lpHoldersRaw.length > 0;
+       const isLpLocked = hasLpData
+         ? lpHoldersRaw.some((lp) => lp.is_locked === 1)
+         : null;
     const buyTax = (parseFloat(result.buy_tax) * 100).toFixed(1);
     const sellTax = (parseFloat(result.sell_tax) * 100).toFixed(1);
 
@@ -14002,10 +14006,10 @@ W.shield = (() => {
       riskScore += 15;
       risks.push("⚠️ Proxy contract (hidden logic)");
     }
-    if (!isLpLocked) {
-      riskScore += 15;
-      risks.push("⚠️ Liquidity not locked");
-    }
+    if (isLpLocked === false) {
+          riskScore += 15;
+          risks.push("⚠️ Liquidity not locked");
+        }
     if (parseFloat(buyTax) > 5) {
       riskScore += 10;
       risks.push(`⚠️ High buy tax (${buyTax}%)`);
@@ -14336,7 +14340,8 @@ W.shield = (() => {
       risks.push(`⚠️ Transfer fee: ${transferFeePct}%`);
     }
 
-    const riskLevel =
+    const riskLevel = ( 
+      riskScore =  Math.min(100, riskScore));
       riskScore >= RISK_THRESHOLD
         ? ["🔴 High identified risk indicators", "high-risk"]
         : riskScore >= 20
@@ -14595,7 +14600,7 @@ W.shield = (() => {
       const m = W.ui.modal({
         title: "Example Contracts",
         body: `<div class="qa">${list}</div>`,
-        footer: `<button class="btn ghost" onclick="this.closest('.modal').parentElement.innerHTML=''">Close</button>`,
+        footer: `<button class="btn ghost" data-a="modal-close">Close</button>`,
       });
       m.el.querySelectorAll("[data-addr]").forEach((chip) => {
         chip.onclick = () => {
@@ -15401,8 +15406,8 @@ W.misc = (() => {
       </div>
     `;
     view.querySelectorAll("[data-width]").forEach((el) => {
-  el.style.width = `${el.dataset.width}%`;
-     });
+      el.style.width = `${el.dataset.width}%`;
+    });
     view.querySelectorAll('input[type="checkbox"][data-drop]').forEach((cb) => {
       cb.onchange = () => {
         const done = W.store.get(KEY, {});
@@ -15436,7 +15441,7 @@ W.misc = (() => {
         <div class="pro-price">
           <b>$9</b>
           <span class="muted">/month (planned)</span>
-          <button class="btn primary" onclick="W.ui.toast('Pro launches soon — you are on the list! ✨','ok')">Join Waitlist</button>
+                    <button class="btn primary" data-action="join-waitlist">Join Waitlist</button>
         </div>
       </div>
       <div class="grid-2">
@@ -15451,6 +15456,16 @@ W.misc = (() => {
         ).join("")}
       </div>
     `;
+
+    // CSP-safe event wiring. The button previously used an inline
+    // onclick= handler, which the production CSP blocks. Attach the
+    // listener here, after view.innerHTML has populated the view, so
+    // the button is present in the DOM.
+    const waitlistBtn = view.querySelector('[data-action="join-waitlist"]');
+    if (waitlistBtn) {
+      waitlistBtn.onclick = () =>
+        W.ui.toast("Pro launches soon — you are on the list! ✨", "ok");
+    }
   }
 
   // ── Passphrase Helpers ─────────────────────────────────
@@ -19476,10 +19491,6 @@ W.trackRecord = (() => {
   }
 
   // Narrow signature for identity comparison during migration.
-  // Full snapshot comparison fails because canonical and legacy
-  // snapshots are structurally different. The fields below are what
-  // actually determine whether two records describe the same analysis
-  // at the *identity* level.
   function snapshotSignature(snapshot) {
     if (!snapshot || typeof snapshot !== "object") return "null";
     const verdict = snapshot.unifiedVerdict || {};
@@ -19494,43 +19505,6 @@ W.trackRecord = (() => {
   }
 
   // ── Normalized content projection ─────────────────────
-  // Canonical and legacy-v0 snapshots describe the same analysis
-  // under structurally incompatible shapes. The projection maps both
-  // onto a common semantic shape so that "same analysis" can be
-  // compared as a value, not as a structural match.
-  //
-  // Design rules:
-  //
-  //   1. Include only fields that are (a) present in both formats
-  //      and (b) semantically meaningful for identity.
-  //
-  //   2. Normalize format-specific representations of the same
-  //      semantic value to a common form:
-  //        - analysisTimestamp: 0 / null / undefined all mean
-  //          "unset" and normalize to null
-  //        - scenarioClassification: canonical may store this as a
-  //          top-level object, a top-level string, or null; legacy
-  //          always stores it as { classification: "UNKNOWN" } for
-  //          the unset case. Both normalize to null.
-  //
-  //   3. Exclude storage-layer fields that describe HOW the
-  //      analysis was stored, not WHAT it concluded:
-  //        - evidenceQuality: derived
-  //        - domains: provider availability varies by scan
-  //        - evidenceBuilderVersion, technicalAnalysis,
-  //          fundamentalAssessment, securityAssessment: legacy-only
-  //        - methodologyVersion: overlaps with scoringVersion
-  //
-  //   4. Do NOT include the `missing` evidence count. Legacy records
-  //      always populate it with a migration placeholder
-  //      ("Legacy record did not include structured evidence"), and
-  //      canonical records never do. Including it would create a
-  //      false conflict on every legitimate canonical-to-legacy
-  //      dedupe, defeating the purpose of the gate.
-  //
-  // Two snapshots whose projections are equal describe the same
-  // analysis. Two snapshots whose projections differ describe
-  // different analyses and must be preserved as a conflict.
   function analysisProjection(snapshot) {
     const empty = {
       asset: null,
@@ -19546,18 +19520,12 @@ W.trackRecord = (() => {
 
     const verdict = snapshot.unifiedVerdict || {};
 
-    // analysisTimestamp: 0, null, undefined → null. The narrow
-    // signature already applies this rule; the projection repeats it
-    // so the two stay in agreement.
     const rawTs = snapshot.analysisTimestamp;
     const analysisTimestamp =
       typeof rawTs === "number" && Number.isFinite(rawTs) && rawTs !== 0
         ? rawTs
         : null;
 
-    // scenarioClassification: read from any of the shapes either
-    // format may produce. "UNKNOWN" and empty strings normalize to
-    // null because they mean "no scenario was recorded".
     let scenarioClassification = null;
     if (snapshot.scenario && typeof snapshot.scenario === "object") {
       scenarioClassification = snapshot.scenario.classification ?? null;
@@ -19574,9 +19542,6 @@ W.trackRecord = (() => {
       scenarioClassification = null;
     }
 
-    // Evidence counts: only supporting and contradicting items
-    // count. The `missing` array is a list of gaps, not evidence,
-    // and its content is format-specific.
     const evidence = snapshot.evidence;
     const supportingEvidenceCount = Array.isArray(evidence?.supporting)
       ? evidence.supporting.length
@@ -19600,9 +19565,6 @@ W.trackRecord = (() => {
     };
   }
 
-  // Full immutable-content hash. Two snapshots that share a narrow
-  // identity signature but differ in their projected content are
-  // different analyses and must not be deduplicated.
   function immutableContentHash(snapshot) {
     return contentHash(analysisProjection(snapshot));
   }
@@ -19706,8 +19668,11 @@ W.trackRecord = (() => {
     };
     if (entry !== null && exit !== null && quantity !== null) {
       result.realizedResult = (exit - entry) * quantity;
-      if (entry !== 0)
+      // Guard against entry === 0: dividing produces Infinity, which
+      // downstream code would classify as a positive result.
+      if (Number.isFinite(entry) && entry > 0 && Number.isFinite(exit)) {
         result.realizedResultPct = ((exit - entry) / entry) * 100;
+      }
     }
     const start = timeMs(outcome.entryTimestamp) ?? timeMs(decisionTimestamp);
     const end =
@@ -19966,9 +19931,6 @@ W.trackRecord = (() => {
           };
           const existing = byId.get(stableId);
           if (existing) {
-            // Same narrow identity AND same projected content is a
-            // true duplicate. Same identity with different content
-            // is a conflict.
             if (
               snapshotSignature(existing.weaverSnapshot) ===
                 snapshotSignature(legacySnapshot) &&
@@ -20035,9 +19997,6 @@ W.trackRecord = (() => {
           output.push(normalized);
           continue;
         }
-        // Same narrow identity AND same projected content is a true
-        // duplicate. Same identity with different content is a
-        // conflict.
         if (
           snapshotSignature(existing.weaverSnapshot) ===
             snapshotSignature(normalized.weaverSnapshot) &&
@@ -20344,7 +20303,14 @@ W.trackRecord = (() => {
         const currentPrice = pair ? parseFloat(pair.priceUsd) : null;
         if (!Number.isFinite(currentPrice)) continue;
 
-        const entry = record.weaverSnapshot.priceAtCapture;
+        // Guard against entry === 0 or missing: dividing produces
+        // Infinity, which would be classified as a gain.
+        const entry = Number.isFinite(record.weaverSnapshot?.priceAtCapture)
+          ? record.weaverSnapshot.priceAtCapture
+          : null;
+        if (!Number.isFinite(entry) || entry <= 0) {
+          continue;
+        }
         const pct = ((currentPrice - entry) / entry) * 100;
         const status =
           pct > 2
@@ -20371,31 +20337,44 @@ W.trackRecord = (() => {
 
   function validChange(path, value) {
     if (!MUTABLE_FIELDS.has(path)) return false;
-    if (path === "userDecision.action")
+
+    if (path === "userDecision.action") {
       return typeof value === "string" && USER_ACTIONS.has(value);
-    if (path === "outcome.status")
+    }
+
+    if (path === "outcome.status") {
       return typeof value === "string" && OUTCOME_STATUS.has(value);
+    }
+
     if (
       path === "userDecision.notes" ||
       path === "outcome.resultCurrency" ||
       path === "outcome.notes"
-    )
+    ) {
       return value === null || typeof value === "string";
-    if (path === "outcome.outcomeSource")
+    }
+
+    if (path === "outcome.outcomeSource") {
       return typeof value === "string" && OUTCOME_SOURCES.has(value);
-    if (path === "userDecision.linkedTransactionId")
+    }
+
+    if (path === "userDecision.linkedTransactionId") {
       return value === null || typeof value === "string";
+    }
+
     if (
       path === "userDecision.decisionTimestamp" ||
       path === "outcome.outcomeTimestamp" ||
       path === "outcome.entryTimestamp" ||
       path === "outcome.exitTimestamp"
-    )
+    ) {
       return (
         value === null ||
         typeof value === "string" ||
         (typeof value === "number" && Number.isFinite(value))
       );
+    }
+
     return (
       value === null ||
       (typeof value === "number" && Number.isFinite(value) && value >= 0)
@@ -20403,49 +20382,80 @@ W.trackRecord = (() => {
   }
 
   function update(id, changes = {}, reason = "") {
-    if (!reason || typeof reason !== "string" || !reason.trim())
+    if (!reason || typeof reason !== "string" || !reason.trim()) {
       return { ok: false, error: "Revision reason is required" };
+    }
+
     if (
       !changes ||
       typeof changes !== "object" ||
       Array.isArray(changes) ||
       ownDangerousKey(changes)
-    )
+    ) {
       return { ok: false, error: "Invalid changes object" };
+    }
+
     const records = load();
     const index = records.findIndex((record) => record.id === id);
     if (index === -1) return { ok: false, error: "Record not found" };
+
     const keys = Object.keys(changes);
     if (!keys.length) return { ok: false, error: "No changes supplied" };
-    for (const path of keys)
-      if (!validChange(path, changes[path]))
+
+    for (const path of keys) {
+      if (!validChange(path, changes[path])) {
         return { ok: false, error: `Immutable or invalid field: ${path}` };
+      }
+    }
+
     const record = records[index];
     const next = deepClone(record);
+
+    // Apply changes to the mutable copy.
     for (const path of keys) {
-      const [section, field] = path.split(".");
-      const previousValue = next[section][field];
-      next[section][field] = deepClone(changes[path]);
-      next.revisions.push({
-        at: new Date().toISOString(),
-        field: path,
-        previousValue: deepClone(previousValue),
-        newValue: deepClone(changes[path]),
-        reason: reason.trim(),
-      });
-      if (next.revisions.length > MAX_REVISIONS)
-        next.revisions = next.revisions.slice(-MAX_REVISIONS);
+      const [group, field] = path.split(".");
+      if (!next[group] || typeof next[group] !== "object") {
+        return { ok: false, error: `Immutable or invalid field: ${path}` };
+      }
+      next[group][field] = changes[path];
     }
-    const calculated = calculateOutcome(
-      next.outcome,
-      next.userDecision.decisionTimestamp,
-    );
-    next.outcome.realizedResult = calculated.realizedResult;
-    next.outcome.realizedResultPct = calculated.realizedResultPct;
-    next.outcome.holdingDurationMs = calculated.holdingDurationMs;
-    const result = save(
-      records.map((item, itemIndex) => (itemIndex === index ? next : item)),
-    );
+
+    // Revision bookkeeping: record the previous value of each
+    // changed field so the change is auditable.
+    const revision = {
+      at: Date.now(),
+      reason: reason.trim(),
+      changes: {},
+    };
+    for (const path of keys) {
+      const [group, field] = path.split(".");
+      revision.changes[path] = {
+        from: record[group] ? record[group][field] : null,
+        to: next[group][field],
+      };
+    }
+    if (!Array.isArray(next.revisions)) next.revisions = [];
+    next.revisions.push(revision);
+    if (next.revisions.length > MAX_REVISIONS) {
+      next.revisions = next.revisions.slice(-MAX_REVISIONS);
+    }
+
+    // Recalculate derived outcome fields if any outcome price/qty
+    // input changed.
+    if (
+      keys.some((k) => k.startsWith("outcome.")) &&
+      Object.prototype.hasOwnProperty.call(next, "outcome")
+    ) {
+      const computed = calculateOutcome(
+        next.outcome,
+        next.userDecision?.decisionTimestamp,
+      );
+      next.outcome.realizedResult = computed.realizedResult;
+      next.outcome.realizedResultPct = computed.realizedResultPct;
+      next.outcome.holdingDurationMs = computed.holdingDurationMs;
+    }
+
+    const result = save(records.map((r, i) => (i === index ? next : r)));
     return result.ok ? { ok: true, record: deepClone(next) } : result;
   }
 
@@ -20608,15 +20618,9 @@ W.trackRecord = (() => {
   }
 
   async function render(view) {
-    try {
-      // It fetches current DexScreener prices, which would contradict
-      // both the module header ("Historical views never fetch current
-      // market data") and the disclosure rendered above the list. The
-      // evaluator remains a public function for callers that explicitly
-      // want a live outcome check; #/track renders only stored state.
-    } catch (e) {
-      console.warn("[TrackRecord] Gem outcome evaluation skipped:", e.message);
-    }
+    // Historical view: no live market fetch. evaluateGemOutcomes()
+    // remains a public function for callers that explicitly want a
+    // live outcome check, but rendering here must not trigger it.
     const current = all();
     const gemRecords = current
       .filter((r) => r.origin === "gem-agent")
@@ -20637,11 +20641,11 @@ W.trackRecord = (() => {
         r.outcome.status,
       ),
     );
-        const wins = resolved.filter(
-          (r) => r.outcome.status === "REPORTED_GAIN",
-        ).length;
+    const wins = resolved.filter(
+      (r) => r.outcome.status === "REPORTED_GAIN",
+    ).length;
 
-        const publicSection = `
+    const publicSection = `
       <div class="card">
         <div class="flex-between"><h3>🌐 Weaver's Public Track Record</h3></div>
         <p class="muted small">Every Gem Agent call, tracked automatically — wins and losses shown equally. These are Weaver's own market calls, never a user's personal trades.</p>
@@ -20652,7 +20656,6 @@ W.trackRecord = (() => {
               : "No resolved calls yet."
           }
           ${gemRecords.length - resolved.length > 0 ? ` · ${gemRecords.length - resolved.length} pending` : ""}
-      
         </p>
         ${
           gemRecords.length
@@ -20679,22 +20682,22 @@ W.trackRecord = (() => {
         (button.onclick = () => {
           const entry = button.closest("[data-record-id]");
           const changes = {};
-                   entry.querySelectorAll("[data-field]").forEach((field) => {
-                     // revisionReason is passed to update() as its third
-                     // argument below, not as a record field. Including it
-                     // here makes update() reject the save with
-                     // "Immutable or invalid field: revisionReason".
-                     if (field.dataset.field === "revisionReason") return;
+          entry.querySelectorAll("[data-field]").forEach((field) => {
+            // revisionReason is passed to update() as its third
+            // argument below, not as a record field. Including it
+            // here makes update() reject the save with
+            // "Immutable or invalid field: revisionReason".
+            if (field.dataset.field === "revisionReason") return;
 
-                     const value = field.value;
-                     if (
-                       field.dataset.field.includes("Price") ||
-                       field.dataset.field === "outcome.positionSize"
-                     )
-                       changes[field.dataset.field] =
-                         value === "" ? null : Number(value);
-                     else changes[field.dataset.field] = value || null;
-                   });
+            const value = field.value;
+            if (
+              field.dataset.field.includes("Price") ||
+              field.dataset.field === "outcome.positionSize"
+            )
+              changes[field.dataset.field] =
+                value === "" ? null : Number(value);
+            else changes[field.dataset.field] = value || null;
+          });
           const result = update(
             entry.dataset.recordId,
             changes,
@@ -20732,7 +20735,7 @@ W.trackRecord = (() => {
   //
   // Returns null when:
   //   - the track record has no matching records
-  //   - the identity has no usable key (no symbol, address, or id)
+  //   - the identity has no usable key
   //   - any internal error occurs
   //
   // The caller treats null as "omit the line", not as "no history".
@@ -20755,6 +20758,10 @@ W.trackRecord = (() => {
         typeof identity.coingeckoId === "string"
           ? identity.coingeckoId.trim().toLowerCase()
           : null;
+      const chain =
+        typeof identity.chainId === "string"
+          ? identity.chainId.trim().toLowerCase()
+          : null;
 
       if (!symbol && !address && !coingeckoId) return null;
 
@@ -20762,9 +20769,7 @@ W.trackRecord = (() => {
         if (!rec || typeof rec !== "object") return false;
 
         // Canonical identity lives in rec.assetId (see canonicalAssetId).
-        // Legacy records may carry the same fields at the top level;
-        // check both shapes so matching works for every record the
-        // module has ever written.
+        // Legacy records may carry the same fields at the top level.
         const id =
           rec.assetId && typeof rec.assetId === "object" ? rec.assetId : rec;
 
@@ -20776,33 +20781,53 @@ W.trackRecord = (() => {
               : typeof rec.asset === "string"
                 ? rec.asset.trim().toUpperCase()
                 : null;
-        if (symbol && recSymbol === symbol) return true;
-
         const recCg =
           typeof id.coingeckoId === "string"
             ? id.coingeckoId.trim().toLowerCase()
             : typeof rec.coingeckoId === "string"
               ? rec.coingeckoId.trim().toLowerCase()
               : null;
-        if (coingeckoId && recCg === coingeckoId) return true;
-
         const recAddr =
           typeof id.contractAddress === "string"
             ? id.contractAddress.trim().toLowerCase()
             : typeof rec.contractAddress === "string"
               ? rec.contractAddress.trim().toLowerCase()
               : null;
-        if (address && recAddr === address) return true;
+        const recChain =
+          typeof id.chainId === "string"
+            ? id.chainId.trim().toLowerCase()
+            : typeof rec.chainId === "string"
+              ? rec.chainId.trim().toLowerCase()
+              : null;
 
+        // Strongest identifier wins. Symbol alone is not enough to
+        // disambiguate contract assets on different chains (USDC
+        // exists on Ethereum and Base with the same symbol but
+        // different addresses). When the caller supplies an address,
+        // only an address match counts — and if a chain is known on
+        // both sides it must match as well. CoinGecko ID is the
+        // second-strongest identity. Symbol is a fallback only when
+        // no stronger identifier is available.
+        if (address) {
+          if (recAddr !== address) return false;
+          if (chain && recChain && recChain !== chain) return false;
+          return true;
+        }
+        if (coingeckoId) {
+          return recCg === coingeckoId;
+        }
+        if (symbol) {
+          return recSymbol === symbol;
+        }
         return false;
       });
       if (!matches.length) return null;
 
       const total = matches.length;
-      // A record has a decision only when the user actually recorded one.
-      // Fresh records default to "UNSET"; an untouched record carries
-      // the explicit value "NO_DECISION". Neither represents a decision
-      // the user actually made.
+      // A record has a decision only when the user actually recorded
+      // one. Fresh records default to "UNSET"; an untouched record
+      // carries the explicit value "NO_DECISION". Neither represents
+      // a decision the user actually made.
       const withDecision = matches.filter(
         (m) =>
           m.userDecision &&
@@ -20812,9 +20837,8 @@ W.trackRecord = (() => {
       ).length;
 
       // A record is resolved only when the user reported an outcome.
-      // The existence of holdingDurationMs is NOT a resolution signal —
-      // it is present on every record (possibly as null) because it is
-      // computed from entry/exit timestamps whenever they exist.
+      // The existence of holdingDurationMs is NOT a resolution
+      // signal — it is present on every record (possibly as null).
       const resolvedStatuses = new Set([
         "REPORTED_GAIN",
         "REPORTED_LOSS",
