@@ -285,24 +285,29 @@ W.walletSync = (() => {
 
   // ── Secure Storage Helpers ────────────────────────────
 
-  async function encryptWalletData(data, password) {
-    if (!password) throw new Error("Password required for encryption");
-    const plaintext = JSON.stringify(data);
-    const encrypted = await W.sync.encrypt(plaintext, password);
-    return encrypted;
-  }
+   async function encryptWalletData(data, password) {
+     if (!password) throw new Error("Password required for encryption");
+     const plaintext = JSON.stringify(data);
+     const { ciphertext, iv, salt } = await W.sync.encrypt(plaintext, password);
+     // Uint8Array does not survive JSON serialization through W.store:
+     // it becomes {"0": 1, "1": 2, ...}, and new Uint8Array({...}) on
+     // read produces a zero-length array. Convert to plain number
+     // arrays so the encrypted payload round-trips cleanly.
+     return {
+       ciphertext: Array.from(ciphertext),
+       iv: Array.from(iv),
+       salt: Array.from(salt),
+     };
+   }
 
-  async function decryptWalletData(encrypted, password) {
-    if (!password) throw new Error("Password required for decryption");
-    const { ciphertext, iv, salt } = encrypted;
-    const plaintext = await W.sync.decrypt(
-      new Uint8Array(ciphertext),
-      password,
-      new Uint8Array(iv),
-      new Uint8Array(salt),
-    );
-    return JSON.parse(plaintext);
-  }
+   async function decryptWalletData(encrypted, password) {
+     if (!password) throw new Error("Password required for decryption");
+     const ciphertext = new Uint8Array(encrypted.ciphertext);
+     const iv = new Uint8Array(encrypted.iv);
+     const salt = new Uint8Array(encrypted.salt);
+     const plaintext = await W.sync.decrypt(ciphertext, password, iv, salt);
+     return JSON.parse(plaintext);
+   }
 
   // ── State Management ──────────────────────────────────
 
