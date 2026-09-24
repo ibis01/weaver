@@ -22650,7 +22650,7 @@ window.W = window.W || {};
     const hash = location.hash.slice(2) || "dashboard";
     const [page, param] = hash.split("/");
     const activeId = page === "coin" ? "gems" : page;
-    
+
     document.querySelectorAll("#nav a").forEach((a) => {
       a.classList.toggle("active", a.dataset.id === activeId);
     });
@@ -22757,6 +22757,48 @@ window.W = window.W || {};
         return groupHtml + itemsHtml;
       }).join("");
     }
+
+    // ── Mobile navigation drawer ────────────────────────────
+    // At ≤860px, .sidebar becomes an off-canvas drawer toggled by
+    // the ☰ button in the topbar. Desktop is unaffected: the
+    // hamburger is display:none and the sidebar keeps its 240px
+    // sticky layout.
+    const hamburger = document.getElementById("btn-hamburger");
+    const backdrop = document.getElementById("sidebar-backdrop");
+    const sidebarEl = document.querySelector(".sidebar");
+
+    function closeDrawer() {
+      if (!sidebarEl) return;
+      sidebarEl.classList.remove("open");
+      if (backdrop) backdrop.hidden = true;
+      if (hamburger) hamburger.setAttribute("aria-expanded", "false");
+    }
+
+    function openDrawer() {
+      if (!sidebarEl) return;
+      sidebarEl.classList.add("open");
+      if (backdrop) backdrop.hidden = false;
+      if (hamburger) hamburger.setAttribute("aria-expanded", "true");
+    }
+
+    if (hamburger && sidebarEl) {
+      hamburger.addEventListener("click", () => {
+        const isOpen = sidebarEl.classList.contains("open");
+        isOpen ? closeDrawer() : openDrawer();
+      });
+    }
+
+    if (backdrop) backdrop.addEventListener("click", closeDrawer);
+
+    if (navEl) {
+      navEl.querySelectorAll("a").forEach((a) => {
+        a.addEventListener("click", closeDrawer);
+      });
+    }
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeDrawer();
+    });
 
     const curEl = document.getElementById("currency");
     if (curEl) {
