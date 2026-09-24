@@ -1267,9 +1267,16 @@ W.trackRecord = (() => {
       (r) => r.outcome.status === "REPORTED_GAIN",
     ).length;
 
-    const publicSection = `
+        const publicSection = `
       <div class="card">
-        <div class="flex-between"><h3>🌐 Weaver's Public Track Record</h3></div>
+        <div class="flex-between">
+          <h3>🌐 Weaver's Public Track Record</h3>
+          ${
+            gemRecords.length
+              ? `<button class="btn tiny" data-action="refresh-outcomes">🔄 Refresh Outcomes</button>`
+              : ""
+          }
+        </div>
         <p class="muted small">Every Gem Agent call, tracked automatically — wins and losses shown equally. These are Weaver's own market calls, never a user's personal trades.</p>
         <p class="small">
           ${
@@ -1299,40 +1306,34 @@ W.trackRecord = (() => {
     view
       .querySelector("[data-action='export']")
       ?.addEventListener("click", exportCSV);
-    view.querySelectorAll("[data-action='save']").forEach(
-      (button) =>
-        (button.onclick = () => {
-          const entry = button.closest("[data-record-id]");
-          const changes = {};
-          entry.querySelectorAll("[data-field]").forEach((field) => {
-            // revisionReason is passed to update() as its third
-            // argument below, not as a record field. Including it
-            // here makes update() reject the save with
-            // "Immutable or invalid field: revisionReason".
-            if (field.dataset.field === "revisionReason") return;
 
-            const value = field.value;
-            if (
-              field.dataset.field.includes("Price") ||
-              field.dataset.field === "outcome.positionSize"
-            )
-              changes[field.dataset.field] =
-                value === "" ? null : Number(value);
-            else changes[field.dataset.field] = value || null;
-          });
-          const result = update(
-            entry.dataset.recordId,
-            changes,
-            entry.querySelector("[data-field='revisionReason']")?.value || "",
-          );
-          if (!result.ok) return W.ui?.toast?.(result.error, "warn");
+    // Explicit outcome-resolution trigger. Historical rendering must
+    // not fetch live prices on its own (see the header note), but the
+    // user can request a refresh on demand. This is the only
+    // production trigger for evaluateGemOutcomes() — no background
+    // polling, no automatic fetch on navigation.
+    view
+      .querySelector("[data-action='refresh-outcomes']")
+      ?.addEventListener("click", async (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        const original = btn.textContent;
+        btn.textContent = "⏳ Checking…";
+        try {
+          const result = await evaluateGemOutcomes({ force: true });
           W.ui?.toast?.(
-            "Track Record updated; historical analysis unchanged.",
+            `Checked ${result.checked}, updated ${result.updated}`,
             "ok",
           );
+        } catch (err) {
+          W.ui?.toast?.(
+            `Outcome refresh failed: ${err && err.message ? err.message : "unknown error"}`,
+            "warn",
+          );
+        } finally {
           render(view);
-        }),
-    );
+        }
+      });
     view.querySelectorAll("[data-action='delete']").forEach(
       (button) =>
         (button.onclick = () => {
