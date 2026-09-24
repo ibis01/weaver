@@ -45,6 +45,12 @@ window.W = window.W || {};
         },
         { id: "alerts", icon: "🚨", label: "Alerts", route: "#/alerts" },
         {
+          id: "walletsync",
+          icon: "👛",
+          label: "Synced Wallets",
+          route: "#/walletsync",
+        },
+        {
           id: "optimizer",
           icon: "🧮",
           label: "Optimizer",
@@ -147,6 +153,7 @@ window.W = window.W || {};
     dashboard: (v) => safeRender(v, "dashboard", () => W.dashboard?.render),
     portfolio: (v) =>
       safeRender(v, "portfolio", () => W.dashboard?.renderPortfolio),
+    walletsync: (v) => safeRender(v, "walletsync", () => W.walletSync?.render),
     watchlist: (v) => safeRender(v, "watchlist", () => W.watchlist?.render),
     explorer: (v) => safeRender(v, "explorer", () => W.explorer?.render),
     alerts: (v) => safeRender(v, "alerts", () => W.alerts?.render),

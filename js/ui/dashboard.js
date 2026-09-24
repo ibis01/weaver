@@ -429,8 +429,6 @@ W.dashboard = (() => {
       .slice(ALLOCATION_TOP_N)
       .reduce((s, r) => s + r.value, 0);
 
-    // Bucket a percentage to the nearest 10 for the .meter-fill-N
-    // classes declared in style.css.
     const bucket = (pct) =>
       Math.max(0, Math.min(100, Math.round(pct / 10) * 10));
 
@@ -484,7 +482,7 @@ W.dashboard = (() => {
           <div class="qa">
             <a href="#/token" class="btn tiny">🔍 Analyze</a>
             <button class="btn tiny" id="qa-add">+ Add Holding</button>
-            <button class="btn tiny" id="qa-sync" title="Sync connected wallets">👛 Sync Wallets</button>
+            <button class="btn tiny" id="qa-sync" title="Manage synced wallets">👛 Sync Wallets</button>
           </div>
         </div>
         <div id="d-port"></div>
@@ -542,14 +540,16 @@ W.dashboard = (() => {
     `;
 
     view.querySelector("#qa-add").onclick = () => holdingModal();
+
+    // "Sync Wallets" navigates to the dedicated walletsync route.
+    // The wallet-add / sync flow needs the user's sync password, and
+    // that prompt lives on #/walletsync. Navigating there is simpler
+    // and avoids duplicating the password modal on the dashboard.
     const syncBtn = view.querySelector("#qa-sync");
     if (syncBtn)
-      syncBtn.onclick = async () => {
-        W.ui.toast("👛 Syncing wallets…", "info");
-        if (W.walletSync && W.walletSync.refresh) {
-          await W.walletSync.refresh();
-          W.refresh();
-        } else W.ui.toast("Wallet sync module not available", "warn");
+      syncBtn.onclick = () => {
+        if (W.walletSync?.render) location.hash = "#/walletsync";
+        else W.ui.toast("Wallet sync module not available", "warn");
       };
 
     // ── Performance chart wiring ─────────────────────────
@@ -603,7 +603,6 @@ W.dashboard = (() => {
       `;
     }
 
-    // ── Market Intelligence tiles ────────────────────────
     const tilesEl = view.querySelector("#d-market-tiles");
     if (tilesEl) {
       let regimeTile = statCard("Market Regime", "—", "Engine not loaded");
@@ -728,14 +727,13 @@ W.dashboard = (() => {
     if (port) {
       if (!rows.length)
         port.innerHTML =
-          '<p class="text-muted small-text text-center">No holdings yet. Click "+ Add Holding" above.</p>';
+          '<p class="text-muted small-text text-center">No holdings yet. Click "+ Add Holding" above, or Sync Wallets.</p>';
       else {
         port.innerHTML = holdingsTable(rows);
         wireRows(port, rows);
       }
     }
 
-    // ── Allocation ───────────────────────────────────────
     const allocBody = view.querySelector("#d-alloc-body");
     const allocTotal = view.querySelector("#d-alloc-total");
     if (allocTotal) {
@@ -744,7 +742,6 @@ W.dashboard = (() => {
     }
     renderAllocation(allocBody, rows, totals);
 
-    // Redraw the performance chart now that the DOM has settled.
     drawPerformanceChart(view);
 
     const rankerContainer = view.querySelector("#what-matters-now-container");
