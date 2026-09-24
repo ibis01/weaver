@@ -59,7 +59,7 @@ W.walletSync = (() => {
       explorer: "https://etherscan.io/address/",
       balance: async (addr) => {
         const data = await fetchJSON(
-          "https://cloudflare-eth.com",
+          "https://ethereum.publicnode.com",
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -105,7 +105,7 @@ W.walletSync = (() => {
         for (const token of tokens) {
           try {
             const data = await fetchJSON(
-              "https://cloudflare-eth.com",
+              "https://ethereum.publicnode.com",
               {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
