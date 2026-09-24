@@ -1404,13 +1404,23 @@ th.num {
   .main {
     padding: 16px;
   }
+  /* Single-row mobile topbar: [☰] Title  ...  USD ⟳
+     The #last-updated timestamp is hidden on mobile because its
+     length forces an awkward wrap; it is a development signal,
+     not user-facing info. */
   .topbar {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: flex-start;
-    gap: 12px;
+    align-items: center;
+    gap: 10px;
   }
   .topbar-actions {
-    flex-basis: 100%;
+    margin-left: auto;
+    flex-basis: auto;
+    gap: 8px;
+  }
+  #last-updated {
+    display: none;
   }
 }
 
