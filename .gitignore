@@ -4,3 +4,4 @@ node_modules/
 .env.opencode/
 graphify-out/
 AGENTS.md
+.opencode/
