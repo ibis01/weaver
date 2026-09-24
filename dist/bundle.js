@@ -2332,7 +2332,160 @@ W.dashboard = (() => {
     };
   }
 
+  // ── Portfolio Performance chart helpers ────────────────
+  // Chart.js instance is stored on the view element so a re-render
+  // can destroy it before creating a new one. Chart.js throws if
+  // create() is called on a canvas that already has a chart.
+  function destroyPerfChart(view) {
+    if (view && view._dashboardPerfChart) {
+      try {
+        view._dashboardPerfChart.destroy();
+      } catch (_) {}
+      view._dashboardPerfChart = null;
+    }
+  }
+
+  // Read Time Machine snapshots and produce chart-ready points.
+  // Returns [] if the module is unavailable or the snapshot array is
+  // empty. Filters by age when rangeDays is a positive number.
+  //
+  // Snapshot shape (see js/features/timemachine.js):
+  //   { timestamp: number, holdings: [...], totals: { totalValue, ... } }
+  function snapshotsToSeries(rangeDays) {
+    if (!W.timemachine || typeof W.timemachine.getSnapshots !== "function")
+      return [];
+    let snaps = W.timemachine.getSnapshots();
+    if (!Array.isArray(snaps) || !snaps.length) return [];
+    snaps = snaps.slice().sort((a, b) => a.timestamp - b.timestamp);
+    if (rangeDays != null) {
+      const cutoff = Date.now() - rangeDays * 864e5;
+      snaps = snaps.filter((s) => s.timestamp >= cutoff);
+    }
+    return snaps
+      .map((s) => {
+        const v = s?.totals?.totalValue;
+        return typeof v === "number" && Number.isFinite(v)
+          ? { t: s.timestamp, y: v }
+          : null;
+      })
+      .filter(Boolean);
+  }
+
+  function formatChartDate(ts) {
+    const d = new Date(ts);
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+  }
+
+  function drawPerformanceChart(view) {
+    const canvas = view.querySelector("#d-perf-chart");
+    const note = view.querySelector("#d-perf-note");
+    const rangeEl = view.querySelector("#d-perf-range");
+    if (!canvas) return;
+
+    destroyPerfChart(view);
+
+    const active = rangeEl?.querySelector(".chip.active");
+    const rangeVal = active?.dataset?.range;
+    const rangeDays =
+      !rangeVal || rangeVal === "all"
+        ? null
+        : Number.isFinite(Number(rangeVal))
+          ? Number(rangeVal)
+          : null;
+
+    const series = snapshotsToSeries(rangeDays);
+
+    if (series.length < 2) {
+      if (note) {
+        note.textContent =
+          series.length === 0
+            ? "No portfolio snapshots yet — history builds as you use Weaver."
+            : "Only one snapshot captured so far. Check back after the next refresh cycle.";
+      }
+      // Clear the canvas and draw a muted baseline so the box is not
+      // blank. Respect the parent's rendered height.
+      const w = (canvas.width = canvas.clientWidth || 400);
+      const h = (canvas.height = 180);
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, w, h);
+      ctx.strokeStyle = "rgba(255,255,255,0.06)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, h - 1);
+      ctx.lineTo(w, h - 1);
+      ctx.stroke();
+      return;
+    }
+
+    if (note) note.textContent = "";
+
+    // Chart.js is loaded in index.html via CDN. If it failed to load
+    // (offline, CSP, etc.), skip the chart gracefully.
+    if (typeof Chart !== "function") {
+      if (note) note.textContent = "Chart library unavailable.";
+      return;
+    }
+
+    view._dashboardPerfChart = new Chart(canvas, {
+      type: "line",
+      data: {
+        labels: series.map((p) => formatChartDate(p.t)),
+        datasets: [
+          {
+            label: "Portfolio value",
+            data: series.map((p) => p.y),
+            borderColor: "#6366f1",
+            backgroundColor: "rgba(99, 102, 241, 0.08)",
+            borderWidth: 1.75,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            pointHoverBackgroundColor: "#6366f1",
+            fill: true,
+            tension: 0.2,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (c) => {
+                const v = c.parsed?.y;
+                return Number.isFinite(v) ? W.fmt.money(v) : "—";
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: {
+              color: "#98a1b3",
+              maxRotation: 0,
+              autoSkip: true,
+            },
+          },
+          y: {
+            grid: { color: "rgba(255,255,255,0.06)" },
+            ticks: {
+              color: "#98a1b3",
+              callback: (v) => W.fmt.money(v, { compact: true }),
+            },
+          },
+        },
+      },
+    });
+  }
+
   async function render(view) {
+    // Destroy any chart from the previous render before the view is
+    // cleared. Chart.js does not release the canvas automatically.
+    destroyPerfChart(view);
+
     view.innerHTML = `
       <p class="muted small mb-16">Your evidence-driven crypto intelligence workspace.</p>
       <div id="d-data-health" aria-live="polite"></div>
@@ -2349,6 +2502,23 @@ W.dashboard = (() => {
           </div>
         </div>
         <div id="d-port"></div>
+      </div>
+
+      <div class="card mt-16">
+        <div class="flex-between mb-8">
+          <h3>📈 Portfolio Performance</h3>
+          <div class="qa" id="d-perf-range">
+            <button class="chip active" data-range="7">1W</button>
+            <button class="chip" data-range="30">1M</button>
+            <button class="chip" data-range="90">3M</button>
+            <button class="chip" data-range="365">1Y</button>
+            <button class="chip" data-range="all">ALL</button>
+          </div>
+        </div>
+        <div class="chart-box">
+          <canvas id="d-perf-chart"></canvas>
+        </div>
+        <p class="muted small mt-8" id="d-perf-note"></p>
       </div>
 
       <div class="grid-2 mt-16">
@@ -2387,6 +2557,23 @@ W.dashboard = (() => {
           W.refresh();
         } else W.ui.toast("Wallet sync module not available", "warn");
       };
+
+    // ── Performance chart wiring ─────────────────────────
+    // Range buttons re-render the chart; each press destroys the
+    // prior Chart.js instance first (see drawPerformanceChart).
+    const perfRangeEl = view.querySelector("#d-perf-range");
+    if (perfRangeEl) {
+      perfRangeEl.querySelectorAll("[data-range]").forEach((b) => {
+        b.onclick = () => {
+          perfRangeEl
+            .querySelectorAll("[data-range]")
+            .forEach((x) => x.classList.remove("active"));
+          b.classList.add("active");
+          drawPerformanceChart(view);
+        };
+      });
+    }
+    drawPerformanceChart(view);
 
     const [topR, globR, fgR, pf] = await Promise.allSettled([
       W.api.top(100),
@@ -2560,6 +2747,12 @@ W.dashboard = (() => {
       }
     }
 
+    // Redraw the performance chart now that the DOM has settled.
+    // The first call above ran before view.innerHTML was fully
+    // painted on some browsers; this second pass ensures the
+    // canvas has measurable client dimensions.
+    drawPerformanceChart(view);
+
     const rankerContainer = view.querySelector("#what-matters-now-container");
     if (rankerContainer && W.decisionEngine) {
       const userContext = {
@@ -2591,10 +2784,6 @@ W.dashboard = (() => {
       title.textContent = "🔍 Discoveries";
       card.appendChild(title);
 
-      // New intelligence — recent Gem Agent discoveries, sourced from
-      // the Thesis records Gem Agent already auto-creates (see
-      // js/features/gems.js autoCreateThesis / sourceRef). Real
-      // intelligence-pipeline data, not invented for this UI.
       const newIntelLabel = document.createElement("p");
       newIntelLabel.className = "muted small mb-8";
       newIntelLabel.style.marginTop = "8px";
@@ -2626,10 +2815,10 @@ W.dashboard = (() => {
           head.style.display = "flex";
           head.style.justifyContent = "space-between";
           const asset = document.createElement("b");
-          asset.textContent = t.asset; // SAFE: textContent
+          asset.textContent = t.asset;
           const security = document.createElement("span");
           security.className = "muted small";
-          security.textContent = t.signals || "Security status unavailable"; // SAFE
+          security.textContent = t.signals || "Security status unavailable";
           head.appendChild(asset);
           head.appendChild(security);
           li.appendChild(head);
@@ -2637,7 +2826,7 @@ W.dashboard = (() => {
           if (t.reasons) {
             const why = document.createElement("p");
             why.className = "muted small mt-4";
-            why.textContent = t.reasons; // SAFE: textContent
+            why.textContent = t.reasons;
             li.appendChild(why);
           }
           list.appendChild(li);
@@ -2645,9 +2834,6 @@ W.dashboard = (() => {
         card.appendChild(list);
       }
 
-      // Portfolio changes — existing delta engine, unchanged data flow,
-      // rendered without its own card wrapper so it composes cleanly
-      // into this shared card instead of nesting card-in-card.
       const pfLabel = document.createElement("p");
       pfLabel.className = "muted small mb-8";
       pfLabel.style.marginTop = "16px";
