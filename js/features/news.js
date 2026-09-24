@@ -25,9 +25,10 @@ const SNAPSHOT_URLS = [
 ];
 
 // ── Weaver proxy route — public CORS proxies are not trusted ───
-const PROX = [
-  (u) => "http://localhost:3001/proxy?url=" + encodeURIComponent(u),
-];
+(u) =>
+  "https://weaver-proxy.ibis01-weaver.workers.dev/proxy?url=" +
+  encodeURIComponent(u),
+
 
 // ── Fetch with proxy fallback ──────────────────────────────────
 async function via(url, asJSON = false) {

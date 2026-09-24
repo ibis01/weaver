@@ -12,10 +12,15 @@ W.api = (() => {
   const LONG_CACHE_TTL = 300000; // 5 minutes
 
   // ── Request routes ───────────────────────────────────────
-  // Public CORS proxies are intentionally not used: they add an
-  // uncontrolled third-party dependency and can expose market requests.
+  // The Worker proxy exists because CoinGecko and Binance do not
+  // send CORS headers — a direct browser fetch from this origin is
+  // blocked by the browser, not by CSP. The Worker relays the
+  // response with the CORS headers we need. Direct is kept as a
+  // second attempt for endpoints that do allow cross-origin.
   const PROXIES = [
-    (u) => "http://localhost:3001/proxy?url=" + encodeURIComponent(u),
+    (u) =>
+      "https://weaver-proxy.ibis01-weaver.workers.dev/proxy?url=" +
+      encodeURIComponent(u),
     (u) => u,
   ];
 
@@ -125,41 +130,26 @@ W.api = (() => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
       try {
+        // Browsers refuse to send a User-Agent header (forbidden name),
+        // so we only send Accept. The Worker sets its own UA upstream.
+        const init = {
+          signal: controller.signal,
+          headers: { Accept: "application/json" },
+        };
         const response = W.requestGuard
-          ? await W.requestGuard.fetch(
-              proxyUrl,
-              {
-                signal: controller.signal,
-                headers: {
-                  "User-Agent": "Weaver/1.0",
-                  Accept: "application/json",
-                },
-              },
-              {
-                capacity: 12,
-                refillMs: 10000,
-                failureThreshold: 5,
-                cooldownMs: 30000,
-              },
-            )
-          : await fetch(proxyUrl, {
-              signal: controller.signal,
-              headers: {
-                "User-Agent": "Weaver/1.0",
-                Accept: "application/json",
-              },
-            });
+          ? await W.requestGuard.fetch(proxyUrl, init, {
+              capacity: 12,
+              refillMs: 10000,
+              failureThreshold: 5,
+              cooldownMs: 30000,
+            })
+          : await fetch(proxyUrl, init);
         clearTimeout(timer);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = validateResponse(url, await response.json());
         setCached(url, data);
         resetCircuit();
-        source =
-          proxy === PROXIES[0]
-            ? "proxy"
-            : proxy === PROXIES[1]
-              ? "direct"
-              : "direct";
+        source = proxy === PROXIES[0] ? "worker-proxy" : "direct";
         W.dataHealth?.mark(resourceForUrl(url), {
           source,
           observedAt: Date.now(),
@@ -169,9 +159,9 @@ W.api = (() => {
       } catch (e) {
         lastError = e;
         clearTimeout(timer);
-        // A 429 from the proxy means CoinGecko rate-limited this client.
-        // The direct fallback (PROXIES[1]) will hit the same rate limit
-        // from the same IP, and additionally triggers a CORS error in
+        // A 429 from the proxy means the upstream rate-limited this
+        // client (or the Worker's egress IP). The direct fallback will
+        // hit the same limit and additionally trigger a CORS error in
         // the browser. Skip it and serve stale cache if available.
         if (/HTTP 429/.test(e.message)) {
           const stale = getCached(url, 86400000);

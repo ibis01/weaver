@@ -285,29 +285,29 @@ W.walletSync = (() => {
 
   // ── Secure Storage Helpers ────────────────────────────
 
-   async function encryptWalletData(data, password) {
-     if (!password) throw new Error("Password required for encryption");
-     const plaintext = JSON.stringify(data);
-     const { ciphertext, iv, salt } = await W.sync.encrypt(plaintext, password);
-     // Uint8Array does not survive JSON serialization through W.store:
-     // it becomes {"0": 1, "1": 2, ...}, and new Uint8Array({...}) on
-     // read produces a zero-length array. Convert to plain number
-     // arrays so the encrypted payload round-trips cleanly.
-     return {
-       ciphertext: Array.from(ciphertext),
-       iv: Array.from(iv),
-       salt: Array.from(salt),
-     };
-   }
+  async function encryptWalletData(data, password) {
+    if (!password) throw new Error("Password required for encryption");
+    const plaintext = JSON.stringify(data);
+    const { ciphertext, iv, salt } = await W.sync.encrypt(plaintext, password);
+    // Uint8Array does not survive JSON serialization through W.store:
+    // it becomes {"0": 1, "1": 2, ...}, and new Uint8Array({...}) on
+    // read produces a zero-length array. Convert to plain number
+    // arrays so the encrypted payload round-trips cleanly.
+    return {
+      ciphertext: Array.from(ciphertext),
+      iv: Array.from(iv),
+      salt: Array.from(salt),
+    };
+  }
 
-   async function decryptWalletData(encrypted, password) {
-     if (!password) throw new Error("Password required for decryption");
-     const ciphertext = new Uint8Array(encrypted.ciphertext);
-     const iv = new Uint8Array(encrypted.iv);
-     const salt = new Uint8Array(encrypted.salt);
-     const plaintext = await W.sync.decrypt(ciphertext, password, iv, salt);
-     return JSON.parse(plaintext);
-   }
+  async function decryptWalletData(encrypted, password) {
+    if (!password) throw new Error("Password required for decryption");
+    const ciphertext = new Uint8Array(encrypted.ciphertext);
+    const iv = new Uint8Array(encrypted.iv);
+    const salt = new Uint8Array(encrypted.salt);
+    const plaintext = await W.sync.decrypt(ciphertext, password, iv, salt);
+    return JSON.parse(plaintext);
+  }
 
   // ── State Management ──────────────────────────────────
 
@@ -391,28 +391,34 @@ W.walletSync = (() => {
         const nativeBalance = await chain.balance(wallet.address);
         const tokenBalances = await chain.tokens(wallet.address);
         let price = 0;
+        // nativeValue stays null when we can't get a price, so the UI
+        // can show "—" instead of a misleading $0.00.
+        let nativeValue = null;
         try {
           const data = await W.api.markets(chain.symbol.toLowerCase());
           const coin = data.find(
             (c) => c.symbol.toLowerCase() === chain.symbol.toLowerCase(),
           );
           price = coin?.current_price || 0;
+          if (price > 0) {
+            nativeValue = nativeBalance * price;
+          }
         } catch (e) {}
-        const nativeValue = nativeBalance * price;
         const tokenValues = tokenBalances.map((t) => {
           return { ...t, value: t.balance * 0 };
         });
+        const walletValue =
+          (Number.isFinite(nativeValue) ? nativeValue : 0) +
+          tokenValues.reduce((sum, t) => sum + t.value, 0);
         results.push({
           ...wallet,
           nativeBalance,
           tokenBalances,
           nativeValue,
           price,
-          totalValue:
-            nativeValue + tokenValues.reduce((sum, t) => sum + t.value, 0),
+          totalValue: walletValue,
         });
-        totalValue +=
-          nativeValue + tokenValues.reduce((sum, t) => sum + t.value, 0);
+        totalValue += walletValue;
       } catch (e) {
         console.warn(
           `[WalletSync] Sync failed for ${wallet.chain}:${wallet.address}`,
@@ -561,8 +567,10 @@ W.walletSync = (() => {
     if (cached) {
       displayWallets(view, cached);
     } else {
-      view.querySelector("#ws-status").innerHTML =
-        '<p class="muted">No cached data. Click "Sync Now" to fetch.</p>';
+      const status = view.querySelector("#ws-status");
+      if (status)
+        status.innerHTML =
+          '<p class="muted">No cached data. Click "Sync Now" to fetch.</p>';
     }
   }
 
@@ -573,15 +581,25 @@ W.walletSync = (() => {
       confirmLabel: "Sync",
     });
     if (!pwd) return;
+
+    // Snapshot the status element now; the view may be torn down
+    // while syncAll is awaiting network calls, in which case
+    // querySelector would return null and setting .innerHTML would
+    // throw an unhandled rejection.
+    const initialStatus = view.querySelector("#ws-status");
+    if (initialStatus) initialStatus.innerHTML = W.ui.spinner();
+
     try {
-      view.querySelector("#ws-status").innerHTML = W.ui.spinner();
       const result = await syncAll(pwd);
+      if (!view.isConnected) return;
+      const status = view.querySelector("#ws-status");
+      if (!status) return;
       displayWallets(view, result.wallets);
-      view.querySelector("#ws-status").innerHTML =
-        `<p class="up">✅ Synced at ${new Date().toLocaleTimeString()}</p>`;
+      status.innerHTML = `<p class="up">✅ Synced at ${new Date().toLocaleTimeString()}</p>`;
     } catch (e) {
-      view.querySelector("#ws-status").innerHTML =
-        `<p class="down">❌ ${e.message}</p>`;
+      if (!view.isConnected) return;
+      const status = view.querySelector("#ws-status");
+      if (status) status.innerHTML = `<p class="down">❌ ${e.message}</p>`;
     }
   }
 
@@ -615,7 +633,7 @@ W.walletSync = (() => {
                 <td>${W.fmt.escapeHTML(w.label || "—")}</td>
                 <td><code title="${W.fmt.escapeHTML(w.address)}">${W.fmt.escapeHTML(w.address.slice(0, 6) + "…" + w.address.slice(-4))}</code></td>
                 <td>${w.error ? '<span class="down">error</span>' : Number.isFinite(w.nativeBalance) ? `${w.nativeBalance.toFixed(4)} ${CHAINS[w.chain]?.symbol || ""}` : "—"}</td>
-                <td>${w.nativeValue ? W.fmt.money(w.nativeValue, { compact: true }) : "—"}</td>
+                <td>${Number.isFinite(w.nativeValue) ? W.fmt.money(w.nativeValue, { compact: true }) : "—"}</td>
                 <td><button class="icon-btn" data-remove="${W.fmt.escapeHTML(w.id)}">✕</button></td>
               </tr>
             `,

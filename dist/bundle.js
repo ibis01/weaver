@@ -3482,10 +3482,15 @@ W.api = (() => {
   const LONG_CACHE_TTL = 300000; // 5 minutes
 
   // ── Request routes ───────────────────────────────────────
-  // Public CORS proxies are intentionally not used: they add an
-  // uncontrolled third-party dependency and can expose market requests.
+  // The Worker proxy exists because CoinGecko and Binance do not
+  // send CORS headers — a direct browser fetch from this origin is
+  // blocked by the browser, not by CSP. The Worker relays the
+  // response with the CORS headers we need. Direct is kept as a
+  // second attempt for endpoints that do allow cross-origin.
   const PROXIES = [
-    (u) => "http://localhost:3001/proxy?url=" + encodeURIComponent(u),
+    (u) =>
+      "https://weaver-proxy.ibis01-weaver.workers.dev/proxy?url=" +
+      encodeURIComponent(u),
     (u) => u,
   ];
 
@@ -3595,41 +3600,26 @@ W.api = (() => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
       try {
+        // Browsers refuse to send a User-Agent header (forbidden name),
+        // so we only send Accept. The Worker sets its own UA upstream.
+        const init = {
+          signal: controller.signal,
+          headers: { Accept: "application/json" },
+        };
         const response = W.requestGuard
-          ? await W.requestGuard.fetch(
-              proxyUrl,
-              {
-                signal: controller.signal,
-                headers: {
-                  "User-Agent": "Weaver/1.0",
-                  Accept: "application/json",
-                },
-              },
-              {
-                capacity: 12,
-                refillMs: 10000,
-                failureThreshold: 5,
-                cooldownMs: 30000,
-              },
-            )
-          : await fetch(proxyUrl, {
-              signal: controller.signal,
-              headers: {
-                "User-Agent": "Weaver/1.0",
-                Accept: "application/json",
-              },
-            });
+          ? await W.requestGuard.fetch(proxyUrl, init, {
+              capacity: 12,
+              refillMs: 10000,
+              failureThreshold: 5,
+              cooldownMs: 30000,
+            })
+          : await fetch(proxyUrl, init);
         clearTimeout(timer);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = validateResponse(url, await response.json());
         setCached(url, data);
         resetCircuit();
-        source =
-          proxy === PROXIES[0]
-            ? "proxy"
-            : proxy === PROXIES[1]
-              ? "direct"
-              : "direct";
+        source = proxy === PROXIES[0] ? "worker-proxy" : "direct";
         W.dataHealth?.mark(resourceForUrl(url), {
           source,
           observedAt: Date.now(),
@@ -3639,9 +3629,9 @@ W.api = (() => {
       } catch (e) {
         lastError = e;
         clearTimeout(timer);
-        // A 429 from the proxy means CoinGecko rate-limited this client.
-        // The direct fallback (PROXIES[1]) will hit the same rate limit
-        // from the same IP, and additionally triggers a CORS error in
+        // A 429 from the proxy means the upstream rate-limited this
+        // client (or the Worker's egress IP). The direct fallback will
+        // hit the same limit and additionally trigger a CORS error in
         // the browser. Skip it and serve stale cache if available.
         if (/HTTP 429/.test(e.message)) {
           const stale = getCached(url, 86400000);
@@ -10973,9 +10963,10 @@ const SNAPSHOT_URLS = [
 ];
 
 // ── Weaver proxy route — public CORS proxies are not trusted ───
-const PROX = [
-  (u) => "http://localhost:3001/proxy?url=" + encodeURIComponent(u),
-];
+(u) =>
+  "https://weaver-proxy.ibis01-weaver.workers.dev/proxy?url=" +
+  encodeURIComponent(u),
+
 
 // ── Fetch with proxy fallback ──────────────────────────────────
 async function via(url, asJSON = false) {
@@ -18831,29 +18822,29 @@ W.walletSync = (() => {
 
   // ── Secure Storage Helpers ────────────────────────────
 
-   async function encryptWalletData(data, password) {
-     if (!password) throw new Error("Password required for encryption");
-     const plaintext = JSON.stringify(data);
-     const { ciphertext, iv, salt } = await W.sync.encrypt(plaintext, password);
-     // Uint8Array does not survive JSON serialization through W.store:
-     // it becomes {"0": 1, "1": 2, ...}, and new Uint8Array({...}) on
-     // read produces a zero-length array. Convert to plain number
-     // arrays so the encrypted payload round-trips cleanly.
-     return {
-       ciphertext: Array.from(ciphertext),
-       iv: Array.from(iv),
-       salt: Array.from(salt),
-     };
-   }
+  async function encryptWalletData(data, password) {
+    if (!password) throw new Error("Password required for encryption");
+    const plaintext = JSON.stringify(data);
+    const { ciphertext, iv, salt } = await W.sync.encrypt(plaintext, password);
+    // Uint8Array does not survive JSON serialization through W.store:
+    // it becomes {"0": 1, "1": 2, ...}, and new Uint8Array({...}) on
+    // read produces a zero-length array. Convert to plain number
+    // arrays so the encrypted payload round-trips cleanly.
+    return {
+      ciphertext: Array.from(ciphertext),
+      iv: Array.from(iv),
+      salt: Array.from(salt),
+    };
+  }
 
-   async function decryptWalletData(encrypted, password) {
-     if (!password) throw new Error("Password required for decryption");
-     const ciphertext = new Uint8Array(encrypted.ciphertext);
-     const iv = new Uint8Array(encrypted.iv);
-     const salt = new Uint8Array(encrypted.salt);
-     const plaintext = await W.sync.decrypt(ciphertext, password, iv, salt);
-     return JSON.parse(plaintext);
-   }
+  async function decryptWalletData(encrypted, password) {
+    if (!password) throw new Error("Password required for decryption");
+    const ciphertext = new Uint8Array(encrypted.ciphertext);
+    const iv = new Uint8Array(encrypted.iv);
+    const salt = new Uint8Array(encrypted.salt);
+    const plaintext = await W.sync.decrypt(ciphertext, password, iv, salt);
+    return JSON.parse(plaintext);
+  }
 
   // ── State Management ──────────────────────────────────
 
@@ -18937,28 +18928,34 @@ W.walletSync = (() => {
         const nativeBalance = await chain.balance(wallet.address);
         const tokenBalances = await chain.tokens(wallet.address);
         let price = 0;
+        // nativeValue stays null when we can't get a price, so the UI
+        // can show "—" instead of a misleading $0.00.
+        let nativeValue = null;
         try {
           const data = await W.api.markets(chain.symbol.toLowerCase());
           const coin = data.find(
             (c) => c.symbol.toLowerCase() === chain.symbol.toLowerCase(),
           );
           price = coin?.current_price || 0;
+          if (price > 0) {
+            nativeValue = nativeBalance * price;
+          }
         } catch (e) {}
-        const nativeValue = nativeBalance * price;
         const tokenValues = tokenBalances.map((t) => {
           return { ...t, value: t.balance * 0 };
         });
+        const walletValue =
+          (Number.isFinite(nativeValue) ? nativeValue : 0) +
+          tokenValues.reduce((sum, t) => sum + t.value, 0);
         results.push({
           ...wallet,
           nativeBalance,
           tokenBalances,
           nativeValue,
           price,
-          totalValue:
-            nativeValue + tokenValues.reduce((sum, t) => sum + t.value, 0),
+          totalValue: walletValue,
         });
-        totalValue +=
-          nativeValue + tokenValues.reduce((sum, t) => sum + t.value, 0);
+        totalValue += walletValue;
       } catch (e) {
         console.warn(
           `[WalletSync] Sync failed for ${wallet.chain}:${wallet.address}`,
@@ -19107,8 +19104,10 @@ W.walletSync = (() => {
     if (cached) {
       displayWallets(view, cached);
     } else {
-      view.querySelector("#ws-status").innerHTML =
-        '<p class="muted">No cached data. Click "Sync Now" to fetch.</p>';
+      const status = view.querySelector("#ws-status");
+      if (status)
+        status.innerHTML =
+          '<p class="muted">No cached data. Click "Sync Now" to fetch.</p>';
     }
   }
 
@@ -19119,15 +19118,25 @@ W.walletSync = (() => {
       confirmLabel: "Sync",
     });
     if (!pwd) return;
+
+    // Snapshot the status element now; the view may be torn down
+    // while syncAll is awaiting network calls, in which case
+    // querySelector would return null and setting .innerHTML would
+    // throw an unhandled rejection.
+    const initialStatus = view.querySelector("#ws-status");
+    if (initialStatus) initialStatus.innerHTML = W.ui.spinner();
+
     try {
-      view.querySelector("#ws-status").innerHTML = W.ui.spinner();
       const result = await syncAll(pwd);
+      if (!view.isConnected) return;
+      const status = view.querySelector("#ws-status");
+      if (!status) return;
       displayWallets(view, result.wallets);
-      view.querySelector("#ws-status").innerHTML =
-        `<p class="up">✅ Synced at ${new Date().toLocaleTimeString()}</p>`;
+      status.innerHTML = `<p class="up">✅ Synced at ${new Date().toLocaleTimeString()}</p>`;
     } catch (e) {
-      view.querySelector("#ws-status").innerHTML =
-        `<p class="down">❌ ${e.message}</p>`;
+      if (!view.isConnected) return;
+      const status = view.querySelector("#ws-status");
+      if (status) status.innerHTML = `<p class="down">❌ ${e.message}</p>`;
     }
   }
 
@@ -19161,7 +19170,7 @@ W.walletSync = (() => {
                 <td>${W.fmt.escapeHTML(w.label || "—")}</td>
                 <td><code title="${W.fmt.escapeHTML(w.address)}">${W.fmt.escapeHTML(w.address.slice(0, 6) + "…" + w.address.slice(-4))}</code></td>
                 <td>${w.error ? '<span class="down">error</span>' : Number.isFinite(w.nativeBalance) ? `${w.nativeBalance.toFixed(4)} ${CHAINS[w.chain]?.symbol || ""}` : "—"}</td>
-                <td>${w.nativeValue ? W.fmt.money(w.nativeValue, { compact: true }) : "—"}</td>
+                <td>${Number.isFinite(w.nativeValue) ? W.fmt.money(w.nativeValue, { compact: true }) : "—"}</td>
                 <td><button class="icon-btn" data-remove="${W.fmt.escapeHTML(w.id)}">✕</button></td>
               </tr>
             `,
