@@ -46,7 +46,27 @@ async function main() {
       try {
         await page.goto(url, { waitUntil: "networkidle", timeout: 15000 });
         // Small settle for async renders
-        await page.waitForTimeout(800);
+        // Wait for the market table to finish rendering, then a short
+        // settle for the sparkline canvas draws. On some viewports the
+        // fetch + render sequence takes longer than the previous 800ms
+        // fixed wait.
+        await page
+          .waitForFunction(
+            () => {
+              const rows = document.querySelector("#d-rows");
+              if (!rows) return true; // route doesn't have a market table
+              const text = rows.textContent || "";
+              return (
+                !text.includes("Loading") &&
+                !text.includes("No data available") &&
+                text.trim().length > 20
+              );
+            },
+            { timeout: 8000 },
+          )
+          .catch(() => {}); // non-blocking; screenshot anyway if it times out
+
+        await page.waitForTimeout(400); // settle for canvas sparklines
         await page.screenshot({
           path: `${OUT}/${name}--${routeName}.png`,
           fullPage: true,
