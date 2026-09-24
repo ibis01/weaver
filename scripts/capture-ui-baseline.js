@@ -50,21 +50,24 @@ async function main() {
         // settle for the sparkline canvas draws. On some viewports the
         // fetch + render sequence takes longer than the previous 800ms
         // fixed wait.
-        await page
+               await page
           .waitForFunction(
             () => {
               const rows = document.querySelector("#d-rows");
-              if (!rows) return true; // route doesn't have a market table
-              const text = rows.textContent || "";
-              return (
-                !text.includes("Loading") &&
-                !text.includes("No data available") &&
-                text.trim().length > 20
-              );
+              // Template not yet written → keep waiting
+              if (!rows) return false;
+              // Spinner still showing → keep waiting
+              if (rows.querySelector(".spinner")) return false;
+              // Table content must be substantive and not an empty state
+              const text = (rows.textContent || "").trim();
+              if (text.length < 20) return false;
+              if (text.includes("Loading") || text.includes("No data available"))
+                return false;
+              return true;
             },
             { timeout: 8000 },
           )
-          .catch(() => {}); // non-blocking; screenshot anyway if it times out
+          .catch(() => {});
 
         await page.waitForTimeout(400); // settle for canvas sparklines
         await page.screenshot({
