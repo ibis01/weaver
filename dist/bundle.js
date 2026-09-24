@@ -2337,6 +2337,7 @@ W.dashboard = (() => {
       <p class="muted small mb-16">Your evidence-driven crypto intelligence workspace.</p>
       <div id="d-data-health" aria-live="polite"></div>
       <div class="cards" id="d-stats"></div>
+      <div class="cards" id="d-market-tiles"></div>
 
       <div class="card mt-16">
         <div class="flex-between mb-8">
@@ -2400,6 +2401,10 @@ W.dashboard = (() => {
     const rows = pf.status === "fulfilled" ? pf.value.rows : [];
     const totals = pf.status === "fulfilled" ? pf.value.totals : null;
     const g = globR.status === "fulfilled" ? globR.value.data : null;
+    const fg =
+      fgR.status === "fulfilled" && fgR.value && fgR.value.value != null
+        ? fgR.value
+        : null;
 
     const healthEl = view.querySelector("#d-data-health");
     if (healthEl && W.ui.renderDataStatus) {
@@ -2417,6 +2422,53 @@ W.dashboard = (() => {
         ${totals ? statCard("P/L · 24h", signedMoney(totals.day), W.fmt.pct(totals.dayPct)) : ""}
         ${g ? statCard("Global Market Cap", W.fmt.money(g.total_market_cap[W.currency()], { compact: true }), W.fmt.pct(g.market_cap_change_percentage_24h_usd)) : ""}
       `;
+    }
+
+    // ── Market Intelligence tiles ────────────────────────
+    // Three tiles derived from data already fetched above. Uses
+    // W.regime.detect() when the regime engine is loaded; falls
+    // back to explicit "Unavailable" text otherwise, never to a
+    // fabricated value.
+    const tilesEl = view.querySelector("#d-market-tiles");
+    if (tilesEl) {
+      let regimeTile = statCard("Market Regime", "—", "Engine not loaded");
+      if (g && fg && W.regime?.detect) {
+        try {
+          const rd = W.regime.detect({
+            fearGreed: fg.value,
+            btcDominance: g.market_cap_percentage?.btc,
+            capChange: g.market_cap_change_percentage_24h_usd,
+          });
+          const conf =
+            Number.isFinite(rd.confidence) && rd.confidence > 0
+              ? `${(rd.confidence * 100).toFixed(0)}% confidence`
+              : "Confidence unavailable";
+          regimeTile = statCard("Market Regime", rd.regime || "UNKNOWN", conf);
+        } catch (e) {
+          regimeTile = statCard("Market Regime", "—", "Detection failed");
+        }
+      }
+
+      const fgTile = fg
+        ? statCard(
+            "Fear & Greed",
+            `${fg.value}`,
+            fg.value_classification || "Unclassified",
+          )
+        : statCard("Fear & Greed", "—", "Source unavailable");
+
+      const btcTile = g
+        ? statCard(
+            "BTC Dominance",
+            `${Number(g.market_cap_percentage?.btc ?? 0).toFixed(1)}%`,
+            g.market_cap_change_percentage_24h_usd != null
+              ? W.fmt.pct(g.market_cap_change_percentage_24h_usd) +
+                  " cap change 24h"
+              : "24h change unavailable",
+          )
+        : statCard("BTC Dominance", "—", "Source unavailable");
+
+      tilesEl.innerHTML = regimeTile + fgTile + btcTile;
     }
 
     const tapeContainer = view.querySelector("#d-tape");
