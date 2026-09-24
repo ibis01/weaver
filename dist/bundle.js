@@ -22498,76 +22498,97 @@ console.log("[EvidenceDrawer] Module loaded (CSP compliant).");
 window.W = window.W || {};
 
 (function () {
-  const NAV_GROUPS = [
-    {
-      label: "PRIMARY",
-      items: [
-        {
-          id: "dashboard",
-          icon: "📊",
-          label: "Dashboard",
-          route: "#/dashboard",
-        },
-        { id: "gems", icon: "🔍", label: "Discover", route: "#/gems" },
-        { id: "token", icon: "📈", label: "Analyze", route: "#/token" },
-        {
-          id: "portfolio",
-          icon: "💼",
-          label: "Portfolio",
-          route: "#/portfolio",
-        },
-      ],
-    },
-    {
-      label: "MONITOR",
-      items: [
-        {
-          id: "watchlist",
-          icon: "⭐",
-          label: "Watchlist",
-          route: "#/watchlist",
-        },
-        { id: "alerts", icon: "🚨", label: "Alerts", route: "#/alerts" },
-        { id: "market", icon: "📡", label: "Signals", route: "#/market" },
-      ],
-    },
-    {
-      label: "INTELLIGENCE",
-      items: [
-        { id: "news", icon: "📰", label: "News", route: "#/news" },
-        { id: "whales", icon: "🐋", label: "Whale Tracker", route: "#/whales" },
-        { id: "smart", icon: "🧠", label: "Smart Money", route: "#/smart" },
-        { id: "theses", icon: "🎯", label: "Theses", route: "#/theses" },
-        { id: "journal", icon: "📓", label: "Journal", route: "#/journal" },
-        { id: "track", icon: "🧾", label: "Track Record", route: "#/track" },
-      ],
-    },
-    {
-      label: "TOOLS",
-      items: [
-        { id: "shield", icon: "🛡️", label: "Token Shield", route: "#/shield" },
-        {
-          id: "optimizer",
-          icon: "🧮",
-          label: "Optimizer",
-          route: "#/optimizer",
-        },
-        {
-          id: "unlocks",
-          icon: "🔓",
-          label: "Token Unlocks",
-          route: "#/unlocks",
-        },
-        { id: "ai", icon: "🧠", label: "AI Insights", route: "#/ai" },
-        { id: "sync", icon: "☁️", label: "Encrypted Sync", route: "#/sync" },
-        { id: "settings", icon: "⚙️", label: "Settings", route: "#/settings" },
-      ],
-    },
-  ];
-
-  const ALL_NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
-  let routeGeneration = 0;
-
+    const NAV_GROUPS = [
+      {
+        label: "OVERVIEW",
+        items: [
+          {
+            id: "dashboard",
+            icon: "📊",
+            label: "Dashboard",
+            route: "#/dashboard",
+          },
+        ],
+      },
+      {
+        label: "PORTFOLIO",
+        items: [
+          {
+            id: "portfolio",
+            icon: "💼",
+            label: "Portfolio",
+            route: "#/portfolio",
+          },
+          {
+            id: "watchlist",
+            icon: "⭐",
+            label: "Watchlist",
+            route: "#/watchlist",
+          },
+          { id: "alerts", icon: "🚨", label: "Alerts", route: "#/alerts" },
+          {
+            id: "optimizer",
+            icon: "🧮",
+            label: "Optimizer",
+            route: "#/optimizer",
+          },
+        ],
+      },
+      {
+        label: "RESEARCH",
+        items: [
+          { id: "gems", icon: "🔍", label: "Discover", route: "#/gems" },
+          { id: "token", icon: "📈", label: "Analyze", route: "#/token" },
+          {
+            id: "shield",
+            icon: "🛡️",
+            label: "Token Shield",
+            route: "#/shield",
+          },
+          {
+            id: "unlocks",
+            icon: "🔓",
+            label: "Token Unlocks",
+            route: "#/unlocks",
+          },
+        ],
+      },
+      {
+        label: "INTELLIGENCE",
+        items: [
+          { id: "market", icon: "📡", label: "Signals", route: "#/market" },
+          { id: "news", icon: "📰", label: "News", route: "#/news" },
+          {
+            id: "whales",
+            icon: "🐋",
+            label: "Whale Tracker",
+            route: "#/whales",
+          },
+          { id: "smart", icon: "🧠", label: "Smart Money", route: "#/smart" },
+        ],
+      },
+      {
+        label: "DECISIONS",
+        items: [
+          { id: "theses", icon: "🎯", label: "Theses", route: "#/theses" },
+          { id: "journal", icon: "📓", label: "Journal", route: "#/journal" },
+          { id: "track", icon: "🧾", label: "Track Record", route: "#/track" },
+        ],
+      },
+      {
+        label: "SYSTEM",
+        items: [
+          { id: "ai", icon: "🧠", label: "AI Insights", route: "#/ai" },
+          { id: "sync", icon: "☁️", label: "Encrypted Sync", route: "#/sync" },
+          {
+            id: "settings",
+            icon: "⚙️",
+            label: "Settings",
+            route: "#/settings",
+          },
+        ],
+      },
+    ];
   // ── Shared route dispatcher ────────────────────────────────
   // Resolves the module method at dispatch time (not at script-load
   // time, which matters because modules load in order). Catches
