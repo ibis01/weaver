@@ -2067,6 +2067,13 @@ console.log("[DataStatus] Freshness UI loaded.");
 window.W = window.W || {};
 
 W.dashboard = (() => {
+  // Cap the Market Context table at 20 rows by default. The full list
+  // is available via the "Show all N tokens" disclosure below the
+  // table. Prevents the Dashboard from becoming a multi-thousand-pixel
+  // data dump on first load.
+  const MARKET_ROWS_DEFAULT = 20;
+  let marketRowsExpanded = false;
+
   const statCard = (label, big, sub) => `
     <div class="card stat">
       <div class="stat-label">${W.fmt.escapeHTML(label)}</div>
@@ -2365,6 +2372,7 @@ W.dashboard = (() => {
             <tbody id="d-rows"><tr><td colspan="5" class="text-center text-muted">${W.ui.spinner()}</td></tr></tbody>
           </table>
         </div>
+        <div id="d-market-more"></div>
       </div>
     `;
 
@@ -2437,10 +2445,16 @@ W.dashboard = (() => {
               (b.price_change_percentage_24h_in_currency ?? 0),
           )
           .slice(0, 20);
+
+      const fullCount = list.length;
+      const visibleList = marketRowsExpanded
+        ? list
+        : list.slice(0, MARKET_ROWS_DEFAULT);
+
       const rowsEl = view.querySelector("#d-rows");
       if (rowsEl) {
-        rowsEl.innerHTML = list.length
-          ? list
+        rowsEl.innerHTML = visibleList.length
+          ? visibleList
               .map(termRow)
               .filter((r) => r !== "")
               .join("")
@@ -2454,6 +2468,21 @@ W.dashboard = (() => {
           );
         rowsEl.querySelectorAll("canvas.spark").forEach(drawSpark);
       }
+
+      const moreEl = view.querySelector("#d-market-more");
+      if (moreEl) {
+        if (fullCount > MARKET_ROWS_DEFAULT) {
+          moreEl.innerHTML = marketRowsExpanded
+            ? '<button class="btn tiny" id="d-market-toggle">Show fewer</button>'
+            : `<button class="btn tiny" id="d-market-toggle">Show all ${fullCount} tokens</button>`;
+          moreEl.querySelector("#d-market-toggle").onclick = () => {
+            marketRowsExpanded = !marketRowsExpanded;
+            drawRows();
+          };
+        } else {
+          moreEl.innerHTML = "";
+        }
+      }
     };
     view.querySelectorAll("[data-tab]").forEach((c) => {
       c.onclick = () => {
@@ -2462,6 +2491,7 @@ W.dashboard = (() => {
           .forEach((x) => x.classList.remove("active"));
         c.classList.add("active");
         tab = c.dataset.tab;
+        marketRowsExpanded = false;
         drawRows();
       };
     });
