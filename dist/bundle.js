@@ -2333,9 +2333,6 @@ W.dashboard = (() => {
   }
 
   // ── Portfolio Performance chart helpers ────────────────
-  // Chart.js instance is stored on the view element so a re-render
-  // can destroy it before creating a new one. Chart.js throws if
-  // create() is called on a canvas that already has a chart.
   function destroyPerfChart(view) {
     if (view && view._dashboardPerfChart) {
       try {
@@ -2345,10 +2342,6 @@ W.dashboard = (() => {
     }
   }
 
-  // Read Time Machine snapshots and produce chart-ready points.
-  // Returns [] if the module is unavailable or the snapshot array is
-  // empty. Filters by age when rangeDays is a positive number.
-  //
   // Snapshot shape (see js/features/timemachine.js):
   //   { timestamp: number, holdings: [...], totals: { totalValue, ... } }
   function snapshotsToSeries(rangeDays) {
@@ -2402,8 +2395,6 @@ W.dashboard = (() => {
             ? "No portfolio snapshots yet — history builds as you use Weaver."
             : "Only one snapshot captured so far. Check back after the next refresh cycle.";
       }
-      // Clear the canvas and draw a muted baseline so the box is not
-      // blank. Respect the parent's rendered height.
       const w = (canvas.width = canvas.clientWidth || 400);
       const h = (canvas.height = 180);
       const ctx = canvas.getContext("2d");
@@ -2419,8 +2410,6 @@ W.dashboard = (() => {
 
     if (note) note.textContent = "";
 
-    // Chart.js is loaded in index.html via CDN. If it failed to load
-    // (offline, CSP, etc.), skip the chart gracefully.
     if (typeof Chart !== "function") {
       if (note) note.textContent = "Chart library unavailable.";
       return;
@@ -2481,9 +2470,66 @@ W.dashboard = (() => {
     });
   }
 
+  // ── Allocation breakdown ───────────────────────────────
+  // Top-N holdings by value, plus an aggregated "Others" row when
+  // there are more than N. Uses the existing .kv-row + .meter-bar
+  // classes for the visual; no new CSS.
+  const ALLOCATION_TOP_N = 5;
+  function renderAllocation(container, rows, totals) {
+    if (!container) return;
+    if (!rows.length || !totals || !totals.value) {
+      container.innerHTML =
+        '<p class="text-muted small-text">Add holdings to see allocation.</p>';
+      return;
+    }
+    const total = totals.value;
+    const sorted = rows.slice().sort((a, b) => b.value - a.value);
+    const top = sorted.slice(0, ALLOCATION_TOP_N);
+    const restSum = sorted
+      .slice(ALLOCATION_TOP_N)
+      .reduce((s, r) => s + r.value, 0);
+
+    // Bucket a percentage to the nearest 10 for the .meter-fill-N
+    // classes declared in style.css.
+    const bucket = (pct) =>
+      Math.max(0, Math.min(100, Math.round(pct / 10) * 10));
+
+    const rowHtml = (label, pct, extraClass) => {
+      const b = bucket(pct);
+      const klass = extraClass ? ` meter-fill-${extraClass}` : "";
+      return `
+        <div class="kv-row">
+          <span>${label}</span>
+          <span>${pct.toFixed(1)}%</span>
+        </div>
+        <div class="meter-bar">
+          <div class="meter-fill meter-fill-${b}${klass}"></div>
+        </div>`;
+    };
+
+    const parts = top.map((r) =>
+      rowHtml(
+        `<b>${W.fmt.escapeHTML(String(r.symbol || "?").toUpperCase())}</b>`,
+        (r.value / total) * 100,
+        null,
+      ),
+    );
+
+    if (restSum > 0) {
+      const restCount = sorted.length - ALLOCATION_TOP_N;
+      parts.push(
+        rowHtml(
+          `<span class="muted">Others (${restCount})</span>`,
+          (restSum / total) * 100,
+          "muted",
+        ),
+      );
+    }
+
+    container.innerHTML = parts.join("");
+  }
+
   async function render(view) {
-    // Destroy any chart from the previous render before the view is
-    // cleared. Chart.js does not release the canvas automatically.
     destroyPerfChart(view);
 
     view.innerHTML = `
@@ -2519,6 +2565,14 @@ W.dashboard = (() => {
           <canvas id="d-perf-chart"></canvas>
         </div>
         <p class="muted small mt-8" id="d-perf-note"></p>
+      </div>
+
+      <div class="card mt-16">
+        <div class="flex-between mb-8">
+          <h3>🥧 Allocation</h3>
+          <span class="muted small" id="d-alloc-total"></span>
+        </div>
+        <div id="d-alloc-body"></div>
       </div>
 
       <div class="grid-2 mt-16">
@@ -2559,8 +2613,6 @@ W.dashboard = (() => {
       };
 
     // ── Performance chart wiring ─────────────────────────
-    // Range buttons re-render the chart; each press destroys the
-    // prior Chart.js instance first (see drawPerformanceChart).
     const perfRangeEl = view.querySelector("#d-perf-range");
     if (perfRangeEl) {
       perfRangeEl.querySelectorAll("[data-range]").forEach((b) => {
@@ -2612,10 +2664,6 @@ W.dashboard = (() => {
     }
 
     // ── Market Intelligence tiles ────────────────────────
-    // Three tiles derived from data already fetched above. Uses
-    // W.regime.detect() when the regime engine is loaded; falls
-    // back to explicit "Unavailable" text otherwise, never to a
-    // fabricated value.
     const tilesEl = view.querySelector("#d-market-tiles");
     if (tilesEl) {
       let regimeTile = statCard("Market Regime", "—", "Engine not loaded");
@@ -2747,10 +2795,16 @@ W.dashboard = (() => {
       }
     }
 
+    // ── Allocation ───────────────────────────────────────
+    const allocBody = view.querySelector("#d-alloc-body");
+    const allocTotal = view.querySelector("#d-alloc-total");
+    if (allocTotal) {
+      allocTotal.textContent =
+        totals && totals.value ? W.fmt.money(totals.value) : "";
+    }
+    renderAllocation(allocBody, rows, totals);
+
     // Redraw the performance chart now that the DOM has settled.
-    // The first call above ran before view.innerHTML was fully
-    // painted on some browsers; this second pass ensures the
-    // canvas has measurable client dimensions.
     drawPerformanceChart(view);
 
     const rankerContainer = view.querySelector("#what-matters-now-container");
