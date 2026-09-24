@@ -16,97 +16,108 @@
 window.W = window.W || {};
 
 (function () {
-    const NAV_GROUPS = [
-      {
-        label: "OVERVIEW",
-        items: [
-          {
-            id: "dashboard",
-            icon: "📊",
-            label: "Dashboard",
-            route: "#/dashboard",
-          },
-        ],
-      },
-      {
-        label: "PORTFOLIO",
-        items: [
-          {
-            id: "portfolio",
-            icon: "💼",
-            label: "Portfolio",
-            route: "#/portfolio",
-          },
-          {
-            id: "watchlist",
-            icon: "⭐",
-            label: "Watchlist",
-            route: "#/watchlist",
-          },
-          { id: "alerts", icon: "🚨", label: "Alerts", route: "#/alerts" },
-          {
-            id: "optimizer",
-            icon: "🧮",
-            label: "Optimizer",
-            route: "#/optimizer",
-          },
-        ],
-      },
-      {
-        label: "RESEARCH",
-        items: [
-          { id: "gems", icon: "🔍", label: "Discover", route: "#/gems" },
-          { id: "token", icon: "📈", label: "Analyze", route: "#/token" },
-          {
-            id: "shield",
-            icon: "🛡️",
-            label: "Token Shield",
-            route: "#/shield",
-          },
-          {
-            id: "unlocks",
-            icon: "🔓",
-            label: "Token Unlocks",
-            route: "#/unlocks",
-          },
-        ],
-      },
-      {
-        label: "INTELLIGENCE",
-        items: [
-          { id: "market", icon: "📡", label: "Signals", route: "#/market" },
-          { id: "news", icon: "📰", label: "News", route: "#/news" },
-          {
-            id: "whales",
-            icon: "🐋",
-            label: "Whale Tracker",
-            route: "#/whales",
-          },
-          { id: "smart", icon: "🧠", label: "Smart Money", route: "#/smart" },
-        ],
-      },
-      {
-        label: "DECISIONS",
-        items: [
-          { id: "theses", icon: "🎯", label: "Theses", route: "#/theses" },
-          { id: "journal", icon: "📓", label: "Journal", route: "#/journal" },
-          { id: "track", icon: "🧾", label: "Track Record", route: "#/track" },
-        ],
-      },
-      {
-        label: "SYSTEM",
-        items: [
-          { id: "ai", icon: "🧠", label: "AI Insights", route: "#/ai" },
-          { id: "sync", icon: "☁️", label: "Encrypted Sync", route: "#/sync" },
-          {
-            id: "settings",
-            icon: "⚙️",
-            label: "Settings",
-            route: "#/settings",
-          },
-        ],
-      },
-    ];
+  const NAV_GROUPS = [
+    {
+      label: "OVERVIEW",
+      items: [
+        {
+          id: "dashboard",
+          icon: "📊",
+          label: "Dashboard",
+          route: "#/dashboard",
+        },
+      ],
+    },
+    {
+      label: "PORTFOLIO",
+      items: [
+        {
+          id: "portfolio",
+          icon: "💼",
+          label: "Portfolio",
+          route: "#/portfolio",
+        },
+        {
+          id: "watchlist",
+          icon: "⭐",
+          label: "Watchlist",
+          route: "#/watchlist",
+        },
+        { id: "alerts", icon: "🚨", label: "Alerts", route: "#/alerts" },
+        {
+          id: "optimizer",
+          icon: "🧮",
+          label: "Optimizer",
+          route: "#/optimizer",
+        },
+      ],
+    },
+    {
+      label: "RESEARCH",
+      items: [
+        { id: "gems", icon: "🔍", label: "Discover", route: "#/gems" },
+        { id: "token", icon: "📈", label: "Analyze", route: "#/token" },
+        {
+          id: "shield",
+          icon: "🛡️",
+          label: "Token Shield",
+          route: "#/shield",
+        },
+        {
+          id: "unlocks",
+          icon: "🔓",
+          label: "Token Unlocks",
+          route: "#/unlocks",
+        },
+      ],
+    },
+    {
+      label: "INTELLIGENCE",
+      items: [
+        { id: "market", icon: "📡", label: "Signals", route: "#/market" },
+        { id: "news", icon: "📰", label: "News", route: "#/news" },
+        {
+          id: "whales",
+          icon: "🐋",
+          label: "Whale Tracker",
+          route: "#/whales",
+        },
+        { id: "smart", icon: "🧠", label: "Smart Money", route: "#/smart" },
+      ],
+    },
+    {
+      label: "DECISIONS",
+      items: [
+        { id: "theses", icon: "🎯", label: "Theses", route: "#/theses" },
+        { id: "journal", icon: "📓", label: "Journal", route: "#/journal" },
+        { id: "track", icon: "🧾", label: "Track Record", route: "#/track" },
+      ],
+    },
+    {
+      label: "SYSTEM",
+      items: [
+        { id: "ai", icon: "🧠", label: "AI Insights", route: "#/ai" },
+        { id: "sync", icon: "☁️", label: "Encrypted Sync", route: "#/sync" },
+        {
+          id: "settings",
+          icon: "⚙️",
+          label: "Settings",
+          route: "#/settings",
+        },
+      ],
+    },
+  ];
+
+  // Flat list of every navigable item across all groups. Used by
+  // route() to resolve the page-title label from the active nav id.
+  const ALL_NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
+
+  // Bumped on every route() call. safeRender() reads it to detect
+  // that a newer navigation happened while an async render was still
+  // in flight, so a stale render cannot overwrite the current view.
+  // Declared at IIFE scope; both route() and safeRender() reference it.
+  let routeGeneration = 0;
+
   // ── Shared route dispatcher ────────────────────────────────
   // Resolves the module method at dispatch time (not at script-load
   // time, which matters because modules load in order). Catches
