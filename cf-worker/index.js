@@ -7,6 +7,7 @@
 //   GET  /goplus/evm/:chainId?contract_addresses=0x...
 //   GET  /goplus/solana?contract_addresses=...
 //   POST /bitquery/deployer    body: { chain, deployerAddress }
+//   GET/POST /proxy?url=...    host-allowlisted market/news relay
 //
 // BITQUERY ROUTE — DESIGN NOTES:
 //   The client sends only { chain, deployerAddress }. It does NOT
@@ -42,6 +43,22 @@
 //   the Worker still works — it just uses the shared channel and is
 //   more likely to be rate-limited.
 //
+// /proxy ROUTE — DESIGN NOTES:
+//   The market/news relay exists because CoinGecko, Binance, and
+//   alternative.me do not send CORS headers, so a browser cannot
+//   fetch them directly. Unlike the GoPlus and Bitquery routes, the
+//   destination URL is client-supplied. To keep this from becoming
+//   an open proxy, every target host must appear in
+//   ALLOWED_PROXY_HOSTS. A request to any other host returns 403
+//   with the rejected hostname in the body, before any upstream
+//   connection is attempted. This makes SSRF to localhost, RFC1918
+//   ranges, and Cloudflare metadata endpoints structurally
+//   impossible — those hostnames simply are not on the list.
+//
+//   HTTPS-only, no redirects followed implicitly, no client headers
+//   forwarded except Content-Type on POST. The client's Origin is
+//   still gated by ALLOWED_ORIGINS above.
+//
 // SECURITY NOTE — ORIGIN IS NOT A RATE LIMITER:
 //   The ALLOWED_ORIGINS check is a CORS access-control check. It
 //   prevents a browser on an unauthorized origin from reading the
@@ -50,8 +67,8 @@
 //   There is no application-level rate limiting in this Worker.
 //   Concrete abuse protection should be applied at the deployment
 //   level (Cloudflare Rate Limiting Rules scoped to
-//   /bitquery/deployer). Treat the origin check as an access-control
-//   gate, never as abuse prevention.
+//   /bitquery/deployer and /proxy). Treat the origin check as an
+//   access-control gate, never as abuse prevention.
 //
 // Deploy: see cf-worker/README.md in this folder.
 
@@ -64,6 +81,7 @@
 const ALLOWED_ORIGINS = [
   "https://ibis01.github.io",
   "http://localhost:3000",
+  "http://localhost:5500",
   "http://127.0.0.1:5500",
   // Add your production domain here, e.g. "https://weaver.yourdomain.com"
 ];
@@ -92,6 +110,34 @@ const ALLOWED_EVM_CHAIN_IDS = new Set([
   "250",
   "25",
   "100",
+]);
+
+// Hosts the /proxy route may forward to. Mirrors the connect-src
+// hosts in index.html's CSP. Keep the two in sync: a host the client
+// is allowed to call but the Worker refuses (or vice versa) produces
+// a failure mode that is confusing to debug from the browser alone.
+//
+// Adding an entry here widens the relay surface. Only add hosts the
+// app actually calls. Never add a wildcard, a metadata endpoint
+// (169.254.169.254), or a host you do not control the purpose of.
+const ALLOWED_PROXY_HOSTS = new Set([
+  "api.coingecko.com",
+  "api.binance.com",
+  "api.alternative.me",
+  "api.dexscreener.com",
+  "api.gopluslabs.io",
+  "api.etherscan.io",
+  "api.bscscan.com",
+  "api.polygonscan.com",
+  "api.arbiscan.io",
+  "api.snowtrace.io",
+  "api.solscan.io",
+  "api.mainnet-beta.solana.com",
+  "eth.blockscout.com",
+  "mempool.space",
+  "api.llama.fi",
+  "api.coinpaprika.com",
+  "api.coincap.io",
 ]);
 
 // Bitquery network names for the chains the deployer route supports.
@@ -418,6 +464,89 @@ async function relayBitquery(env, network, address, headers) {
   });
 }
 
+// Generic passthrough relay for /proxy?url=… — see header notes.
+//
+// The only client-controlled pieces are the target URL (host-checked
+// against ALLOWED_PROXY_HOSTS) and the optional POST body. Headers
+// are Worker-controlled: Accept plus, on POST, Content-Type. A
+// client cannot smuggle its own Authorization or Cookie through this
+// route.
+async function relayAllowedProxy(request, url, headers) {
+  const target = url.searchParams.get("url");
+  if (!target) {
+    return jsonResponse({ error: "Missing url param" }, 400, headers);
+  }
+
+  let targetUrl;
+  try {
+    targetUrl = new URL(target);
+  } catch {
+    return jsonResponse({ error: "Invalid url" }, 400, headers);
+  }
+
+  // HTTPS only. http:// would let a browser on an allowlisted origin
+  // pull plaintext from an upstream and have the Worker launder it
+  // into an https response — a downgrade the client never asked for.
+  if (targetUrl.protocol !== "https:") {
+    return jsonResponse({ error: "Only https is allowed" }, 400, headers);
+  }
+
+  if (!ALLOWED_PROXY_HOSTS.has(targetUrl.hostname)) {
+    return jsonResponse(
+      { error: `Host not allowed: ${targetUrl.hostname}` },
+      403,
+      headers,
+    );
+  }
+
+  // The URL is already known-safe: its hostname is on the allowlist,
+  // its scheme is https, and its structure parsed. No need to
+  // re-check for localhost/RFC1918 — those hostnames are not on the
+  // list, so they cannot reach this branch.
+  const method = request.method === "POST" ? "POST" : "GET";
+  const upstreamHeaders = {
+    Accept: "application/json",
+    "User-Agent": "WeaverProxy/1.0",
+  };
+
+  const init = { method, headers: upstreamHeaders };
+  if (method === "POST") {
+    // Read as text so the body is forwarded verbatim regardless of
+    // what the caller sent. JSON is the only shape the app uses, and
+    // re-stringifying a parsed body risks reordering keys.
+    init.body = await request.text();
+    init.headers["Content-Type"] = "application/json";
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+  try {
+    const upstream = await fetch(targetUrl.toString(), {
+      ...init,
+      signal: controller.signal,
+    });
+    const text = await upstream.text();
+    const contentType =
+      upstream.headers.get("content-type") || "application/json";
+    return new Response(text, {
+      status: upstream.status,
+      headers: {
+        "Content-Type": contentType,
+        ...headers,
+      },
+    });
+  } catch (e) {
+    return jsonResponse(
+      { error: `Upstream fetch failed: ${e.message}` },
+      502,
+      headers,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ----------------------------------------------------------------
 // Route handlers
 // ----------------------------------------------------------------
@@ -466,15 +595,18 @@ async function handleDeployerRequest(request, env, headers) {
 //
 // Order of checks (each returns early):
 //
-//   1. OPTIONS          → 204 preflight
-//   2. bad Origin       → 403
-//   3. /bitquery/deployer  (non-POST) → 405
-//   4. /bitquery/deployer  (POST)     → handleDeployerRequest
-//   5. /goplus/*        (non-GET)     → 405
-//   6. /goplus/*        (GET, no contract_addresses) → 400
-//   7. /goplus/evm/:id  (GET, has param)             → relay
-//   8. /goplus/solana   (GET, has param)             → relay
-//   9. anything else                                 → 404
+//   1. OPTIONS               → 204 preflight
+//   2. bad Origin            → 403
+//   3. /bitquery/deployer (non-POST) → 405
+//   4. /bitquery/deployer (POST)     → handleDeployerRequest
+//   5. /proxy (missing url)          → 400
+//   6. /proxy (host not allowed)     → 403
+//   7. /proxy (GET/POST)             → relayAllowedProxy
+//   8. /goplus/* (non-GET)           → 405
+//   9. /goplus/* (GET, no contract_addresses) → 400
+//  10. /goplus/evm/:id (GET, has param)         → relay
+//  11. /goplus/solana (GET, has param)          → relay
+//  12. anything else                            → 404
 //
 // Route matching happens BEFORE the contract_addresses check so
 // that a request to an unknown path returns 404, not 400. The
@@ -526,6 +658,17 @@ async function handleRequest(request, env) {
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
     }
     return handleDeployerRequest(request, env, headers);
+  }
+
+  // ── Generic relay — /proxy?url=… host-allowlisted. ───────────
+  //
+  // Only GET and POST are accepted; anything else (PUT, DELETE,
+  // PATCH, etc.) is rejected before touching the upstream.
+  if (parts.length === 1 && parts[0] === "proxy") {
+    if (request.method !== "GET" && request.method !== "POST") {
+      return jsonResponse({ error: "Method not allowed" }, 405, headers);
+    }
+    return relayAllowedProxy(request, url, headers);
   }
 
   // ── GoPlus routes — GET only, path-based. ────────────────────
