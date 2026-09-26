@@ -19235,24 +19235,36 @@ W.tg = (() => {
 console.log("[Telegram] Module loaded.");
 // ---- js/features/walletsync.js ----
 // ================================================================
-//  Secure Multi‑Chain Wallet Sync
+//  Secure Multi‑Chain Wallet Sync — FINAL
 // ================================================================
-// Constitution Compliant:
-//   §2.6 Privacy First (no address logging, sanitized cache projection)
-//   §2.7 / §6.3 No Fabricated Data (unknown price = null, never 0)
-//   §3.4 / §3.6 Graceful Degradation & Caching (shared price cache for 429s)
-//   v2 P1-2 Manual cost basis for wallet holdings
+// Constitution compliance:
+//   §2.1  Non-custodial: read-only public balance queries. Never keys,
+//         never signing, never custody.
+//   §2.6  Privacy: wallets encrypted at rest; local cache stores MASKED
+//         addresses only; no address ever reaches console logs; address
+//         and sync password are never collected in the same form (stops
+//         password managers pairing them).
+//   §2.7 / §6.3  No fabricated data: unknown price => null => "—".
+//         A wallet with any unpriced material asset has totalValue null.
+//   §3.4  Graceful degradation: per-wallet failure isolation; shared
+//         last-known-price cache keeps the UI useful under HTTP 429,
+//         labeled "·stale" so provenance stays honest.
+//   §3.6  Cache before repeated API calls (5-min sync cache + shared
+//         price cache with the Dashboard).
+//   §3.7  Deterministic: regex validation and plain arithmetic only.
+//   v2 P1-2  Manual cost basis for wallet holdings.
 // ================================================================
 
 window.W = window.W || {};
 
 W.walletSync = (() => {
-  const STORAGE_KEY = "wallet_sync_data";
-  const CACHE_KEY = "wallet_sync_cache";
-  const BASIS_KEY = "wallet_cost_basis";
-  const PRICE_CACHE_KEY = "last_known_prices";
+  const STORAGE_KEY = "wallet_sync_data"; // encrypted wallet list
+  const CACHE_KEY = "wallet_sync_cache"; // sanitized sync results
+  const BASIS_KEY = "wallet_cost_basis"; // manual cost basis map
+  const PRICE_CACHE_KEY = "last_known_prices"; // shared with Dashboard
   const CACHE_TTL = 300000; // 5 minutes
 
+  // ── Fetch helper ──────────────────────────────────────
   async function fetchJSON(url, options, schema) {
     const response = W.requestGuard
       ? await W.requestGuard.fetch(url, options, {
@@ -19371,7 +19383,7 @@ W.walletSync = (() => {
               parseInt(data.result || "0x0", 16) / Math.pow(10, token.decimals);
             if (balance > 1e-9) results.push({ ...token, balance });
           } catch (e) {
-            /* ignore */
+            /* ignore per-token failure */
           }
         }
         return results;
@@ -19439,7 +19451,7 @@ W.walletSync = (() => {
               parseInt(data.result || "0x0", 16) / Math.pow(10, token.decimals);
             if (balance > 1e-9) results.push({ ...token, balance });
           } catch (e) {
-            /* ignore */
+            /* ignore per-token failure */
           }
         }
         return results;
@@ -19510,9 +19522,10 @@ W.walletSync = (() => {
                 acc.account?.data?.parsed?.info?.tokenAmount?.amount || "0";
               balance += parseInt(amount) / Math.pow(10, token.decimals);
             });
+            // Preserve FULL token identity (mint + coingeckoId) so prices resolve
             if (balance > 1e-9) results.push({ ...token, balance });
           } catch (e) {
-            /* ignore */
+            /* ignore per-token failure */
           }
         }
         return results;
@@ -19520,11 +19533,12 @@ W.walletSync = (() => {
     },
   };
 
-  // ── Secure Storage Helpers ────────────────────────────
+  // ── Secure storage helpers ────────────────────────────
   async function encryptWalletData(data, password) {
     if (!password) throw new Error("Password required for encryption");
     const plaintext = JSON.stringify(data);
     const { ciphertext, iv, salt } = await W.sync.encrypt(plaintext, password);
+    // Uint8Array does not survive JSON serialization through W.store
     return {
       ciphertext: Array.from(ciphertext),
       iv: Array.from(iv),
@@ -19563,6 +19577,11 @@ W.walletSync = (() => {
     };
     W.store.set(BASIS_KEY, map);
   }
+  function clearCostBasis(chain, symbol, address) {
+    const map = W.store.get(BASIS_KEY, {});
+    delete map[basisKey(chain, symbol, address)];
+    W.store.set(BASIS_KEY, map);
+  }
 
   // ── Sanitized cache projection (§2.6: no plaintext addresses) ──
   function sanitizeWallet(w) {
@@ -19576,6 +19595,7 @@ W.walletSync = (() => {
       nativeBalance: Number.isFinite(w.nativeBalance) ? w.nativeBalance : null,
       nativeValue: Number.isFinite(w.nativeValue) ? w.nativeValue : null,
       price: Number.isFinite(w.price) ? w.price : null,
+      priceStale: w.priceStale === true,
       totalValue: Number.isFinite(w.totalValue) ? w.totalValue : null,
       tokenBalances: (w.tokenBalances || []).map((t) => ({
         symbol: t.symbol,
@@ -19584,12 +19604,13 @@ W.walletSync = (() => {
         decimals: t.decimals ?? null,
         balance: t.balance,
         price: Number.isFinite(t.price) ? t.price : null,
+        priceStale: t.priceStale === true,
         value: Number.isFinite(t.value) ? t.value : null,
       })),
     };
   }
 
-  // ── Public API ─────────────────────────────────────────
+  // ── Wallet CRUD ───────────────────────────────────────
   async function addWallet(chain, address, label, password) {
     if (!password) throw new Error("Sync password required to add wallet");
     if (!CHAINS[chain]) throw new Error(`Unsupported chain: ${chain}`);
@@ -19604,10 +19625,12 @@ W.walletSync = (() => {
         console.warn("[WalletSync] Decryption failed, treating as new data.");
       }
     }
+    // Solana addresses are case-sensitive; only EVM/BTC compare case-insensitively
     const same = (a, b) =>
       chain === "sol" ? a === b : a.toLowerCase() === b.toLowerCase();
-    if (wallets.some((w) => w.chain === chain && same(w.address, address)))
+    if (wallets.some((w) => w.chain === chain && same(w.address, address))) {
       throw new Error("Wallet already added");
+    }
     wallets.push({
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
       chain,
@@ -19637,13 +19660,20 @@ W.walletSync = (() => {
     return decryptWalletData(encrypted, password);
   }
 
+  // ── Sync pipeline ─────────────────────────────────────
   async function syncAll(password) {
     if (!password) throw new Error("Sync password required");
     const wallets = await getWallets(password);
     if (!wallets.length)
-      return { wallets: [], holdings: [], totalValue: 0, unpriced: 0 };
+      return {
+        wallets: [],
+        holdings: [],
+        totalValue: 0,
+        unpriced: 0,
+        stale: false,
+      };
 
-    // 1) Balances — graceful per-wallet failure (§3.4), masked logging (§2.6)
+    // 1) Balances — per-wallet failure isolation (§3.4), masked logging (§2.6)
     const results = [];
     for (const wallet of wallets) {
       const chain = CHAINS[wallet.chain];
@@ -19661,7 +19691,9 @@ W.walletSync = (() => {
       }
     }
 
-    // 2) ONE batched price lookup (with shared cache fallback for 429s)
+    // 2) ONE batched price lookup by CoinGecko ID (never symbol),
+    //    seeded from the shared last-known cache so a 429 degrades
+    //    to labeled stale prices instead of blanks (§3.4, §3.6).
     const ids = new Set();
     for (const w of results) {
       if (w.error) continue;
@@ -19673,10 +19705,12 @@ W.walletSync = (() => {
 
     const priceCache = W.store.get(PRICE_CACHE_KEY, {});
     const priceMap = {};
-
-    // Seed with cached prices first
+    const staleIds = new Set();
     for (const id of ids) {
-      if (priceCache[id]?.price != null) priceMap[id] = priceCache[id].price;
+      if (priceCache[id] && Number.isFinite(priceCache[id].price)) {
+        priceMap[id] = priceCache[id].price;
+        staleIds.add(id);
+      }
     }
 
     if (ids.size) {
@@ -19686,6 +19720,7 @@ W.walletSync = (() => {
           market.forEach((c) => {
             if (c && c.id && Number.isFinite(c.current_price)) {
               priceMap[c.id] = c.current_price;
+              staleIds.delete(c.id); // refreshed live
               priceCache[c.id] = { price: c.current_price, ts: Date.now() };
             }
           });
@@ -19693,13 +19728,15 @@ W.walletSync = (() => {
         }
       } catch (e) {
         console.warn(
-          "[WalletSync] Price lookup failed, using cached prices:",
+          "[WalletSync] Live price lookup failed; using cached prices:",
           e.message,
         );
       }
     }
 
-    // 3) Honest Valuation: unknown price => null, NEVER 0 (§6.3)
+    // 3) Honest valuation: unknown price => null, NEVER 0 (§6.3).
+    //    If ANY material asset in a wallet is unpriced, that wallet's
+    //    totalValue is null — no partial sums presented as totals.
     let totalValue = 0;
     let unpriced = 0;
 
@@ -19707,15 +19744,15 @@ W.walletSync = (() => {
       if (w.error) {
         w.nativeValue = null;
         w.price = null;
+        w.priceStale = false;
         w.totalValue = null;
         continue;
       }
-
       const chain = CHAINS[w.chain];
-      const nativePrice = chain?.coingeckoId
-        ? (priceMap[chain.coingeckoId] ?? null)
-        : null;
+      const nativeId = chain?.coingeckoId || null;
+      const nativePrice = nativeId ? (priceMap[nativeId] ?? null) : null;
       w.price = nativePrice;
+      w.priceStale = nativePrice != null && staleIds.has(nativeId);
       w.nativeValue =
         nativePrice != null && Number.isFinite(w.nativeBalance)
           ? w.nativeBalance * nativePrice
@@ -19724,41 +19761,40 @@ W.walletSync = (() => {
       let walletValue = 0;
       let walletFullyPriced = true;
 
-      if (w.nativeValue != null) {
-        walletValue += w.nativeValue;
-      } else if (w.nativeBalance > 0) {
-        walletFullyPriced = false; // Native balance exists but price is unknown
-      }
+      if (w.nativeValue != null) walletValue += w.nativeValue;
+      else if (w.nativeBalance > 0) walletFullyPriced = false;
 
       for (const t of w.tokenBalances || []) {
-        const p = t.coingeckoId ? (priceMap[t.coingeckoId] ?? null) : null;
+        const tid = t.coingeckoId || null;
+        const p = tid ? (priceMap[tid] ?? null) : null;
         t.price = p;
+        t.priceStale = p != null && staleIds.has(tid);
         t.value = p != null ? t.balance * p : null;
-
-        if (t.value != null) {
-          walletValue += t.value;
-        } else if (t.balance > 0) {
-          walletFullyPriced = false; // Token balance exists but price is unknown
-        }
+        if (t.value != null) walletValue += t.value;
+        else if (t.balance > 0) walletFullyPriced = false;
       }
 
-      // If ANY material asset in the wallet is unpriced, the wallet total is strictly null
       w.totalValue = walletFullyPriced ? walletValue : null;
-
-      if (w.totalValue != null) {
-        totalValue += w.totalValue;
-      } else if (
-        w.nativeBalance > 0 ||
-        (w.tokenBalances && w.tokenBalances.length > 0)
-      ) {
-        unpriced++;
-      }
+      if (w.totalValue != null) totalValue += w.totalValue;
+      else unpriced++;
     }
+
+    const stale = results.some(
+      (w) =>
+        w.priceStale === true ||
+        (w.tokenBalances || []).some((t) => t.priceStale === true),
+    );
 
     // 4) Cache SANITIZED projection only — no plaintext addresses (§2.6)
     const sanitized = results.map(sanitizeWallet);
     W.store.set(CACHE_KEY, { data: sanitized, timestamp: Date.now() });
-    return { wallets: sanitized, holdings: sanitized, totalValue, unpriced };
+    return {
+      wallets: sanitized,
+      holdings: sanitized,
+      totalValue,
+      unpriced,
+      stale,
+    };
   }
 
   function getCached() {
@@ -19774,6 +19810,8 @@ W.walletSync = (() => {
     if (encrypted) await decryptWalletData(encrypted, password);
     W.store.delete(STORAGE_KEY);
     W.store.delete(CACHE_KEY);
+    // BASIS_KEY intentionally preserved: user-entered financial history
+    // is not destroyed by a wallet-list clear (§4.4 auditable records).
   }
 
   function validateAddress(chain, address) {
@@ -19793,7 +19831,7 @@ W.walletSync = (() => {
     }
   }
 
-  // ── Portfolio-shaped holdings (with cost basis attached) ──
+  // ── Portfolio-shaped holdings (cost basis attached) ───
   function toPortfolioHoldings() {
     const cache = W.store.get(CACHE_KEY, null);
     if (!cache || !Array.isArray(cache.data)) return [];
@@ -19837,12 +19875,12 @@ W.walletSync = (() => {
     return out;
   }
 
-  // ── UI Render ──────────────────────────────────────────
+  // ── UI ───────────────────────────────────────────────
   async function render(view) {
     view.innerHTML = `
       <div class="card">
         <h3>🔐 Wallet Sync</h3>
-        <p class="muted small">All wallet data is encrypted with your sync password. Native balances and a small set of well-known tokens are tracked per chain.</p>
+        <p class="muted small">All wallet data is encrypted with your sync password. Native balances and a small set of well-known tokens are tracked per chain. Read-only: Weaver never requests keys or signing.</p>
         <div class="qa mt">
           <button class="btn primary" id="ws-add">+ Add Wallet</button>
           <button class="btn" id="ws-sync">🔄 Sync Now</button>
@@ -19899,13 +19937,26 @@ W.walletSync = (() => {
       const status = view.querySelector("#ws-status");
       if (!status) return;
       displayWallets(view, result.wallets);
-      status.innerHTML = `<p class="up">✅ Synced at ${new Date().toLocaleTimeString()}${result.unpriced ? ` · ${result.unpriced} wallet(s) partially unpriced` : ""}</p>`;
+      const notes = [];
+      if (result.unpriced) notes.push(`${result.unpriced} wallet(s) unpriced`);
+      if (result.stale) notes.push("some prices from cache");
+      status.innerHTML = `<p class="up">✅ Synced at ${new Date().toLocaleTimeString()}${notes.length ? " · " + W.fmt.escapeHTML(notes.join(" · ")) : ""}</p>`;
     } catch (e) {
       if (!view.isConnected) return;
       const status = view.querySelector("#ws-status");
       if (status)
         status.innerHTML = `<p class="down">❌ ${W.fmt.escapeHTML(e.message)}</p>`;
     }
+  }
+
+  function valueCell(w) {
+    if (w.error) return '<span class="down">error</span>';
+    if (!Number.isFinite(w.totalValue))
+      return '<span class="text-muted" title="Price unavailable">—</span>';
+    return (
+      W.fmt.money(w.totalValue, { compact: true }) +
+      (w.priceStale ? ' <span class="text-muted small-text">·stale</span>' : "")
+    );
   }
 
   function displayWallets(view, wallets) {
@@ -19928,8 +19979,8 @@ W.walletSync = (() => {
                 <td>${CHAINS[w.chain]?.icon || "⛓️"} ${W.fmt.escapeHTML(w.chain.toUpperCase())}</td>
                 <td>${W.fmt.escapeHTML(w.label || "—")}</td>
                 <td><code>${W.fmt.escapeHTML(w.addressMasked || "—")}</code></td>
-                <td>${w.error ? '<span class="down">error</span>' : Number.isFinite(w.nativeBalance) ? `${w.nativeBalance.toFixed(4)} ${CHAINS[w.chain]?.symbol || ""}` : "—"}</td>
-                <td>${Number.isFinite(w.totalValue) ? W.fmt.money(w.totalValue, { compact: true }) : '<span class="text-muted" title="Price unavailable">—</span>'}</td>
+                <td>${w.error ? '<span class="down">error</span>' : Number.isFinite(w.nativeBalance) ? `${w.nativeBalance.toFixed(4)} ${CHAINS[w.chain]?.symbol || ""}${(w.tokenBalances || []).length ? ` <span class="text-muted small-text">+${w.tokenBalances.length} tokens</span>` : ""}` : "—"}</td>
+                <td>${valueCell(w)}</td>
                 <td><button class="icon-btn" data-remove="${W.fmt.escapeHTML(w.id)}">✕</button></td>
               </tr>
             `,
@@ -19958,17 +20009,20 @@ W.walletSync = (() => {
     });
   }
 
+  // §2.6: address and password are NEVER collected in the same form,
+  // so password managers cannot pair your wallet identity with a secret.
   function addWalletModal(view) {
     const m = W.ui.modal({
       title: "Add Wallet to Sync",
       body: `
-        <label>Chain<select id="ws-chain">${Object.keys(CHAINS)
+        <label>Chain<select id="ws-chain" autocomplete="off">${Object.keys(
+          CHAINS,
+        )
           .map((c) => `<option value="${c}">${CHAINS[c].label}</option>`)
           .join("")}</select></label>
-        <label>Label<input id="ws-label" placeholder="e.g. My main wallet"></label>
-        <label>Address<input id="ws-address" placeholder="Enter wallet address"></label>
-        <label>Sync Password<input type="password" id="ws-password" placeholder="Your Weaver sync password"></label>
-        <p class="muted small">Your wallet addresses are encrypted with your sync password.</p>
+        <label>Label<input id="ws-label" autocomplete="off" placeholder="e.g. My main wallet"></label>
+        <label>Address<input id="ws-address" autocomplete="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" placeholder="Enter wallet address"></label>
+        <p class="muted small">Addresses are encrypted with your sync password. You will be asked for the password after confirming the address.</p>
       `,
       footer: `<button class="btn ghost" id="ws-cancel">Cancel</button><button class="btn primary" id="ws-save">Add Wallet</button>`,
     });
@@ -19979,11 +20033,18 @@ W.walletSync = (() => {
         m.el.querySelector("#ws-label").value.trim() ||
         `${chain.toUpperCase()} Wallet`;
       const address = m.el.querySelector("#ws-address").value.trim();
-      const password = m.el.querySelector("#ws-password").value;
-      if (!password) return W.ui.toast("Sync password is required.", "warn");
+      if (!address) return W.ui.toast("Enter a wallet address", "warn");
+      if (!validateAddress(chain, address))
+        return W.ui.toast(`Invalid ${chain.toUpperCase()} address`, "warn");
+      m.close(); // address form is gone before the password prompt exists
+      const password = await W.ui.promptPassword({
+        title: "Encrypt Wallet",
+        message: "Enter your sync password to encrypt and store this wallet.",
+        confirmLabel: "Add Wallet",
+      });
+      if (!password) return W.ui.toast("Wallet not added (cancelled).", "info");
       try {
         await addWallet(chain, address, label, password);
-        m.close();
         W.ui.toast("Wallet added and encrypted.", "ok");
         const targetView = view || document.getElementById("view");
         if (targetView) render(targetView);
@@ -20007,6 +20068,7 @@ W.walletSync = (() => {
     wallets: getWallets,
     getCostBasis,
     setCostBasis,
+    clearCostBasis,
   };
 })();
 
