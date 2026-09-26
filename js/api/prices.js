@@ -7,16 +7,11 @@ window.W = window.W || {};
 W.api = (() => {
   // ── Constants ─────────────────────────────────────────
   const CG_API = "https://api.coingecko.com/api/v3";
-  const BINANCE_API = "https://api.binance.com/api/v3";
+  const COINBASE_API = "https://api.coinbase.com/v2";
   const CACHE_TTL = 60000; // 1 minute
   const LONG_CACHE_TTL = 300000; // 5 minutes
 
   // ── Request routes ───────────────────────────────────────
-  // The Worker proxy exists because CoinGecko and Binance do not
-  // send CORS headers — a direct browser fetch from this origin is
-  // blocked by the browser, not by CSP. The Worker relays the
-  // response with the CORS headers we need. Direct is kept as a
-  // second attempt for endpoints that do allow cross-origin.
   const PROXIES = [
     (u) =>
       "https://weaver-proxy.ibis01-weaver.workers.dev/proxy?url=" +
@@ -37,9 +32,7 @@ W.api = (() => {
     if (url.includes("/coins/") && !url.includes("/coins/markets"))
       return "coin";
     if (url.includes("alternative.me/fng")) return "fearGreed";
-    if (url.includes("/ticker/24hr")) return "binanceTickers";
-    if (url.includes("/klines")) return "binanceKlines";
-    return null;
+    return null; // Coinbase + others normalised below
   }
 
   function resourceForUrl(url) {
@@ -51,8 +44,7 @@ W.api = (() => {
     if (url.includes("/coins/") && !url.includes("/coins/markets"))
       return "coin";
     if (url.includes("alternative.me/fng")) return "fear-greed";
-    if (url.includes("/ticker/24hr")) return "markets";
-    if (url.includes("/klines")) return "chart";
+    if (url.includes("coinbase.com")) return "markets";
     return "external-data";
   }
 
@@ -62,7 +54,6 @@ W.api = (() => {
     return data;
   }
 
-  // ── Helpers ────────────────────────────────────────────
   function getCurrency() {
     return W.currency ? W.currency() : "usd";
   }
@@ -107,7 +98,6 @@ W.api = (() => {
     circuitBreaker.until = 0;
   }
 
-  // ── Fetch with proxy fallback ─────────────────────────
   async function fetchWithProxy(url, timeout = 10000, ttl = CACHE_TTL) {
     const cached = getCached(url, ttl);
     if (cached !== null) {
@@ -124,14 +114,11 @@ W.api = (() => {
         "Network is temporarily unavailable. Please try again later.",
       );
     }
-    let lastError = null;
     for (const proxy of PROXIES) {
       const proxyUrl = proxy(url);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
       try {
-        // Browsers refuse to send a User-Agent header (forbidden name),
-        // so we only send Accept. The Worker sets its own UA upstream.
         const init = {
           signal: controller.signal,
           headers: { Accept: "application/json" },
@@ -157,12 +144,7 @@ W.api = (() => {
         });
         return data;
       } catch (e) {
-        lastError = e;
         clearTimeout(timer);
-        // A 429 from the proxy means the upstream rate-limited this
-        // client (or the Worker's egress IP). The direct fallback will
-        // hit the same limit and additionally trigger a CORS error in
-        // the browser. Skip it and serve stale cache if available.
         if (/HTTP 429/.test(e.message)) {
           const stale = getCached(url, 86400000);
           if (stale !== null) {
@@ -191,7 +173,6 @@ W.api = (() => {
     throw new Error("Unable to fetch market data. Please try again later.");
   }
 
-  // ── Symbol mapping cache ──────────────────────────────
   const symMap = () => W.store.get("sym-map", {});
   function learnSymbols(coins) {
     const map = symMap();
@@ -245,68 +226,123 @@ W.api = (() => {
       fetchWithProxy(`${CG_API}/search/trending`, CACHE_TTL).then((d) => d),
   };
 
-  // ── Binance API ─────────────────────────────────────────
-  const binance = {
+  // ── Coinbase API ────────────────────────────────────────
+  //
+  // Replaces both Binance (which 403s every Cloudflare Worker
+  // egress IP) and CoinCap (whose api.coincap.io domain no longer
+  // resolves — Cloudflare returns "error 1016 / Origin DNS error"
+  // on every request).
+  //
+  // GET /v2/exchange-rates?currency=USD returns a single JSON
+  // object mapping every supported symbol to "how many of that
+  // symbol equals 1 USD". We invert it to get USD price per unit.
+  // One request covers every coin we care about; the Worker's edge
+  // cache then serves it from the colo for 60 s.
+  //
+  // Coinbase requires no API key and does not block cloud IPs.
+
+  // CoinGecko id → Coinbase symbol. Only symbols whose CoinGecko
+  // id differs from a plain uppercase of the ticker need an entry;
+  // everything else falls through to id.toUpperCase().
+  const COINBASE_SYMBOL_ALIASES = {
+    bitcoin: "BTC",
+    ethereum: "ETH",
+    tether: "USDT",
+    "usd-coin": "USDC",
+    dai: "DAI",
+    chainlink: "LINK",
+    binancecoin: "BNB",
+    solana: "SOL",
+    cardano: "ADA",
+    dogecoin: "DOGE",
+    ripple: "XRP",
+    polkadot: "DOT",
+    "shiba-inu": "SHIB",
+    "matic-network": "MATIC",
+    litecoin: "LTC",
+    tron: "TRX",
+    avalanche: "AVAX",
+    "avalanche-2": "AVAX",
+    "wrapped-bitcoin": "WBTC",
+    uniswap: "UNI",
+    "the-open-network": "TON",
+    stellar: "XLM",
+    cosmos: "ATOM",
+  };
+
+  function coinbaseSymbol(coingeckoId) {
+    return (
+      COINBASE_SYMBOL_ALIASES[coingeckoId] ||
+      String(coingeckoId).toUpperCase()
+    );
+  }
+
+  const coinbase = {
     markets: (ids) => {
-      const symbols = ids.map((id) => getSymbol(id) + "USDT");
-      return fetchWithProxy(
-        `${BINANCE_API}/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(symbols))}`,
-        CACHE_TTL,
-      ).then((d) => {
-        const arr = Array.isArray(d) ? d : [];
-        source = "binance";
-        return arr.map((item) => ({
-          id: item.symbol.replace("USDT", "").toLowerCase(),
-          symbol: item.symbol.replace("USDT", "").toLowerCase(),
-          name: item.symbol.replace("USDT", ""),
-          image: "",
-          current_price: parseFloat(item.lastPrice),
-          market_cap: null,
-          total_volume: parseFloat(item.quoteVolume),
-          price_change_percentage_24h_in_currency: parseFloat(
-            item.priceChangePercent,
-          ),
-          price_change_percentage_7d_in_currency: null,
-          price_change_percentage_30d_in_currency: null,
-          sparkline_in_7d: null,
-          market_cap_rank: null,
-        }));
+      const symbols = ids.map(coinbaseSymbol);
+      const url = `${COINBASE_API}/exchange-rates?currency=USD`;
+      return fetchWithProxy(url, CACHE_TTL).then((d) => {
+        source = "coinbase";
+        const rates = (d && d.data && d.data.rates) || {};
+        const rows = ids
+          .map((id, i) => {
+            const sym = symbols[i];
+            const perUsd = Number(rates[sym]);
+            if (!perUsd) return null;
+            return {
+              id,
+              symbol: String(sym).toLowerCase(),
+              name: sym,
+              image: "",
+              current_price: 1 / perUsd,
+              market_cap: null,
+              total_volume: null,
+              price_change_percentage_24h_in_currency: 0,
+              price_change_percentage_7d_in_currency: null,
+              price_change_percentage_30d_in_currency: null,
+              sparkline_in_7d: null,
+              market_cap_rank: null,
+            };
+          })
+          .filter(Boolean);
+        learnSymbols(rows);
+        return rows;
       });
-    },
-    chart: (id, days) => {
-      const symbol = getSymbol(id) + "USDT";
-      return fetchWithProxy(
-        `${BINANCE_API}/klines?symbol=${symbol}&interval=1d&limit=${days}`,
-        LONG_CACHE_TTL,
-      ).then((d) => {
-        const arr = Array.isArray(d) ? d : [];
-        return arr.map((k) => [k[0], parseFloat(k[4])]);
-      });
-    },
-    ohlcv: (id, interval = "1h", limit = 500) => {
-      const symbol = getSymbol(id) + "USDT";
-      return fetchWithProxy(
-        `${BINANCE_API}/klines?symbol=${symbol}&interval=${interval}&limit=${Math.min(1000, Math.max(20, limit))}`,
-        LONG_CACHE_TTL,
-      ).then((data) =>
-        (Array.isArray(data) ? data : []).map((k) => ({
-          timestamp: Number(k[0]),
-          open: Number(k[1]),
-          high: Number(k[2]),
-          low: Number(k[3]),
-          close: Number(k[4]),
-          volume: Number(k[5]),
-          quoteVolume: Number(k[7]),
-        })),
-      );
     },
   };
 
+  // ── OHLCV via CoinGecko ────────────────────────────────
+  function ohlcvViaCoinGecko(id, interval, limit) {
+    const days =
+      interval === "1d"
+        ? Math.max(1, Math.min(365, limit))
+        : interval === "4h"
+          ? Math.max(1, Math.min(90, Math.ceil(limit / 6)))
+          : Math.max(1, Math.min(30, Math.ceil(limit / 24)));
+    const url =
+      `${CG_API}/coins/${id}/ohlc` +
+      `?vs_currency=${getCurrency()}&days=${days}`;
+    return fetchWithProxy(url, LONG_CACHE_TTL).then((d) => {
+      const arr = Array.isArray(d) ? d : [];
+      return arr.slice(-limit).map((k) => ({
+        timestamp: Number(k[0]),
+        open: Number(k[1]),
+        high: Number(k[2]),
+        low: Number(k[3]),
+        close: Number(k[4]),
+        volume: 0,
+        quoteVolume: 0,
+      }));
+    });
+  }
+
   // ── API with smart failover ────────────────────────────
   async function withFailover(method, ...args) {
-    const order = method === "top" ? ["coingecko"] : ["coingecko", "binance"];
+    const order =
+      method === "top" ? ["coingecko"] : ["coingecko", "coinbase"];
     for (const providerName of order) {
-      const provider = providerName === "coingecko" ? coingecko : binance;
+      const provider =
+        providerName === "coingecko" ? coingecko : coinbase;
       if (!provider[method]) continue;
       try {
         const result = await provider[method](...args);
@@ -321,7 +357,6 @@ W.api = (() => {
     );
   }
 
-  // ── Top cache ──────────────────────────────────────────
   let topCache = null,
     topCacheTime = 0;
   async function getTopCached(limit) {
@@ -344,7 +379,6 @@ W.api = (() => {
     }
   }
 
-  // ── Public API ──────────────────────────────────────────
   return {
     markets: (ids) => {
       if (!ids || !ids.length) return Promise.resolve([]);
@@ -352,15 +386,11 @@ W.api = (() => {
       return withFailover("markets", idArray);
     },
     chart: (id, days = 30) => withFailover("chart", id, days),
-    ohlcv: (id, interval = "1h", limit = 500) => {
-      const symbol = getSymbol(id) + "USDT";
-      return binance
-        .ohlcv(symbol.replace(/USDT$/, ""), interval, limit)
-        .then((data) => {
-          source = "binance";
-          return data;
-        });
-    },
+    ohlcv: (id, interval = "1h", limit = 500) =>
+      ohlcvViaCoinGecko(id, interval, limit).then((data) => {
+        source = "coingecko";
+        return data;
+      }),
     top: (limit = 100) => {
       if (limit <= 50) return getTopCached(limit);
       return withFailover("top", limit);

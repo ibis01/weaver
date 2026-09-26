@@ -1,16 +1,13 @@
 // ===============================================================
-//                     Weaver Dashboard UI
+//                     Weaver Dashboard UI (Command Center)
 // ===============================================================
-// CSP Compliant: no style="" attributes. Dynamic styles via CSSOM.
+// CSP Compliant: ZERO inline style="..." attributes.
+// All dynamic styling handled via CSS classes and CSS variables.
 // ===============================================================
 
 window.W = window.W || {};
 
 W.dashboard = (() => {
-  // Cap the Market Context table at 20 rows by default. The full list
-  // is available via the "Show all N tokens" disclosure below the
-  // table. Prevents the Dashboard from becoming a multi-thousand-pixel
-  // data dump on first load.
   const MARKET_ROWS_DEFAULT = 20;
   let marketRowsExpanded = false;
 
@@ -71,7 +68,7 @@ W.dashboard = (() => {
       max = Math.max(...vals),
       up = c.dataset.up === "1";
     ctx.clearRect(0, 0, w, h);
-    ctx.strokeStyle = up ? "var(--up)" : "var(--down)";
+    ctx.strokeStyle = up ? "#10b981" : "#ef4444"; // Hardcode hex for Canvas API
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     vals.forEach((v, i) => {
@@ -191,9 +188,9 @@ W.dashboard = (() => {
         .map(
           (r) => `<tr>
         <td class="coin-cell"><img src="${W.fmt.escapeHTML(r.image || r.img || "")}" alt="${W.fmt.escapeHTML(r.name)}" class="coin-img"><div><b>${W.fmt.escapeHTML(r.name)}</b><br><span class="text-muted small-text">${W.fmt.escapeHTML(String(r.symbol).toUpperCase())}</span></div></td>
-        <td>${W.fmt.price(r.price)}</td><td>${W.fmt.pct(r.p24)}</td><td>${r.qty}</td>
-        <td><b>${W.fmt.money(r.value)}</b></td>
-        <td>${r.wallet ? '<span class="text-muted">—</span>' : signedMoney(r.pnl) + '<div class="small-text">' + W.fmt.pct(r.pnlPct) + "</div>"}</td>
+        <td class="num">${W.fmt.price(r.price)}</td><td class="num">${W.fmt.pct(r.p24)}</td><td class="num">${r.qty}</td>
+        <td class="num"><b>${W.fmt.money(r.value)}</b></td>
+        <td class="num">${r.wallet ? '<span class="text-muted">—</span>' : signedMoney(r.pnl) + '<div class="small-text">' + W.fmt.pct(r.pnlPct) + "</div>"}</td>
         <td class="row-actions">${r.wallet ? '<span class="tag rank">👛 wallet</span>' : `<button class="icon-btn" data-edit="${W.fmt.escapeHTML(r.id)}">✏️</button><button class="icon-btn" data-del="${W.fmt.escapeHTML(r.id)}">🗑️</button>`}</td>
       </tr>`,
         )
@@ -272,7 +269,6 @@ W.dashboard = (() => {
     };
   }
 
-  // ── Portfolio Performance chart helpers ────────────────
   function destroyPerfChart(view) {
     if (view && view._dashboardPerfChart) {
       try {
@@ -282,8 +278,6 @@ W.dashboard = (() => {
     }
   }
 
-  // Snapshot shape (see js/features/timemachine.js):
-  //   { timestamp: number, holdings: [...], totals: { totalValue, ... } }
   function snapshotsToSeries(rangeDays) {
     if (!W.timemachine || typeof W.timemachine.getSnapshots !== "function")
       return [];
@@ -314,7 +308,6 @@ W.dashboard = (() => {
     const note = view.querySelector("#d-perf-note");
     const rangeEl = view.querySelector("#d-perf-range");
     if (!canvas) return;
-
     destroyPerfChart(view);
 
     const active = rangeEl?.querySelector(".chip.active");
@@ -325,19 +318,17 @@ W.dashboard = (() => {
         : Number.isFinite(Number(rangeVal))
           ? Number(rangeVal)
           : null;
-
     const series = snapshotsToSeries(rangeDays);
 
     if (series.length < 2) {
-      if (note) {
+      if (note)
         note.textContent =
           series.length === 0
             ? "No portfolio snapshots yet — history builds as you use Weaver."
             : "Only one snapshot captured so far. Check back after the next refresh cycle.";
-      }
-      const w = (canvas.width = canvas.clientWidth || 400);
-      const h = (canvas.height = 180);
-      const ctx = canvas.getContext("2d");
+      const w = (canvas.width = canvas.clientWidth || 400),
+        h = (canvas.height = 180),
+        ctx = canvas.getContext("2d");
       ctx.clearRect(0, 0, w, h);
       ctx.strokeStyle = "rgba(255,255,255,0.06)";
       ctx.lineWidth = 1;
@@ -347,9 +338,7 @@ W.dashboard = (() => {
       ctx.stroke();
       return;
     }
-
     if (note) note.textContent = "";
-
     if (typeof Chart !== "function") {
       if (note) note.textContent = "Chart library unavailable.";
       return;
@@ -364,13 +353,19 @@ W.dashboard = (() => {
             label: "Portfolio value",
             data: series.map((p) => p.y),
             borderColor: "#6366f1",
-            backgroundColor: "rgba(99, 102, 241, 0.08)",
-            borderWidth: 1.75,
+            backgroundColor: (context) => {
+              const ctx = context.chart.ctx;
+              const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+              gradient.addColorStop(0, "rgba(99, 102, 241, 0.25)");
+              gradient.addColorStop(1, "rgba(99, 102, 241, 0.0)");
+              return gradient;
+            },
+            borderWidth: 2,
             pointRadius: 0,
-            pointHoverRadius: 4,
+            pointHoverRadius: 5,
             pointHoverBackgroundColor: "#6366f1",
             fill: true,
-            tension: 0.2,
+            tension: 0.3,
           },
         ],
       },
@@ -392,16 +387,12 @@ W.dashboard = (() => {
         scales: {
           x: {
             grid: { display: false },
-            ticks: {
-              color: "#98a1b3",
-              maxRotation: 0,
-              autoSkip: true,
-            },
+            ticks: { color: "#8b94a7", maxRotation: 0, autoSkip: true },
           },
           y: {
-            grid: { color: "rgba(255,255,255,0.06)" },
+            grid: { color: "rgba(255,255,255,0.04)" },
             ticks: {
-              color: "#98a1b3",
+              color: "#8b94a7",
               callback: (v) => W.fmt.money(v, { compact: true }),
             },
           },
@@ -410,10 +401,6 @@ W.dashboard = (() => {
     });
   }
 
-  // ── Allocation breakdown ───────────────────────────────
-  // Top-N holdings by value, plus an aggregated "Others" row when
-  // there are more than N. Uses the existing .kv-row + .meter-bar
-  // classes for the visual; no new CSS.
   const ALLOCATION_TOP_N = 5;
   function renderAllocation(container, rows, totals) {
     if (!container) return;
@@ -428,23 +415,13 @@ W.dashboard = (() => {
     const restSum = sorted
       .slice(ALLOCATION_TOP_N)
       .reduce((s, r) => s + r.value, 0);
-
     const bucket = (pct) =>
       Math.max(0, Math.min(100, Math.round(pct / 10) * 10));
-
     const rowHtml = (label, pct, extraClass) => {
       const b = bucket(pct);
       const klass = extraClass ? ` meter-fill-${extraClass}` : "";
-      return `
-        <div class="kv-row">
-          <span>${label}</span>
-          <span>${pct.toFixed(1)}%</span>
-        </div>
-        <div class="meter-bar">
-          <div class="meter-fill meter-fill-${b}${klass}"></div>
-        </div>`;
+      return `<div class="kv-row"><span>${label}</span><span>${pct.toFixed(1)}%</span></div><div class="meter-bar"><div class="meter-fill meter-fill-${b}${klass}"></div></div>`;
     };
-
     const parts = top.map((r) =>
       rowHtml(
         `<b>${W.fmt.escapeHTML(String(r.symbol || "?").toUpperCase())}</b>`,
@@ -452,7 +429,6 @@ W.dashboard = (() => {
         null,
       ),
     );
-
     if (restSum > 0) {
       const restCount = sorted.length - ALLOCATION_TOP_N;
       parts.push(
@@ -463,7 +439,6 @@ W.dashboard = (() => {
         ),
       );
     }
-
     container.innerHTML = parts.join("");
   }
 
@@ -499,9 +474,7 @@ W.dashboard = (() => {
             <button class="chip" data-range="all">ALL</button>
           </div>
         </div>
-        <div class="chart-box">
-          <canvas id="d-perf-chart"></canvas>
-        </div>
+        <div class="chart-box"><canvas id="d-perf-chart"></canvas></div>
         <p class="muted small mt-8" id="d-perf-note"></p>
       </div>
 
@@ -514,7 +487,7 @@ W.dashboard = (() => {
       </div>
 
       <div class="grid-2 mt-16">
-        <div id="what-matters-now-container"></div>
+        <div id="what-matters-now-container" class="intelligence-feed card"></div>
         <div id="what-changed-container"></div>
       </div>
 
@@ -540,11 +513,6 @@ W.dashboard = (() => {
     `;
 
     view.querySelector("#qa-add").onclick = () => holdingModal();
-
-    // "Sync Wallets" navigates to the dedicated walletsync route.
-    // The wallet-add / sync flow needs the user's sync password, and
-    // that prompt lives on #/walletsync. Navigating there is simpler
-    // and avoids duplicating the password modal on the dashboard.
     const syncBtn = view.querySelector("#qa-sync");
     if (syncBtn)
       syncBtn.onclick = () => {
@@ -552,7 +520,6 @@ W.dashboard = (() => {
         else W.ui.toast("Wallet sync module not available", "warn");
       };
 
-    // ── Performance chart wiring ─────────────────────────
     const perfRangeEl = view.querySelector("#d-perf-range");
     if (perfRangeEl) {
       perfRangeEl.querySelectorAll("[data-range]").forEach((b) => {
@@ -586,13 +553,12 @@ W.dashboard = (() => {
         : null;
 
     const healthEl = view.querySelector("#d-data-health");
-    if (healthEl && W.ui.renderDataStatus) {
+    if (healthEl && W.ui.renderDataStatus)
       W.ui.renderDataStatus(healthEl, [
         "markets",
         "global-market",
         "fear-greed",
       ]);
-    }
 
     const statsEl = view.querySelector("#d-stats");
     if (statsEl) {
@@ -622,7 +588,6 @@ W.dashboard = (() => {
           regimeTile = statCard("Market Regime", "—", "Detection failed");
         }
       }
-
       const fgTile = fg
         ? statCard(
             "Fear & Greed",
@@ -630,7 +595,6 @@ W.dashboard = (() => {
             fg.value_classification || "Unclassified",
           )
         : statCard("Fear & Greed", "—", "Source unavailable");
-
       const btcTile = g
         ? statCard(
             "BTC Dominance",
@@ -641,7 +605,6 @@ W.dashboard = (() => {
               : "24h change unavailable",
           )
         : statCard("BTC Dominance", "—", "Source unavailable");
-
       tilesEl.innerHTML = regimeTile + fgTile + btcTile;
     }
 
@@ -676,7 +639,6 @@ W.dashboard = (() => {
       const visibleList = marketRowsExpanded
         ? list
         : list.slice(0, MARKET_ROWS_DEFAULT);
-
       const rowsEl = view.querySelector("#d-rows");
       if (rowsEl) {
         rowsEl.innerHTML = visibleList.length
@@ -694,7 +656,6 @@ W.dashboard = (() => {
           );
         rowsEl.querySelectorAll("canvas.spark").forEach(drawSpark);
       }
-
       const moreEl = view.querySelector("#d-market-more");
       if (moreEl) {
         if (fullCount > MARKET_ROWS_DEFAULT) {
@@ -736,12 +697,10 @@ W.dashboard = (() => {
 
     const allocBody = view.querySelector("#d-alloc-body");
     const allocTotal = view.querySelector("#d-alloc-total");
-    if (allocTotal) {
+    if (allocTotal)
       allocTotal.textContent =
         totals && totals.value ? W.fmt.money(totals.value) : "";
-    }
     renderAllocation(allocBody, rows, totals);
-
     drawPerformanceChart(view);
 
     const rankerContainer = view.querySelector("#what-matters-now-container");
@@ -761,97 +720,61 @@ W.dashboard = (() => {
         })
         .catch(() => {
           rankerContainer.innerHTML =
-            '<div class="card"><p class="text-muted small-text">Intelligence feed temporarily unavailable.</p></div>';
+            '<p class="text-muted small-text p-16">Intelligence feed temporarily unavailable.</p>';
         });
     }
 
     const changedContainer = view.querySelector("#what-changed-container");
     if (changedContainer) {
-      changedContainer.innerHTML = "";
-
-      const card = document.createElement("div");
-      card.className = "card";
-      const title = document.createElement("h3");
-      title.textContent = "🔍 Discoveries";
-      card.appendChild(title);
-
-      const newIntelLabel = document.createElement("p");
-      newIntelLabel.className = "muted small mb-8";
-      newIntelLabel.style.marginTop = "8px";
-      newIntelLabel.textContent = "New intelligence";
-      card.appendChild(newIntelLabel);
-
       const gemTheses = (W.theses?.all?.() || [])
         .filter((t) => t.sourceRef?.type === "gem")
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
         .slice(0, 3);
 
-      if (!gemTheses.length) {
-        const p = document.createElement("p");
-        p.className = "muted small";
-        p.textContent =
-          "No new discoveries yet — run Gem Agent to populate this.";
-        card.appendChild(p);
-      } else {
-        const list = document.createElement("ul");
-        list.style.listStyle = "none";
-        list.style.padding = "0";
-        list.style.margin = "0";
-        gemTheses.forEach((t) => {
-          const li = document.createElement("li");
-          li.style.padding = "8px 0";
-          li.style.borderBottom = "1px solid var(--border, #30363d)";
+      const discoveriesHTML = gemTheses.length
+        ? `<ul class="discovery-list">${gemTheses
+            .map(
+              (t) => `
+            <li class="discovery-item">
+              <div class="discovery-head">
+                <b>${W.fmt.escapeHTML(t.asset)}</b>
+                <span class="muted small">${W.fmt.escapeHTML(t.signals || "Security status unavailable")}</span>
+              </div>
+              ${t.reasons ? `<p class="muted small mt-4">${W.fmt.escapeHTML(t.reasons)}</p>` : ""}
+            </li>`,
+            )
+            .join("")}</ul>`
+        : `<p class="muted small">No new discoveries yet — run Gem Agent to populate this.</p>`;
 
-          const head = document.createElement("div");
-          head.style.display = "flex";
-          head.style.justifyContent = "space-between";
-          const asset = document.createElement("b");
-          asset.textContent = t.asset;
-          const security = document.createElement("span");
-          security.className = "muted small";
-          security.textContent = t.signals || "Security status unavailable";
-          head.appendChild(asset);
-          head.appendChild(security);
-          li.appendChild(head);
+      const deltasHTML =
+        totals && W.delta
+          ? (() => {
+              const deltas = W.delta.computePortfolioDeltas(totals);
+              const container = document.createElement("div");
+              W.delta.renderList(container, deltas);
+              return container.innerHTML;
+            })()
+          : `<p class="muted small">Add holdings to your portfolio to start tracking value changes over time.</p>`;
 
-          if (t.reasons) {
-            const why = document.createElement("p");
-            why.className = "muted small mt-4";
-            why.textContent = t.reasons;
-            li.appendChild(why);
-          }
-          list.appendChild(li);
-        });
-        card.appendChild(list);
-      }
-
-      const pfLabel = document.createElement("p");
-      pfLabel.className = "muted small mb-8";
-      pfLabel.style.marginTop = "16px";
-      pfLabel.textContent = "Portfolio changes";
-      card.appendChild(pfLabel);
-
-      const pfContainer = document.createElement("div");
-      card.appendChild(pfContainer);
+      changedContainer.innerHTML = `
+        <div class="card">
+          <h3>🔍 Discoveries</h3>
+          <p class="muted small mb-8 mt-8">New intelligence</p>
+          ${discoveriesHTML}
+          
+          <p class="muted small mb-8 mt-16">Portfolio changes</p>
+          <div class="delta-container">${deltasHTML}</div>
+        </div>
+      `;
 
       if (totals && W.delta) {
-        const deltas = W.delta.computePortfolioDeltas(totals);
-        W.delta.renderList(pfContainer, deltas);
         const currentSnapshot = W.delta.getSnapshot();
         if (
           !currentSnapshot ||
           Date.now() - currentSnapshot.timestamp > 3600000
         )
           W.delta.saveSnapshot(totals);
-      } else {
-        const p = document.createElement("p");
-        p.className = "muted small";
-        p.textContent =
-          "Add holdings to your portfolio to start tracking value changes over time.";
-        pfContainer.appendChild(p);
       }
-
-      changedContainer.appendChild(card);
     }
   }
 
@@ -873,4 +796,6 @@ W.dashboard = (() => {
   return { render, renderPortfolio, holdingModal, enrich };
 })();
 
-console.log("[Dashboard] Module loaded (CSP compliant).");
+console.log(
+  "[Dashboard] Module loaded (Command Center UI, Zero Inline Styles).",
+);

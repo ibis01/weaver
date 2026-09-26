@@ -6,7 +6,9 @@
     "test:integration": "npx mocha --require test/setup.js --ui bdd test/integration/**/*.test.js",
     "test:security": "npx mocha --require test/setup.js --ui bdd test/security/**/*.test.js",
     "test:e2e": "npx playwright test",
-    "test": "npm run test:unit && npm run test:integration && npm run test:security && npm run test:e2e"
+    "test": "npm run test:unit && npm run test:integration && npm run test:security && npm run test:e2e",
+    "deploy": "node concat.js && wrangler deploy",
+    "preview": "node concat.js && wrangler dev"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

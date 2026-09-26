@@ -6,3 +6,9 @@ graphify-out/
 AGENTS.md
 .opencode/
 .opencode/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
