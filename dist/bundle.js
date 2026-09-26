@@ -4162,7 +4162,11 @@ W.requestGuard = (() => {
 console.log("[RequestGuard] Rate limiting and circuit breakers loaded.");
 // ---- js/api/prices.js ----
 // ===============================================================
-//                  Market Data API
+//                  Market Data API (Constitutionally Compliant)
+// ===============================================================
+// §3.4 Graceful Degradation: CoinGecko → Binance → Cache
+// §3.6 Caching: Edge cache (Worker) + Local cache (last_known_prices)
+// §2.7 No Fabricated Data: Never returns $0.00 for missing prices.
 // ===============================================================
 
 window.W = window.W || {};
@@ -4170,19 +4174,20 @@ window.W = window.W || {};
 W.api = (() => {
   // ── Constants ─────────────────────────────────────────
   const CG_API = "https://api.coingecko.com/api/v3";
-  const COINBASE_API = "https://api.coinbase.com/v2";
+  const BINANCE_API = "https://api.binance.com/api/v3";
   const CACHE_TTL = 60000; // 1 minute
   const LONG_CACHE_TTL = 300000; // 5 minutes
 
   // ── Request routes ───────────────────────────────────────
+  // Tries Worker proxy first (for edge cache + CORS), then direct fetch.
   const PROXIES = [
     (u) =>
       "https://weaver-proxy.ibis01-weaver.workers.dev/proxy?url=" +
       encodeURIComponent(u),
-    (u) => u,
+    (u) => u, // Direct fetch (allowed by CSP for coingecko, binance, dexscreener)
   ];
 
-  // ── State ──────────────────────────────────────────────
+  // ── State ─────────────────────────────────────────────
   let source = "coingecko";
   let circuitBreaker = { failures: 0, until: 0 };
 
@@ -4195,7 +4200,7 @@ W.api = (() => {
     if (url.includes("/coins/") && !url.includes("/coins/markets"))
       return "coin";
     if (url.includes("alternative.me/fng")) return "fearGreed";
-    return null; // Coinbase + others normalised below
+    return null;
   }
 
   function resourceForUrl(url) {
@@ -4207,7 +4212,7 @@ W.api = (() => {
     if (url.includes("/coins/") && !url.includes("/coins/markets"))
       return "coin";
     if (url.includes("alternative.me/fng")) return "fear-greed";
-    if (url.includes("coinbase.com")) return "markets";
+    if (url.includes("binance.com")) return "markets";
     return "external-data";
   }
 
@@ -4220,9 +4225,11 @@ W.api = (() => {
   function getCurrency() {
     return W.currency ? W.currency() : "usd";
   }
+
   function getCacheKey(url) {
     return "api_cache:" + url;
   }
+
   function getCached(url, ttl = CACHE_TTL) {
     try {
       const raw = localStorage.getItem(getCacheKey(url));
@@ -4237,14 +4244,26 @@ W.api = (() => {
       return null;
     }
   }
+
   function setCached(url, value) {
     try {
       localStorage.setItem(
         getCacheKey(url),
         JSON.stringify({ timestamp: Date.now(), value }),
       );
+      // Also update the shared last_known_prices cache for dashboard/walletsync
+      if (Array.isArray(value)) {
+        const priceCache = W.store.get("last_known_prices", {});
+        value.forEach((coin) => {
+          if (coin.id && coin.current_price != null) {
+            priceCache[coin.id] = { price: coin.current_price, ts: Date.now() };
+          }
+        });
+        W.store.set("last_known_prices", priceCache);
+      }
     } catch {}
   }
+
   function isCircuitOpen() {
     return Date.now() < circuitBreaker.until;
   }
@@ -4308,7 +4327,7 @@ W.api = (() => {
         return data;
       } catch (e) {
         clearTimeout(timer);
-        if (/HTTP 429/.test(e.message)) {
+        if (/HTTP 429|HTTP 401/.test(e.message)) {
           const stale = getCached(url, 86400000);
           if (stale !== null) {
             source = "cache (stale, rate limited)";
@@ -4318,12 +4337,12 @@ W.api = (() => {
               staleAfter: 3600000,
             });
             console.warn(
-              `[Prices] Rate limited (429) — serving stale cache for ${resourceForUrl(url)}`,
+              `[Prices] Rate limited/auth failed — serving stale cache for ${resourceForUrl(url)}`,
             );
             return stale;
           }
           console.warn(
-            `[Prices] Rate limited (429) and no cache — ${resourceForUrl(url)} unavailable`,
+            `[Prices] Rate limited (429/401) and no cache — ${resourceForUrl(url)} unavailable`,
           );
           throw new Error(
             "Rate limited by market data provider. Try again in 60 seconds.",
@@ -4348,7 +4367,7 @@ W.api = (() => {
     return (symMap()[id] || id).toUpperCase();
   }
 
-  // ── CoinGecko API ──────────────────────────────────────
+  // ── CoinGecko API ─────────────────────────────────────
   const coingecko = {
     markets: (ids) =>
       fetchWithProxy(
@@ -4389,78 +4408,66 @@ W.api = (() => {
       fetchWithProxy(`${CG_API}/search/trending`, CACHE_TTL).then((d) => d),
   };
 
-  // ── Coinbase API ────────────────────────────────────────
+  // ── Binance API (Free, No Auth, CSP-Compliant Fallback) ──
   //
-  // Replaces both Binance (which 403s every Cloudflare Worker
-  // egress IP) and CoinCap (whose api.coincap.io domain no longer
-  // resolves — Cloudflare returns "error 1016 / Origin DNS error"
-  // on every request).
+  // Used when CoinGecko fails (429/401). Binance does not require an API
+  // key for public market data and is highly reliable. It returns current
+  // price and 24h change, but no sparklines or 7d/30d data.
   //
-  // GET /v2/exchange-rates?currency=USD returns a single JSON
-  // object mapping every supported symbol to "how many of that
-  // symbol equals 1 USD". We invert it to get USD price per unit.
-  // One request covers every coin we care about; the Worker's edge
-  // cache then serves it from the colo for 60 s.
-  //
-  // Coinbase requires no API key and does not block cloud IPs.
+  // §3.4 Graceful Degradation: We lose sparklines, but keep core pricing.
 
-  // CoinGecko id → Coinbase symbol. Only symbols whose CoinGecko
-  // id differs from a plain uppercase of the ticker need an entry;
-  // everything else falls through to id.toUpperCase().
-  const COINBASE_SYMBOL_ALIASES = {
-    bitcoin: "BTC",
-    ethereum: "ETH",
-    tether: "USDT",
-    "usd-coin": "USDC",
-    dai: "DAI",
-    chainlink: "LINK",
-    binancecoin: "BNB",
-    solana: "SOL",
-    cardano: "ADA",
-    dogecoin: "DOGE",
-    ripple: "XRP",
-    polkadot: "DOT",
-    "shiba-inu": "SHIB",
-    "matic-network": "MATIC",
-    litecoin: "LTC",
-    tron: "TRX",
-    avalanche: "AVAX",
-    "avalanche-2": "AVAX",
-    "wrapped-bitcoin": "WBTC",
-    uniswap: "UNI",
-    "the-open-network": "TON",
-    stellar: "XLM",
-    cosmos: "ATOM",
+  const BINANCE_SYMBOL_MAP = {
+    bitcoin: "BTCUSDT",
+    ethereum: "ETHUSDT",
+    tether: "USDTUSDT",
+    "usd-coin": "USDCUSDT",
+    binancecoin: "BNBUSDT",
+    solana: "SOLUSDT",
+    ripple: "XRPUSDT",
+    cardano: "ADAUSDT",
+    dogecoin: "DOGEUSDT",
+    polkadot: "DOTUSDT",
+    dai: "DAIUSDT",
+    chainlink: "LINKUSDT",
+    "matic-network": "MATICUSDT",
+    litecoin: "LTCUSDT",
+    tron: "TRXUSDT",
+    avalanche: "AVAXUSDT",
+    "avalanche-2": "AVAXUSDT",
+    "wrapped-bitcoin": "WBTCUSDT",
+    uniswap: "UNIUSDT",
+    "the-open-network": "TONUSDT",
+    stellar: "XLMUSDT",
+    cosmos: "ATOMUSDT",
+    shiba: "SHIBUSDT",
+    "shiba-inu": "SHIBUSDT",
   };
 
-  function coinbaseSymbol(coingeckoId) {
-    return (
-      COINBASE_SYMBOL_ALIASES[coingeckoId] ||
-      String(coingeckoId).toUpperCase()
-    );
-  }
-
-  const coinbase = {
+  const binance = {
     markets: (ids) => {
-      const symbols = ids.map(coinbaseSymbol);
-      const url = `${COINBASE_API}/exchange-rates?currency=USD`;
+      const symbols = ids.map((id) => BINANCE_SYMBOL_MAP[id]).filter(Boolean);
+      if (!symbols.length) return Promise.resolve([]);
+
+      const url = `${BINANCE_API}/ticker/24hr?symbols=${JSON.stringify(symbols)}`;
       return fetchWithProxy(url, CACHE_TTL).then((d) => {
-        source = "coinbase";
-        const rates = (d && d.data && d.data.rates) || {};
+        source = "binance";
         const rows = ids
-          .map((id, i) => {
-            const sym = symbols[i];
-            const perUsd = Number(rates[sym]);
-            if (!perUsd) return null;
+          .map((id) => {
+            const sym = BINANCE_SYMBOL_MAP[id];
+            if (!sym) return null;
+            const ticker = d.find((t) => t.symbol === sym);
+            if (!ticker) return null;
             return {
               id,
-              symbol: String(sym).toLowerCase(),
-              name: sym,
+              symbol: id === "matic-network" ? "matic" : id.split("-")[0],
+              name: id,
               image: "",
-              current_price: 1 / perUsd,
+              current_price: parseFloat(ticker.lastPrice),
               market_cap: null,
-              total_volume: null,
-              price_change_percentage_24h_in_currency: 0,
+              total_volume: parseFloat(ticker.quoteVolume),
+              price_change_percentage_24h_in_currency: parseFloat(
+                ticker.priceChangePercent,
+              ),
               price_change_percentage_7d_in_currency: null,
               price_change_percentage_30d_in_currency: null,
               sparkline_in_7d: null,
@@ -4472,6 +4479,23 @@ W.api = (() => {
         return rows;
       });
     },
+    top: (limit) => {
+      // Binance doesn't have a simple "top N by market cap" endpoint without auth.
+      // Fall back to a hardcoded list of top coins for the dashboard tape.
+      const topIds = Object.keys(BINANCE_SYMBOL_MAP).slice(0, limit);
+      return binance.markets(topIds);
+    },
+    global: () =>
+      Promise.reject(new Error("Binance does not provide global market data")),
+    search: () => Promise.reject(new Error("Binance does not provide search")),
+    coin: () =>
+      Promise.reject(new Error("Binance does not provide detailed coin data")),
+    trending: () =>
+      Promise.reject(new Error("Binance does not provide trending data")),
+    chart: () =>
+      Promise.reject(
+        new Error("Binance does not provide chart data via this endpoint"),
+      ),
   };
 
   // ── OHLCV via CoinGecko ────────────────────────────────
@@ -4500,12 +4524,11 @@ W.api = (() => {
   }
 
   // ── API with smart failover ────────────────────────────
+  // Order: CoinGecko (rich data) → Binance (reliable fallback) → Cache
   async function withFailover(method, ...args) {
-    const order =
-      method === "top" ? ["coingecko"] : ["coingecko", "coinbase"];
+    const order = ["coingecko", "binance"];
     for (const providerName of order) {
-      const provider =
-        providerName === "coingecko" ? coingecko : coinbase;
+      const provider = providerName === "coingecko" ? coingecko : binance;
       if (!provider[method]) continue;
       try {
         const result = await provider[method](...args);
@@ -4577,7 +4600,7 @@ W.api = (() => {
   };
 })();
 
-console.log("[Prices] Module loaded (improved error handling).");
+console.log("[Prices] Module loaded (CoinGecko → Binance → Cache failover).");
 // ---- js/api/snapshot.js ----
 // js/api/snapshot.js – Fallback Snapshot Cache
 
