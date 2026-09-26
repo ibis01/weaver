@@ -1,9 +1,11 @@
 // ================================================================
 //  Secure Multi‑Chain Wallet Sync
 // ================================================================
-// Constitution fixes: §2.6 (no address logging, sanitized cache),
-// §2.9/§6.3 (unknown price = null, never 0), §3.4 (graceful per-wallet
-// degradation), v2 P1-2 (manual cost basis for wallet holdings).
+// Constitution Compliant:
+//   §2.6 Privacy First (no address logging, sanitized cache projection)
+//   §2.7 / §6.3 No Fabricated Data (unknown price = null, never 0)
+//   §3.4 / §3.6 Graceful Degradation & Caching (shared price cache for 429s)
+//   v2 P1-2 Manual cost basis for wallet holdings
 // ================================================================
 
 window.W = window.W || {};
@@ -12,6 +14,7 @@ W.walletSync = (() => {
   const STORAGE_KEY = "wallet_sync_data";
   const CACHE_KEY = "wallet_sync_cache";
   const BASIS_KEY = "wallet_cost_basis";
+  const PRICE_CACHE_KEY = "last_known_prices";
   const CACHE_TTL = 300000; // 5 minutes
 
   async function fetchJSON(url, options, schema) {
@@ -271,7 +274,6 @@ W.walletSync = (() => {
                 acc.account?.data?.parsed?.info?.tokenAmount?.amount || "0";
               balance += parseInt(amount) / Math.pow(10, token.decimals);
             });
-            // FIX #7: preserve full token identity (coingeckoId + mint)
             if (balance > 1e-9) results.push({ ...token, balance });
           } catch (e) {
             /* ignore */
@@ -301,7 +303,6 @@ W.walletSync = (() => {
     const plaintext = await W.sync.decrypt(ciphertext, password, iv, salt);
     return JSON.parse(plaintext);
   }
-
   function getStoredData() {
     return W.store.get(STORAGE_KEY, null);
   }
@@ -367,12 +368,10 @@ W.walletSync = (() => {
         console.warn("[WalletSync] Decryption failed, treating as new data.");
       }
     }
-    // Solana addresses are case-sensitive; only EVM/BTC compare case-insensitively
     const same = (a, b) =>
       chain === "sol" ? a === b : a.toLowerCase() === b.toLowerCase();
-    if (wallets.some((w) => w.chain === chain && same(w.address, address))) {
+    if (wallets.some((w) => w.chain === chain && same(w.address, address)))
       throw new Error("Wallet already added");
-    }
     wallets.push({
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
       chain,
@@ -426,7 +425,7 @@ W.walletSync = (() => {
       }
     }
 
-    // 2) ONE batched price lookup for every CoinGecko id involved (FIX #1, #2)
+    // 2) ONE batched price lookup (with shared cache fallback for 429s)
     const ids = new Set();
     for (const w of results) {
       if (w.error) continue;
@@ -435,22 +434,39 @@ W.walletSync = (() => {
       for (const t of w.tokenBalances || [])
         if (t.coingeckoId) ids.add(t.coingeckoId);
     }
+
+    const priceCache = W.store.get(PRICE_CACHE_KEY, {});
     const priceMap = {};
+
+    // Seed with cached prices first
+    for (const id of ids) {
+      if (priceCache[id]?.price != null) priceMap[id] = priceCache[id].price;
+    }
+
     if (ids.size) {
       try {
         const market = await W.api.markets([...ids].join(","));
-        (market || []).forEach((c) => {
-          if (c && c.id && Number.isFinite(c.current_price))
-            priceMap[c.id] = c.current_price;
-        });
+        if (Array.isArray(market)) {
+          market.forEach((c) => {
+            if (c && c.id && Number.isFinite(c.current_price)) {
+              priceMap[c.id] = c.current_price;
+              priceCache[c.id] = { price: c.current_price, ts: Date.now() };
+            }
+          });
+          W.store.set(PRICE_CACHE_KEY, priceCache);
+        }
       } catch (e) {
-        console.warn("[WalletSync] Price lookup failed:", e.message);
+        console.warn(
+          "[WalletSync] Price lookup failed, using cached prices:",
+          e.message,
+        );
       }
     }
 
-    // 3) Value everything; unknown price => null, NEVER 0 (§6.3)
+    // 3) Honest Valuation: unknown price => null, NEVER 0 (§6.3)
     let totalValue = 0;
     let unpriced = 0;
+
     for (const w of results) {
       if (w.error) {
         w.nativeValue = null;
@@ -458,6 +474,7 @@ W.walletSync = (() => {
         w.totalValue = null;
         continue;
       }
+
       const chain = CHAINS[w.chain];
       const nativePrice = chain?.coingeckoId
         ? (priceMap[chain.coingeckoId] ?? null)
@@ -467,17 +484,39 @@ W.walletSync = (() => {
         nativePrice != null && Number.isFinite(w.nativeBalance)
           ? w.nativeBalance * nativePrice
           : null;
-      if (w.nativeValue == null && w.nativeBalance > 0) unpriced++;
-      let walletValue = Number.isFinite(w.nativeValue) ? w.nativeValue : 0;
+
+      let walletValue = 0;
+      let walletFullyPriced = true;
+
+      if (w.nativeValue != null) {
+        walletValue += w.nativeValue;
+      } else if (w.nativeBalance > 0) {
+        walletFullyPriced = false; // Native balance exists but price is unknown
+      }
+
       for (const t of w.tokenBalances || []) {
         const p = t.coingeckoId ? (priceMap[t.coingeckoId] ?? null) : null;
         t.price = p;
         t.value = p != null ? t.balance * p : null;
-        if (t.value == null) unpriced++;
-        else walletValue += t.value;
+
+        if (t.value != null) {
+          walletValue += t.value;
+        } else if (t.balance > 0) {
+          walletFullyPriced = false; // Token balance exists but price is unknown
+        }
       }
-      w.totalValue = walletValue;
-      totalValue += walletValue;
+
+      // If ANY material asset in the wallet is unpriced, the wallet total is strictly null
+      w.totalValue = walletFullyPriced ? walletValue : null;
+
+      if (w.totalValue != null) {
+        totalValue += w.totalValue;
+      } else if (
+        w.nativeBalance > 0 ||
+        (w.tokenBalances && w.tokenBalances.length > 0)
+      ) {
+        unpriced++;
+      }
     }
 
     // 4) Cache SANITIZED projection only — no plaintext addresses (§2.6)
@@ -624,7 +663,7 @@ W.walletSync = (() => {
       const status = view.querySelector("#ws-status");
       if (!status) return;
       displayWallets(view, result.wallets);
-      status.innerHTML = `<p class="up">✅ Synced at ${new Date().toLocaleTimeString()}${result.unpriced ? ` · ${result.unpriced} asset(s) unpriced` : ""}</p>`;
+      status.innerHTML = `<p class="up">✅ Synced at ${new Date().toLocaleTimeString()}${result.unpriced ? ` · ${result.unpriced} wallet(s) partially unpriced` : ""}</p>`;
     } catch (e) {
       if (!view.isConnected) return;
       const status = view.querySelector("#ws-status");
@@ -654,7 +693,7 @@ W.walletSync = (() => {
                 <td>${W.fmt.escapeHTML(w.label || "—")}</td>
                 <td><code>${W.fmt.escapeHTML(w.addressMasked || "—")}</code></td>
                 <td>${w.error ? '<span class="down">error</span>' : Number.isFinite(w.nativeBalance) ? `${w.nativeBalance.toFixed(4)} ${CHAINS[w.chain]?.symbol || ""}` : "—"}</td>
-                <td>${Number.isFinite(w.totalValue) ? W.fmt.money(w.totalValue, { compact: true }) : "—"}</td>
+                <td>${Number.isFinite(w.totalValue) ? W.fmt.money(w.totalValue, { compact: true }) : '<span class="text-muted" title="Price unavailable">—</span>'}</td>
                 <td><button class="icon-btn" data-remove="${W.fmt.escapeHTML(w.id)}">✕</button></td>
               </tr>
             `,
@@ -735,4 +774,6 @@ W.walletSync = (() => {
   };
 })();
 
-console.log("[WalletSync] Module loaded (secure, sanitized cache).");
+console.log(
+  "[WalletSync] Module loaded (secure, sanitized cache, honest valuation).",
+);
