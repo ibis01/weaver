@@ -19487,18 +19487,36 @@ W.walletSync = (() => {
   const PRICE_CACHE_KEY = "last_known_prices"; // shared with Dashboard
   const CACHE_TTL = 300000; // 5 minutes
 
+  // Worker proxy for CORS-restricted endpoints
+  const WORKER_PROXY =
+    "https://weaver-proxy.ibis01-weaver.workers.dev/proxy?url=";
+
   // ── Fetch helper ──────────────────────────────────────
   async function fetchJSON(url, options, schema) {
+    // Route Solana RPC through Worker Proxy to bypass CORS.
+    // If the URL is Solana, we try the proxy first.
+    const isSolana = url.includes("api.mainnet-beta.solana.com");
+    const finalUrl = isSolana ? WORKER_PROXY + encodeURIComponent(url) : url;
+
     const response = W.requestGuard
-      ? await W.requestGuard.fetch(url, options, {
+      ? await W.requestGuard.fetch(finalUrl, options, {
           capacity: 8,
           refillMs: 10000,
           failureThreshold: 4,
           cooldownMs: 30000,
         })
-      : await fetch(url, options);
+      : await fetch(finalUrl, options);
+
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
+
+    // Check for RPC-level errors (e.g., method not found, rate limit message in body)
+    if (data.error) {
+      throw new Error(
+        `RPC Error: ${data.error.message || JSON.stringify(data.error)}`,
+      );
+    }
+
     if (W.schemas) W.schemas.validate(schema, data);
     W.dataHealth?.mark("wallet-data", {
       source: new URL(url).hostname,
@@ -19506,6 +19524,37 @@ W.walletSync = (() => {
       staleAfter: CACHE_TTL * 2,
     });
     return data;
+  }
+
+  // Helper for Solana resilience: tries a list of RPC URLs
+  async function solanaRpcCall(rpcBody) {
+    // 1. Primary: Official RPC via Worker Proxy (bypasses browser CORS)
+    // 2. Fallback: Ankr Public RPC (often more permissive)
+    // 3. Fallback: Alchemy Demo (reliable but rate-limited)
+    const endpoints = [
+      "https://api.mainnet-beta.solana.com",
+      "https://rpc.ankr.com/solana",
+      "https://solana-mainnet.g.alchemy.com/v2/demo",
+    ];
+
+    let lastError = null;
+    for (const url of endpoints) {
+      try {
+        return await fetchJSON(
+          url,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(rpcBody),
+          },
+          "jsonRpc",
+        );
+      } catch (e) {
+        lastError = e;
+        // Continue to next endpoint
+      }
+    }
+    throw lastError || new Error("All Solana RPC endpoints failed");
   }
 
   // ── Chain configurations ──────────────────────────────
@@ -19683,26 +19732,21 @@ W.walletSync = (() => {
     sol: {
       label: "Solana",
       symbol: "SOL",
-      icon: "🟣",
+      icon: "",
       coingeckoId: "solana",
       explorer: "https://solscan.io/account/",
+
+      // Resilient balance fetcher using multiple RPCs
       balance: async (addr) => {
-        const data = await fetchJSON(
-          "https://api.mainnet-beta.solana.com",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              jsonrpc: "2.0",
-              id: 1,
-              method: "getBalance",
-              params: [addr],
-            }),
-          },
-          "jsonRpc",
-        );
+        const data = await solanaRpcCall({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "getBalance",
+          params: [addr],
+        });
         return (data.result?.value || 0) / 1e9;
       },
+
       tokens: async (addr) => {
         const tokens = [
           {
@@ -19721,31 +19765,18 @@ W.walletSync = (() => {
         const results = [];
         for (const token of tokens) {
           try {
-            const data = await fetchJSON(
-              "https://api.mainnet-beta.solana.com",
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  jsonrpc: "2.0",
-                  id: 1,
-                  method: "getTokenAccountsByOwner",
-                  params: [
-                    addr,
-                    { mint: token.mint },
-                    { encoding: "jsonParsed" },
-                  ],
-                }),
-              },
-              "jsonRpc",
-            );
+            const data = await solanaRpcCall({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "getTokenAccountsByOwner",
+              params: [addr, { mint: token.mint }, { encoding: "jsonParsed" }],
+            });
             let balance = 0;
             (data.result?.value || []).forEach((acc) => {
               const amount =
                 acc.account?.data?.parsed?.info?.tokenAmount?.amount || "0";
               balance += parseInt(amount) / Math.pow(10, token.decimals);
             });
-            // Preserve FULL token identity (mint + coingeckoId) so prices resolve
             if (balance > 1e-9) results.push({ ...token, balance });
           } catch (e) {
             /* ignore per-token failure */
@@ -19761,7 +19792,6 @@ W.walletSync = (() => {
     if (!password) throw new Error("Password required for encryption");
     const plaintext = JSON.stringify(data);
     const { ciphertext, iv, salt } = await W.sync.encrypt(plaintext, password);
-    // Uint8Array does not survive JSON serialization through W.store
     return {
       ciphertext: Array.from(ciphertext),
       iv: Array.from(iv),
@@ -19848,7 +19878,6 @@ W.walletSync = (() => {
         console.warn("[WalletSync] Decryption failed, treating as new data.");
       }
     }
-    // Solana addresses are case-sensitive; only EVM/BTC compare case-insensitively
     const same = (a, b) =>
       chain === "sol" ? a === b : a.toLowerCase() === b.toLowerCase();
     if (wallets.some((w) => w.chain === chain && same(w.address, address))) {
@@ -19905,7 +19934,7 @@ W.walletSync = (() => {
         market.forEach((c) => {
           if (c && c.id && Number.isFinite(c.current_price)) {
             priceMap[c.id] = c.current_price;
-            staleIds.delete(c.id); // refreshed live
+            staleIds.delete(c.id);
             priceCache[c.id] = { price: c.current_price, ts: Date.now() };
           }
         });
@@ -19932,7 +19961,6 @@ W.walletSync = (() => {
         stale: false,
       };
 
-    // 1) Balances — per-wallet failure isolation (§3.4), masked logging (§2.6)
     const results = [];
     for (const wallet of wallets) {
       const chain = CHAINS[wallet.chain];
@@ -19950,9 +19978,6 @@ W.walletSync = (() => {
       }
     }
 
-    // 2) ONE batched price lookup by CoinGecko ID (never symbol),
-    //    seeded from the shared last-known cache so a 429 degrades to
-    //    labeled stale prices instead of blanks (§3.4, §3.6).
     const ids = new Set();
     for (const w of results) {
       if (w.error) continue;
@@ -19964,9 +19989,6 @@ W.walletSync = (() => {
     const { priceCache, priceMap, staleIds } = resolvePrices(ids);
     await refreshPrices(ids, priceCache, priceMap, staleIds);
 
-    // 3) Honest valuation: unknown price => null, NEVER 0 (§6.3).
-    //    If ANY material asset in a wallet is unpriced, that wallet's
-    //    totalValue is null — no partial sums presented as totals.
     let totalValue = 0;
     let unpriced = 0;
 
@@ -20014,8 +20036,6 @@ W.walletSync = (() => {
         w.priceStale === true ||
         (w.tokenBalances || []).some((t) => t.priceStale === true),
     );
-
-    // 4) Cache SANITIZED projection only — no plaintext addresses (§2.6)
     const sanitized = results.map(sanitizeWallet);
     W.store.set(CACHE_KEY, { data: sanitized, timestamp: Date.now() });
     return {
@@ -20027,9 +20047,7 @@ W.walletSync = (() => {
     };
   }
 
-  // ── Render-time re-valuation (§3.4) ───────────────────
-  // A sync that landed inside a rate-limit window must not pin the UI
-  // to "—" for the whole cache TTL. Re-price cached balances on paint.
+  // ── Render-time re-valuation (§3.4) ──────────────────
   async function revalueCached(cached) {
     const ids = new Set();
     for (const w of cached) {
@@ -20097,8 +20115,6 @@ W.walletSync = (() => {
     if (encrypted) await decryptWalletData(encrypted, password);
     W.store.delete(STORAGE_KEY);
     W.store.delete(CACHE_KEY);
-    // BASIS_KEY intentionally preserved: user-entered financial history
-    // is not destroyed by a wallet-list clear (§4.4 auditable records).
   }
 
   function validateAddress(chain, address) {
@@ -20118,7 +20134,6 @@ W.walletSync = (() => {
     }
   }
 
-  // ── Portfolio-shaped holdings (cost basis attached) ───
   function toPortfolioHoldings() {
     const cache = W.store.get(CACHE_KEY, null);
     if (!cache || !Array.isArray(cache.data)) return [];
@@ -20202,7 +20217,7 @@ W.walletSync = (() => {
 
     const cached = getCached();
     if (cached) {
-      displayWallets(view, cached); // paint immediately, even if partially "—"
+      displayWallets(view, cached);
       revalueCached(cached).then((updated) => {
         if (view.isConnected) displayWallets(view, updated);
       });
@@ -20301,8 +20316,6 @@ W.walletSync = (() => {
     });
   }
 
-  // §2.6: address and password are NEVER collected in the same form,
-  // so password managers cannot pair your wallet identity with a secret.
   function addWalletModal(view) {
     const m = W.ui.modal({
       title: "Add Wallet to Sync",
@@ -20328,7 +20341,7 @@ W.walletSync = (() => {
       if (!address) return W.ui.toast("Enter a wallet address", "warn");
       if (!validateAddress(chain, address))
         return W.ui.toast(`Invalid ${chain.toUpperCase()} address`, "warn");
-      m.close(); // address form is gone before the password prompt exists
+      m.close();
       const password = await W.ui.promptPassword({
         title: "Encrypt Wallet",
         message: "Enter your sync password to encrypt and store this wallet.",
@@ -20366,7 +20379,7 @@ W.walletSync = (() => {
 })();
 
 console.log(
-  "[WalletSync] Module loaded (walletsync-v3: secure, sanitized cache, honest valuation, render-time re-pricing).",
+  "[WalletSync] Module loaded (walletsync-v3: secure, sanitized cache, honest valuation, render-time re-pricing, Solana proxy routing).",
 );
 // ---- js/features/theses.js ----
 // ===============================================================
