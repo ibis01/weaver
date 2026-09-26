@@ -31,17 +31,26 @@ W.walletSync = (() => {
   const BASIS_KEY = "wallet_cost_basis"; // manual cost basis map
   const PRICE_CACHE_KEY = "last_known_prices"; // shared with Dashboard
   const CACHE_TTL = 300000; // 5 minutes
+  const WORKER_PROXY =
+    "https://weaver-proxy.ibis01-weaver.workers.dev/proxy?url=";
 
   // ── Fetch helper ──────────────────────────────────────
   async function fetchJSON(url, options, schema) {
+    // Route Solana RPC through Worker Proxy to bypass CORS and rate limits.
+    // Solana's public RPC is notorious for blocking direct browser requests.
+    const finalUrl = url.includes("api.mainnet-beta.solana.com")
+      ? WORKER_PROXY + encodeURIComponent(url)
+      : url;
+
     const response = W.requestGuard
-      ? await W.requestGuard.fetch(url, options, {
+      ? await W.requestGuard.fetch(finalUrl, options, {
           capacity: 8,
           refillMs: 10000,
           failureThreshold: 4,
           cooldownMs: 30000,
         })
-      : await fetch(url, options);
+      : await fetch(finalUrl, options);
+
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     if (W.schemas) W.schemas.validate(schema, data);
@@ -911,5 +920,5 @@ W.walletSync = (() => {
 })();
 
 console.log(
-  "[WalletSync] Module loaded (walletsync-v3: secure, sanitized cache, honest valuation, render-time re-pricing).",
+  "[WalletSync] Module loaded (walletsync-v3: secure, sanitized cache, honest valuation, render-time re-pricing, Solana proxy routing).",
 );
