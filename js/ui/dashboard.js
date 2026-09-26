@@ -2,8 +2,13 @@
 //                     Weaver Dashboard UI (Command Center)
 // ===============================================================
 // CSP Compliant: ZERO inline style="..." attributes.
-// Constitution Compliant: §2.7 (No fabricated data), §6.3 (Missing data ≠ zero).
-// Upgraded: Skeleton loading states, Intelligence Feed, Manual Cost Basis UI.
+// Constitution Compliant:
+//   §2.7 No fabricated data — unknown prices/costs render as "—".
+//   §3.4 Graceful Degradation — failed price fetches fall back to a
+//        labeled last-known-good cache ("·stale"), never to $0.00.
+//   §3.6 Cache before repeated API calls.
+//   §6.3 Missing data must reduce confidence, never become zero.
+//   §6.4 Auditable — delta snapshots skipped while any asset unpriced.
 // ===============================================================
 
 window.W = window.W || {};
@@ -11,6 +16,10 @@ window.W = window.W || {};
 W.dashboard = (() => {
   const MARKET_ROWS_DEFAULT = 20;
   let marketRowsExpanded = false;
+
+  // ── Last-known-good price cache (§3.6, §3.4) ─────────────────
+  const PRICE_CACHE_KEY = "last_known_prices";
+  const readPriceCache = () => W.store.get(PRICE_CACHE_KEY, {});
 
   // Safe fallback if skeleton module isn't loaded yet
   const skel = W.ui.skeleton || {
@@ -102,7 +111,7 @@ W.dashboard = (() => {
           .join(",")}"></canvas>`
       : '<span class="text-muted small-text">—</span>';
 
-  // FIX #3: Missing prices/changes render as honest "—", never $0.00
+  // §6.3: Missing market price/change renders as honest "—", never $0.00
   const termRow = (c, i) => {
     if (!c || typeof c !== "object") return "";
     const id = c.id || "unknown",
@@ -123,21 +132,22 @@ W.dashboard = (() => {
       <td class="coin-cell"><img src="${W.fmt.escapeHTML(image)}" alt="${W.fmt.escapeHTML(name)}" class="coin-img"><div><b>${W.fmt.escapeHTML(symbol)}</b><br><span class="text-muted small-text">${W.fmt.escapeHTML(name)}</span></div></td>
       <td class="num">${price !== null ? `<b>${W.fmt.price(price)}</b>` : '<span class="text-muted">—</span>'}</td>
       <td class="num">${p24 !== null ? W.fmt.pct(p24) : '<span class="text-muted">—</span>'}</td>
-      <td>${sparkCell(sparkline, p24 >= 0)}</td>
+      <td>${sparkCell(sparkline, p24 !== null && p24 >= 0)}</td>
     </tr>`;
   };
 
-  // FIX #1: Unknown cost basis defaults to null, NEVER 0. Prevents fake +100% P/L.
+  // ── Enrichment: honest prices + honest cost basis ────────────
   async function enrich() {
     const manualHoldings = W.portfolio ? W.portfolio.all() : [];
-    let walletHoldings = [];
-    if (W.walletSync && typeof W.walletSync.holdings === "function")
-      walletHoldings = W.walletSync.holdings() || [];
+    const walletHoldings = W.walletSync?.holdings
+      ? W.walletSync.holdings()
+      : [];
     const allHoldings = [
       ...manualHoldings.map((h) => ({ ...h, wallet: false })),
       ...walletHoldings.map((h) => ({ ...h, wallet: true })),
     ];
     if (!allHoldings.length) return { rows: [], totals: null };
+
     const ids = [...new Set(allHoldings.map((h) => h.coinId))]
       .filter(Boolean)
       .join(",");
@@ -150,17 +160,33 @@ W.dashboard = (() => {
       }
     }
 
+    const priceCache = readPriceCache();
+    let cacheDirty = false;
+
     const rows = allHoldings
       .map((h) => {
         const m = markets.find((c) => c.id === h.coinId) || {};
-        const price = Number.isFinite(m.current_price)
-          ? m.current_price
-          : Number.isFinite(h.buyPrice)
-            ? h.buyPrice
-            : null;
+
+        // Current price comes ONLY from market data. Never from buyPrice. (§6.3)
+        let price = Number.isFinite(m.current_price) ? m.current_price : null;
+        let priceStale = false;
+
+        if (price !== null) {
+          priceCache[h.coinId] = { price, ts: Date.now() };
+          cacheDirty = true;
+        } else if (
+          priceCache[h.coinId] &&
+          Number.isFinite(priceCache[h.coinId].price)
+        ) {
+          // Rate-limited / offline: use last-known-good, explicitly labeled (§3.4)
+          price = priceCache[h.coinId].price;
+          priceStale = true;
+        }
+
         const qty = parseFloat(h.qty) || 0;
         const value = price !== null ? price * qty : null;
 
+        // §2.7: unknown cost basis stays null — NEVER 0 (no fabricated P/L)
         let cost = null;
         if (h.wallet) {
           if (
@@ -168,18 +194,16 @@ W.dashboard = (() => {
             typeof h.manualCostBasis.totalCost === "number"
           )
             cost = h.manualCostBasis.totalCost;
+        } else if (
+          h.totalCost !== undefined &&
+          h.totalCost !== null &&
+          !isNaN(h.totalCost) &&
+          h.totalCost >= 0
+        ) {
+          cost = h.totalCost;
         } else {
-          if (
-            h.totalCost !== undefined &&
-            h.totalCost !== null &&
-            !isNaN(h.totalCost) &&
-            h.totalCost >= 0
-          ) {
-            cost = h.totalCost;
-          } else {
-            const bp = parseFloat(h.buyPrice);
-            if (!isNaN(bp) && bp >= 0) cost = bp * qty;
-          }
+          const bp = parseFloat(h.buyPrice);
+          if (!isNaN(bp) && bp >= 0) cost = bp * qty;
         }
 
         const pnl = value !== null && cost !== null ? value - cost : null;
@@ -188,6 +212,7 @@ W.dashboard = (() => {
         return {
           ...h,
           price,
+          priceStale,
           value,
           cost,
           pnl,
@@ -200,16 +225,24 @@ W.dashboard = (() => {
       })
       .sort((a, b) => (b.value ?? -1) - (a.value ?? -1));
 
-    const totals = { value: 0, cost: 0, unpriced: 0, unknownCost: 0 };
+    if (cacheDirty) W.store.set(PRICE_CACHE_KEY, priceCache);
+
+    const totals = {
+      value: 0,
+      cost: 0,
+      priced: 0,
+      unpriced: 0,
+      unknownCost: 0,
+    };
     let prev24 = 0;
     rows.forEach((r) => {
       if (r.value !== null) {
         totals.value += r.value;
+        totals.priced++;
         if (r.p24 != null) prev24 += r.value / (1 + r.p24 / 100);
       } else {
         totals.unpriced++;
       }
-
       if (r.cost !== null) totals.cost += r.cost;
       else if (r.value !== null) totals.unknownCost++;
     });
@@ -222,14 +255,14 @@ W.dashboard = (() => {
     return { rows, totals };
   }
 
-  // FIX #2: P/L cell shows "—" when cost basis is unknown. Includes basis button for wallets.
+  // ── Holdings table: honest cells + basis button for wallets ──
   const holdingsTable = (rows) => `
     <div class="table-wrap"><table><thead><tr><th>Asset</th><th>Price</th><th>24h</th><th>Qty</th><th>Value</th><th>P/L</th><th></th></tr></thead><tbody>
       ${rows
         .map(
           (r, i) => `<tr>
         <td class="coin-cell"><img src="${W.fmt.escapeHTML(r.image || r.img || "")}" alt="${W.fmt.escapeHTML(r.name)}" class="coin-img"><div><b>${W.fmt.escapeHTML(r.name)}</b><br><span class="text-muted small-text">${W.fmt.escapeHTML(String(r.symbol).toUpperCase())}</span></div></td>
-        <td class="num">${r.price !== null ? W.fmt.price(r.price) : '<span class="text-muted">—</span>'}</td>
+        <td class="num">${r.price !== null ? W.fmt.price(r.price) + (r.priceStale ? ' <span class="text-muted small-text">·stale</span>' : "") : '<span class="text-muted">—</span>'}</td>
         <td class="num">${r.p24 !== null ? W.fmt.pct(r.p24) : '<span class="text-muted">—</span>'}</td>
         <td class="num">${r.qty}</td>
         <td class="num">${r.value !== null ? `<b>${W.fmt.money(r.value)}</b>` : '<span class="text-muted">—</span>'}</td>
@@ -264,7 +297,7 @@ W.dashboard = (() => {
     });
   }
 
-  // Manual Cost Basis Modal for Wallet Holdings
+  // ── Manual Cost Basis Modal (wallet holdings) ────────────────
   function basisModal(r) {
     const existing = r.manualCostBasis;
     const m = W.ui.modal({
@@ -349,6 +382,7 @@ W.dashboard = (() => {
     };
   }
 
+  // ── Performance chart ────────────────────────────────────────
   function destroyPerfChart(view) {
     if (view && view._dashboardPerfChart) {
       try {
@@ -389,6 +423,7 @@ W.dashboard = (() => {
     const rangeEl = view.querySelector("#d-perf-range");
     if (!canvas) return;
     destroyPerfChart(view);
+
     const active = rangeEl?.querySelector(".chip.active");
     const rangeVal = active?.dataset?.range;
     const rangeDays =
@@ -480,16 +515,18 @@ W.dashboard = (() => {
     });
   }
 
+  // ── Allocation (priced rows only — §6.3) ─────────────────────
   const ALLOCATION_TOP_N = 5;
   function renderAllocation(container, rows, totals) {
     if (!container) return;
-    if (!rows.length || !totals || !totals.value) {
+    const priced = rows.filter((r) => r.value !== null && r.value > 0);
+    if (!priced.length || !totals || !totals.value) {
       container.innerHTML =
         '<p class="text-muted small-text">Add holdings to see allocation.</p>';
       return;
     }
     const total = totals.value;
-    const sorted = rows.slice().sort((a, b) => b.value - a.value);
+    const sorted = priced.slice().sort((a, b) => b.value - a.value);
     const top = sorted.slice(0, ALLOCATION_TOP_N);
     const restSum = sorted
       .slice(ALLOCATION_TOP_N)
@@ -521,6 +558,7 @@ W.dashboard = (() => {
     container.innerHTML = parts.join("");
   }
 
+  // ── Main render ──────────────────────────────────────────────
   async function render(view) {
     destroyPerfChart(view);
 
@@ -639,17 +677,16 @@ W.dashboard = (() => {
         "fear-greed",
       ]);
 
-    // FIX #4: Honest Stat Cards (Surfaces unpriced/unknown basis metrics)
+    // Honest stat cards: never collapse to $0.00 on fetch failure (§6.3)
     const statsEl = view.querySelector("#d-stats");
     if (statsEl) {
       const balanceSub = totals
-        ? `${rows.length} assets${totals.unpriced ? ` · ${totals.unpriced} unpriced` : ""}`
+        ? `${rows.length} assets · ${totals.priced} priced${totals.unpriced ? ` · ${totals.unpriced} unavailable` : ""}`
         : "Add holdings to get started";
-
       statsEl.innerHTML = `
-        ${totals ? statCard("Total Balance", W.fmt.money(totals.value), balanceSub) : statCard("Total Balance", "—", "Add holdings to get started")}
+        ${totals ? statCard("Total Balance", totals.priced ? W.fmt.money(totals.value) : "—", balanceSub) : statCard("Total Balance", "—", "Add holdings to get started")}
         ${totals && totals.allTime !== null ? statCard("P/L · All Time", signedMoney(totals.allTime), W.fmt.pct(totals.allTimePct)) : totals ? statCard("P/L · All Time", "—", `${totals.unknownCost} assets missing cost basis`) : ""}
-        ${totals ? statCard("P/L · 24h", signedMoney(totals.day), W.fmt.pct(totals.dayPct)) : ""}
+        ${totals ? statCard("P/L · 24h", signedMoney(totals.day), totals.dayPct !== null ? W.fmt.pct(totals.dayPct) : "—") : ""}
         ${g ? statCard("Global Market Cap", W.fmt.money(g.total_market_cap[W.currency()], { compact: true }), W.fmt.pct(g.market_cap_change_percentage_24h_usd)) : ""}
       `;
     }
@@ -719,6 +756,7 @@ W.dashboard = (() => {
               (b.price_change_percentage_24h_in_currency ?? 0),
           )
           .slice(0, 20);
+
       const fullCount = list.length;
       const visibleList = marketRowsExpanded
         ? list
@@ -787,6 +825,7 @@ W.dashboard = (() => {
     renderAllocation(allocBody, rows, totals);
     drawPerformanceChart(view);
 
+    // Intelligence Feed ("What Matters Now")
     const rankerContainer = view.querySelector("#what-matters-now-container");
     if (rankerContainer) {
       if (W.decisionEngine && W.intelligenceFeed) {
@@ -813,12 +852,14 @@ W.dashboard = (() => {
       }
     }
 
+    // Discoveries + portfolio deltas
     const changedContainer = view.querySelector("#what-changed-container");
     if (changedContainer) {
       const gemTheses = (W.theses?.all?.() || [])
         .filter((t) => t.sourceRef?.type === "gem")
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
         .slice(0, 3);
+
       const discoveriesHTML = gemTheses.length
         ? `<ul class="discovery-list">${gemTheses
             .map(
@@ -853,7 +894,10 @@ W.dashboard = (() => {
           <div class="delta-container">${deltasHTML}</div>
         </div>
       `;
-      if (totals && W.delta) {
+
+      // §6.4: never record a snapshot while any asset is unpriced —
+      // a failed price run must not become a fake "-100%" crash in history.
+      if (totals && W.delta && totals.unpriced === 0) {
         const currentSnapshot = W.delta.getSnapshot();
         if (
           !currentSnapshot ||
@@ -883,5 +927,5 @@ W.dashboard = (() => {
 })();
 
 console.log(
-  "[Dashboard] Module loaded (Command Center UI, Honest Data Semantics).",
+  "[Dashboard] Module loaded (Command Center UI, honest data semantics, stale-price cache).",
 );
