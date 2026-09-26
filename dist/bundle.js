@@ -17306,6 +17306,10 @@ console.log("[Smart] Module loaded.");
 // ================================================================
 // js/features/unlocks.js – Token Unlock Calendar
 // ================================================================
+// §2.9 No False Precision: Unknown prices/volumes render as "—", never $0
+// §6.3 Missing Data Must Reduce Confidence: Pressure = "—" if data unavailable
+// §3.4 Graceful Degradation: Stats sum only known values, show "—" if all unknown
+// ================================================================
 
 window.W = window.W || {};
 
@@ -17507,65 +17511,98 @@ W.unlocks = (() => {
       const data = await W.api.markets(ids);
       data.forEach((c) => (mk[c.id] = c));
     } catch (e) {
-      console.warn("[Unlocks] Market fetch error:", e);
+      console.warn("[Unlocks] Market fetch error:", e.message);
     }
 
     let v7 = 0,
-      v30 = 0,
-      worst = null;
+      v30 = 0;
+    let v7Count = 0,
+      v30Count = 0;
+    let worst = null;
 
     const rows = items
       .map((u) => {
         const m = mk[u.coinId] || {};
-        const price = m.current_price || 0,
-          vol = m.total_volume || 0;
-        const value = u.amount * price;
-        const ratio = vol ? value / vol : 0;
+
+        // §2.9 / §6.3: Missing data remains null, never silently becomes 0
+        const price = m.current_price != null ? m.current_price : null;
+        const vol = m.total_volume != null ? m.total_volume : null;
+
+        const value = price != null ? u.amount * price : null;
+        const ratio =
+          vol != null && vol > 0 && value != null ? value / vol : null;
         const dl = daysLeft(u.date);
 
-        if (dl <= 7) v7 += value;
-        if (dl <= 30) v30 += value;
-        if (!worst || ratio > worst.ratio) worst = { u, ratio };
+        // Only aggregate known values
+        if (dl <= 7 && value != null) {
+          v7 += value;
+          v7Count++;
+        }
+        if (dl <= 30 && value != null) {
+          v30 += value;
+          v30Count++;
+        }
+
+        // Only consider valid ratios for "worst pressure"
+        if (ratio != null && (worst === null || ratio > worst.ratio)) {
+          worst = { u, ratio };
+        }
+
+        const valueStr =
+          value != null ? W.fmt.money(value, { compact: true }) : "—";
+        const ratioStr =
+          ratio != null ? `${(ratio * 100).toFixed(0)}% of 24h vol` : "—";
+        const pressureHtml =
+          ratio != null
+            ? pressureTag(ratio)
+            : '<span class="tag neutral">Unknown</span>';
 
         return `
-          <tr>
-            <td>
-              <b>${dl <= 0 ? "Today" : dl + "d"}</b>
-              <div class="muted small">${formatDate(u.date)}</div>
-            </td>
-            <td class="coin-cell">
-              ${m.image ? `<img src="${m.image}" alt="${u.name}">` : ""}
-              <div>
-                <b>${escapeHTML(u.name)}</b>
-                <br><span class="muted small">${u.symbol.toUpperCase()}</span>
-              </div>
-            </td>
-            <td><span class="tag ${u.type === "Cliff" ? "rank" : "live"}">${escapeHTML(u.type)}</span></td>
-            <td>${u.amount.toLocaleString()}</td>
-            <td><b>${W.fmt.money(value, { compact: true })}</b></td>
-            <td>${(ratio * 100).toFixed(0)}% of 24h vol<br>${pressureTag(ratio)}</td>
-            <td class="row-actions">
-              <button class="icon-btn" data-del="${u.id}" title="Delete">🗑️</button>
-            </td>
-          </tr>
-        `;
+        <tr>
+          <td>
+            <b>${dl <= 0 ? "Today" : dl + "d"}</b>
+            <div class="muted small">${formatDate(u.date)}</div>
+          </td>
+          <td class="coin-cell">
+            ${m.image ? `<img src="${m.image}" alt="${u.name}">` : ""}
+            <div>
+              <b>${escapeHTML(u.name)}</b>
+              <br><span class="muted small">${u.symbol.toUpperCase()}</span>
+            </div>
+          </td>
+          <td><span class="tag ${u.type === "Cliff" ? "rank" : "live"}">${escapeHTML(u.type)}</span></td>
+          <td>${u.amount.toLocaleString()}</td>
+          <td><b>${valueStr}</b></td>
+          <td>${ratioStr}<br>${pressureHtml}</td>
+          <td class="row-actions">
+            <button class="icon-btn" data-del="${u.id}" title="Delete">🗑️</button>
+          </td>
+        </tr>
+      `;
       })
       .join("");
 
-    // ── Stats ──────────────────────────────────────────
+    // ── Stats (§3.4: Show "—" if no known values in window) ──────────
+    const v7Str = v7Count > 0 ? W.fmt.money(v7, { compact: true }) : "—";
+    const v30Str = v30Count > 0 ? W.fmt.money(v30, { compact: true }) : "—";
+    const worstSymbol = worst ? worst.u.symbol.toUpperCase() : "—";
+    const worstRatioStr = worst
+      ? `${(worst.ratio * 100).toFixed(0)}% of 24h volume`
+      : "";
+
     stats.innerHTML = `
       <div class="card stat">
         <div class="stat-label">Unlocks · 7d</div>
-        <div class="stat-big">${W.fmt.money(v7, { compact: true })}</div>
+        <div class="stat-big">${v7Str}</div>
       </div>
       <div class="card stat">
         <div class="stat-label">Unlocks · 30d</div>
-        <div class="stat-big">${W.fmt.money(v30, { compact: true })}</div>
+        <div class="stat-big">${v30Str}</div>
       </div>
       <div class="card stat">
         <div class="stat-label">Highest Pressure</div>
-        <div class="stat-big">${worst ? worst.u.symbol.toUpperCase() : "—"}</div>
-        <div class="stat-sub">${worst ? (worst.ratio * 100).toFixed(0) + "% of 24h volume" : ""}</div>
+        <div class="stat-big">${worstSymbol}</div>
+        <div class="stat-sub">${worstRatioStr}</div>
       </div>
     `;
 
@@ -17664,7 +17701,7 @@ W.unlocks = (() => {
   };
 })();
 
-console.log("[Unlocks] Module loaded.");
+console.log("[Unlocks] Module loaded (honest data semantics).");
 // ---- js/features/sectors.js ----
 // ================================================================
 //             Sector Rotation Heatmap
