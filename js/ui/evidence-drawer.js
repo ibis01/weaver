@@ -1,375 +1,351 @@
 // ===============================================================
-//         Weaver Evidence Drawer
+//     Evidence Drawer — Progressive Disclosure
+//     Constitution §5.2: Summary → Why → Risks → Evidence → Sources
+//     Constitution §2.2: Transparency Over Hype
+//     Constitution §5.4: Accessibility (focus trap, Escape, ARIA)
+//     Constitution §2.9: No False Precision
 // ===============================================================
-// Modal listing supporting evidence, contradicting evidence, and
-// unknowns for a Weaver conclusion.
-//
-// Constitution §2.2 (Transparency): every score or verdict must
-// show its reasoning.
-// Constitution §2.7 (Evidence Provenance): sources and methodology
-// surfaced alongside conclusions.
-//
-// RELATIONSHIP POLICY:
-//   `relationship` describes how an item relates to the scenario
-//   being evaluated: supporting, contradicting, neutral, or unknown.
-//   It is NEVER inferred from `status`.
-//
-//   A domain with status "verified" has not necessarily supported
-//   the thesis — it means the data was successfully obtained.
-//   A domain with status "failed" has not necessarily contradicted
-//   the thesis — it means the data was not obtained.
-//
-//   When a domain does not declare its relationship, the drawer
-//   places it under "Unknowns". It is never silently upgraded to
-//   "supporting" or demoted to "contradicting".
-//
-// TRAJECTORY POLICY:
-//   The drawer receives an already-summarised trajectory string. It
-//   does not read W.observations or call summariseTrajectory(). The
-//   caller is responsible for both. When the summary is absent or
-//   empty, the trajectory line is omitted from the body.
-//
-// OWNER POLICY:
-//   Same contract as the trajectory line. The drawer receives an
-//   already-summarised owner string. It does not read
-//   W.ownerAssociations — the caller does.
-//
-// DEPLOYER POLICY:
-//   Same contract again. The drawer receives an already-summarised
-//   deployer string. It does not read W.deployerGraph — the caller
-//   does. The absence of the line does not mean the deployer is
-//   safe; it means no deployer profile was available for this token.
-//
-// TRACK RECORD POLICY:
-//   Same contract again. The drawer receives an already-summarised
-//   Track Record string from the caller and does not read
-//   W.trackRecord. Absence of the line does not mean the user has
-//   no history with this asset; it means no matching records were
-//   found at the moment the drawer opened.
-//
-// CSP Compliant: no style="" attributes. All user content passes
-// through W.fmt.escapeHTML before insertion.
+// CSP-safe: zero inline styles. All layout via CSS classes.
 // ===============================================================
 
 window.W = window.W || {};
 W.ui = W.ui || {};
 
 W.ui.evidenceDrawer = (() => {
-  const esc = (s) =>
-    W.fmt?.escapeHTML ? W.fmt.escapeHTML(String(s ?? "")) : String(s ?? "");
+  var overlay = null;
+  var drawer = null;
+  var previousFocus = null;
+  var isOpen = false;
 
-  const RELATIONSHIP_VALUES = new Set([
-    "supporting",
-    "contradicting",
-    "neutral",
-    "unknown",
-  ]);
+  // ── DOM Setup (lazy, created once) ────────────────────────
+  function ensureDOM() {
+    if (drawer) return;
 
-  function normalizeRelationship(value) {
-    if (typeof value !== "string") return "unknown";
-    const v = value.trim().toLowerCase();
-    return RELATIONSHIP_VALUES.has(v) ? v : "unknown";
-  }
+    overlay = document.createElement("div");
+    overlay.className = "drawer-overlay";
+    overlay.addEventListener("click", close);
 
-  // ── Bucketing ───────────────────────────────────────────
-  // Relationship drives the bucket. Status is preserved on the item
-  // for display but does not determine where the item appears.
-  //
-  // A domain declaring relationship: "neutral" is placed under
-  // Unknowns — the drawer has three sections and neutral evidence
-  // is neither for nor against the thesis. Callers that want a
-  // distinct "neutral" section can extend the return shape, but the
-  // current three-bucket contract is unchanged.
-  function bucket(domains) {
-    const out = { supporting: [], contradicting: [], unknowns: [] };
-    if (!domains || typeof domains !== "object") return out;
-    Object.entries(domains).forEach(([name, d]) => {
-      const relationship = normalizeRelationship(d && d.relationship);
-      const e = {
-        name,
-        status: (d && d.status) || "unknown",
-        source: d && d.source,
-        observedAt: d && (d.observedAt || d.asOf),
-        freshness: d && d.freshness,
-        methodologyVersion: d && d.methodologyVersion,
-        relationship,
-        reliability: d && d.reliability,
-        reasons: Array.isArray(d && d.reasons) ? d.reasons : [],
-      };
-      if (relationship === "supporting") out.supporting.push(e);
-      else if (relationship === "contradicting") out.contradicting.push(e);
-      else out.unknowns.push(e);
+    drawer = document.createElement("div");
+    drawer.className = "evidence-drawer";
+    drawer.setAttribute("role", "dialog");
+    drawer.setAttribute("aria-modal", "true");
+    drawer.setAttribute("aria-label", "Evidence details");
+
+    document.body.appendChild(overlay);
+    document.body.appendChild(drawer);
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && isOpen) close();
     });
-    return out;
   }
 
-  // ── Provenance rendering ────────────────────────────────
-  // Every field renders. Missing values become the literal string
-  // "unknown" — they are never omitted, because an omitted field
-  // reads as "not applicable" rather than "not known".
-  function formatProvenanceField(label, rawValue) {
-    const v =
-      rawValue === null || rawValue === undefined || rawValue === ""
-        ? "unknown"
-        : String(rawValue);
-    return label + ": " + v;
+  // ── Confidence Helpers (§2.9 No False Precision) ─────────
+  function confidenceBucket(confidence) {
+    if (confidence == null || isNaN(confidence)) return null;
+    var pct = Math.max(0, Math.min(100, Math.round(confidence * 100)));
+    return Math.round(pct / 10) * 10;
   }
 
-  function formatPercent(value) {
-    return Number.isFinite(value) ? Math.round(value * 100) + "%" : null;
+  function confidenceColor(confidence) {
+    if (confidence == null || isNaN(confidence)) return "muted";
+    if (confidence >= 0.7) return "up";
+    if (confidence >= 0.4) return "warn";
+    return "down";
   }
 
-  function formatDate(value) {
-    if (!value) return null;
-    try {
-      const d = new Date(value);
-      if (!Number.isFinite(d.getTime())) return null;
-      return d.toLocaleString();
-    } catch (_) {
-      return null;
-    }
-  }
+  // ── Section Renderers ─────────────────────────────────────
 
-  function renderProvenance(it) {
-    const fields = [
-      formatProvenanceField("Source", it.source),
-      formatProvenanceField("Observed", formatDate(it.observedAt)),
-      formatProvenanceField("Freshness", formatPercent(it.freshness)),
-      formatProvenanceField("Methodology", it.methodologyVersion),
-      formatProvenanceField("Relationship", it.relationship),
-      formatProvenanceField("Reliability", formatPercent(it.reliability)),
-    ];
-    return '<p class="muted text-2xs mt-4">' + esc(fields.join(" · ")) + "</p>";
-  }
+  function renderVerdict(data) {
+    if (!data.verdict) return "";
+    var v = data.verdict;
+    var scoreDisplay = v.score != null ? v.score : "—";
+    var confDisplay =
+      v.confidence != null
+        ? Math.round(v.confidence * 100) + "%"
+        : "Unavailable";
+    var classification = W.fmt.escapeHTML(v.classification || "Unclassified");
+    var quality = W.fmt.escapeHTML(v.evidenceQuality || "UNKNOWN");
 
-  function renderItems(items, empty) {
-    if (!items.length) return '<p class="muted small">' + esc(empty) + "</p>";
     return (
-      '<ul class="tx-list">' +
-      items
-        .map((it) => {
-          const title = esc(it.title || it.name || "Evidence");
-          const meta = esc(it.status || "");
-          const detail = it.detail || it.evidence;
-          const reasons = (it.reasons || [])
-            .map((r) => '<p class="muted small mt-4">• ' + esc(r) + "</p>")
-            .join("");
+      '<div class="drawer-verdict">' +
+      "<div>" +
+      '<div class="drawer-score">' +
+      scoreDisplay +
+      "</div>" +
+      '<div class="drawer-score-label">Score</div>' +
+      "</div>" +
+      "<div>" +
+      '<div class="font-bold">' +
+      classification +
+      "</div>" +
+      '<div class="small-text text-muted">Evidence: ' +
+      quality +
+      "</div>" +
+      '<div class="small-text text-muted">Confidence: ' +
+      confDisplay +
+      "</div>" +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function renderReasoning(reasons) {
+    if (!reasons || !reasons.length)
+      return '<p class="text-muted small">No reasoning available.</p>';
+    return reasons
+      .map(function (r) {
+        return (
+          '<div class="evidence-item">' +
+          '<span class="evidence-icon text-up">+</span>' +
+          "<span>" +
+          W.fmt.escapeHTML(r) +
+          "</span>" +
+          "</div>"
+        );
+      })
+      .join("");
+  }
+
+  function renderRisks(risks) {
+    if (!risks || !risks.length)
+      return '<p class="text-muted small">No risk factors identified.</p>';
+    return risks
+      .map(function (r) {
+        return (
+          '<div class="evidence-item">' +
+          '<span class="evidence-icon text-warn">−</span>' +
+          "<span>" +
+          W.fmt.escapeHTML(r) +
+          "</span>" +
+          "</div>"
+        );
+      })
+      .join("");
+  }
+
+  function renderEvidenceList(evidence) {
+    if (!evidence)
+      return '<p class="text-muted small">No evidence available.</p>';
+    var html = "";
+
+    if (evidence.supporting && evidence.supporting.length) {
+      html += '<div class="drawer-section-title">Supporting Evidence</div>';
+      html += evidence.supporting
+        .map(function (e) {
+          var title = W.fmt.escapeHTML(e.title || e.fact || "Evidence");
+          var source = e.source
+            ? '<div class="evidence-source">' +
+              W.fmt.escapeHTML(e.source) +
+              (e.timestamp ? " · " + W.fmt.relativeTime(e.timestamp) : "") +
+              "</div>"
+            : "";
           return (
-            '<li><div class="flex-between"><b>' +
+            '<div class="evidence-item">' +
+            '<span class="evidence-icon text-up">✓</span>' +
+            "<div><span>" +
             title +
-            '</b><span class="muted small">' +
-            meta +
-            "</span></div>" +
-            renderProvenance(it) +
-            (detail
-              ? '<p class="muted small mt-4">' + esc(detail) + "</p>"
-              : "") +
-            reasons +
-            "</li>"
+            "</span>" +
+            source +
+            "</div>" +
+            "</div>"
+          );
+        })
+        .join("");
+    }
+
+    if (evidence.conflicting && evidence.conflicting.length) {
+      html += '<div class="drawer-section-title">Conflicting Evidence</div>';
+      html += evidence.conflicting
+        .map(function (e) {
+          var title = W.fmt.escapeHTML(e.title || e.fact || "Evidence");
+          var source = e.source
+            ? '<div class="evidence-source">' +
+              W.fmt.escapeHTML(e.source) +
+              "</div>"
+            : "";
+          return (
+            '<div class="evidence-item">' +
+            '<span class="evidence-icon text-down">✗</span>' +
+            "<div><span>" +
+            title +
+            "</span>" +
+            source +
+            "</div>" +
+            "</div>"
+          );
+        })
+        .join("");
+    }
+
+    if (evidence.missing && evidence.missing.length) {
+      html += '<div class="drawer-section-title">Missing Evidence</div>';
+      html += evidence.missing
+        .map(function (m) {
+          return (
+            '<div class="evidence-item">' +
+            '<span class="evidence-icon text-muted">—</span>' +
+            '<span class="text-muted">' +
+            W.fmt.escapeHTML(m) +
+            "</span>" +
+            "</div>"
+          );
+        })
+        .join("");
+    }
+
+    if (!html) return '<p class="text-muted small">No evidence available.</p>';
+    return html;
+  }
+
+  function renderSources(sources) {
+    if (!sources || !sources.length) return "";
+    return (
+      '<div class="drawer-section">' +
+      '<div class="drawer-section-title">Data Sources</div>' +
+      sources
+        .map(function (s) {
+          var name = W.fmt.escapeHTML(s.name || s.source || "Unknown");
+          var time = s.timestamp ? W.fmt.relativeTime(s.timestamp) : "Unknown";
+          return (
+            '<div class="kv-row">' +
+            "<span>" +
+            name +
+            "</span>" +
+            '<span class="text-muted small">' +
+            time +
+            "</span>" +
+            "</div>"
           );
         })
         .join("") +
-      "</ul>"
+      "</div>"
     );
   }
 
-  // Carry provenance fields from a source evidence object onto the
-  // drawer item, so renderItems() has all six fields regardless of
-  // which layer produced the item.
-  //
-  // relationship is NOT defaulted to "supporting" here — a caller
-  // that produced bullish evidence has already declared that
-  // relationship upstream, and this carry function preserves it.
-  function carryProvenance(item, source) {
-    const s = source || {};
-    return {
-      ...item,
-      source: item.source ?? s.source,
-      observedAt: item.observedAt ?? s.observedAt ?? s.timestamp,
-      freshness: item.freshness ?? s.freshness,
-      methodologyVersion: item.methodologyVersion ?? s.methodologyVersion,
-      relationship: item.relationship ?? normalizeRelationship(s.relationship),
-      reliability: item.reliability ?? s.reliability,
-    };
+  function renderMethodology(data) {
+    var html =
+      '<div class="drawer-section">' +
+      '<div class="drawer-section-title">Methodology & Provenance</div>';
+
+    if (data.methodology) {
+      html +=
+        '<div class="kv-row"><span>Version</span>' +
+        '<span class="text-muted small">' +
+        W.fmt.escapeHTML(data.methodology) +
+        "</span></div>";
+    }
+    if (data.timestamp) {
+      html +=
+        '<div class="kv-row"><span>Generated</span>' +
+        '<span class="text-muted small">' +
+        W.fmt.relativeTime(data.timestamp) +
+        "</span></div>";
+    }
+    if (data.verdict && data.verdict.confidence != null) {
+      var bucket = confidenceBucket(data.verdict.confidence);
+      var color = confidenceColor(data.verdict.confidence);
+      var pct = Math.round(data.verdict.confidence * 100);
+      html +=
+        '<div class="kv-row"><span>Evidence Strength</span>' +
+        '<div class="feed-confidence">' +
+        '<div class="meter-bar meter-bar-sm">' +
+        '<div class="meter-fill meter-fill-' +
+        bucket +
+        " meter-fill-" +
+        color +
+        '"></div>' +
+        "</div>" +
+        '<span class="text-muted small">' +
+        pct +
+        "%</span>" +
+        "</div>" +
+        "</div>";
+    }
+
+    html += "</div>";
+    return html;
   }
 
-  // Renders the optional trajectory line. Returns "" when no
-  // summary is supplied, so the caller can concatenate the result
-  // unconditionally.
-  function renderTrajectoryLine(summary) {
-    if (typeof summary !== "string" || !summary.trim()) return "";
-    return '<p class="small"><b>Trajectory:</b> ' + esc(summary) + "</p>";
-  }
+  // ── Public API ────────────────────────────────────────────
 
-  // Renders the optional owner-association line. Same pattern as
-  // renderTrajectoryLine: the drawer receives an already-summarised
-  // string from the caller and does not read W.ownerAssociations.
-  function renderOwnerLine(summary) {
-    if (typeof summary !== "string" || !summary.trim()) return "";
-    return '<p class="small"><b>Owner:</b> ' + esc(summary) + "</p>";
-  }
+  function open(data) {
+    ensureDOM();
+    previousFocus = document.activeElement;
 
-  // Renders the optional deployer line. Same pattern as the owner
-  // and trajectory lines. The drawer receives an already-summarised
-  // string from the caller and does not read W.deployerGraph.
-  //
-  // The absence of this line does not mean the deployer is safe;
-  // it means no deployer profile was available for this token.
-  function renderDeployerLine(summary) {
-    if (typeof summary !== "string" || !summary.trim()) return "";
-    return '<p class="small"><b>Deployer:</b> ' + esc(summary) + "</p>";
-  }
+    var title = W.fmt.escapeHTML(data.title || "Evidence Details");
+    var subtitle = W.fmt.escapeHTML(data.subtitle || "");
+    var bodyHTML = "";
 
-  // Renders the optional Track Record line. Same contract as the
-  // trajectory, owner, and deployer lines: the drawer receives an
-  // already-summarised string from the caller and does not read
-  // W.trackRecord.
-  //
-  // The absence of this line does not mean this user has no history
-  // with this asset; it means no matching Track Record entries were
-  // found at the moment the drawer opened.
-  function renderTrackRecordLine(summary) {
-    if (typeof summary !== "string" || !summary.trim()) return "";
-    return (
-      '<p class="small"><b>Your Track Record:</b> ' + esc(summary) + "</p>"
-    );
-  }
+    // §5.2 Progressive Disclosure order:
+    // Summary → Why → Risks → Evidence → Sources → Methodology
+    bodyHTML += renderVerdict(data);
 
-  function open(result) {
-    const r = result || {};
-    const b = bucket(r.domains);
+    if (data.reasoning && data.reasoning.length) {
+      bodyHTML +=
+        '<div class="drawer-section">' +
+        '<div class="drawer-section-title">Why</div>' +
+        renderReasoning(data.reasoning) +
+        "</div>";
+    }
 
-    // Optional. Absent when the token has no retained history,
-    // when the observations module is unavailable, or when the
-    // caller does not supply it. The drawer renders normally.
-    const trajectorySummary =
-      typeof r.trajectorySummary === "string" && r.trajectorySummary.trim()
-        ? r.trajectorySummary
-        : null;
+    if (data.risks && data.risks.length) {
+      bodyHTML +=
+        '<div class="drawer-section">' +
+        '<div class="drawer-section-title">Risk Factors</div>' +
+        renderRisks(data.risks) +
+        "</div>";
+    }
 
-    // Same shape as trajectorySummary: optional, absent when the
-    // token has no owner association this session, when the
-    // module is unavailable, or when the caller does not supply it.
-    const ownerSummary =
-      typeof r.ownerSummary === "string" && r.ownerSummary.trim()
-        ? r.ownerSummary
-        : null;
+    if (data.evidence) {
+      bodyHTML +=
+        '<div class="drawer-section">' +
+        renderEvidenceList(data.evidence) +
+        "</div>";
+    }
 
-    // Same shape again: optional. Absent when no deployer profile
-    // is cached for the token.
-    const deployerSummary =
-      typeof r.deployerSummary === "string" && r.deployerSummary.trim()
-        ? r.deployerSummary
-        : null;
+    bodyHTML += renderSources(data.sources);
+    bodyHTML += renderMethodology(data);
 
-    // Same shape again: optional. Absent when no Track Record entry
-    // matches this asset, or when the caller does not supply it.
-    const trackRecordSummary =
-      typeof r.trackRecordSummary === "string" && r.trackRecordSummary.trim()
-        ? r.trackRecordSummary
-        : null;
-
-    const supporting = [
-      ...(r.bullishEvidence || []).map((e) =>
-        carryProvenance(
-          {
-            title: e.title,
-            detail: e.evidence,
-            status: "supporting",
-            relationship: "supporting",
-          },
-          e,
-        ),
-      ),
-      ...b.supporting,
-    ];
-
-    const contradicting = [
-      ...(r.bearishEvidence || []).map((e) =>
-        carryProvenance(
-          {
-            title: e.title,
-            detail: e.evidence,
-            status: "contradicting",
-            relationship: "contradicting",
-          },
-          e,
-        ),
-      ),
-      ...(r.contradictions || []).map((c) =>
-        carryProvenance({
-          title: c.bull + " vs " + c.bear,
-          detail: c.details,
-          status: "contradicting",
-          relationship: "contradicting",
-        }),
-      ),
-      ...b.contradicting,
-    ];
-
-    const unknowns = [
-      ...b.unknowns,
-      ...((r.evidenceQuality && r.evidenceQuality.reasons) || []).map((x) =>
-        carryProvenance({
-          title: "Evidence gap",
-          detail: x,
-          relationship: "unknown",
-        }),
-      ),
-    ];
-
-    const meta = [
-      r.methodologyVersion ? "Methodology " + r.methodologyVersion : null,
-      r.evidenceVersion ? "Evidence " + r.evidenceVersion : null,
-    ]
-      .filter(Boolean)
-      .join(" · ");
-
-    const body =
-      '<p class="small muted">' +
-      esc(r.explanation || "Evidence behind the current scenario.") +
-      "</p>" +
-      (meta ? '<p class="small muted">' + esc(meta) + "</p>" : "") +
-      renderTrajectoryLine(trajectorySummary) +
-      renderOwnerLine(ownerSummary) +
-      renderDeployerLine(deployerSummary) +
-      renderTrackRecordLine(trackRecordSummary) +
-      '<div class="mt-12">' +
-      "<h4>🟢 Supporting evidence</h4>" +
-      renderItems(supporting, "None recorded.") +
-      "<h4>🔴 Contradicting evidence</h4>" +
-      renderItems(contradicting, "None recorded.") +
-      "<h4>❓ Unknowns</h4>" +
-      renderItems(unknowns, "No evidence gaps recorded.") +
+    drawer.innerHTML =
+      '<div class="drawer-header">' +
+      "<div>" +
+      '<h3 id="drawer-title">' +
+      title +
+      "</h3>" +
+      (subtitle ? '<div class="drawer-subtitle">' + subtitle + "</div>" : "") +
+      "</div>" +
+      '<button class="drawer-close" aria-label="Close evidence panel">✕</button>' +
+      "</div>" +
+      '<div class="drawer-body">' +
+      bodyHTML +
       "</div>";
 
-    const m = W.ui.modal({
-      title: "Why this verdict?",
-      body,
-      footer: '<button class="btn ghost" data-a="close">Close</button>',
-    });
-    if (m.el) {
-      const btn = m.el.querySelector('[data-a="close"]');
-      if (btn) btn.onclick = m.close;
-    }
-    return m;
+    drawer.querySelector(".drawer-close").addEventListener("click", close);
+
+    overlay.classList.add("visible");
+    drawer.classList.add("open");
+    isOpen = true;
+
+    var closeBtn = drawer.querySelector(".drawer-close");
+    if (closeBtn) closeBtn.focus();
+
+    document.body.classList.add("body-drawer-open");
   }
 
-  return {
-    open,
-    // Exposed for tests only.
-    _internal: {
-      bucket,
-      renderItems,
-      renderProvenance,
-      renderTrajectoryLine,
-      renderOwnerLine,
-      renderDeployerLine,
-      renderTrackRecordLine,
-      carryProvenance,
-      normalizeRelationship,
-    },
-  };
+  function close() {
+    if (!isOpen) return;
+    isOpen = false;
+    overlay.classList.remove("visible");
+    drawer.classList.remove("open");
+    document.body.classList.remove("body-drawer-open");
+
+    if (previousFocus) {
+      previousFocus.focus();
+      previousFocus = null;
+    }
+  }
+
+  return { open: open, close: close };
 })();
 
-console.log("[EvidenceDrawer] Module loaded (CSP compliant).");
+console.log("[EvidenceDrawer] Module loaded.");

@@ -30,6 +30,9 @@ const files = [
   "js/ui/ui.js",
   "js/ui/data-status.js",
   "js/ui/dashboard.js",
+  "js/ui/skeleton.js",
+  "js/ui/evidence-drawer.js",
+  "js/ui/intelligence-feed.js",
 
   // ── API Layer ─────────────────────────────────────────────────
   "js/api/schemas.js",

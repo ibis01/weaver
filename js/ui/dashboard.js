@@ -3,6 +3,7 @@
 // ===============================================================
 // CSP Compliant: ZERO inline style="..." attributes.
 // All dynamic styling handled via CSS classes and CSS variables.
+// Upgraded: Skeleton loading states, Intelligence Feed integration.
 // ===============================================================
 
 window.W = window.W || {};
@@ -10,6 +11,15 @@ window.W = window.W || {};
 W.dashboard = (() => {
   const MARKET_ROWS_DEFAULT = 20;
   let marketRowsExpanded = false;
+
+  // Safe fallback if skeleton module isn't loaded yet
+  const skel = W.ui.skeleton || {
+    stats: (n) => Array(n).fill('<div class="spinner"></div>').join(""),
+    card: () => '<div class="spinner"></div>',
+    chart: () => '<div class="spinner"></div>',
+    feed: (n) => Array(n).fill('<div class="spinner"></div>').join(""),
+    table: (n) => Array(n).fill('<div class="spinner"></div>').join(""),
+  };
 
   const statCard = (label, big, sub) => `
     <div class="card stat">
@@ -68,7 +78,7 @@ W.dashboard = (() => {
       max = Math.max(...vals),
       up = c.dataset.up === "1";
     ctx.clearRect(0, 0, w, h);
-    ctx.strokeStyle = up ? "#10b981" : "#ef4444"; // Hardcode hex for Canvas API
+    ctx.strokeStyle = up ? "#10b981" : "#ef4444";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     vals.forEach((v, i) => {
@@ -445,11 +455,12 @@ W.dashboard = (() => {
   async function render(view) {
     destroyPerfChart(view);
 
+    // Render initial layout with Skeletons to prevent Layout Shift (CLS)
     view.innerHTML = `
       <p class="muted small mb-16">Your evidence-driven crypto intelligence workspace.</p>
       <div id="d-data-health" aria-live="polite"></div>
-      <div class="cards" id="d-stats"></div>
-      <div class="cards" id="d-market-tiles"></div>
+      <div class="cards" id="d-stats">${skel.stats(3)}</div>
+      <div class="cards" id="d-market-tiles">${skel.stats(3)}</div>
 
       <div class="card mt-16">
         <div class="flex-between mb-8">
@@ -460,7 +471,7 @@ W.dashboard = (() => {
             <button class="btn tiny" id="qa-sync" title="Manage synced wallets">👛 Sync Wallets</button>
           </div>
         </div>
-        <div id="d-port"></div>
+        <div id="d-port">${skel.card()}</div>
       </div>
 
       <div class="card mt-16">
@@ -474,7 +485,7 @@ W.dashboard = (() => {
             <button class="chip" data-range="all">ALL</button>
           </div>
         </div>
-        <div class="chart-box"><canvas id="d-perf-chart"></canvas></div>
+        <div class="chart-box">${skel.chart()}</div>
         <p class="muted small mt-8" id="d-perf-note"></p>
       </div>
 
@@ -483,12 +494,12 @@ W.dashboard = (() => {
           <h3>🥧 Allocation</h3>
           <span class="muted small" id="d-alloc-total"></span>
         </div>
-        <div id="d-alloc-body"></div>
+        <div id="d-alloc-body">${skel.card()}</div>
       </div>
 
       <div class="grid-2 mt-16">
-        <div id="what-matters-now-container" class="intelligence-feed card"></div>
-        <div id="what-changed-container"></div>
+        <div id="what-matters-now-container" class="intelligence-feed card">${skel.feed(3)}</div>
+        <div id="what-changed-container"><div class="card">${skel.card()}</div></div>
       </div>
 
       <div class="card mt-16">
@@ -505,7 +516,7 @@ W.dashboard = (() => {
         <div class="table-wrap">
           <table class="term-table">
             <thead><tr><th>#</th><th>Token</th><th class="num">Price</th><th class="num">24H</th><th>7d Chart</th></tr></thead>
-            <tbody id="d-rows"><tr><td colspan="5" class="text-center text-muted">${W.ui.spinner()}</td></tr></tbody>
+            <tbody id="d-rows"><tr><td colspan="5" class="p-24">${skel.table(5)}</td></tr></tbody>
           </table>
         </div>
         <div id="d-market-more"></div>
@@ -646,7 +657,7 @@ W.dashboard = (() => {
               .map(termRow)
               .filter((r) => r !== "")
               .join("")
-          : '<tr><td colspan="5" class="text-center text-muted">No data available.</td></tr>';
+          : '<tr><td colspan="5" class="text-center text-muted p-24">No data available.</td></tr>';
         rowsEl
           .querySelectorAll("tr[data-coin]")
           .forEach(
@@ -688,7 +699,7 @@ W.dashboard = (() => {
     if (port) {
       if (!rows.length)
         port.innerHTML =
-          '<p class="text-muted small-text text-center">No holdings yet. Click "+ Add Holding" above, or Sync Wallets.</p>';
+          '<p class="text-muted small-text text-center p-24">No holdings yet. Click "+ Add Holding" above, or Sync Wallets.</p>';
       else {
         port.innerHTML = holdingsTable(rows);
         wireRows(port, rows);
@@ -703,25 +714,32 @@ W.dashboard = (() => {
     renderAllocation(allocBody, rows, totals);
     drawPerformanceChart(view);
 
+    // Wire the new Intelligence Feed
     const rankerContainer = view.querySelector("#what-matters-now-container");
-    if (rankerContainer && W.decisionEngine) {
-      const userContext = {
-        portfolio: W.portfolio?.all() || [],
-        watchlist: (W.watchlist?.all ? W.watchlist.all() : []).map(
-          (w) => w.symbol,
-        ),
-        theses: W.theses?.all() || [],
-        behavior: W.behavior?.analyze() || { pattern: "none" },
-      };
-      W.decisionEngine
-        .run(userContext)
-        .then((decisions) => {
-          W.ranker.renderCard(rankerContainer, decisions, userContext);
-        })
-        .catch(() => {
-          rankerContainer.innerHTML =
-            '<p class="text-muted small-text p-16">Intelligence feed temporarily unavailable.</p>';
-        });
+    if (rankerContainer) {
+      if (W.decisionEngine && W.intelligenceFeed) {
+        const userContext = {
+          portfolio: W.portfolio?.all() || [],
+          watchlist: (W.watchlist?.all ? W.watchlist.all() : []).map(
+            (w) => w.symbol,
+          ),
+          theses: W.theses?.all() || [],
+          behavior: W.behavior?.analyze() || { pattern: "none" },
+        };
+
+        W.decisionEngine
+          .run(userContext)
+          .then((decisions) => {
+            W.intelligenceFeed.render(rankerContainer, decisions);
+          })
+          .catch(() => {
+            rankerContainer.innerHTML =
+              '<p class="text-muted small p-16">Intelligence feed temporarily unavailable.</p>';
+          });
+      } else {
+        rankerContainer.innerHTML =
+          '<p class="text-muted small p-16">Intelligence engine loading...</p>';
+      }
     }
 
     const changedContainer = view.querySelector("#what-changed-container");
@@ -780,7 +798,7 @@ W.dashboard = (() => {
 
   function renderPortfolio(view) {
     const has = W.portfolio ? W.portfolio.all().length > 0 : false;
-    view.innerHTML = `<div class="card"><div class="flex-between mb-8"><h3>💼 Holdings</h3><div class="qa"><button class="btn primary" id="p-add">+ Add Holding</button></div></div><div id="p-body">${has ? W.ui.spinner() : '<p class="text-muted">No holdings yet.</p>'}</div></div>`;
+    view.innerHTML = `<div class="card"><div class="flex-between mb-8"><h3>💼 Holdings</h3><div class="qa"><button class="btn primary" id="p-add">+ Add Holding</button></div></div><div id="p-body">${has ? skel.card() : '<p class="text-muted">No holdings yet.</p>'}</div></div>`;
     view.querySelector("#p-add").onclick = () => holdingModal();
     if (has) {
       enrich().then(({ rows }) => {
@@ -797,5 +815,5 @@ W.dashboard = (() => {
 })();
 
 console.log(
-  "[Dashboard] Module loaded (Command Center UI, Zero Inline Styles).",
+  "[Dashboard] Module loaded (Command Center UI, Skeleton Loaders, Intelligence Feed).",
 );

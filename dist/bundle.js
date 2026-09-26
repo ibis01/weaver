@@ -2063,6 +2063,7 @@ console.log("[DataStatus] Freshness UI loaded.");
 // ===============================================================
 // CSP Compliant: ZERO inline style="..." attributes.
 // All dynamic styling handled via CSS classes and CSS variables.
+// Upgraded: Skeleton loading states, Intelligence Feed integration.
 // ===============================================================
 
 window.W = window.W || {};
@@ -2070,6 +2071,15 @@ window.W = window.W || {};
 W.dashboard = (() => {
   const MARKET_ROWS_DEFAULT = 20;
   let marketRowsExpanded = false;
+
+  // Safe fallback if skeleton module isn't loaded yet
+  const skel = W.ui.skeleton || {
+    stats: (n) => Array(n).fill('<div class="spinner"></div>').join(""),
+    card: () => '<div class="spinner"></div>',
+    chart: () => '<div class="spinner"></div>',
+    feed: (n) => Array(n).fill('<div class="spinner"></div>').join(""),
+    table: (n) => Array(n).fill('<div class="spinner"></div>').join(""),
+  };
 
   const statCard = (label, big, sub) => `
     <div class="card stat">
@@ -2128,7 +2138,7 @@ W.dashboard = (() => {
       max = Math.max(...vals),
       up = c.dataset.up === "1";
     ctx.clearRect(0, 0, w, h);
-    ctx.strokeStyle = up ? "#10b981" : "#ef4444"; // Hardcode hex for Canvas API
+    ctx.strokeStyle = up ? "#10b981" : "#ef4444";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     vals.forEach((v, i) => {
@@ -2505,11 +2515,12 @@ W.dashboard = (() => {
   async function render(view) {
     destroyPerfChart(view);
 
+    // Render initial layout with Skeletons to prevent Layout Shift (CLS)
     view.innerHTML = `
       <p class="muted small mb-16">Your evidence-driven crypto intelligence workspace.</p>
       <div id="d-data-health" aria-live="polite"></div>
-      <div class="cards" id="d-stats"></div>
-      <div class="cards" id="d-market-tiles"></div>
+      <div class="cards" id="d-stats">${skel.stats(3)}</div>
+      <div class="cards" id="d-market-tiles">${skel.stats(3)}</div>
 
       <div class="card mt-16">
         <div class="flex-between mb-8">
@@ -2520,7 +2531,7 @@ W.dashboard = (() => {
             <button class="btn tiny" id="qa-sync" title="Manage synced wallets">👛 Sync Wallets</button>
           </div>
         </div>
-        <div id="d-port"></div>
+        <div id="d-port">${skel.card()}</div>
       </div>
 
       <div class="card mt-16">
@@ -2534,7 +2545,7 @@ W.dashboard = (() => {
             <button class="chip" data-range="all">ALL</button>
           </div>
         </div>
-        <div class="chart-box"><canvas id="d-perf-chart"></canvas></div>
+        <div class="chart-box">${skel.chart()}</div>
         <p class="muted small mt-8" id="d-perf-note"></p>
       </div>
 
@@ -2543,12 +2554,12 @@ W.dashboard = (() => {
           <h3>🥧 Allocation</h3>
           <span class="muted small" id="d-alloc-total"></span>
         </div>
-        <div id="d-alloc-body"></div>
+        <div id="d-alloc-body">${skel.card()}</div>
       </div>
 
       <div class="grid-2 mt-16">
-        <div id="what-matters-now-container" class="intelligence-feed card"></div>
-        <div id="what-changed-container"></div>
+        <div id="what-matters-now-container" class="intelligence-feed card">${skel.feed(3)}</div>
+        <div id="what-changed-container"><div class="card">${skel.card()}</div></div>
       </div>
 
       <div class="card mt-16">
@@ -2565,7 +2576,7 @@ W.dashboard = (() => {
         <div class="table-wrap">
           <table class="term-table">
             <thead><tr><th>#</th><th>Token</th><th class="num">Price</th><th class="num">24H</th><th>7d Chart</th></tr></thead>
-            <tbody id="d-rows"><tr><td colspan="5" class="text-center text-muted">${W.ui.spinner()}</td></tr></tbody>
+            <tbody id="d-rows"><tr><td colspan="5" class="p-24">${skel.table(5)}</td></tr></tbody>
           </table>
         </div>
         <div id="d-market-more"></div>
@@ -2706,7 +2717,7 @@ W.dashboard = (() => {
               .map(termRow)
               .filter((r) => r !== "")
               .join("")
-          : '<tr><td colspan="5" class="text-center text-muted">No data available.</td></tr>';
+          : '<tr><td colspan="5" class="text-center text-muted p-24">No data available.</td></tr>';
         rowsEl
           .querySelectorAll("tr[data-coin]")
           .forEach(
@@ -2748,7 +2759,7 @@ W.dashboard = (() => {
     if (port) {
       if (!rows.length)
         port.innerHTML =
-          '<p class="text-muted small-text text-center">No holdings yet. Click "+ Add Holding" above, or Sync Wallets.</p>';
+          '<p class="text-muted small-text text-center p-24">No holdings yet. Click "+ Add Holding" above, or Sync Wallets.</p>';
       else {
         port.innerHTML = holdingsTable(rows);
         wireRows(port, rows);
@@ -2763,25 +2774,32 @@ W.dashboard = (() => {
     renderAllocation(allocBody, rows, totals);
     drawPerformanceChart(view);
 
+    // Wire the new Intelligence Feed
     const rankerContainer = view.querySelector("#what-matters-now-container");
-    if (rankerContainer && W.decisionEngine) {
-      const userContext = {
-        portfolio: W.portfolio?.all() || [],
-        watchlist: (W.watchlist?.all ? W.watchlist.all() : []).map(
-          (w) => w.symbol,
-        ),
-        theses: W.theses?.all() || [],
-        behavior: W.behavior?.analyze() || { pattern: "none" },
-      };
-      W.decisionEngine
-        .run(userContext)
-        .then((decisions) => {
-          W.ranker.renderCard(rankerContainer, decisions, userContext);
-        })
-        .catch(() => {
-          rankerContainer.innerHTML =
-            '<p class="text-muted small-text p-16">Intelligence feed temporarily unavailable.</p>';
-        });
+    if (rankerContainer) {
+      if (W.decisionEngine && W.intelligenceFeed) {
+        const userContext = {
+          portfolio: W.portfolio?.all() || [],
+          watchlist: (W.watchlist?.all ? W.watchlist.all() : []).map(
+            (w) => w.symbol,
+          ),
+          theses: W.theses?.all() || [],
+          behavior: W.behavior?.analyze() || { pattern: "none" },
+        };
+
+        W.decisionEngine
+          .run(userContext)
+          .then((decisions) => {
+            W.intelligenceFeed.render(rankerContainer, decisions);
+          })
+          .catch(() => {
+            rankerContainer.innerHTML =
+              '<p class="text-muted small p-16">Intelligence feed temporarily unavailable.</p>';
+          });
+      } else {
+        rankerContainer.innerHTML =
+          '<p class="text-muted small p-16">Intelligence engine loading...</p>';
+      }
     }
 
     const changedContainer = view.querySelector("#what-changed-container");
@@ -2840,7 +2858,7 @@ W.dashboard = (() => {
 
   function renderPortfolio(view) {
     const has = W.portfolio ? W.portfolio.all().length > 0 : false;
-    view.innerHTML = `<div class="card"><div class="flex-between mb-8"><h3>💼 Holdings</h3><div class="qa"><button class="btn primary" id="p-add">+ Add Holding</button></div></div><div id="p-body">${has ? W.ui.spinner() : '<p class="text-muted">No holdings yet.</p>'}</div></div>`;
+    view.innerHTML = `<div class="card"><div class="flex-between mb-8"><h3>💼 Holdings</h3><div class="qa"><button class="btn primary" id="p-add">+ Add Holding</button></div></div><div id="p-body">${has ? skel.card() : '<p class="text-muted">No holdings yet.</p>'}</div></div>`;
     view.querySelector("#p-add").onclick = () => holdingModal();
     if (has) {
       enrich().then(({ rows }) => {
@@ -2857,8 +2875,622 @@ W.dashboard = (() => {
 })();
 
 console.log(
-  "[Dashboard] Module loaded (Command Center UI, Zero Inline Styles).",
+  "[Dashboard] Module loaded (Command Center UI, Skeleton Loaders, Intelligence Feed).",
 );
+// ---- js/ui/skeleton.js ----
+// ===============================================================
+//     Weaver Skeleton Loading States
+//     Constitution §3.4: Graceful Degradation
+//     Constitution §5.3: Calm Visual Language (no spinners)
+// ===============================================================
+// CSP-safe: no inline styles. All sizing via CSS classes.
+// Respects prefers-reduced-motion via existing CSS media query.
+// ===============================================================
+
+window.W = window.W || {};
+W.ui = W.ui || {};
+
+W.ui.skeleton = (() => {
+  function block(className) {
+    return '<div class="skeleton ' + W.fmt.escapeHTML(className) + '"></div>';
+  }
+
+  function card() {
+    return '<div class="skeleton skeleton-card"></div>';
+  }
+
+  function stat() {
+    return '<div class="skeleton skeleton-stat"></div>';
+  }
+
+  function stats(count) {
+    var html = "";
+    for (var i = 0; i < count; i++) html += stat();
+    return html;
+  }
+
+  function row() {
+    return '<div class="skeleton skeleton-row"></div>';
+  }
+
+  function table(rows) {
+    var html = "";
+    for (var i = 0; i < rows; i++) html += row();
+    return html;
+  }
+
+  function chart() {
+    return '<div class="skeleton skeleton-chart"></div>';
+  }
+
+  function feedItem() {
+    return '<div class="skeleton skeleton-feed-item"></div>';
+  }
+
+  function feed(items) {
+    var html = "";
+    for (var i = 0; i < items; i++) html += feedItem();
+    return html;
+  }
+
+  return {
+    block: block,
+    card: card,
+    stat: stat,
+    stats: stats,
+    row: row,
+    table: table,
+    chart: chart,
+    feedItem: feedItem,
+    feed: feed,
+  };
+})();
+
+console.log("[Skeleton] Module loaded.");
+// ---- js/ui/evidence-drawer.js ----
+// ===============================================================
+//     Evidence Drawer — Progressive Disclosure
+//     Constitution §5.2: Summary → Why → Risks → Evidence → Sources
+//     Constitution §2.2: Transparency Over Hype
+//     Constitution §5.4: Accessibility (focus trap, Escape, ARIA)
+//     Constitution §2.9: No False Precision
+// ===============================================================
+// CSP-safe: zero inline styles. All layout via CSS classes.
+// ===============================================================
+
+window.W = window.W || {};
+W.ui = W.ui || {};
+
+W.ui.evidenceDrawer = (() => {
+  var overlay = null;
+  var drawer = null;
+  var previousFocus = null;
+  var isOpen = false;
+
+  // ── DOM Setup (lazy, created once) ────────────────────────
+  function ensureDOM() {
+    if (drawer) return;
+
+    overlay = document.createElement("div");
+    overlay.className = "drawer-overlay";
+    overlay.addEventListener("click", close);
+
+    drawer = document.createElement("div");
+    drawer.className = "evidence-drawer";
+    drawer.setAttribute("role", "dialog");
+    drawer.setAttribute("aria-modal", "true");
+    drawer.setAttribute("aria-label", "Evidence details");
+
+    document.body.appendChild(overlay);
+    document.body.appendChild(drawer);
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && isOpen) close();
+    });
+  }
+
+  // ── Confidence Helpers (§2.9 No False Precision) ─────────
+  function confidenceBucket(confidence) {
+    if (confidence == null || isNaN(confidence)) return null;
+    var pct = Math.max(0, Math.min(100, Math.round(confidence * 100)));
+    return Math.round(pct / 10) * 10;
+  }
+
+  function confidenceColor(confidence) {
+    if (confidence == null || isNaN(confidence)) return "muted";
+    if (confidence >= 0.7) return "up";
+    if (confidence >= 0.4) return "warn";
+    return "down";
+  }
+
+  // ── Section Renderers ─────────────────────────────────────
+
+  function renderVerdict(data) {
+    if (!data.verdict) return "";
+    var v = data.verdict;
+    var scoreDisplay = v.score != null ? v.score : "—";
+    var confDisplay =
+      v.confidence != null
+        ? Math.round(v.confidence * 100) + "%"
+        : "Unavailable";
+    var classification = W.fmt.escapeHTML(v.classification || "Unclassified");
+    var quality = W.fmt.escapeHTML(v.evidenceQuality || "UNKNOWN");
+
+    return (
+      '<div class="drawer-verdict">' +
+      "<div>" +
+      '<div class="drawer-score">' +
+      scoreDisplay +
+      "</div>" +
+      '<div class="drawer-score-label">Score</div>' +
+      "</div>" +
+      "<div>" +
+      '<div class="font-bold">' +
+      classification +
+      "</div>" +
+      '<div class="small-text text-muted">Evidence: ' +
+      quality +
+      "</div>" +
+      '<div class="small-text text-muted">Confidence: ' +
+      confDisplay +
+      "</div>" +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function renderReasoning(reasons) {
+    if (!reasons || !reasons.length)
+      return '<p class="text-muted small">No reasoning available.</p>';
+    return reasons
+      .map(function (r) {
+        return (
+          '<div class="evidence-item">' +
+          '<span class="evidence-icon text-up">+</span>' +
+          "<span>" +
+          W.fmt.escapeHTML(r) +
+          "</span>" +
+          "</div>"
+        );
+      })
+      .join("");
+  }
+
+  function renderRisks(risks) {
+    if (!risks || !risks.length)
+      return '<p class="text-muted small">No risk factors identified.</p>';
+    return risks
+      .map(function (r) {
+        return (
+          '<div class="evidence-item">' +
+          '<span class="evidence-icon text-warn">−</span>' +
+          "<span>" +
+          W.fmt.escapeHTML(r) +
+          "</span>" +
+          "</div>"
+        );
+      })
+      .join("");
+  }
+
+  function renderEvidenceList(evidence) {
+    if (!evidence)
+      return '<p class="text-muted small">No evidence available.</p>';
+    var html = "";
+
+    if (evidence.supporting && evidence.supporting.length) {
+      html += '<div class="drawer-section-title">Supporting Evidence</div>';
+      html += evidence.supporting
+        .map(function (e) {
+          var title = W.fmt.escapeHTML(e.title || e.fact || "Evidence");
+          var source = e.source
+            ? '<div class="evidence-source">' +
+              W.fmt.escapeHTML(e.source) +
+              (e.timestamp ? " · " + W.fmt.relativeTime(e.timestamp) : "") +
+              "</div>"
+            : "";
+          return (
+            '<div class="evidence-item">' +
+            '<span class="evidence-icon text-up">✓</span>' +
+            "<div><span>" +
+            title +
+            "</span>" +
+            source +
+            "</div>" +
+            "</div>"
+          );
+        })
+        .join("");
+    }
+
+    if (evidence.conflicting && evidence.conflicting.length) {
+      html += '<div class="drawer-section-title">Conflicting Evidence</div>';
+      html += evidence.conflicting
+        .map(function (e) {
+          var title = W.fmt.escapeHTML(e.title || e.fact || "Evidence");
+          var source = e.source
+            ? '<div class="evidence-source">' +
+              W.fmt.escapeHTML(e.source) +
+              "</div>"
+            : "";
+          return (
+            '<div class="evidence-item">' +
+            '<span class="evidence-icon text-down">✗</span>' +
+            "<div><span>" +
+            title +
+            "</span>" +
+            source +
+            "</div>" +
+            "</div>"
+          );
+        })
+        .join("");
+    }
+
+    if (evidence.missing && evidence.missing.length) {
+      html += '<div class="drawer-section-title">Missing Evidence</div>';
+      html += evidence.missing
+        .map(function (m) {
+          return (
+            '<div class="evidence-item">' +
+            '<span class="evidence-icon text-muted">—</span>' +
+            '<span class="text-muted">' +
+            W.fmt.escapeHTML(m) +
+            "</span>" +
+            "</div>"
+          );
+        })
+        .join("");
+    }
+
+    if (!html) return '<p class="text-muted small">No evidence available.</p>';
+    return html;
+  }
+
+  function renderSources(sources) {
+    if (!sources || !sources.length) return "";
+    return (
+      '<div class="drawer-section">' +
+      '<div class="drawer-section-title">Data Sources</div>' +
+      sources
+        .map(function (s) {
+          var name = W.fmt.escapeHTML(s.name || s.source || "Unknown");
+          var time = s.timestamp ? W.fmt.relativeTime(s.timestamp) : "Unknown";
+          return (
+            '<div class="kv-row">' +
+            "<span>" +
+            name +
+            "</span>" +
+            '<span class="text-muted small">' +
+            time +
+            "</span>" +
+            "</div>"
+          );
+        })
+        .join("") +
+      "</div>"
+    );
+  }
+
+  function renderMethodology(data) {
+    var html =
+      '<div class="drawer-section">' +
+      '<div class="drawer-section-title">Methodology & Provenance</div>';
+
+    if (data.methodology) {
+      html +=
+        '<div class="kv-row"><span>Version</span>' +
+        '<span class="text-muted small">' +
+        W.fmt.escapeHTML(data.methodology) +
+        "</span></div>";
+    }
+    if (data.timestamp) {
+      html +=
+        '<div class="kv-row"><span>Generated</span>' +
+        '<span class="text-muted small">' +
+        W.fmt.relativeTime(data.timestamp) +
+        "</span></div>";
+    }
+    if (data.verdict && data.verdict.confidence != null) {
+      var bucket = confidenceBucket(data.verdict.confidence);
+      var color = confidenceColor(data.verdict.confidence);
+      var pct = Math.round(data.verdict.confidence * 100);
+      html +=
+        '<div class="kv-row"><span>Evidence Strength</span>' +
+        '<div class="feed-confidence">' +
+        '<div class="meter-bar meter-bar-sm">' +
+        '<div class="meter-fill meter-fill-' +
+        bucket +
+        " meter-fill-" +
+        color +
+        '"></div>' +
+        "</div>" +
+        '<span class="text-muted small">' +
+        pct +
+        "%</span>" +
+        "</div>" +
+        "</div>";
+    }
+
+    html += "</div>";
+    return html;
+  }
+
+  // ── Public API ────────────────────────────────────────────
+
+  function open(data) {
+    ensureDOM();
+    previousFocus = document.activeElement;
+
+    var title = W.fmt.escapeHTML(data.title || "Evidence Details");
+    var subtitle = W.fmt.escapeHTML(data.subtitle || "");
+    var bodyHTML = "";
+
+    // §5.2 Progressive Disclosure order:
+    // Summary → Why → Risks → Evidence → Sources → Methodology
+    bodyHTML += renderVerdict(data);
+
+    if (data.reasoning && data.reasoning.length) {
+      bodyHTML +=
+        '<div class="drawer-section">' +
+        '<div class="drawer-section-title">Why</div>' +
+        renderReasoning(data.reasoning) +
+        "</div>";
+    }
+
+    if (data.risks && data.risks.length) {
+      bodyHTML +=
+        '<div class="drawer-section">' +
+        '<div class="drawer-section-title">Risk Factors</div>' +
+        renderRisks(data.risks) +
+        "</div>";
+    }
+
+    if (data.evidence) {
+      bodyHTML +=
+        '<div class="drawer-section">' +
+        renderEvidenceList(data.evidence) +
+        "</div>";
+    }
+
+    bodyHTML += renderSources(data.sources);
+    bodyHTML += renderMethodology(data);
+
+    drawer.innerHTML =
+      '<div class="drawer-header">' +
+      "<div>" +
+      '<h3 id="drawer-title">' +
+      title +
+      "</h3>" +
+      (subtitle ? '<div class="drawer-subtitle">' + subtitle + "</div>" : "") +
+      "</div>" +
+      '<button class="drawer-close" aria-label="Close evidence panel">✕</button>' +
+      "</div>" +
+      '<div class="drawer-body">' +
+      bodyHTML +
+      "</div>";
+
+    drawer.querySelector(".drawer-close").addEventListener("click", close);
+
+    overlay.classList.add("visible");
+    drawer.classList.add("open");
+    isOpen = true;
+
+    var closeBtn = drawer.querySelector(".drawer-close");
+    if (closeBtn) closeBtn.focus();
+
+    document.body.classList.add("body-drawer-open");
+  }
+
+  function close() {
+    if (!isOpen) return;
+    isOpen = false;
+    overlay.classList.remove("visible");
+    drawer.classList.remove("open");
+    document.body.classList.remove("body-drawer-open");
+
+    if (previousFocus) {
+      previousFocus.focus();
+      previousFocus = null;
+    }
+  }
+
+  return { open: open, close: close };
+})();
+
+console.log("[EvidenceDrawer] Module loaded.");
+// ---- js/ui/intelligence-feed.js ----
+// ===============================================================
+//     Intelligence Feed — "What Matters Now"
+//     Constitution §2.2: Transparency Over Hype
+//     Constitution §2.4: Never Financial Advice (no directive labels)
+//     Constitution §4.3: No FOMO Design
+//     Constitution §2.9: No False Precision
+// ===============================================================
+// Renders DecisionPriority[] from the Unified Decision Engine.
+// CSP-safe: zero inline styles. Accessible: keyboard navigable.
+// ===============================================================
+
+window.W = window.W || {};
+
+W.intelligenceFeed = (() => {
+  // §2.4 / §4.3: Constitutional action labels.
+  // "EXECUTE_TRADE" is NEVER shown to the user.
+  var ACTION_LABELS = {
+    MONITOR: "Monitor",
+    REVIEW_THESIS: "Review Thesis",
+    REBALANCE: "Review Allocation",
+    EXECUTE_TRADE: "Review Position",
+    LOG_DECISION: "Log Decision",
+  };
+
+  var ACTION_CLASSES = {
+    MONITOR: "priority-monitor",
+    REVIEW_THESIS: "priority-review",
+    REBALANCE: "priority-review",
+    EXECUTE_TRADE: "priority-risk",
+    LOG_DECISION: "priority-log",
+  };
+
+  function confidenceBucket(confidence) {
+    if (confidence == null || isNaN(confidence)) return null;
+    var pct = Math.max(0, Math.min(100, Math.round(confidence * 100)));
+    return Math.round(pct / 10) * 10;
+  }
+
+  function confidenceColor(confidence) {
+    if (confidence == null || isNaN(confidence)) return "muted";
+    if (confidence >= 0.7) return "up";
+    if (confidence >= 0.4) return "warn";
+    return "down";
+  }
+
+  function renderConfidenceBar(confidence) {
+    if (confidence == null || isNaN(confidence)) {
+      return (
+        '<div class="feed-confidence">' +
+        '<span class="feed-confidence-label">Evidence strength unavailable</span>' +
+        "</div>"
+      );
+    }
+    var bucket = confidenceBucket(confidence);
+    var color = confidenceColor(confidence);
+    var pct = Math.round(confidence * 100);
+    return (
+      '<div class="feed-confidence">' +
+      '<span class="feed-confidence-label">Evidence</span>' +
+      '<div class="meter-bar feed-meter">' +
+      '<div class="meter-fill meter-fill-' +
+      bucket +
+      " meter-fill-" +
+      color +
+      '"></div>' +
+      "</div>" +
+      '<span class="feed-confidence-label">' +
+      pct +
+      "%</span>" +
+      "</div>"
+    );
+  }
+
+  function renderItem(decision, index) {
+    var action = decision.recommendedAction || "MONITOR";
+    var actionLabel = W.fmt.escapeHTML(ACTION_LABELS[action] || action);
+    var actionClass = ACTION_CLASSES[action] || "priority-monitor";
+    var title = W.fmt.escapeHTML(
+      decision.explanation || decision._signalTitle || "Signal detected",
+    );
+    var asset = W.fmt.escapeHTML(decision._assetSymbol || "");
+    var signalType = W.fmt.escapeHTML(decision._signalType || "");
+
+    var reasoningHTML = "";
+    if (
+      decision.assessment &&
+      decision.assessment.reasoning &&
+      decision.assessment.reasoning.length
+    ) {
+      reasoningHTML =
+        '<div class="feed-reasoning">' +
+        decision.assessment.reasoning
+          .map(function (r) {
+            return W.fmt.escapeHTML(r);
+          })
+          .join(" · ") +
+        "</div>";
+    }
+
+    var confidence = decision.assessment
+      ? decision.assessment.confidence
+      : null;
+
+    return (
+      '<div class="feed-item" data-index="' +
+      index +
+      '" tabindex="0" role="button" ' +
+      'aria-label="View evidence for ' +
+      (asset || "signal") +
+      '">' +
+      '<div class="feed-item-header">' +
+      '<span class="feed-item-title">' +
+      (asset ? asset + " · " : "") +
+      title +
+      "</span>" +
+      '<span class="priority-badge ' +
+      actionClass +
+      '">' +
+      actionLabel +
+      "</span>" +
+      "</div>" +
+      (signalType
+        ? '<div class="small-text text-muted">' + signalType + "</div>"
+        : "") +
+      reasoningHTML +
+      renderConfidenceBar(confidence) +
+      "</div>"
+    );
+  }
+
+  function render(container, decisions) {
+    if (!container) return;
+
+    if (!decisions || !decisions.length) {
+      container.innerHTML =
+        '<div class="card">' +
+        '<p class="text-muted small">' +
+        "No actionable intelligence at this time. " +
+        "Weaver will surface signals here when evidence warrants your attention." +
+        "</p>" +
+        "</div>";
+      return;
+    }
+
+    var html = "";
+    for (var i = 0; i < decisions.length; i++) {
+      html += renderItem(decisions[i], i);
+    }
+    container.innerHTML = html;
+
+    // Wire click + keyboard handlers → Evidence Drawer (§5.2)
+    container.querySelectorAll(".feed-item").forEach(function (item) {
+      var handler = function () {
+        var idx = parseInt(item.dataset.index, 10);
+        var d = decisions[idx];
+        if (!d || !W.ui.evidenceDrawer) return;
+
+        W.ui.evidenceDrawer.open({
+          title: d._assetSymbol || "Signal Details",
+          subtitle: d._signalType || "",
+          verdict: {
+            score: d.score != null ? Math.round(d.score * 100) : null,
+            confidence: d.assessment ? d.assessment.confidence : null,
+            classification:
+              ACTION_LABELS[d.recommendedAction] || "Unclassified",
+            evidenceQuality:
+              d.eligibility === "ELIGIBLE" ? "SUFFICIENT" : "INSUFFICIENT",
+          },
+          reasoning: d.assessment ? d.assessment.reasoning : [],
+          risks: [],
+          evidence: null,
+          sources: [],
+          methodology: d.methodologyVersion || "decision-engine-v1",
+          timestamp: Date.now(),
+        });
+      };
+
+      item.addEventListener("click", handler);
+      item.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handler();
+        }
+      });
+    });
+  }
+
+  return { render: render };
+})();
+
+console.log("[IntelligenceFeed] Module loaded.");
 // ---- js/api/schemas.js ----
 // ===============================================================
 // Runtime API schemas and freshness metadata
@@ -22377,380 +23009,356 @@ W.tokenAnalysis = (() => {
 })();
 // ---- js/ui/evidence-drawer.js ----
 // ===============================================================
-//         Weaver Evidence Drawer
+//     Evidence Drawer — Progressive Disclosure
+//     Constitution §5.2: Summary → Why → Risks → Evidence → Sources
+//     Constitution §2.2: Transparency Over Hype
+//     Constitution §5.4: Accessibility (focus trap, Escape, ARIA)
+//     Constitution §2.9: No False Precision
 // ===============================================================
-// Modal listing supporting evidence, contradicting evidence, and
-// unknowns for a Weaver conclusion.
-//
-// Constitution §2.2 (Transparency): every score or verdict must
-// show its reasoning.
-// Constitution §2.7 (Evidence Provenance): sources and methodology
-// surfaced alongside conclusions.
-//
-// RELATIONSHIP POLICY:
-//   `relationship` describes how an item relates to the scenario
-//   being evaluated: supporting, contradicting, neutral, or unknown.
-//   It is NEVER inferred from `status`.
-//
-//   A domain with status "verified" has not necessarily supported
-//   the thesis — it means the data was successfully obtained.
-//   A domain with status "failed" has not necessarily contradicted
-//   the thesis — it means the data was not obtained.
-//
-//   When a domain does not declare its relationship, the drawer
-//   places it under "Unknowns". It is never silently upgraded to
-//   "supporting" or demoted to "contradicting".
-//
-// TRAJECTORY POLICY:
-//   The drawer receives an already-summarised trajectory string. It
-//   does not read W.observations or call summariseTrajectory(). The
-//   caller is responsible for both. When the summary is absent or
-//   empty, the trajectory line is omitted from the body.
-//
-// OWNER POLICY:
-//   Same contract as the trajectory line. The drawer receives an
-//   already-summarised owner string. It does not read
-//   W.ownerAssociations — the caller does.
-//
-// DEPLOYER POLICY:
-//   Same contract again. The drawer receives an already-summarised
-//   deployer string. It does not read W.deployerGraph — the caller
-//   does. The absence of the line does not mean the deployer is
-//   safe; it means no deployer profile was available for this token.
-//
-// TRACK RECORD POLICY:
-//   Same contract again. The drawer receives an already-summarised
-//   Track Record string from the caller and does not read
-//   W.trackRecord. Absence of the line does not mean the user has
-//   no history with this asset; it means no matching records were
-//   found at the moment the drawer opened.
-//
-// CSP Compliant: no style="" attributes. All user content passes
-// through W.fmt.escapeHTML before insertion.
+// CSP-safe: zero inline styles. All layout via CSS classes.
 // ===============================================================
 
 window.W = window.W || {};
 W.ui = W.ui || {};
 
 W.ui.evidenceDrawer = (() => {
-  const esc = (s) =>
-    W.fmt?.escapeHTML ? W.fmt.escapeHTML(String(s ?? "")) : String(s ?? "");
+  var overlay = null;
+  var drawer = null;
+  var previousFocus = null;
+  var isOpen = false;
 
-  const RELATIONSHIP_VALUES = new Set([
-    "supporting",
-    "contradicting",
-    "neutral",
-    "unknown",
-  ]);
+  // ── DOM Setup (lazy, created once) ────────────────────────
+  function ensureDOM() {
+    if (drawer) return;
 
-  function normalizeRelationship(value) {
-    if (typeof value !== "string") return "unknown";
-    const v = value.trim().toLowerCase();
-    return RELATIONSHIP_VALUES.has(v) ? v : "unknown";
-  }
+    overlay = document.createElement("div");
+    overlay.className = "drawer-overlay";
+    overlay.addEventListener("click", close);
 
-  // ── Bucketing ───────────────────────────────────────────
-  // Relationship drives the bucket. Status is preserved on the item
-  // for display but does not determine where the item appears.
-  //
-  // A domain declaring relationship: "neutral" is placed under
-  // Unknowns — the drawer has three sections and neutral evidence
-  // is neither for nor against the thesis. Callers that want a
-  // distinct "neutral" section can extend the return shape, but the
-  // current three-bucket contract is unchanged.
-  function bucket(domains) {
-    const out = { supporting: [], contradicting: [], unknowns: [] };
-    if (!domains || typeof domains !== "object") return out;
-    Object.entries(domains).forEach(([name, d]) => {
-      const relationship = normalizeRelationship(d && d.relationship);
-      const e = {
-        name,
-        status: (d && d.status) || "unknown",
-        source: d && d.source,
-        observedAt: d && (d.observedAt || d.asOf),
-        freshness: d && d.freshness,
-        methodologyVersion: d && d.methodologyVersion,
-        relationship,
-        reliability: d && d.reliability,
-        reasons: Array.isArray(d && d.reasons) ? d.reasons : [],
-      };
-      if (relationship === "supporting") out.supporting.push(e);
-      else if (relationship === "contradicting") out.contradicting.push(e);
-      else out.unknowns.push(e);
+    drawer = document.createElement("div");
+    drawer.className = "evidence-drawer";
+    drawer.setAttribute("role", "dialog");
+    drawer.setAttribute("aria-modal", "true");
+    drawer.setAttribute("aria-label", "Evidence details");
+
+    document.body.appendChild(overlay);
+    document.body.appendChild(drawer);
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && isOpen) close();
     });
-    return out;
   }
 
-  // ── Provenance rendering ────────────────────────────────
-  // Every field renders. Missing values become the literal string
-  // "unknown" — they are never omitted, because an omitted field
-  // reads as "not applicable" rather than "not known".
-  function formatProvenanceField(label, rawValue) {
-    const v =
-      rawValue === null || rawValue === undefined || rawValue === ""
-        ? "unknown"
-        : String(rawValue);
-    return label + ": " + v;
+  // ── Confidence Helpers (§2.9 No False Precision) ─────────
+  function confidenceBucket(confidence) {
+    if (confidence == null || isNaN(confidence)) return null;
+    var pct = Math.max(0, Math.min(100, Math.round(confidence * 100)));
+    return Math.round(pct / 10) * 10;
   }
 
-  function formatPercent(value) {
-    return Number.isFinite(value) ? Math.round(value * 100) + "%" : null;
+  function confidenceColor(confidence) {
+    if (confidence == null || isNaN(confidence)) return "muted";
+    if (confidence >= 0.7) return "up";
+    if (confidence >= 0.4) return "warn";
+    return "down";
   }
 
-  function formatDate(value) {
-    if (!value) return null;
-    try {
-      const d = new Date(value);
-      if (!Number.isFinite(d.getTime())) return null;
-      return d.toLocaleString();
-    } catch (_) {
-      return null;
-    }
-  }
+  // ── Section Renderers ─────────────────────────────────────
 
-  function renderProvenance(it) {
-    const fields = [
-      formatProvenanceField("Source", it.source),
-      formatProvenanceField("Observed", formatDate(it.observedAt)),
-      formatProvenanceField("Freshness", formatPercent(it.freshness)),
-      formatProvenanceField("Methodology", it.methodologyVersion),
-      formatProvenanceField("Relationship", it.relationship),
-      formatProvenanceField("Reliability", formatPercent(it.reliability)),
-    ];
-    return '<p class="muted text-2xs mt-4">' + esc(fields.join(" · ")) + "</p>";
-  }
+  function renderVerdict(data) {
+    if (!data.verdict) return "";
+    var v = data.verdict;
+    var scoreDisplay = v.score != null ? v.score : "—";
+    var confDisplay =
+      v.confidence != null
+        ? Math.round(v.confidence * 100) + "%"
+        : "Unavailable";
+    var classification = W.fmt.escapeHTML(v.classification || "Unclassified");
+    var quality = W.fmt.escapeHTML(v.evidenceQuality || "UNKNOWN");
 
-  function renderItems(items, empty) {
-    if (!items.length) return '<p class="muted small">' + esc(empty) + "</p>";
     return (
-      '<ul class="tx-list">' +
-      items
-        .map((it) => {
-          const title = esc(it.title || it.name || "Evidence");
-          const meta = esc(it.status || "");
-          const detail = it.detail || it.evidence;
-          const reasons = (it.reasons || [])
-            .map((r) => '<p class="muted small mt-4">• ' + esc(r) + "</p>")
-            .join("");
+      '<div class="drawer-verdict">' +
+      "<div>" +
+      '<div class="drawer-score">' +
+      scoreDisplay +
+      "</div>" +
+      '<div class="drawer-score-label">Score</div>' +
+      "</div>" +
+      "<div>" +
+      '<div class="font-bold">' +
+      classification +
+      "</div>" +
+      '<div class="small-text text-muted">Evidence: ' +
+      quality +
+      "</div>" +
+      '<div class="small-text text-muted">Confidence: ' +
+      confDisplay +
+      "</div>" +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function renderReasoning(reasons) {
+    if (!reasons || !reasons.length)
+      return '<p class="text-muted small">No reasoning available.</p>';
+    return reasons
+      .map(function (r) {
+        return (
+          '<div class="evidence-item">' +
+          '<span class="evidence-icon text-up">+</span>' +
+          "<span>" +
+          W.fmt.escapeHTML(r) +
+          "</span>" +
+          "</div>"
+        );
+      })
+      .join("");
+  }
+
+  function renderRisks(risks) {
+    if (!risks || !risks.length)
+      return '<p class="text-muted small">No risk factors identified.</p>';
+    return risks
+      .map(function (r) {
+        return (
+          '<div class="evidence-item">' +
+          '<span class="evidence-icon text-warn">−</span>' +
+          "<span>" +
+          W.fmt.escapeHTML(r) +
+          "</span>" +
+          "</div>"
+        );
+      })
+      .join("");
+  }
+
+  function renderEvidenceList(evidence) {
+    if (!evidence)
+      return '<p class="text-muted small">No evidence available.</p>';
+    var html = "";
+
+    if (evidence.supporting && evidence.supporting.length) {
+      html += '<div class="drawer-section-title">Supporting Evidence</div>';
+      html += evidence.supporting
+        .map(function (e) {
+          var title = W.fmt.escapeHTML(e.title || e.fact || "Evidence");
+          var source = e.source
+            ? '<div class="evidence-source">' +
+              W.fmt.escapeHTML(e.source) +
+              (e.timestamp ? " · " + W.fmt.relativeTime(e.timestamp) : "") +
+              "</div>"
+            : "";
           return (
-            '<li><div class="flex-between"><b>' +
+            '<div class="evidence-item">' +
+            '<span class="evidence-icon text-up">✓</span>' +
+            "<div><span>" +
             title +
-            '</b><span class="muted small">' +
-            meta +
-            "</span></div>" +
-            renderProvenance(it) +
-            (detail
-              ? '<p class="muted small mt-4">' + esc(detail) + "</p>"
-              : "") +
-            reasons +
-            "</li>"
+            "</span>" +
+            source +
+            "</div>" +
+            "</div>"
+          );
+        })
+        .join("");
+    }
+
+    if (evidence.conflicting && evidence.conflicting.length) {
+      html += '<div class="drawer-section-title">Conflicting Evidence</div>';
+      html += evidence.conflicting
+        .map(function (e) {
+          var title = W.fmt.escapeHTML(e.title || e.fact || "Evidence");
+          var source = e.source
+            ? '<div class="evidence-source">' +
+              W.fmt.escapeHTML(e.source) +
+              "</div>"
+            : "";
+          return (
+            '<div class="evidence-item">' +
+            '<span class="evidence-icon text-down">✗</span>' +
+            "<div><span>" +
+            title +
+            "</span>" +
+            source +
+            "</div>" +
+            "</div>"
+          );
+        })
+        .join("");
+    }
+
+    if (evidence.missing && evidence.missing.length) {
+      html += '<div class="drawer-section-title">Missing Evidence</div>';
+      html += evidence.missing
+        .map(function (m) {
+          return (
+            '<div class="evidence-item">' +
+            '<span class="evidence-icon text-muted">—</span>' +
+            '<span class="text-muted">' +
+            W.fmt.escapeHTML(m) +
+            "</span>" +
+            "</div>"
+          );
+        })
+        .join("");
+    }
+
+    if (!html) return '<p class="text-muted small">No evidence available.</p>';
+    return html;
+  }
+
+  function renderSources(sources) {
+    if (!sources || !sources.length) return "";
+    return (
+      '<div class="drawer-section">' +
+      '<div class="drawer-section-title">Data Sources</div>' +
+      sources
+        .map(function (s) {
+          var name = W.fmt.escapeHTML(s.name || s.source || "Unknown");
+          var time = s.timestamp ? W.fmt.relativeTime(s.timestamp) : "Unknown";
+          return (
+            '<div class="kv-row">' +
+            "<span>" +
+            name +
+            "</span>" +
+            '<span class="text-muted small">' +
+            time +
+            "</span>" +
+            "</div>"
           );
         })
         .join("") +
-      "</ul>"
+      "</div>"
     );
   }
 
-  // Carry provenance fields from a source evidence object onto the
-  // drawer item, so renderItems() has all six fields regardless of
-  // which layer produced the item.
-  //
-  // relationship is NOT defaulted to "supporting" here — a caller
-  // that produced bullish evidence has already declared that
-  // relationship upstream, and this carry function preserves it.
-  function carryProvenance(item, source) {
-    const s = source || {};
-    return {
-      ...item,
-      source: item.source ?? s.source,
-      observedAt: item.observedAt ?? s.observedAt ?? s.timestamp,
-      freshness: item.freshness ?? s.freshness,
-      methodologyVersion: item.methodologyVersion ?? s.methodologyVersion,
-      relationship: item.relationship ?? normalizeRelationship(s.relationship),
-      reliability: item.reliability ?? s.reliability,
-    };
+  function renderMethodology(data) {
+    var html =
+      '<div class="drawer-section">' +
+      '<div class="drawer-section-title">Methodology & Provenance</div>';
+
+    if (data.methodology) {
+      html +=
+        '<div class="kv-row"><span>Version</span>' +
+        '<span class="text-muted small">' +
+        W.fmt.escapeHTML(data.methodology) +
+        "</span></div>";
+    }
+    if (data.timestamp) {
+      html +=
+        '<div class="kv-row"><span>Generated</span>' +
+        '<span class="text-muted small">' +
+        W.fmt.relativeTime(data.timestamp) +
+        "</span></div>";
+    }
+    if (data.verdict && data.verdict.confidence != null) {
+      var bucket = confidenceBucket(data.verdict.confidence);
+      var color = confidenceColor(data.verdict.confidence);
+      var pct = Math.round(data.verdict.confidence * 100);
+      html +=
+        '<div class="kv-row"><span>Evidence Strength</span>' +
+        '<div class="feed-confidence">' +
+        '<div class="meter-bar meter-bar-sm">' +
+        '<div class="meter-fill meter-fill-' +
+        bucket +
+        " meter-fill-" +
+        color +
+        '"></div>' +
+        "</div>" +
+        '<span class="text-muted small">' +
+        pct +
+        "%</span>" +
+        "</div>" +
+        "</div>";
+    }
+
+    html += "</div>";
+    return html;
   }
 
-  // Renders the optional trajectory line. Returns "" when no
-  // summary is supplied, so the caller can concatenate the result
-  // unconditionally.
-  function renderTrajectoryLine(summary) {
-    if (typeof summary !== "string" || !summary.trim()) return "";
-    return '<p class="small"><b>Trajectory:</b> ' + esc(summary) + "</p>";
-  }
+  // ── Public API ────────────────────────────────────────────
 
-  // Renders the optional owner-association line. Same pattern as
-  // renderTrajectoryLine: the drawer receives an already-summarised
-  // string from the caller and does not read W.ownerAssociations.
-  function renderOwnerLine(summary) {
-    if (typeof summary !== "string" || !summary.trim()) return "";
-    return '<p class="small"><b>Owner:</b> ' + esc(summary) + "</p>";
-  }
+  function open(data) {
+    ensureDOM();
+    previousFocus = document.activeElement;
 
-  // Renders the optional deployer line. Same pattern as the owner
-  // and trajectory lines. The drawer receives an already-summarised
-  // string from the caller and does not read W.deployerGraph.
-  //
-  // The absence of this line does not mean the deployer is safe;
-  // it means no deployer profile was available for this token.
-  function renderDeployerLine(summary) {
-    if (typeof summary !== "string" || !summary.trim()) return "";
-    return '<p class="small"><b>Deployer:</b> ' + esc(summary) + "</p>";
-  }
+    var title = W.fmt.escapeHTML(data.title || "Evidence Details");
+    var subtitle = W.fmt.escapeHTML(data.subtitle || "");
+    var bodyHTML = "";
 
-  // Renders the optional Track Record line. Same contract as the
-  // trajectory, owner, and deployer lines: the drawer receives an
-  // already-summarised string from the caller and does not read
-  // W.trackRecord.
-  //
-  // The absence of this line does not mean this user has no history
-  // with this asset; it means no matching Track Record entries were
-  // found at the moment the drawer opened.
-  function renderTrackRecordLine(summary) {
-    if (typeof summary !== "string" || !summary.trim()) return "";
-    return (
-      '<p class="small"><b>Your Track Record:</b> ' + esc(summary) + "</p>"
-    );
-  }
+    // §5.2 Progressive Disclosure order:
+    // Summary → Why → Risks → Evidence → Sources → Methodology
+    bodyHTML += renderVerdict(data);
 
-  function open(result) {
-    const r = result || {};
-    const b = bucket(r.domains);
+    if (data.reasoning && data.reasoning.length) {
+      bodyHTML +=
+        '<div class="drawer-section">' +
+        '<div class="drawer-section-title">Why</div>' +
+        renderReasoning(data.reasoning) +
+        "</div>";
+    }
 
-    // Optional. Absent when the token has no retained history,
-    // when the observations module is unavailable, or when the
-    // caller does not supply it. The drawer renders normally.
-    const trajectorySummary =
-      typeof r.trajectorySummary === "string" && r.trajectorySummary.trim()
-        ? r.trajectorySummary
-        : null;
+    if (data.risks && data.risks.length) {
+      bodyHTML +=
+        '<div class="drawer-section">' +
+        '<div class="drawer-section-title">Risk Factors</div>' +
+        renderRisks(data.risks) +
+        "</div>";
+    }
 
-    // Same shape as trajectorySummary: optional, absent when the
-    // token has no owner association this session, when the
-    // module is unavailable, or when the caller does not supply it.
-    const ownerSummary =
-      typeof r.ownerSummary === "string" && r.ownerSummary.trim()
-        ? r.ownerSummary
-        : null;
+    if (data.evidence) {
+      bodyHTML +=
+        '<div class="drawer-section">' +
+        renderEvidenceList(data.evidence) +
+        "</div>";
+    }
 
-    // Same shape again: optional. Absent when no deployer profile
-    // is cached for the token.
-    const deployerSummary =
-      typeof r.deployerSummary === "string" && r.deployerSummary.trim()
-        ? r.deployerSummary
-        : null;
+    bodyHTML += renderSources(data.sources);
+    bodyHTML += renderMethodology(data);
 
-    // Same shape again: optional. Absent when no Track Record entry
-    // matches this asset, or when the caller does not supply it.
-    const trackRecordSummary =
-      typeof r.trackRecordSummary === "string" && r.trackRecordSummary.trim()
-        ? r.trackRecordSummary
-        : null;
-
-    const supporting = [
-      ...(r.bullishEvidence || []).map((e) =>
-        carryProvenance(
-          {
-            title: e.title,
-            detail: e.evidence,
-            status: "supporting",
-            relationship: "supporting",
-          },
-          e,
-        ),
-      ),
-      ...b.supporting,
-    ];
-
-    const contradicting = [
-      ...(r.bearishEvidence || []).map((e) =>
-        carryProvenance(
-          {
-            title: e.title,
-            detail: e.evidence,
-            status: "contradicting",
-            relationship: "contradicting",
-          },
-          e,
-        ),
-      ),
-      ...(r.contradictions || []).map((c) =>
-        carryProvenance({
-          title: c.bull + " vs " + c.bear,
-          detail: c.details,
-          status: "contradicting",
-          relationship: "contradicting",
-        }),
-      ),
-      ...b.contradicting,
-    ];
-
-    const unknowns = [
-      ...b.unknowns,
-      ...((r.evidenceQuality && r.evidenceQuality.reasons) || []).map((x) =>
-        carryProvenance({
-          title: "Evidence gap",
-          detail: x,
-          relationship: "unknown",
-        }),
-      ),
-    ];
-
-    const meta = [
-      r.methodologyVersion ? "Methodology " + r.methodologyVersion : null,
-      r.evidenceVersion ? "Evidence " + r.evidenceVersion : null,
-    ]
-      .filter(Boolean)
-      .join(" · ");
-
-    const body =
-      '<p class="small muted">' +
-      esc(r.explanation || "Evidence behind the current scenario.") +
-      "</p>" +
-      (meta ? '<p class="small muted">' + esc(meta) + "</p>" : "") +
-      renderTrajectoryLine(trajectorySummary) +
-      renderOwnerLine(ownerSummary) +
-      renderDeployerLine(deployerSummary) +
-      renderTrackRecordLine(trackRecordSummary) +
-      '<div class="mt-12">' +
-      "<h4>🟢 Supporting evidence</h4>" +
-      renderItems(supporting, "None recorded.") +
-      "<h4>🔴 Contradicting evidence</h4>" +
-      renderItems(contradicting, "None recorded.") +
-      "<h4>❓ Unknowns</h4>" +
-      renderItems(unknowns, "No evidence gaps recorded.") +
+    drawer.innerHTML =
+      '<div class="drawer-header">' +
+      "<div>" +
+      '<h3 id="drawer-title">' +
+      title +
+      "</h3>" +
+      (subtitle ? '<div class="drawer-subtitle">' + subtitle + "</div>" : "") +
+      "</div>" +
+      '<button class="drawer-close" aria-label="Close evidence panel">✕</button>' +
+      "</div>" +
+      '<div class="drawer-body">' +
+      bodyHTML +
       "</div>";
 
-    const m = W.ui.modal({
-      title: "Why this verdict?",
-      body,
-      footer: '<button class="btn ghost" data-a="close">Close</button>',
-    });
-    if (m.el) {
-      const btn = m.el.querySelector('[data-a="close"]');
-      if (btn) btn.onclick = m.close;
-    }
-    return m;
+    drawer.querySelector(".drawer-close").addEventListener("click", close);
+
+    overlay.classList.add("visible");
+    drawer.classList.add("open");
+    isOpen = true;
+
+    var closeBtn = drawer.querySelector(".drawer-close");
+    if (closeBtn) closeBtn.focus();
+
+    document.body.classList.add("body-drawer-open");
   }
 
-  return {
-    open,
-    // Exposed for tests only.
-    _internal: {
-      bucket,
-      renderItems,
-      renderProvenance,
-      renderTrajectoryLine,
-      renderOwnerLine,
-      renderDeployerLine,
-      renderTrackRecordLine,
-      carryProvenance,
-      normalizeRelationship,
-    },
-  };
+  function close() {
+    if (!isOpen) return;
+    isOpen = false;
+    overlay.classList.remove("visible");
+    drawer.classList.remove("open");
+    document.body.classList.remove("body-drawer-open");
+
+    if (previousFocus) {
+      previousFocus.focus();
+      previousFocus = null;
+    }
+  }
+
+  return { open: open, close: close };
 })();
 
-console.log("[EvidenceDrawer] Module loaded (CSP compliant).");
+console.log("[EvidenceDrawer] Module loaded.");
 // ---- js/app.js ----
 // ===============================================================
 //         Weaver Core Application
