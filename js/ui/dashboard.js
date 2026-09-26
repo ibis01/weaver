@@ -2,8 +2,8 @@
 //                     Weaver Dashboard UI (Command Center)
 // ===============================================================
 // CSP Compliant: ZERO inline style="..." attributes.
-// All dynamic styling handled via CSS classes and CSS variables.
-// Upgraded: Skeleton loading states, Intelligence Feed integration.
+// Constitution Compliant: §2.7 (No fabricated data), §6.3 (Missing data ≠ zero).
+// Upgraded: Skeleton loading states, Intelligence Feed, Manual Cost Basis UI.
 // ===============================================================
 
 window.W = window.W || {};
@@ -102,28 +102,32 @@ W.dashboard = (() => {
           .join(",")}"></canvas>`
       : '<span class="text-muted small-text">—</span>';
 
+  // FIX #3: Missing prices/changes render as honest "—", never $0.00
   const termRow = (c, i) => {
     if (!c || typeof c !== "object") return "";
     const id = c.id || "unknown",
       image = c.image || "",
       name = c.name || "Unknown";
     const symbol = c.symbol ? String(c.symbol).toUpperCase() : "???";
-    const price =
-      c.current_price !== undefined ? c.current_price : c.price || 0;
-    const p24 =
-      c.price_change_percentage_24h_in_currency !== undefined
-        ? c.price_change_percentage_24h_in_currency
-        : 0;
+    const price = Number.isFinite(c.current_price)
+      ? c.current_price
+      : Number.isFinite(c.price)
+        ? c.price
+        : null;
+    const p24 = Number.isFinite(c.price_change_percentage_24h_in_currency)
+      ? c.price_change_percentage_24h_in_currency
+      : null;
     const sparkline = (c.sparkline_in_7d || {}).price || [];
     return `<tr class="clickable" data-coin="${W.fmt.escapeHTML(id)}">
       <td class="text-muted">${i + 1}</td>
       <td class="coin-cell"><img src="${W.fmt.escapeHTML(image)}" alt="${W.fmt.escapeHTML(name)}" class="coin-img"><div><b>${W.fmt.escapeHTML(symbol)}</b><br><span class="text-muted small-text">${W.fmt.escapeHTML(name)}</span></div></td>
-      <td class="num"><b>${W.fmt.price(price)}</b></td>
-      <td class="num">${W.fmt.pct(p24)}</td>
+      <td class="num">${price !== null ? `<b>${W.fmt.price(price)}</b>` : '<span class="text-muted">—</span>'}</td>
+      <td class="num">${p24 !== null ? W.fmt.pct(p24) : '<span class="text-muted">—</span>'}</td>
       <td>${sparkCell(sparkline, p24 >= 0)}</td>
     </tr>`;
   };
 
+  // FIX #1: Unknown cost basis defaults to null, NEVER 0. Prevents fake +100% P/L.
   async function enrich() {
     const manualHoldings = W.portfolio ? W.portfolio.all() : [];
     let walletHoldings = [];
@@ -145,71 +149,108 @@ W.dashboard = (() => {
         console.warn("[Dashboard] Market fetch failed:", e.message);
       }
     }
+
     const rows = allHoldings
       .map((h) => {
         const m = markets.find((c) => c.id === h.coinId) || {};
-        const price = m.current_price ?? h.buyPrice ?? 0;
+        const price = Number.isFinite(m.current_price)
+          ? m.current_price
+          : Number.isFinite(h.buyPrice)
+            ? h.buyPrice
+            : null;
         const qty = parseFloat(h.qty) || 0;
-        const value = price * qty;
-        let cost;
+        const value = price !== null ? price * qty : null;
+
+        let cost = null;
         if (h.wallet) {
-          cost =
-            h.manualCostBasis && typeof h.manualCostBasis.totalCost === "number"
-              ? h.manualCostBasis.totalCost
-              : 0;
+          if (
+            h.manualCostBasis &&
+            typeof h.manualCostBasis.totalCost === "number"
+          )
+            cost = h.manualCostBasis.totalCost;
         } else {
-          cost =
-            h.totalCost !== undefined
-              ? h.totalCost
-              : (parseFloat(h.buyPrice) || 0) * qty;
-          if (cost === undefined || cost === null || isNaN(cost) || cost < 0)
-            cost = 0;
+          if (
+            h.totalCost !== undefined &&
+            h.totalCost !== null &&
+            !isNaN(h.totalCost) &&
+            h.totalCost >= 0
+          ) {
+            cost = h.totalCost;
+          } else {
+            const bp = parseFloat(h.buyPrice);
+            if (!isNaN(bp) && bp >= 0) cost = bp * qty;
+          }
         }
+
+        const pnl = value !== null && cost !== null ? value - cost : null;
+        const pnlPct = pnl !== null && cost > 0 ? (pnl / cost) * 100 : null;
+
         return {
           ...h,
           price,
           value,
           cost,
-          pnl: value - cost,
-          pnlPct: cost ? ((value - cost) / cost) * 100 : 0,
-          p24: m.price_change_percentage_24h_in_currency ?? null,
+          pnl,
+          pnlPct,
+          p24: Number.isFinite(m.price_change_percentage_24h_in_currency)
+            ? m.price_change_percentage_24h_in_currency
+            : null,
           image: m.image || h.img,
         };
       })
-      .sort((a, b) => b.value - a.value);
+      .sort((a, b) => (b.value ?? -1) - (a.value ?? -1));
 
-    const totals = { value: 0, cost: 0 };
+    const totals = { value: 0, cost: 0, unpriced: 0, unknownCost: 0 };
     let prev24 = 0;
     rows.forEach((r) => {
-      totals.value += r.value;
-      totals.cost += r.cost;
-      if (r.p24 != null) prev24 += r.value / (1 + r.p24 / 100);
+      if (r.value !== null) {
+        totals.value += r.value;
+        if (r.p24 != null) prev24 += r.value / (1 + r.p24 / 100);
+      } else {
+        totals.unpriced++;
+      }
+
+      if (r.cost !== null) totals.cost += r.cost;
+      else if (r.value !== null) totals.unknownCost++;
     });
-    totals.allTime = totals.value - totals.cost;
-    totals.allTimePct = totals.cost ? (totals.allTime / totals.cost) * 100 : 0;
+
+    totals.allTime = totals.cost > 0 ? totals.value - totals.cost : null;
+    totals.allTimePct =
+      totals.allTime !== null ? (totals.allTime / totals.cost) * 100 : null;
     totals.day = totals.value - prev24;
-    totals.dayPct = prev24 ? (totals.day / prev24) * 100 : 0;
+    totals.dayPct = prev24 ? (totals.day / prev24) * 100 : null;
     return { rows, totals };
   }
 
+  // FIX #2: P/L cell shows "—" when cost basis is unknown. Includes basis button for wallets.
   const holdingsTable = (rows) => `
     <div class="table-wrap"><table><thead><tr><th>Asset</th><th>Price</th><th>24h</th><th>Qty</th><th>Value</th><th>P/L</th><th></th></tr></thead><tbody>
       ${rows
         .map(
-          (r) => `<tr>
+          (r, i) => `<tr>
         <td class="coin-cell"><img src="${W.fmt.escapeHTML(r.image || r.img || "")}" alt="${W.fmt.escapeHTML(r.name)}" class="coin-img"><div><b>${W.fmt.escapeHTML(r.name)}</b><br><span class="text-muted small-text">${W.fmt.escapeHTML(String(r.symbol).toUpperCase())}</span></div></td>
-        <td class="num">${W.fmt.price(r.price)}</td><td class="num">${W.fmt.pct(r.p24)}</td><td class="num">${r.qty}</td>
-        <td class="num"><b>${W.fmt.money(r.value)}</b></td>
-        <td class="num">${r.wallet ? '<span class="text-muted">—</span>' : signedMoney(r.pnl) + '<div class="small-text">' + W.fmt.pct(r.pnlPct) + "</div>"}</td>
-        <td class="row-actions">${r.wallet ? '<span class="tag rank">👛 wallet</span>' : `<button class="icon-btn" data-edit="${W.fmt.escapeHTML(r.id)}">✏️</button><button class="icon-btn" data-del="${W.fmt.escapeHTML(r.id)}">🗑️</button>`}</td>
+        <td class="num">${r.price !== null ? W.fmt.price(r.price) : '<span class="text-muted">—</span>'}</td>
+        <td class="num">${r.p24 !== null ? W.fmt.pct(r.p24) : '<span class="text-muted">—</span>'}</td>
+        <td class="num">${r.qty}</td>
+        <td class="num">${r.value !== null ? `<b>${W.fmt.money(r.value)}</b>` : '<span class="text-muted">—</span>'}</td>
+        <td class="num">${r.pnl !== null ? signedMoney(r.pnl) + '<div class="small-text">' + W.fmt.pct(r.pnlPct) + "</div>" : '<span class="text-muted" title="Cost basis unknown">—</span>'}</td>
+        <td class="row-actions">${
+          r.wallet
+            ? `<span class="tag rank">👛 wallet</span> <button class="icon-btn" data-basis="${i}" title="Set cost basis">📝</button>`
+            : `<button class="icon-btn" data-edit="${W.fmt.escapeHTML(r.id)}">✏️</button><button class="icon-btn" data-del="${W.fmt.escapeHTML(r.id)}">🗑️</button>`
+        }</td>
       </tr>`,
         )
         .join("")}
     </tbody></table></div>`;
 
   function wireRows(container, rows) {
-    rows.forEach((r) => {
-      if (r.wallet) return;
+    rows.forEach((r, i) => {
+      if (r.wallet) {
+        const b = container.querySelector(`[data-basis="${i}"]`);
+        if (b) b.onclick = () => basisModal(r);
+        return;
+      }
       const e = container.querySelector(`[data-edit="${CSS.escape(r.id)}"]`);
       const d = container.querySelector(`[data-del="${CSS.escape(r.id)}"]`);
       if (e) e.onclick = () => holdingModal(r);
@@ -221,6 +262,35 @@ W.dashboard = (() => {
             W.refresh();
           });
     });
+  }
+
+  // Manual Cost Basis Modal for Wallet Holdings
+  function basisModal(r) {
+    const existing = r.manualCostBasis;
+    const m = W.ui.modal({
+      title: `Cost basis — ${W.fmt.escapeHTML(r.symbol)}`,
+      body: `<p class="text-muted small-text">Wallet sync cannot know your purchase history. Enter the <b>total amount paid</b> for this position so P/L is truthful. Leave empty to keep P/L unknown.</p>
+        <label>Total cost (${W.fmt.escapeHTML(W.currency().toUpperCase())})<input type="number" step="any" min="0" id="b-cost" value="${existing ? existing.totalCost : ""}" placeholder="e.g. 500"></label>`,
+      footer: `<button class="btn ghost" id="b-cancel">Cancel</button><button class="btn primary" id="b-save">Save</button>`,
+    });
+    m.el.querySelector("#b-cancel").onclick = m.close;
+    m.el.querySelector("#b-save").onclick = () => {
+      const raw = m.el.querySelector("#b-cost").value.trim();
+      const total = raw === "" ? null : parseFloat(raw);
+      if (total !== null && (!Number.isFinite(total) || total < 0))
+        return W.ui.toast("Enter a valid non-negative cost", "warn");
+
+      const basisMap = W.store.get("wallet_cost_basis", {});
+      const key = `${r.walletChain}:${r.symbol}:${r.contractAddress ? String(r.contractAddress).toLowerCase() : "native"}`;
+
+      if (total === null) delete basisMap[key];
+      else basisMap[key] = { totalCost: total, updatedAt: Date.now() };
+
+      W.store.set("wallet_cost_basis", basisMap);
+      m.close();
+      W.ui.toast("Cost basis saved", "ok");
+      W.refresh();
+    };
   }
 
   function holdingModal(existing = null, preselect = null) {
@@ -319,7 +389,6 @@ W.dashboard = (() => {
     const rangeEl = view.querySelector("#d-perf-range");
     if (!canvas) return;
     destroyPerfChart(view);
-
     const active = rangeEl?.querySelector(".chip.active");
     const rangeVal = active?.dataset?.range;
     const rangeDays =
@@ -455,7 +524,6 @@ W.dashboard = (() => {
   async function render(view) {
     destroyPerfChart(view);
 
-    // Render initial layout with Skeletons to prevent Layout Shift (CLS)
     view.innerHTML = `
       <p class="muted small mb-16">Your evidence-driven crypto intelligence workspace.</p>
       <div id="d-data-health" aria-live="polite"></div>
@@ -571,10 +639,16 @@ W.dashboard = (() => {
         "fear-greed",
       ]);
 
+    // FIX #4: Honest Stat Cards (Surfaces unpriced/unknown basis metrics)
     const statsEl = view.querySelector("#d-stats");
     if (statsEl) {
+      const balanceSub = totals
+        ? `${rows.length} assets${totals.unpriced ? ` · ${totals.unpriced} unpriced` : ""}`
+        : "Add holdings to get started";
+
       statsEl.innerHTML = `
-        ${totals ? statCard("Total Balance", W.fmt.money(totals.value), rows.length + " assets") : statCard("Total Balance", "—", "Add holdings to get started")}
+        ${totals ? statCard("Total Balance", W.fmt.money(totals.value), balanceSub) : statCard("Total Balance", "—", "Add holdings to get started")}
+        ${totals && totals.allTime !== null ? statCard("P/L · All Time", signedMoney(totals.allTime), W.fmt.pct(totals.allTimePct)) : totals ? statCard("P/L · All Time", "—", `${totals.unknownCost} assets missing cost basis`) : ""}
         ${totals ? statCard("P/L · 24h", signedMoney(totals.day), W.fmt.pct(totals.dayPct)) : ""}
         ${g ? statCard("Global Market Cap", W.fmt.money(g.total_market_cap[W.currency()], { compact: true }), W.fmt.pct(g.market_cap_change_percentage_24h_usd)) : ""}
       `;
@@ -645,7 +719,6 @@ W.dashboard = (() => {
               (b.price_change_percentage_24h_in_currency ?? 0),
           )
           .slice(0, 20);
-
       const fullCount = list.length;
       const visibleList = marketRowsExpanded
         ? list
@@ -714,7 +787,6 @@ W.dashboard = (() => {
     renderAllocation(allocBody, rows, totals);
     drawPerformanceChart(view);
 
-    // Wire the new Intelligence Feed
     const rankerContainer = view.querySelector("#what-matters-now-container");
     if (rankerContainer) {
       if (W.decisionEngine && W.intelligenceFeed) {
@@ -726,7 +798,6 @@ W.dashboard = (() => {
           theses: W.theses?.all() || [],
           behavior: W.behavior?.analyze() || { pattern: "none" },
         };
-
         W.decisionEngine
           .run(userContext)
           .then((decisions) => {
@@ -748,7 +819,6 @@ W.dashboard = (() => {
         .filter((t) => t.sourceRef?.type === "gem")
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
         .slice(0, 3);
-
       const discoveriesHTML = gemTheses.length
         ? `<ul class="discovery-list">${gemTheses
             .map(
@@ -779,12 +849,10 @@ W.dashboard = (() => {
           <h3>🔍 Discoveries</h3>
           <p class="muted small mb-8 mt-8">New intelligence</p>
           ${discoveriesHTML}
-          
           <p class="muted small mb-8 mt-16">Portfolio changes</p>
           <div class="delta-container">${deltasHTML}</div>
         </div>
       `;
-
       if (totals && W.delta) {
         const currentSnapshot = W.delta.getSnapshot();
         if (
@@ -815,5 +883,5 @@ W.dashboard = (() => {
 })();
 
 console.log(
-  "[Dashboard] Module loaded (Command Center UI, Skeleton Loaders, Intelligence Feed).",
+  "[Dashboard] Module loaded (Command Center UI, Honest Data Semantics).",
 );

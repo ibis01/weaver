@@ -2062,8 +2062,8 @@ console.log("[DataStatus] Freshness UI loaded.");
 //                     Weaver Dashboard UI (Command Center)
 // ===============================================================
 // CSP Compliant: ZERO inline style="..." attributes.
-// All dynamic styling handled via CSS classes and CSS variables.
-// Upgraded: Skeleton loading states, Intelligence Feed integration.
+// Constitution Compliant: §2.7 (No fabricated data), §6.3 (Missing data ≠ zero).
+// Upgraded: Skeleton loading states, Intelligence Feed, Manual Cost Basis UI.
 // ===============================================================
 
 window.W = window.W || {};
@@ -2162,28 +2162,32 @@ W.dashboard = (() => {
           .join(",")}"></canvas>`
       : '<span class="text-muted small-text">—</span>';
 
+  // FIX #3: Missing prices/changes render as honest "—", never $0.00
   const termRow = (c, i) => {
     if (!c || typeof c !== "object") return "";
     const id = c.id || "unknown",
       image = c.image || "",
       name = c.name || "Unknown";
     const symbol = c.symbol ? String(c.symbol).toUpperCase() : "???";
-    const price =
-      c.current_price !== undefined ? c.current_price : c.price || 0;
-    const p24 =
-      c.price_change_percentage_24h_in_currency !== undefined
-        ? c.price_change_percentage_24h_in_currency
-        : 0;
+    const price = Number.isFinite(c.current_price)
+      ? c.current_price
+      : Number.isFinite(c.price)
+        ? c.price
+        : null;
+    const p24 = Number.isFinite(c.price_change_percentage_24h_in_currency)
+      ? c.price_change_percentage_24h_in_currency
+      : null;
     const sparkline = (c.sparkline_in_7d || {}).price || [];
     return `<tr class="clickable" data-coin="${W.fmt.escapeHTML(id)}">
       <td class="text-muted">${i + 1}</td>
       <td class="coin-cell"><img src="${W.fmt.escapeHTML(image)}" alt="${W.fmt.escapeHTML(name)}" class="coin-img"><div><b>${W.fmt.escapeHTML(symbol)}</b><br><span class="text-muted small-text">${W.fmt.escapeHTML(name)}</span></div></td>
-      <td class="num"><b>${W.fmt.price(price)}</b></td>
-      <td class="num">${W.fmt.pct(p24)}</td>
+      <td class="num">${price !== null ? `<b>${W.fmt.price(price)}</b>` : '<span class="text-muted">—</span>'}</td>
+      <td class="num">${p24 !== null ? W.fmt.pct(p24) : '<span class="text-muted">—</span>'}</td>
       <td>${sparkCell(sparkline, p24 >= 0)}</td>
     </tr>`;
   };
 
+  // FIX #1: Unknown cost basis defaults to null, NEVER 0. Prevents fake +100% P/L.
   async function enrich() {
     const manualHoldings = W.portfolio ? W.portfolio.all() : [];
     let walletHoldings = [];
@@ -2205,71 +2209,108 @@ W.dashboard = (() => {
         console.warn("[Dashboard] Market fetch failed:", e.message);
       }
     }
+
     const rows = allHoldings
       .map((h) => {
         const m = markets.find((c) => c.id === h.coinId) || {};
-        const price = m.current_price ?? h.buyPrice ?? 0;
+        const price = Number.isFinite(m.current_price)
+          ? m.current_price
+          : Number.isFinite(h.buyPrice)
+            ? h.buyPrice
+            : null;
         const qty = parseFloat(h.qty) || 0;
-        const value = price * qty;
-        let cost;
+        const value = price !== null ? price * qty : null;
+
+        let cost = null;
         if (h.wallet) {
-          cost =
-            h.manualCostBasis && typeof h.manualCostBasis.totalCost === "number"
-              ? h.manualCostBasis.totalCost
-              : 0;
+          if (
+            h.manualCostBasis &&
+            typeof h.manualCostBasis.totalCost === "number"
+          )
+            cost = h.manualCostBasis.totalCost;
         } else {
-          cost =
-            h.totalCost !== undefined
-              ? h.totalCost
-              : (parseFloat(h.buyPrice) || 0) * qty;
-          if (cost === undefined || cost === null || isNaN(cost) || cost < 0)
-            cost = 0;
+          if (
+            h.totalCost !== undefined &&
+            h.totalCost !== null &&
+            !isNaN(h.totalCost) &&
+            h.totalCost >= 0
+          ) {
+            cost = h.totalCost;
+          } else {
+            const bp = parseFloat(h.buyPrice);
+            if (!isNaN(bp) && bp >= 0) cost = bp * qty;
+          }
         }
+
+        const pnl = value !== null && cost !== null ? value - cost : null;
+        const pnlPct = pnl !== null && cost > 0 ? (pnl / cost) * 100 : null;
+
         return {
           ...h,
           price,
           value,
           cost,
-          pnl: value - cost,
-          pnlPct: cost ? ((value - cost) / cost) * 100 : 0,
-          p24: m.price_change_percentage_24h_in_currency ?? null,
+          pnl,
+          pnlPct,
+          p24: Number.isFinite(m.price_change_percentage_24h_in_currency)
+            ? m.price_change_percentage_24h_in_currency
+            : null,
           image: m.image || h.img,
         };
       })
-      .sort((a, b) => b.value - a.value);
+      .sort((a, b) => (b.value ?? -1) - (a.value ?? -1));
 
-    const totals = { value: 0, cost: 0 };
+    const totals = { value: 0, cost: 0, unpriced: 0, unknownCost: 0 };
     let prev24 = 0;
     rows.forEach((r) => {
-      totals.value += r.value;
-      totals.cost += r.cost;
-      if (r.p24 != null) prev24 += r.value / (1 + r.p24 / 100);
+      if (r.value !== null) {
+        totals.value += r.value;
+        if (r.p24 != null) prev24 += r.value / (1 + r.p24 / 100);
+      } else {
+        totals.unpriced++;
+      }
+
+      if (r.cost !== null) totals.cost += r.cost;
+      else if (r.value !== null) totals.unknownCost++;
     });
-    totals.allTime = totals.value - totals.cost;
-    totals.allTimePct = totals.cost ? (totals.allTime / totals.cost) * 100 : 0;
+
+    totals.allTime = totals.cost > 0 ? totals.value - totals.cost : null;
+    totals.allTimePct =
+      totals.allTime !== null ? (totals.allTime / totals.cost) * 100 : null;
     totals.day = totals.value - prev24;
-    totals.dayPct = prev24 ? (totals.day / prev24) * 100 : 0;
+    totals.dayPct = prev24 ? (totals.day / prev24) * 100 : null;
     return { rows, totals };
   }
 
+  // FIX #2: P/L cell shows "—" when cost basis is unknown. Includes basis button for wallets.
   const holdingsTable = (rows) => `
     <div class="table-wrap"><table><thead><tr><th>Asset</th><th>Price</th><th>24h</th><th>Qty</th><th>Value</th><th>P/L</th><th></th></tr></thead><tbody>
       ${rows
         .map(
-          (r) => `<tr>
+          (r, i) => `<tr>
         <td class="coin-cell"><img src="${W.fmt.escapeHTML(r.image || r.img || "")}" alt="${W.fmt.escapeHTML(r.name)}" class="coin-img"><div><b>${W.fmt.escapeHTML(r.name)}</b><br><span class="text-muted small-text">${W.fmt.escapeHTML(String(r.symbol).toUpperCase())}</span></div></td>
-        <td class="num">${W.fmt.price(r.price)}</td><td class="num">${W.fmt.pct(r.p24)}</td><td class="num">${r.qty}</td>
-        <td class="num"><b>${W.fmt.money(r.value)}</b></td>
-        <td class="num">${r.wallet ? '<span class="text-muted">—</span>' : signedMoney(r.pnl) + '<div class="small-text">' + W.fmt.pct(r.pnlPct) + "</div>"}</td>
-        <td class="row-actions">${r.wallet ? '<span class="tag rank">👛 wallet</span>' : `<button class="icon-btn" data-edit="${W.fmt.escapeHTML(r.id)}">✏️</button><button class="icon-btn" data-del="${W.fmt.escapeHTML(r.id)}">🗑️</button>`}</td>
+        <td class="num">${r.price !== null ? W.fmt.price(r.price) : '<span class="text-muted">—</span>'}</td>
+        <td class="num">${r.p24 !== null ? W.fmt.pct(r.p24) : '<span class="text-muted">—</span>'}</td>
+        <td class="num">${r.qty}</td>
+        <td class="num">${r.value !== null ? `<b>${W.fmt.money(r.value)}</b>` : '<span class="text-muted">—</span>'}</td>
+        <td class="num">${r.pnl !== null ? signedMoney(r.pnl) + '<div class="small-text">' + W.fmt.pct(r.pnlPct) + "</div>" : '<span class="text-muted" title="Cost basis unknown">—</span>'}</td>
+        <td class="row-actions">${
+          r.wallet
+            ? `<span class="tag rank">👛 wallet</span> <button class="icon-btn" data-basis="${i}" title="Set cost basis">📝</button>`
+            : `<button class="icon-btn" data-edit="${W.fmt.escapeHTML(r.id)}">✏️</button><button class="icon-btn" data-del="${W.fmt.escapeHTML(r.id)}">🗑️</button>`
+        }</td>
       </tr>`,
         )
         .join("")}
     </tbody></table></div>`;
 
   function wireRows(container, rows) {
-    rows.forEach((r) => {
-      if (r.wallet) return;
+    rows.forEach((r, i) => {
+      if (r.wallet) {
+        const b = container.querySelector(`[data-basis="${i}"]`);
+        if (b) b.onclick = () => basisModal(r);
+        return;
+      }
       const e = container.querySelector(`[data-edit="${CSS.escape(r.id)}"]`);
       const d = container.querySelector(`[data-del="${CSS.escape(r.id)}"]`);
       if (e) e.onclick = () => holdingModal(r);
@@ -2281,6 +2322,35 @@ W.dashboard = (() => {
             W.refresh();
           });
     });
+  }
+
+  // Manual Cost Basis Modal for Wallet Holdings
+  function basisModal(r) {
+    const existing = r.manualCostBasis;
+    const m = W.ui.modal({
+      title: `Cost basis — ${W.fmt.escapeHTML(r.symbol)}`,
+      body: `<p class="text-muted small-text">Wallet sync cannot know your purchase history. Enter the <b>total amount paid</b> for this position so P/L is truthful. Leave empty to keep P/L unknown.</p>
+        <label>Total cost (${W.fmt.escapeHTML(W.currency().toUpperCase())})<input type="number" step="any" min="0" id="b-cost" value="${existing ? existing.totalCost : ""}" placeholder="e.g. 500"></label>`,
+      footer: `<button class="btn ghost" id="b-cancel">Cancel</button><button class="btn primary" id="b-save">Save</button>`,
+    });
+    m.el.querySelector("#b-cancel").onclick = m.close;
+    m.el.querySelector("#b-save").onclick = () => {
+      const raw = m.el.querySelector("#b-cost").value.trim();
+      const total = raw === "" ? null : parseFloat(raw);
+      if (total !== null && (!Number.isFinite(total) || total < 0))
+        return W.ui.toast("Enter a valid non-negative cost", "warn");
+
+      const basisMap = W.store.get("wallet_cost_basis", {});
+      const key = `${r.walletChain}:${r.symbol}:${r.contractAddress ? String(r.contractAddress).toLowerCase() : "native"}`;
+
+      if (total === null) delete basisMap[key];
+      else basisMap[key] = { totalCost: total, updatedAt: Date.now() };
+
+      W.store.set("wallet_cost_basis", basisMap);
+      m.close();
+      W.ui.toast("Cost basis saved", "ok");
+      W.refresh();
+    };
   }
 
   function holdingModal(existing = null, preselect = null) {
@@ -2379,7 +2449,6 @@ W.dashboard = (() => {
     const rangeEl = view.querySelector("#d-perf-range");
     if (!canvas) return;
     destroyPerfChart(view);
-
     const active = rangeEl?.querySelector(".chip.active");
     const rangeVal = active?.dataset?.range;
     const rangeDays =
@@ -2515,7 +2584,6 @@ W.dashboard = (() => {
   async function render(view) {
     destroyPerfChart(view);
 
-    // Render initial layout with Skeletons to prevent Layout Shift (CLS)
     view.innerHTML = `
       <p class="muted small mb-16">Your evidence-driven crypto intelligence workspace.</p>
       <div id="d-data-health" aria-live="polite"></div>
@@ -2631,10 +2699,16 @@ W.dashboard = (() => {
         "fear-greed",
       ]);
 
+    // FIX #4: Honest Stat Cards (Surfaces unpriced/unknown basis metrics)
     const statsEl = view.querySelector("#d-stats");
     if (statsEl) {
+      const balanceSub = totals
+        ? `${rows.length} assets${totals.unpriced ? ` · ${totals.unpriced} unpriced` : ""}`
+        : "Add holdings to get started";
+
       statsEl.innerHTML = `
-        ${totals ? statCard("Total Balance", W.fmt.money(totals.value), rows.length + " assets") : statCard("Total Balance", "—", "Add holdings to get started")}
+        ${totals ? statCard("Total Balance", W.fmt.money(totals.value), balanceSub) : statCard("Total Balance", "—", "Add holdings to get started")}
+        ${totals && totals.allTime !== null ? statCard("P/L · All Time", signedMoney(totals.allTime), W.fmt.pct(totals.allTimePct)) : totals ? statCard("P/L · All Time", "—", `${totals.unknownCost} assets missing cost basis`) : ""}
         ${totals ? statCard("P/L · 24h", signedMoney(totals.day), W.fmt.pct(totals.dayPct)) : ""}
         ${g ? statCard("Global Market Cap", W.fmt.money(g.total_market_cap[W.currency()], { compact: true }), W.fmt.pct(g.market_cap_change_percentage_24h_usd)) : ""}
       `;
@@ -2705,7 +2779,6 @@ W.dashboard = (() => {
               (b.price_change_percentage_24h_in_currency ?? 0),
           )
           .slice(0, 20);
-
       const fullCount = list.length;
       const visibleList = marketRowsExpanded
         ? list
@@ -2774,7 +2847,6 @@ W.dashboard = (() => {
     renderAllocation(allocBody, rows, totals);
     drawPerformanceChart(view);
 
-    // Wire the new Intelligence Feed
     const rankerContainer = view.querySelector("#what-matters-now-container");
     if (rankerContainer) {
       if (W.decisionEngine && W.intelligenceFeed) {
@@ -2786,7 +2858,6 @@ W.dashboard = (() => {
           theses: W.theses?.all() || [],
           behavior: W.behavior?.analyze() || { pattern: "none" },
         };
-
         W.decisionEngine
           .run(userContext)
           .then((decisions) => {
@@ -2808,7 +2879,6 @@ W.dashboard = (() => {
         .filter((t) => t.sourceRef?.type === "gem")
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
         .slice(0, 3);
-
       const discoveriesHTML = gemTheses.length
         ? `<ul class="discovery-list">${gemTheses
             .map(
@@ -2839,12 +2909,10 @@ W.dashboard = (() => {
           <h3>🔍 Discoveries</h3>
           <p class="muted small mb-8 mt-8">New intelligence</p>
           ${discoveriesHTML}
-          
           <p class="muted small mb-8 mt-16">Portfolio changes</p>
           <div class="delta-container">${deltasHTML}</div>
         </div>
       `;
-
       if (totals && W.delta) {
         const currentSnapshot = W.delta.getSnapshot();
         if (
@@ -2875,7 +2943,7 @@ W.dashboard = (() => {
 })();
 
 console.log(
-  "[Dashboard] Module loaded (Command Center UI, Skeleton Loaders, Intelligence Feed).",
+  "[Dashboard] Module loaded (Command Center UI, Honest Data Semantics).",
 );
 // ---- js/ui/skeleton.js ----
 // ===============================================================
@@ -19125,13 +19193,17 @@ console.log("[Telegram] Module loaded.");
 // ================================================================
 //  Secure Multi‑Chain Wallet Sync
 // ================================================================
+// Constitution fixes: §2.6 (no address logging, sanitized cache),
+// §2.9/§6.3 (unknown price = null, never 0), §3.4 (graceful per-wallet
+// degradation), v2 P1-2 (manual cost basis for wallet holdings).
+// ================================================================
 
 window.W = window.W || {};
 
 W.walletSync = (() => {
-  // ── Constants ─────────────────────────────────────────
   const STORAGE_KEY = "wallet_sync_data";
   const CACHE_KEY = "wallet_sync_cache";
+  const BASIS_KEY = "wallet_cost_basis";
   const CACHE_TTL = 300000; // 5 minutes
 
   async function fetchJSON(url, options, schema) {
@@ -19173,7 +19245,7 @@ W.walletSync = (() => {
           1e8
         );
       },
-      tokens: async () => [], // No ERC‑20 on BTC
+      tokens: async () => [],
     },
     eth: {
       label: "Ethereum",
@@ -19250,9 +19322,7 @@ W.walletSync = (() => {
             );
             const balance =
               parseInt(data.result || "0x0", 16) / Math.pow(10, token.decimals);
-            if (balance > 1e-9) {
-              results.push({ ...token, balance });
-            }
+            if (balance > 1e-9) results.push({ ...token, balance });
           } catch (e) {
             /* ignore */
           }
@@ -19320,9 +19390,7 @@ W.walletSync = (() => {
             );
             const balance =
               parseInt(data.result || "0x0", 16) / Math.pow(10, token.decimals);
-            if (balance > 1e-9) {
-              results.push({ ...token, balance });
-            }
+            if (balance > 1e-9) results.push({ ...token, balance });
           } catch (e) {
             /* ignore */
           }
@@ -19395,9 +19463,8 @@ W.walletSync = (() => {
                 acc.account?.data?.parsed?.info?.tokenAmount?.amount || "0";
               balance += parseInt(amount) / Math.pow(10, token.decimals);
             });
-            if (balance > 1e-9) {
-              results.push({ symbol: token.symbol, balance });
-            }
+            // FIX #7: preserve full token identity (coingeckoId + mint)
+            if (balance > 1e-9) results.push({ ...token, balance });
           } catch (e) {
             /* ignore */
           }
@@ -19408,22 +19475,16 @@ W.walletSync = (() => {
   };
 
   // ── Secure Storage Helpers ────────────────────────────
-
   async function encryptWalletData(data, password) {
     if (!password) throw new Error("Password required for encryption");
     const plaintext = JSON.stringify(data);
     const { ciphertext, iv, salt } = await W.sync.encrypt(plaintext, password);
-    // Uint8Array does not survive JSON serialization through W.store:
-    // it becomes {"0": 1, "1": 2, ...}, and new Uint8Array({...}) on
-    // read produces a zero-length array. Convert to plain number
-    // arrays so the encrypted payload round-trips cleanly.
     return {
       ciphertext: Array.from(ciphertext),
       iv: Array.from(iv),
       salt: Array.from(salt),
     };
   }
-
   async function decryptWalletData(encrypted, password) {
     if (!password) throw new Error("Password required for decryption");
     const ciphertext = new Uint8Array(encrypted.ciphertext);
@@ -19433,24 +19494,62 @@ W.walletSync = (() => {
     return JSON.parse(plaintext);
   }
 
-  // ── State Management ──────────────────────────────────
-
   function getStoredData() {
     return W.store.get(STORAGE_KEY, null);
   }
-
   function saveStoredData(encrypted) {
     W.store.set(STORAGE_KEY, encrypted);
   }
 
-  // ── Public API ─────────────────────────────────────────
+  // ── Manual cost basis (v2 P1-2) ───────────────────────
+  function basisKey(chain, symbol, address) {
+    return `${chain}:${String(symbol).toUpperCase()}:${address ? String(address).toLowerCase() : "native"}`;
+  }
+  function getCostBasis(chain, symbol, address) {
+    const map = W.store.get(BASIS_KEY, {});
+    const entry = map[basisKey(chain, symbol, address)];
+    return entry && Number.isFinite(entry.totalCost) ? entry : null;
+  }
+  function setCostBasis(chain, symbol, address, totalCost) {
+    const map = W.store.get(BASIS_KEY, {});
+    map[basisKey(chain, symbol, address)] = {
+      totalCost,
+      updatedAt: Date.now(),
+    };
+    W.store.set(BASIS_KEY, map);
+  }
 
+  // ── Sanitized cache projection (§2.6: no plaintext addresses) ──
+  function sanitizeWallet(w) {
+    return {
+      id: w.id,
+      chain: w.chain,
+      label: w.label || null,
+      addedAt: w.addedAt || null,
+      addressMasked: W.fmt.maskAddress(w.address),
+      error: w.error || null,
+      nativeBalance: Number.isFinite(w.nativeBalance) ? w.nativeBalance : null,
+      nativeValue: Number.isFinite(w.nativeValue) ? w.nativeValue : null,
+      price: Number.isFinite(w.price) ? w.price : null,
+      totalValue: Number.isFinite(w.totalValue) ? w.totalValue : null,
+      tokenBalances: (w.tokenBalances || []).map((t) => ({
+        symbol: t.symbol,
+        coingeckoId: t.coingeckoId || null,
+        contractAddress: t.address || t.mint || null,
+        decimals: t.decimals ?? null,
+        balance: t.balance,
+        price: Number.isFinite(t.price) ? t.price : null,
+        value: Number.isFinite(t.value) ? t.value : null,
+      })),
+    };
+  }
+
+  // ── Public API ─────────────────────────────────────────
   async function addWallet(chain, address, label, password) {
     if (!password) throw new Error("Sync password required to add wallet");
     if (!CHAINS[chain]) throw new Error(`Unsupported chain: ${chain}`);
-    if (!validateAddress(chain, address)) {
+    if (!validateAddress(chain, address))
       throw new Error(`Invalid address format for ${chain}`);
-    }
     const encrypted = getStoredData();
     let wallets = [];
     if (encrypted) {
@@ -19460,13 +19559,10 @@ W.walletSync = (() => {
         console.warn("[WalletSync] Decryption failed, treating as new data.");
       }
     }
-    if (
-      wallets.some(
-        (w) =>
-          w.chain === chain &&
-          w.address.toLowerCase() === address.toLowerCase(),
-      )
-    ) {
+    // Solana addresses are case-sensitive; only EVM/BTC compare case-insensitively
+    const same = (a, b) =>
+      chain === "sol" ? a === b : a.toLowerCase() === b.toLowerCase();
+    if (wallets.some((w) => w.chain === chain && same(w.address, address))) {
       throw new Error("Wallet already added");
     }
     wallets.push({
@@ -19476,8 +19572,7 @@ W.walletSync = (() => {
       label: label || `${chain.toUpperCase()} wallet`,
       addedAt: Date.now(),
     });
-    const newEncrypted = await encryptWalletData(wallets, password);
-    saveStoredData(newEncrypted);
+    saveStoredData(await encryptWalletData(wallets, password));
     return true;
   }
 
@@ -19488,8 +19583,7 @@ W.walletSync = (() => {
     const wallets = await decryptWalletData(encrypted, password);
     const filtered = wallets.filter((w) => w.id !== id);
     if (filtered.length === wallets.length) return false;
-    const newEncrypted = await encryptWalletData(filtered, password);
-    saveStoredData(newEncrypted);
+    saveStoredData(await encryptWalletData(filtered, password));
     return true;
   }
 
@@ -19503,58 +19597,85 @@ W.walletSync = (() => {
   async function syncAll(password) {
     if (!password) throw new Error("Sync password required");
     const wallets = await getWallets(password);
-    if (!wallets.length) return { wallets: [], holdings: [], totalValue: 0 };
+    if (!wallets.length)
+      return { wallets: [], holdings: [], totalValue: 0, unpriced: 0 };
 
+    // 1) Balances — graceful per-wallet failure (§3.4), masked logging (§2.6)
     const results = [];
-    let totalValue = 0;
-
     for (const wallet of wallets) {
       const chain = CHAINS[wallet.chain];
       if (!chain) continue;
       try {
         const nativeBalance = await chain.balance(wallet.address);
         const tokenBalances = await chain.tokens(wallet.address);
-        let price = 0;
-        // nativeValue stays null when we can't get a price, so the UI
-        // can show "—" instead of a misleading $0.00.
-        let nativeValue = null;
-        try {
-          const data = await W.api.markets(chain.symbol.toLowerCase());
-          const coin = data.find(
-            (c) => c.symbol.toLowerCase() === chain.symbol.toLowerCase(),
-          );
-          price = coin?.current_price || 0;
-          if (price > 0) {
-            nativeValue = nativeBalance * price;
-          }
-        } catch (e) {}
-        const tokenValues = tokenBalances.map((t) => {
-          return { ...t, value: t.balance * 0 };
-        });
-        const walletValue =
-          (Number.isFinite(nativeValue) ? nativeValue : 0) +
-          tokenValues.reduce((sum, t) => sum + t.value, 0);
-        results.push({
-          ...wallet,
-          nativeBalance,
-          tokenBalances,
-          nativeValue,
-          price,
-          totalValue: walletValue,
-        });
-        totalValue += walletValue;
+        results.push({ ...wallet, nativeBalance, tokenBalances, error: null });
       } catch (e) {
         console.warn(
-          `[WalletSync] Sync failed for ${wallet.chain}:${wallet.address}`,
-          e,
+          `[WalletSync] Sync failed for ${wallet.chain}:${W.fmt.maskAddress(wallet.address)}`,
+          e.message,
         );
         results.push({ ...wallet, error: e.message });
       }
     }
 
-    W.store.set(CACHE_KEY, { data: results, timestamp: Date.now() });
+    // 2) ONE batched price lookup for every CoinGecko id involved (FIX #1, #2)
+    const ids = new Set();
+    for (const w of results) {
+      if (w.error) continue;
+      const chain = CHAINS[w.chain];
+      if (chain?.coingeckoId) ids.add(chain.coingeckoId);
+      for (const t of w.tokenBalances || [])
+        if (t.coingeckoId) ids.add(t.coingeckoId);
+    }
+    const priceMap = {};
+    if (ids.size) {
+      try {
+        const market = await W.api.markets([...ids].join(","));
+        (market || []).forEach((c) => {
+          if (c && c.id && Number.isFinite(c.current_price))
+            priceMap[c.id] = c.current_price;
+        });
+      } catch (e) {
+        console.warn("[WalletSync] Price lookup failed:", e.message);
+      }
+    }
 
-    return { wallets: results, holdings: results, totalValue };
+    // 3) Value everything; unknown price => null, NEVER 0 (§6.3)
+    let totalValue = 0;
+    let unpriced = 0;
+    for (const w of results) {
+      if (w.error) {
+        w.nativeValue = null;
+        w.price = null;
+        w.totalValue = null;
+        continue;
+      }
+      const chain = CHAINS[w.chain];
+      const nativePrice = chain?.coingeckoId
+        ? (priceMap[chain.coingeckoId] ?? null)
+        : null;
+      w.price = nativePrice;
+      w.nativeValue =
+        nativePrice != null && Number.isFinite(w.nativeBalance)
+          ? w.nativeBalance * nativePrice
+          : null;
+      if (w.nativeValue == null && w.nativeBalance > 0) unpriced++;
+      let walletValue = Number.isFinite(w.nativeValue) ? w.nativeValue : 0;
+      for (const t of w.tokenBalances || []) {
+        const p = t.coingeckoId ? (priceMap[t.coingeckoId] ?? null) : null;
+        t.price = p;
+        t.value = p != null ? t.balance * p : null;
+        if (t.value == null) unpriced++;
+        else walletValue += t.value;
+      }
+      w.totalValue = walletValue;
+      totalValue += walletValue;
+    }
+
+    // 4) Cache SANITIZED projection only — no plaintext addresses (§2.6)
+    const sanitized = results.map(sanitizeWallet);
+    W.store.set(CACHE_KEY, { data: sanitized, timestamp: Date.now() });
+    return { wallets: sanitized, holdings: sanitized, totalValue, unpriced };
   }
 
   function getCached() {
@@ -19567,14 +19688,10 @@ W.walletSync = (() => {
   async function clearAll(password) {
     if (!password) throw new Error("Sync password required");
     const encrypted = getStoredData();
-    if (encrypted) {
-      await decryptWalletData(encrypted, password);
-    }
+    if (encrypted) await decryptWalletData(encrypted, password);
     W.store.delete(STORAGE_KEY);
     W.store.delete(CACHE_KEY);
   }
-
-  // ── Address Validation ─────────────────────────────────
 
   function validateAddress(chain, address) {
     switch (chain) {
@@ -19593,17 +19710,7 @@ W.walletSync = (() => {
     }
   }
 
-  // ── Portfolio-shaped holdings ─────────────────────────
-  //
-  // The dashboard's enrich() merges manual holdings and wallet
-  // holdings into one array, then looks up each by `coinId` for
-  // market prices. This transform converts the raw sync results
-  // (native balance + token balances per wallet) into that shape.
-  //
-  // Native coins get a proper CoinGecko ID from CHAINS[chain].coingeckoId,
-  // so prices resolve. ERC-20/SPL tokens carry a coingeckoId when the
-  // hardcoded token list provides one; otherwise they fall back to
-  // symbol-only lookup which may not resolve.
+  // ── Portfolio-shaped holdings (with cost basis attached) ──
   function toPortfolioHoldings() {
     const cache = W.store.get(CACHE_KEY, null);
     if (!cache || !Array.isArray(cache.data)) return [];
@@ -19612,8 +19719,6 @@ W.walletSync = (() => {
       if (!w || w.error) continue;
       const chain = CHAINS[w.chain];
       if (!chain) continue;
-
-      // Native balance
       if (Number.isFinite(w.nativeBalance) && w.nativeBalance > 0) {
         out.push({
           coinId: chain.coingeckoId || null,
@@ -19625,10 +19730,10 @@ W.walletSync = (() => {
           wallet: true,
           walletChain: w.chain,
           walletLabel: w.label || null,
+          contractAddress: null,
+          manualCostBasis: getCostBasis(w.chain, chain.symbol, null),
         });
       }
-
-      // Token balances
       for (const t of w.tokenBalances || []) {
         if (!t || !Number.isFinite(t.balance) || t.balance <= 0) continue;
         out.push({
@@ -19641,6 +19746,8 @@ W.walletSync = (() => {
           wallet: true,
           walletChain: w.chain,
           walletLabel: w.label || null,
+          contractAddress: t.contractAddress || null,
+          manualCostBasis: getCostBasis(w.chain, t.symbol, t.contractAddress),
         });
       }
     }
@@ -19648,7 +19755,6 @@ W.walletSync = (() => {
   }
 
   // ── UI Render ──────────────────────────────────────────
-
   async function render(view) {
     view.innerHTML = `
       <div class="card">
@@ -19663,7 +19769,6 @@ W.walletSync = (() => {
         <div id="ws-list"></div>
       </div>
     `;
-
     view.querySelector("#ws-add").onclick = () => addWalletModal(view);
     view.querySelector("#ws-sync").onclick = () => syncAndDisplay(view);
     view.querySelector("#ws-clear").onclick = () => {
@@ -19686,11 +19791,9 @@ W.walletSync = (() => {
         },
       );
     };
-
     const cached = getCached();
-    if (cached) {
-      displayWallets(view, cached);
-    } else {
+    if (cached) displayWallets(view, cached);
+    else {
       const status = view.querySelector("#ws-status");
       if (status)
         status.innerHTML =
@@ -19705,25 +19808,20 @@ W.walletSync = (() => {
       confirmLabel: "Sync",
     });
     if (!pwd) return;
-
-    // Snapshot the status element now; the view may be torn down
-    // while syncAll is awaiting network calls, in which case
-    // querySelector would return null and setting .innerHTML would
-    // throw an unhandled rejection.
     const initialStatus = view.querySelector("#ws-status");
     if (initialStatus) initialStatus.innerHTML = W.ui.spinner();
-
     try {
       const result = await syncAll(pwd);
       if (!view.isConnected) return;
       const status = view.querySelector("#ws-status");
       if (!status) return;
       displayWallets(view, result.wallets);
-      status.innerHTML = `<p class="up">✅ Synced at ${new Date().toLocaleTimeString()}</p>`;
+      status.innerHTML = `<p class="up">✅ Synced at ${new Date().toLocaleTimeString()}${result.unpriced ? ` · ${result.unpriced} asset(s) unpriced` : ""}</p>`;
     } catch (e) {
       if (!view.isConnected) return;
       const status = view.querySelector("#ws-status");
-      if (status) status.innerHTML = `<p class="down">❌ ${e.message}</p>`;
+      if (status)
+        status.innerHTML = `<p class="down">❌ ${W.fmt.escapeHTML(e.message)}</p>`;
     }
   }
 
@@ -19738,26 +19836,17 @@ W.walletSync = (() => {
     container.innerHTML = `
       <div class="table-wrap">
         <table>
-          <thead>
-            <tr>
-              <th>Chain</th>
-              <th>Label</th>
-              <th>Address</th>
-              <th>Balance</th>
-              <th>Value (USD)</th>
-              <th></th>
-            </tr>
-          </thead>
+          <thead><tr><th>Chain</th><th>Label</th><th>Address</th><th>Balance</th><th>Value (USD)</th><th></th></tr></thead>
           <tbody>
             ${wallets
               .map(
                 (w) => `
               <tr>
-                <td>${CHAINS[w.chain]?.icon || "⛓️"} ${w.chain.toUpperCase()}</td>
+                <td>${CHAINS[w.chain]?.icon || "⛓️"} ${W.fmt.escapeHTML(w.chain.toUpperCase())}</td>
                 <td>${W.fmt.escapeHTML(w.label || "—")}</td>
-                <td><code title="${W.fmt.escapeHTML(w.address)}">${W.fmt.escapeHTML(w.address.slice(0, 6) + "…" + w.address.slice(-4))}</code></td>
+                <td><code>${W.fmt.escapeHTML(w.addressMasked || "—")}</code></td>
                 <td>${w.error ? '<span class="down">error</span>' : Number.isFinite(w.nativeBalance) ? `${w.nativeBalance.toFixed(4)} ${CHAINS[w.chain]?.symbol || ""}` : "—"}</td>
-                <td>${Number.isFinite(w.nativeValue) ? W.fmt.money(w.nativeValue, { compact: true }) : "—"}</td>
+                <td>${Number.isFinite(w.totalValue) ? W.fmt.money(w.totalValue, { compact: true }) : "—"}</td>
                 <td><button class="icon-btn" data-remove="${W.fmt.escapeHTML(w.id)}">✕</button></td>
               </tr>
             `,
@@ -19790,30 +19879,16 @@ W.walletSync = (() => {
     const m = W.ui.modal({
       title: "Add Wallet to Sync",
       body: `
-        <label>Chain
-          <select id="ws-chain">
-            ${Object.keys(CHAINS)
-              .map((c) => `<option value="${c}">${CHAINS[c].label}</option>`)
-              .join("")}
-          </select>
-        </label>
-        <label>Label
-          <input id="ws-label" placeholder="e.g. My main wallet">
-        </label>
-        <label>Address
-          <input id="ws-address" placeholder="Enter wallet address">
-        </label>
-        <label>Sync Password
-          <input type="password" id="ws-password" placeholder="Your Weaver sync password">
-        </label>
+        <label>Chain<select id="ws-chain">${Object.keys(CHAINS)
+          .map((c) => `<option value="${c}">${CHAINS[c].label}</option>`)
+          .join("")}</select></label>
+        <label>Label<input id="ws-label" placeholder="e.g. My main wallet"></label>
+        <label>Address<input id="ws-address" placeholder="Enter wallet address"></label>
+        <label>Sync Password<input type="password" id="ws-password" placeholder="Your Weaver sync password"></label>
         <p class="muted small">Your wallet addresses are encrypted with your sync password.</p>
       `,
-      footer: `
-        <button class="btn ghost" id="ws-cancel">Cancel</button>
-        <button class="btn primary" id="ws-save">Add Wallet</button>
-      `,
+      footer: `<button class="btn ghost" id="ws-cancel">Cancel</button><button class="btn primary" id="ws-save">Add Wallet</button>`,
     });
-
     m.el.querySelector("#ws-cancel").onclick = m.close;
     m.el.querySelector("#ws-save").onclick = async () => {
       const chain = m.el.querySelector("#ws-chain").value;
@@ -19835,7 +19910,6 @@ W.walletSync = (() => {
     };
   }
 
-  // ── Exports ────────────────────────────────────────────
   return {
     addWallet,
     removeWallet,
@@ -19848,10 +19922,12 @@ W.walletSync = (() => {
     refresh: syncAll,
     holdings: toPortfolioHoldings,
     wallets: getWallets,
+    getCostBasis,
+    setCostBasis,
   };
 })();
 
-console.log("[WalletSync] Module loaded (secure).");
+console.log("[WalletSync] Module loaded (secure, sanitized cache).");
 // ---- js/features/theses.js ----
 // ===============================================================
 //         Investment Thesis Tracking Module
