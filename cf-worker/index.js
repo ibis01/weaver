@@ -148,6 +148,7 @@ const ALLOWED_PROXY_HOSTS = new Set([
   "api.coingecko.com",
   "pro-api.coingecko.com", // paid tier; key injected as x-cg-pro-api-key
   "api.binance.com",
+  "api.coincap.io",
   "api.alternative.me",
   "api.dexscreener.com",
   "api.gopluslabs.io",
