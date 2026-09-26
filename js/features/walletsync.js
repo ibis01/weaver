@@ -1,5 +1,5 @@
 // ================================================================
-//  Secure Multi‑Chain Wallet Sync — FINAL
+//  Secure Multi‑Chain Wallet Sync — FINAL (walletsync-v3)
 // ================================================================
 // Constitution compliance:
 //   §2.1  Non-custodial: read-only public balance queries. Never keys,
@@ -12,16 +12,20 @@
 //         A wallet with any unpriced material asset has totalValue null.
 //   §3.4  Graceful degradation: per-wallet failure isolation; shared
 //         last-known-price cache keeps the UI useful under HTTP 429,
-//         labeled "·stale" so provenance stays honest.
+//         labeled "·stale" so provenance stays honest; cached snapshots
+//         are re-priced at render time so a rate-limited sync never
+//         pins the UI to "—".
 //   §3.6  Cache before repeated API calls (5-min sync cache + shared
 //         price cache with the Dashboard).
 //   §3.7  Deterministic: regex validation and plain arithmetic only.
+//   §3.8  Versioned: MODULE_VERSION exported for bundle verification.
 //   v2 P1-2  Manual cost basis for wallet holdings.
 // ================================================================
 
 window.W = window.W || {};
 
 W.walletSync = (() => {
+  const MODULE_VERSION = "walletsync-v3";
   const STORAGE_KEY = "wallet_sync_data"; // encrypted wallet list
   const CACHE_KEY = "wallet_sync_cache"; // sanitized sync results
   const BASIS_KEY = "wallet_cost_basis"; // manual cost basis map
@@ -424,6 +428,42 @@ W.walletSync = (() => {
     return decryptWalletData(encrypted, password);
   }
 
+  // ── Shared price resolution (live → last-known cache) ──
+  function resolvePrices(ids) {
+    const priceCache = W.store.get(PRICE_CACHE_KEY, {});
+    const priceMap = {};
+    const staleIds = new Set();
+    for (const id of ids) {
+      if (priceCache[id] && Number.isFinite(priceCache[id].price)) {
+        priceMap[id] = priceCache[id].price;
+        staleIds.add(id);
+      }
+    }
+    return { priceCache, priceMap, staleIds };
+  }
+
+  async function refreshPrices(ids, priceCache, priceMap, staleIds) {
+    if (!ids.size) return;
+    try {
+      const market = await W.api.markets([...ids].join(","));
+      if (Array.isArray(market)) {
+        market.forEach((c) => {
+          if (c && c.id && Number.isFinite(c.current_price)) {
+            priceMap[c.id] = c.current_price;
+            staleIds.delete(c.id); // refreshed live
+            priceCache[c.id] = { price: c.current_price, ts: Date.now() };
+          }
+        });
+        W.store.set(PRICE_CACHE_KEY, priceCache);
+      }
+    } catch (e) {
+      console.warn(
+        "[WalletSync] Live price lookup failed; using cached prices:",
+        e.message,
+      );
+    }
+  }
+
   // ── Sync pipeline ─────────────────────────────────────
   async function syncAll(password) {
     if (!password) throw new Error("Sync password required");
@@ -456,8 +496,8 @@ W.walletSync = (() => {
     }
 
     // 2) ONE batched price lookup by CoinGecko ID (never symbol),
-    //    seeded from the shared last-known cache so a 429 degrades
-    //    to labeled stale prices instead of blanks (§3.4, §3.6).
+    //    seeded from the shared last-known cache so a 429 degrades to
+    //    labeled stale prices instead of blanks (§3.4, §3.6).
     const ids = new Set();
     for (const w of results) {
       if (w.error) continue;
@@ -466,37 +506,8 @@ W.walletSync = (() => {
       for (const t of w.tokenBalances || [])
         if (t.coingeckoId) ids.add(t.coingeckoId);
     }
-
-    const priceCache = W.store.get(PRICE_CACHE_KEY, {});
-    const priceMap = {};
-    const staleIds = new Set();
-    for (const id of ids) {
-      if (priceCache[id] && Number.isFinite(priceCache[id].price)) {
-        priceMap[id] = priceCache[id].price;
-        staleIds.add(id);
-      }
-    }
-
-    if (ids.size) {
-      try {
-        const market = await W.api.markets([...ids].join(","));
-        if (Array.isArray(market)) {
-          market.forEach((c) => {
-            if (c && c.id && Number.isFinite(c.current_price)) {
-              priceMap[c.id] = c.current_price;
-              staleIds.delete(c.id); // refreshed live
-              priceCache[c.id] = { price: c.current_price, ts: Date.now() };
-            }
-          });
-          W.store.set(PRICE_CACHE_KEY, priceCache);
-        }
-      } catch (e) {
-        console.warn(
-          "[WalletSync] Live price lookup failed; using cached prices:",
-          e.message,
-        );
-      }
-    }
+    const { priceCache, priceMap, staleIds } = resolvePrices(ids);
+    await refreshPrices(ids, priceCache, priceMap, staleIds);
 
     // 3) Honest valuation: unknown price => null, NEVER 0 (§6.3).
     //    If ANY material asset in a wallet is unpriced, that wallet's
@@ -559,6 +570,63 @@ W.walletSync = (() => {
       unpriced,
       stale,
     };
+  }
+
+  // ── Render-time re-valuation (§3.4) ───────────────────
+  // A sync that landed inside a rate-limit window must not pin the UI
+  // to "—" for the whole cache TTL. Re-price cached balances on paint.
+  async function revalueCached(cached) {
+    const ids = new Set();
+    for (const w of cached) {
+      if (w.error) continue;
+      const chain = CHAINS[w.chain];
+      if (chain?.coingeckoId && Number.isFinite(w.nativeBalance))
+        ids.add(chain.coingeckoId);
+      for (const t of w.tokenBalances || [])
+        if (t.coingeckoId && Number.isFinite(t.balance)) ids.add(t.coingeckoId);
+    }
+    if (!ids.size) return cached;
+
+    const { priceCache, priceMap, staleIds } = resolvePrices(ids);
+    await refreshPrices(ids, priceCache, priceMap, staleIds);
+
+    return cached.map((w) => {
+      if (w.error) return w;
+      const chain = CHAINS[w.chain];
+      const nid = chain?.coingeckoId || null;
+      const np = nid ? (priceMap[nid] ?? null) : null;
+      let total = 0;
+      let fullyPriced = true;
+
+      if (np != null && Number.isFinite(w.nativeBalance))
+        total += w.nativeBalance * np;
+      else if (w.nativeBalance > 0) fullyPriced = false;
+
+      const tokens = (w.tokenBalances || []).map((t) => {
+        const p = t.coingeckoId ? (priceMap[t.coingeckoId] ?? null) : null;
+        const v = p != null ? t.balance * p : null;
+        if (v != null) total += v;
+        else if (t.balance > 0) fullyPriced = false;
+        return {
+          ...t,
+          price: p,
+          value: v,
+          priceStale: p != null && staleIds.has(t.coingeckoId),
+        };
+      });
+
+      return {
+        ...w,
+        price: np,
+        priceStale: np != null && staleIds.has(nid),
+        nativeValue:
+          np != null && Number.isFinite(w.nativeBalance)
+            ? w.nativeBalance * np
+            : null,
+        tokenBalances: tokens,
+        totalValue: fullyPriced ? total : null,
+      };
+    });
   }
 
   function getCached() {
@@ -676,9 +744,14 @@ W.walletSync = (() => {
         },
       );
     };
+
     const cached = getCached();
-    if (cached) displayWallets(view, cached);
-    else {
+    if (cached) {
+      displayWallets(view, cached); // paint immediately, even if partially "—"
+      revalueCached(cached).then((updated) => {
+        if (view.isConnected) displayWallets(view, updated);
+      });
+    } else {
       const status = view.querySelector("#ws-status");
       if (status)
         status.innerHTML =
@@ -833,9 +906,10 @@ W.walletSync = (() => {
     getCostBasis,
     setCostBasis,
     clearCostBasis,
+    version: MODULE_VERSION,
   };
 })();
 
 console.log(
-  "[WalletSync] Module loaded (secure, sanitized cache, honest valuation).",
+  "[WalletSync] Module loaded (walletsync-v3: secure, sanitized cache, honest valuation, render-time re-pricing).",
 );
