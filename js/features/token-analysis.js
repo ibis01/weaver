@@ -1058,6 +1058,7 @@ W.tokenAnalysis = (() => {
               );
             }
 
+            // ★ CRITICAL FIX: Pass the provenance array to the drawer ★
             W.ui.evidenceDrawer.open({
               explanation: result.explanation,
               domains:
@@ -1071,6 +1072,7 @@ W.tokenAnalysis = (() => {
               bearishEvidence: result.bearishEvidence,
               contradictions: result.contradictions,
               evidenceQuality: result.evidenceQuality,
+              provenance: result.unifiedVerdict?.provenance || [], // <-- ADDED THIS LINE
               trajectorySummary,
               ownerSummary,
               deployerSummary,
