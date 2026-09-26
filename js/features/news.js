@@ -1,8 +1,9 @@
 // ===============================================================
-//                  News Module — Graceful Degradation
+//                  News Module — Graceful Degradation & CSP Compliant
 // ===============================================================
 // §3.4: Never shows blank screen. Shows error state if fetch fails.
 // §2.7: Preserves source attribution for every article.
+// §5.3: Calm visual language, ZERO inline styles.
 // SECURITY: All RSS content escaped before DOM insertion.
 // ===============================================================
 
@@ -181,7 +182,7 @@ W.news = (() => {
     });
   }
 
-  // ─ Render articles into container ─────────────────────────────
+  // ── Render articles into container (ZERO inline styles) ───────
   function renderArticles(container, articles) {
     if (!container) {
       console.warn("[News] renderArticles: container is null");
@@ -191,10 +192,10 @@ W.news = (() => {
     if (!articles || articles.length === 0) {
       container.innerHTML = `
         <div class="card">
-          <div class="empty">
-            <div class="empty-icon"></div>
+          <div class="empty text-center p-24">
+            <div class="empty-icon mb-16">📰</div>
             <h3>No Articles Available</h3>
-            <p>We couldn't find any news articles right now.</p>
+            <p class="muted small mt-8">We couldn't find any news articles right now.</p>
           </div>
         </div>
       `;
@@ -234,19 +235,17 @@ W.news = (() => {
         const safeSource = esc(a.source || "Unknown");
 
         return `
-        <div class="news-item" style="margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.1);">
-          <h3 style="margin: 0 0 0.5rem 0; font-size: 1.1rem;">
-            <a href="${safeLink}" target="_blank" rel="noopener noreferrer" style="color: #60a5fa; text-decoration: none;">
+        <article class="card mb-16">
+          <h3 class="mb-8">
+            <a href="${safeLink}" target="_blank" rel="noopener noreferrer" class="text-primary">
               ${safeTitle}
             </a>
           </h3>
-          <p style="margin: 0 0 0.5rem 0; color: #9ca3af; line-height: 1.5;">
+          <p class="muted small mb-8">
             ${safeDesc ? safeDesc.substring(0, 200) + "…" : ""}
           </p>
-          <small style="color: #6b7280;">
-            ${safeSource} · ${safeDate}
-          </small>
-        </div>
+          <small class="muted">${safeSource} · ${safeDate}</small>
+        </article>
       `;
       })
       .join("");
@@ -255,18 +254,16 @@ W.news = (() => {
     newsLog(`Rendered ${articles.length} articles`);
   }
 
-  // ── Show error state ──────────────────────────────────────────
+  // ── Show error state (ZERO inline styles) ─────────────────────
   function showError(container, message) {
     if (!container) return;
     container.innerHTML = `
       <div class="card">
-        <div class="empty">
-          <div class="empty-icon" style="font-size: 3rem; margin-bottom: 1rem;">📰</div>
+        <div class="empty text-center p-24">
+          <div class="empty-icon mb-16">📰</div>
           <h3>News Feed Unavailable</h3>
-          <p style="color: #9ca3af; margin: 0.5rem 0 1.5rem 0;">${W.fmt?.escapeHTML(message) || "We couldn't load the latest news right now."}</p>
-          <button class="btn primary" id="news-retry" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 0.375rem; cursor: pointer;">
-            Try Again
-          </button>
+          <p class="muted small mt-8 mb-24">${W.fmt?.escapeHTML(message) || "We couldn't load the latest news right now."}</p>
+          <button class="btn primary" id="news-retry">Try Again</button>
         </div>
       </div>
     `;
@@ -294,7 +291,7 @@ W.news = (() => {
     view.innerHTML = `
       <div class="card">
         <h3>📰 Crypto News</h3>
-        <p class="muted small" style="color: #9ca3af; margin-top: 0.5rem;">
+        <p class="muted small mt-8">
           Top stories from the crypto ecosystem. Data is fetched via secure proxy.
         </p>
       </div>
@@ -309,7 +306,7 @@ W.news = (() => {
 
     // Show loading state
     container.innerHTML =
-      '<div class="loading" style="text-align: center; padding: 2rem; color: #9ca3af;">Loading news...</div>';
+      '<div class="loading text-center p-24 muted">Loading news...</div>';
 
     try {
       // 2. Try embedded snapshot first
@@ -397,4 +394,4 @@ W.news = (() => {
   return { render };
 })();
 
-console.log("[News] Module loaded (Graceful Degradation & Provenance).");
+console.log("[News] Module loaded (Graceful Degradation & CSP Compliant).");
