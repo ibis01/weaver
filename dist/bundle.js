@@ -19458,15 +19458,11 @@ console.log("[Telegram] Module loaded.");
 //         never signing, never custody.
 //   §2.6  Privacy: wallets encrypted at rest; local cache stores MASKED
 //         addresses only; no address ever reaches console logs; address
-//         and sync password are never collected in the same form (stops
-//         password managers pairing them).
+//         and sync password are never collected in the same form.
 //   §2.7 / §6.3  No fabricated data: unknown price => null => "—".
 //         A wallet with any unpriced material asset has totalValue null.
 //   §3.4  Graceful degradation: per-wallet failure isolation; shared
-//         last-known-price cache keeps the UI useful under HTTP 429,
-//         labeled "·stale" so provenance stays honest; cached snapshots
-//         are re-priced at render time so a rate-limited sync never
-//         pins the UI to "—".
+//         last-known-price cache keeps the UI useful under HTTP 429.
 //   §3.6  Cache before repeated API calls (5-min sync cache + shared
 //         price cache with the Dashboard).
 //   §3.7  Deterministic: regex validation and plain arithmetic only.
@@ -19488,12 +19484,18 @@ W.walletSync = (() => {
   const WORKER_PROXY =
     "https://weaver-proxy.ibis01-weaver.workers.dev/proxy?url=";
 
+  // Domains that MUST go through the Worker proxy to bypass browser CORS
+  const PROXY_REQUIRED_DOMAINS = [
+    "api.bscscan.com",
+    "api.mainnet-beta.solana.com",
+  ];
+
   // ── Fetch helper ──────────────────────────────────────
   async function fetchJSON(url, options, schema) {
-    // Route Solana RPC through Worker Proxy to bypass CORS.
-    // If the URL is Solana, we try the proxy first.
-    const isSolana = url.includes("api.mainnet-beta.solana.com");
-    const finalUrl = isSolana ? WORKER_PROXY + encodeURIComponent(url) : url;
+    const needsProxy = PROXY_REQUIRED_DOMAINS.some((domain) =>
+      url.includes(domain),
+    );
+    const finalUrl = needsProxy ? WORKER_PROXY + encodeURIComponent(url) : url;
 
     const response = W.requestGuard
       ? await W.requestGuard.fetch(finalUrl, options, {
@@ -19507,7 +19509,6 @@ W.walletSync = (() => {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
 
-    // Check for RPC-level errors (e.g., method not found, rate limit message in body)
     if (data.error) {
       throw new Error(
         `RPC Error: ${data.error.message || JSON.stringify(data.error)}`,
@@ -19523,35 +19524,22 @@ W.walletSync = (() => {
     return data;
   }
 
-  // Helper for Solana resilience: tries a list of RPC URLs
+  // Helper for Solana resilience: uses official RPC via Worker Proxy
   async function solanaRpcCall(rpcBody) {
-    // 1. Primary: Official RPC via Worker Proxy (bypasses browser CORS)
-    // 2. Fallback: Ankr Public RPC (often more permissive)
-    // 3. Fallback: Alchemy Demo (reliable but rate-limited)
-    const endpoints = [
-      "https://api.mainnet-beta.solana.com",
-      "https://rpc.ankr.com/solana",
-      "https://solana-mainnet.g.alchemy.com/v2/demo",
-    ];
+    // Only use the official endpoint, as it is explicitly in the Worker's ALLOWED_PROXY_HOSTS.
+    // Fallbacks like Ankr/Alchemy are omitted to prevent 403 Forbidden from the Worker.
+    const url = "https://api.mainnet-beta.solana.com";
 
-    let lastError = null;
-    for (const url of endpoints) {
-      try {
-        return await fetchJSON(
-          url,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(rpcBody),
-          },
-          "jsonRpc",
-        );
-      } catch (e) {
-        lastError = e;
-        // Continue to next endpoint
-      }
-    }
-    throw lastError || new Error("All Solana RPC endpoints failed");
+    const response = await fetchJSON(
+      url,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(rpcBody),
+      },
+      "jsonRpc",
+    );
+    return response;
   }
 
   // ── Chain configurations ──────────────────────────────
@@ -19696,31 +19684,21 @@ W.walletSync = (() => {
         const results = [];
         for (const token of tokens) {
           try {
+            // Use BSCScan tokenbalance API (already in Worker allowlist) instead of direct RPC
             const data = await fetchJSON(
-              "https://bsc-dataseed.binance.org",
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  jsonrpc: "2.0",
-                  id: 1,
-                  method: "eth_call",
-                  params: [
-                    {
-                      to: token.address,
-                      data: "0x70a08231" + addr.slice(2).padStart(64, "0"),
-                    },
-                    "latest",
-                  ],
-                }),
-              },
-              "jsonRpc",
+              `https://api.bscscan.com/api?module=account&action=tokenbalance&contractaddress=${token.address}&address=${addr}&tag=latest`,
+              undefined,
+              "bscscan",
             );
+            // BSCScan returns result as a string
             const balance =
-              parseInt(data.result || "0x0", 16) / Math.pow(10, token.decimals);
+              parseInt(data.result || "0", 10) / Math.pow(10, token.decimals);
             if (balance > 1e-9) results.push({ ...token, balance });
           } catch (e) {
-            /* ignore per-token failure */
+            console.warn(
+              `[WalletSync] BSC token ${token.symbol} fetch failed:`,
+              e.message,
+            );
           }
         }
         return results;
@@ -19729,11 +19707,10 @@ W.walletSync = (() => {
     sol: {
       label: "Solana",
       symbol: "SOL",
-      icon: "",
+      icon: "🟣",
       coingeckoId: "solana",
       explorer: "https://solscan.io/account/",
 
-      // Resilient balance fetcher using multiple RPCs
       balance: async (addr) => {
         const data = await solanaRpcCall({
           jsonrpc: "2.0",
@@ -19776,7 +19753,10 @@ W.walletSync = (() => {
             });
             if (balance > 1e-9) results.push({ ...token, balance });
           } catch (e) {
-            /* ignore per-token failure */
+            console.warn(
+              `[WalletSync] SOL token ${token.symbol} fetch failed:`,
+              e.message,
+            );
           }
         }
         return results;
@@ -20376,7 +20356,7 @@ W.walletSync = (() => {
 })();
 
 console.log(
-  "[WalletSync] Module loaded (walletsync-v3: secure, sanitized cache, honest valuation, render-time re-pricing, Solana proxy routing).",
+  "[WalletSync] Module loaded (walletsync-v3: secure, sanitized cache, honest valuation, render-time re-pricing, all-network proxy routing).",
 );
 // ---- js/features/theses.js ----
 // ===============================================================
