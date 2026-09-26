@@ -138,6 +138,10 @@ const ALLOWED_PROXY_HOSTS = new Set([
   "api.llama.fi",
   "api.coinpaprika.com",
   "api.coincap.io",
+  // --- ADDED: News RSS Feed Hosts ---
+  "www.coindesk.com",
+  "cointelegraph.com",
+  "decrypt.co",
 ]);
 
 // Bitquery network names for the chains the deployer route supports.
