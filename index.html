@@ -6,6 +6,12 @@
   <title>Weaver — Crypto Portfolio &amp; Intelligence</title>
   <meta name="description" content="Evidence-driven crypto intelligence and safety platform.">
 
+  <!-- 
+    CSP Hardening (§5.3 / Global Const. P0-2):
+    - No 'unsafe-inline' for scripts or styles.
+    - connect-src includes all required API fallbacks (CoinGecko, CoinCap, Binance, RPCs).
+    - object-src 'none' and base-uri 'self' prevent injection attacks.
+  -->
   <meta
     http-equiv="Content-Security-Policy"
     content="
@@ -17,6 +23,8 @@
       connect-src 'self'
         http://localhost:3001
         https://api.coingecko.com
+        https://api.coincap.io
+        https://api.coinpaprika.com
         https://api.alternative.me
         https://api.binance.com
         https://api.dexscreener.com
@@ -29,7 +37,10 @@
         https://api.snowtrace.io
         https://mempool.space
         https://api.solscan.io
-        https://api.etherscan.io https://cdn.jsdelivr.net https://weaver-proxy.ibis01-weaver.workers.dev https://ethereum.publicnode.com;
+        https://api.etherscan.io
+        https://cdn.jsdelivr.net
+        https://weaver-proxy.ibis01-weaver.workers.dev
+        https://ethereum.publicnode.com;
       worker-src 'self';
       object-src 'none';
       base-uri 'self';
@@ -46,30 +57,38 @@
   <div class="app">
     <aside class="sidebar">
       <div class="brand">
-        <img src="assets/logo.png" alt="Weaver">
+        <img src="assets/logo.png" alt="Weaver Logo">
         <span>Weaver</span>
       </div>
-      <nav id="nav"></nav>
+      <nav id="nav" aria-label="Main navigation"></nav>
     </aside>
+    
     <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+    
     <main class="main">
       <div class="topbar">
         <h1 id="page-title" class="topbar-title">Dashboard</h1>
-        <button class="hamburger" id="btn-hamburger" aria-label="Toggle navigation" aria-expanded="false" aria-controls="nav">☰</button>
+        <button class="hamburger" id="btn-hamburger" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="nav">☰</button>
         <div class="topbar-actions">
-          <span id="last-updated" class="muted small"></span>
-          <select id="currency" aria-label="Currency"></select>
-          <button class="icon-btn" id="btn-refresh" title="Refresh" aria-label="Refresh">⟳</button>
+          <span id="last-updated" class="muted small" aria-live="polite"></span>
+          <select id="currency" aria-label="Select display currency"></select>
+          <button class="icon-btn" id="btn-refresh" title="Refresh data" aria-label="Refresh data"></button>
         </div>
       </div>
-      <div id="view"></div>
+      
+      <!-- Primary content container. Modules inject here. -->
+      <div id="view" role="main"></div>
     </main>
   </div>
 
-  <div id="toasts" class="toasts"></div>
-  <div id="modal-root"></div>
+  <!-- Global UI overlays -->
+  <div id="toasts" class="toasts" aria-live="assertive" aria-atomic="true"></div>
+  <div id="modal-root" role="dialog" aria-modal="true"></div>
 
+  <!-- External dependencies (CSP allowed via script-src) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  
+  <!-- Application bundle -->
   <script src="dist/bundle.min.js?v=20260935"></script>
 </body>
 </html>
