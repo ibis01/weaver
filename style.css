@@ -1,27 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
-   WEAVER · "COMMAND CENTER" DESIGN SYSTEM v3.2
-   (Calm Fintech Base + Institutional Data-Viz + Cross-Device)
+   WEAVER · "COMMAND CENTER" DESIGN SYSTEM 
    ═══════════════════════════════════════════════════════════════
-   Changelog v3.1 (production hardening):
-     - Added .skip-link, .noscript-fallback, .bundle-error utilities.
-     - Defined --border-highlight, --shadow-sm, --text-muted,
-       --primary — previously referenced but never declared.
-     - Added @media (prefers-contrast: more).
-     - Added @media (prefers-reduced-data: reduce).
-     - Added @media print.
-     - Fixed line-clamp (added standard property).
-     - Removed body overflow-x: hidden.
-     - Scrollbar colours use colour variables.
-   Changelog v3.2 (cross-device):
-     - Safe-area insets for notched/rounded iOS devices.
-     - Mobile input zoom prevention (16 px rule).
-     - Very narrow screens (≤400 px) layout pass.
-     - Touch-target minimums (@media (pointer: coarse)).
-     - Landscape phone compression (@media max-height 500px).
-     - 4K / ultrawide layout pass (@media min-width 2000px).
-     - Global overflow guards on media and text.
-     - .thesis-* classes grouped with components.
-   ═══════════════════════════════════════════════════════════════ */
+   
 
 /* ═══════════════════════════════════════════════════════════════
    1. CSP-COMPLIANT UTILITY CLASSES (zero inline styles)
@@ -351,6 +331,18 @@ input[type="radio"] { accent-color: var(--brand); }
   font-weight: 600;
   letter-spacing: -0.2px;
 }
+
+/* Slightly flatter card variant used by intelligence-feed.js for the
+   "What Matters Now" wrapper. Visually subordinate to primary cards
+   without introducing a second visual language. */
+.card-tertiary {
+  background: linear-gradient(
+    135deg,
+    rgba(99, 102, 241, 0.02) 0%,
+    var(--card) 100%
+  );
+}
+
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -838,28 +830,6 @@ code {
 }
 @media (min-width: 1024px) {
   .news-list { grid-template-columns: repeat(3, 1fr); }
-}
-.feed-summary {
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-  padding: 6px 0;
-  list-style: none; /* hide the default disclosure triangle on WebKit */
-}
-.feed-summary::-webkit-details-marker {
-  /* Chrome/Safari expose the marker through this pseudo-element. */
-  color: var(--muted);
-}
-.feed-summary:hover {
-  color: var(--text);
-}
-.feed-summary:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-.feed-monitoring[open] > .feed-summary {
-  margin-bottom: 4px;
 }
 .news-item {
   background: var(--card);
@@ -1372,8 +1342,7 @@ th.num { text-align: right; }
 .thesis-health-down    { color: var(--down);  background: rgba(239, 68, 68, 0.15); }
 .thesis-health-unknown { color: var(--muted); background: rgba(154, 163, 178, 0.1); }
 
-/* Thesis-health reason list and recommendation (used by
-   js/intelligence/thesis-health.js renderers). */
+/* Thesis-health reason list and recommendation. */
 .thesis-reasons { list-style: none; padding: 0; margin: 8px 0; font-size: 0.9em; }
 .thesis-reason  { padding: 4px 0; color: var(--muted); }
 .thesis-recommendation {
@@ -1391,6 +1360,7 @@ th.num { text-align: right; }
 
 /* ═══════════════════════════════════════════════════════════════
    INTELLIGENCE FEED & SKELETON LOADERS
+   (Used by js/ui/intelligence-feed.js and js/ui/skeleton.js)
    ═══════════════════════════════════════════════════════════════ */
 
 .intelligence-feed {
@@ -1415,6 +1385,103 @@ th.num { text-align: right; }
   gap: 12px;
 }
 
+/* Feed item — used by the "What Matters Now" card. */
+.feed-item {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.feed-item:hover {
+  border-color: var(--border-highlight);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+.feed-item:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.feed-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.feed-item-title {
+  font-weight: 600;
+  font-size: 14px;
+  flex: 1;
+}
+.feed-reasoning {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-top: 8px;
+}
+
+/* Priority badge on a feed item. */
+.priority-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.priority-monitor { background: rgba(154, 163, 178, 0.1); color: var(--muted); }
+.priority-review  { background: rgba(99, 102, 241, 0.1);  color: var(--brand); }
+.priority-risk    { background: rgba(239, 68, 68, 0.1);   color: var(--down); }
+.priority-log     { background: rgba(16, 185, 129, 0.1);  color: var(--up); }
+
+.feed-confidence {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.feed-confidence-label {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.feed-meter { width: 100px; flex-shrink: 0; }
+.meter-bar-sm { width: 80px; }
+
+/* Collapsed "under observation" section (progressive disclosure).
+   Replaces the inline style="cursor: pointer; user-select: none;"
+   that the strict style-src CSP was blocking on <summary>. */
+.feed-summary {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  padding: 6px 0;
+  list-style: none;
+}
+.feed-summary::-webkit-details-marker {
+  color: var(--muted);
+}
+.feed-summary:hover {
+  color: var(--text);
+}
+.feed-summary:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.feed-monitoring[open] > .feed-summary {
+  margin-bottom: 4px;
+}
+
+/* Skeleton loading states. */
 .skeleton {
   background: linear-gradient(
     90deg,
@@ -1440,6 +1507,7 @@ th.num { text-align: right; }
 
 /* ═══════════════════════════════════════════════════════════════
    EVIDENCE DRAWER — Progressive Disclosure
+   (Used by js/ui/evidence-drawer.js)
    ═══════════════════════════════════════════════════════════════ */
 
 .body-drawer-open { overflow: hidden; }
@@ -1577,71 +1645,6 @@ th.num { text-align: right; }
   margin-top: 2px;
 }
 
-.feed-item {
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--card);
-  margin-bottom: 8px;
-  cursor: pointer;
-  transition: all 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-.feed-item:hover {
-  border-color: var(--border-highlight);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
-}
-.feed-item-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 6px;
-}
-.feed-item-title {
-  font-weight: 600;
-  font-size: 14px;
-  flex: 1;
-}
-.feed-reasoning {
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.5;
-  margin-top: 8px;
-}
-
-.priority-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.priority-monitor { background: rgba(154, 163, 178, 0.1); color: var(--muted); }
-.priority-review  { background: rgba(99, 102, 241, 0.1);  color: var(--brand); }
-.priority-risk    { background: rgba(239, 68, 68, 0.1);   color: var(--down); }
-.priority-log     { background: rgba(16, 185, 129, 0.1);  color: var(--up); }
-
-.feed-confidence {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-}
-.feed-confidence-label {
-  font-size: 11px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-.feed-meter { width: 100px; flex-shrink: 0; }
-.meter-bar-sm { width: 80px; }
-
 @media (max-width: 768px) {
   .evidence-drawer { width: 100vw; border-left: none; }
   .drawer-verdict {
@@ -1708,13 +1711,8 @@ th.num { text-align: right; }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   8. CROSS-DEVICE — SAFE AREAS (notch, rounded corners, gesture bar)
-   ═══════════════════════════════════════════════════════════════
-   env(safe-area-inset-*) is non-zero only when the viewport meta
-   contains viewport-fit=cover, which index.html sets. On desktop
-   and most Android devices the values are 0 and max() falls
-   through to the base value. */
-
+   8. CROSS-DEVICE — SAFE AREAS
+   ═══════════════════════════════════════════════════════════════ */
 @supports (padding: env(safe-area-inset-top)) {
   .sidebar {
     padding-top: max(20px, env(safe-area-inset-top));
@@ -1760,11 +1758,7 @@ th.num { text-align: right; }
 
 /* ═══════════════════════════════════════════════════════════════
    9. CROSS-DEVICE — MOBILE INPUT ZOOM PREVENTION
-   ═══════════════════════════════════════════════════════════════
-   iOS Safari zooms in when an input with font-size < 16px is
-   focused. On mobile, force 16px so the page does not zoom and
-   scroll on every tap. Checkboxes and radios are exempt. */
-
+   ═══════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
   input:not([type="checkbox"]):not([type="radio"]),
   select,
@@ -1775,10 +1769,7 @@ th.num { text-align: right; }
 
 /* ═══════════════════════════════════════════════════════════════
    10. CROSS-DEVICE — VERY NARROW SCREENS (320–400 px)
-   ═══════════════════════════════════════════════════════════════
-   iPhone SE, Galaxy Fold closed, older Android. Tighten spacing
-   and shrink display type so nothing wraps awkwardly. */
-
+   ═══════════════════════════════════════════════════════════════ */
 @media (max-width: 400px) {
   .main { padding: 12px; }
   .card {
@@ -1843,11 +1834,7 @@ th.num { text-align: right; }
 
 /* ═══════════════════════════════════════════════════════════════
    11. CROSS-DEVICE — TOUCH TARGETS
-   ═══════════════════════════════════════════════════════════════
-   WCAG 2.5.5 Target Size (Enhanced) recommends 44×44 px minimum.
-   Applies to touch input only, so dense desktop layouts are
-   unaffected. */
-
+   ═══════════════════════════════════════════════════════════════ */
 @media (pointer: coarse) {
   .btn,
   .icon-btn,
@@ -1880,10 +1867,7 @@ th.num { text-align: right; }
 
 /* ═══════════════════════════════════════════════════════════════
    12. CROSS-DEVICE — LANDSCAPE PHONES
-   ═══════════════════════════════════════════════════════════════
-   Vertical space is precious when a phone is sideways. Reduce
-   chrome so content fits without scrolling. */
-
+   ═══════════════════════════════════════════════════════════════ */
 @media (max-height: 500px) and (orientation: landscape) {
   .sidebar {
     padding-top: 12px;
@@ -1906,11 +1890,7 @@ th.num { text-align: right; }
 
 /* ═══════════════════════════════════════════════════════════════
    13. CROSS-DEVICE — 4K AND ULTRAWIDE
-   ═══════════════════════════════════════════════════════════════
-   The base layout caps .main at 1440px, which is right for
-   laptops. On 4K displays that leaves very wide margins. Nudge
-   the cap up but keep text legible. */
-
+   ═══════════════════════════════════════════════════════════════ */
 @media (min-width: 2000px) {
   .main {
     max-width: 1720px;
@@ -1921,10 +1901,7 @@ th.num { text-align: right; }
 
 /* ═══════════════════════════════════════════════════════════════
    14. CROSS-DEVICE — OVERFLOW GUARDS
-   ═══════════════════════════════════════════════════════════════
-   Belt-and-braces against horizontal scroll caused by a wide
-   table, an oversized image, or a long unbroken string. */
-
+   ═══════════════════════════════════════════════════════════════ */
 img,
 video,
 canvas,
@@ -1936,9 +1913,7 @@ code { overflow-wrap: anywhere; }
 
 /* ═══════════════════════════════════════════════════════════════
    15. PRINT STYLES
-   ═══════════════════════════════════════════════════════════════
-   Tax reports, portfolio summaries, thesis pages. Hides chrome,
-   forces black-on-white, avoids page breaks inside cards. */
+   ═══════════════════════════════════════════════════════════════ */
 @media print {
   @page {
     margin: 1.5cm;
@@ -1995,4 +1970,81 @@ code { overflow-wrap: anywhere; }
     background: none !important;
     color: #000 !important;
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   16. DECISION ENGINE — "Needs Attention" list
+   ═══════════════════════════════════════════════════════════════
+   Used by js/intelligence/decision-engine.js render(). Replaces
+   the eleven el.style.* assignments in the earlier implementation
+   with semantic classes. Only the confidence bar's width and colour
+   vary dynamically; both use CSS custom properties, matching the
+   .meter-fill-* pattern above. Zero inline style attributes. */
+
+.decision-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0 0;
+}
+.decision-item {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.decision-item:last-child {
+  border-bottom: none;
+}
+.decision-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.decision-asset {
+  font-size: 1.1em;
+  font-weight: 600;
+}
+.decision-title {
+  margin: 4px 0 0 0;
+  color: var(--text);
+}
+.decision-conf-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.decision-bar {
+  flex: 1;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+  min-width: 60px;
+}
+.decision-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  width: var(--bar-width, 0%);
+  background: var(--bar-color, var(--brand));
+  transition: width 0.4s ease;
+}
+.decision-bar-fill-up   { --bar-color: var(--up); }
+.decision-bar-fill-warn { --bar-color: var(--warn); }
+.decision-bar-fill-down { --bar-color: var(--down); }
+.decision-bar-fill-0   { --bar-width: 0%; }
+.decision-bar-fill-10  { --bar-width: 10%; }
+.decision-bar-fill-20  { --bar-width: 20%; }
+.decision-bar-fill-30  { --bar-width: 30%; }
+.decision-bar-fill-40  { --bar-width: 40%; }
+.decision-bar-fill-50  { --bar-width: 50%; }
+.decision-bar-fill-60  { --bar-width: 60%; }
+.decision-bar-fill-70  { --bar-width: 70%; }
+.decision-bar-fill-80  { --bar-width: 80%; }
+.decision-bar-fill-90  { --bar-width: 90%; }
+.decision-bar-fill-100 { --bar-width: 100%; }
+.decision-action {
+  margin-top: 8px;
+  color: var(--muted);
+  font-weight: 600;
 }
