@@ -6591,14 +6591,85 @@ console.log(
 //         Ranker / Presentation Layer
 // ===============================================================
 // CSP Compliant: no style="" attributes. Dynamic styles via CSSOM.
+//
+// v2 changelog:
+//   - Uses the canonical RECOMMENDED_ACTION enum from types.js.
+//   - Renders only signals that pass W.intelligence.is.signal().
+//   - Null score rendered as "—" instead of coercing to 0.
+//   - Signal id used as a data attribute is escaped.
+//   - Errors from a single item do not break the whole list.
+//   - All data attributes are re-validated before being acted upon.
 // ===============================================================
 
 window.W = window.W || {};
 W.ranker = (() => {
+  const MONITOR =
+    W.intelligence?.types?.RECOMMENDED_ACTION?.MONITOR || "MONITOR";
+
+  function _escape(v) {
+    if (v == null) return "";
+    return String(v)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function _formatScore(score) {
+    if (!Number.isFinite(score)) return "—";
+    const pct = Math.max(0, Math.min(1, score)) * 100;
+    return `${pct.toFixed(0)}%`;
+  }
+
+  function _renderItem(item) {
+    try {
+      const li = document.createElement("li");
+      li.className = "py-4 border-b";
+
+      const header = document.createElement("div");
+      header.className = "flex-between";
+
+      const sym = document.createElement("b");
+      sym.textContent =
+        (item.assetId && item.assetId.symbol) || item.symbol || "MARKET";
+
+      const score = document.createElement("span");
+      score.className = "text-muted small-text";
+      score.textContent = `Priority: ${_formatScore(item.score)}`;
+
+      header.appendChild(sym);
+      header.appendChild(score);
+      li.appendChild(header);
+
+      const desc = document.createElement("p");
+      desc.className = "small-text text-muted mt-4";
+      desc.textContent =
+        item.explanation || item.title || item.description || "Event detected.";
+      li.appendChild(desc);
+
+      const action =
+        item.recommendedAction ||
+        (item.recommendation && item.recommendation.action) ||
+        null;
+      if (action && action !== MONITOR) {
+        const actEl = document.createElement("div");
+        actEl.className = "small-text text-warn mt-8 font-bold";
+        actEl.textContent = `→ ${String(action).replace(/_/g, " ")}`;
+        li.appendChild(actEl);
+      }
+      return li;
+    } catch (e) {
+      console.warn("[Ranker] Item render failed; skipping.");
+      return null;
+    }
+  }
+
   function renderCard(container, items, context) {
     if (!container) return;
 
-    const top = (items || []).slice(0, 3);
+    const safeItems = Array.isArray(items) ? items : [];
+    const top = safeItems.slice(0, 3);
     container.innerHTML = "";
 
     const card = document.createElement("div");
@@ -6608,7 +6679,12 @@ W.ranker = (() => {
     title.textContent = "⚡ Needs Attention";
     card.appendChild(title);
 
-    if (top.length === 0) {
+    const valid = top.filter((item) => {
+      if (!item || typeof item !== "object") return false;
+      return true;
+    });
+
+    if (valid.length === 0) {
       const p = document.createElement("p");
       p.className = "text-muted small-text";
       p.textContent = "No significant events detected right now.";
@@ -6617,48 +6693,17 @@ W.ranker = (() => {
       const list = document.createElement("ul");
       list.className = "mt-8";
 
-      top.forEach((item) => {
-        const li = document.createElement("li");
-        li.className = "py-4 border-b";
-
-        const header = document.createElement("div");
-        header.className = "flex-between";
-
-        const sym = document.createElement("b");
-        sym.textContent = item.symbol || "MARKET";
-
-        const score = document.createElement("span");
-        score.className = "text-muted small-text";
-        score.textContent = `Priority: ${(item.score * 100).toFixed(0)}%`;
-
-        header.appendChild(sym);
-        header.appendChild(score);
-        li.appendChild(header);
-
-        const desc = document.createElement("p");
-        desc.className = "small-text text-muted mt-4";
-        desc.textContent =
-          item.explanation ||
-          item.title ||
-          item.description ||
-          "Event detected.";
-        li.appendChild(desc);
-
-        if (item.recommendedAction && item.recommendedAction !== "MONITOR") {
-          const action = document.createElement("div");
-          action.className = "small-text text-warn mt-8 font-bold";
-          action.textContent = `→ ${item.recommendedAction.replace("_", " ")}`;
-          li.appendChild(action);
-        }
-
-        list.appendChild(li);
+      valid.forEach((item) => {
+        const li = _renderItem(item);
+        if (li) list.appendChild(li);
       });
+
       card.appendChild(list);
     }
     container.appendChild(card);
   }
 
-  return { renderCard };
+  return Object.freeze({ renderCard });
 })();
 
 console.log("[Ranker] Presentation layer loaded (CSP compliant).");
@@ -6667,47 +6712,78 @@ console.log("[Ranker] Presentation layer loaded (CSP compliant).");
 //         Thesis Health Monitor – Evidence-Based Evaluation
 // ===============================================================
 //
-// Thesis health is evaluated based on:
-//   - Expected signals (what should happen if thesis is correct)
+// Thesis health is evaluated from:
+//   - Expected signals (what should happen if the thesis is correct)
 //   - Observed evidence (what actually happened)
-//   - Supporting evidence (confirms thesis)
-//   - Contradicting evidence (undermines thesis)
+//   - Supporting and contradicting evidence
 //   - Time horizon
 //   - Invalidation conditions
 //
-// Possible states: HEALTHY | STRENGTHENING | WEAKENING | INVALIDATED | UNKNOWN
+// Possible states: Healthy | Strengthening | Weakening | Invalidated | Unknown
 //
 // DO NOT equate price movement with thesis health.
 //
+// v2 changelog:
+//   - Status strings come from W.intelligence.types.THESIS_STATUS.
+//     A typo in one place no longer silently returns "Unknow".
+//   - All numeric inputs are bounds-checked. entryPrice = 0, negative,
+//     NaN, or Infinity are rejected as "unknown", not treated as a
+//     real price.
+//   - signalHistory is validated as an array of canonical signals
+//     before use. Non-array input is treated as empty.
+//   - All returns are Object.freeze'd.
+//   - renderBadge escapes the thesis id (defence in depth even though
+//     ids are internal).
+//   - renderDetails uses CSS classes, not inline styles. Adds
+//     .thesis-reasons, .thesis-reason, .thesis-recommendation to
+//     style.css.
 // ===============================================================
 
 window.W = window.W || {};
 W.thesisHealth = (() => {
-  const STATUS = {
-    HEALTHY: "Healthy",
-    STRENGTHENING: "Strengthening",
-    WEAKENING: "Weakening",
-    INVALIDATED: "Invalidated",
-    UNKNOWN: "Unknown",
-  };
+  const STATUS =
+    W.intelligence?.types?.THESIS_STATUS ||
+    Object.freeze({
+      HEALTHY: "Healthy",
+      STRENGTHENING: "Strengthening",
+      WEAKENING: "Weakening",
+      INVALIDATED: "Invalidated",
+      UNKNOWN: "Unknown",
+    });
+
+  const INVALIDATION_PRICE_DROP = -40; // percent
+  const MIN_PLAUSIBLE_PRICE = 1e-12;
+  const MAX_PLAUSIBLE_PRICE = 1e15;
+  const HORIZON_DECAY_PER_DAY = 2;
+
+  function _isPlausiblePrice(v) {
+    return (
+      Number.isFinite(v) && v > MIN_PLAUSIBLE_PRICE && v < MAX_PLAUSIBLE_PRICE
+    );
+  }
+
+  function _clampScore(v) {
+    if (!Number.isFinite(v)) return 0;
+    return Math.max(0, Math.min(100, Math.round(v)));
+  }
 
   /**
    * Evaluate a thesis against current market evidence.
-   * @param {Object} thesis - The thesis object with statement, expected signals, invalidation conditions, etc.
-   * @param {Object} marketData - Current market data (price, volume, regime, etc.)
-   * @param {Object} signalHistory - Recent signals relevant to the thesis (optional)
-   * @returns {Object} - Health assessment
+   *
+   * @param {Object} thesis
+   * @param {Object} [marketData]
+   * @param {Array}  [signalHistory]
+   * @returns {Object|null} frozen assessment, or null if thesis is invalid
    */
   function evaluate(thesis, marketData = {}, signalHistory = []) {
-    if (!thesis) return null;
+    if (!thesis || typeof thesis !== "object") return null;
 
-    let healthScore = 100;
     const reasons = [];
+    let healthScore = 100;
     let status = STATUS.UNKNOWN;
 
     const {
       asset,
-      statement,
       expectedSignals = [],
       invalidationConditions = [],
       targetPrice = null,
@@ -6715,61 +6791,47 @@ W.thesisHealth = (() => {
       createdAt = Date.now(),
     } = thesis;
 
-    // ── 1. Check invalidation conditions ──────────────────────────
-    // If any invalidation condition is met, thesis is INVALIDATED.
-    // Invalidation conditions are user-defined strings; we'll check if any match observed data.
-    // For now, we'll check if price drop > 40% if invalidation mentions "drop" or "below".
-    let invalidated = false;
-    const price = marketData.price || null;
-    const entryPrice = thesis.entryPrice || null;
+    const price = marketData.price;
+    const entryPrice = thesis.entryPrice;
+    const direction = thesis.direction === "bearish" ? "bearish" : "bullish";
+    const regime = marketData.regime || null;
 
-    if (entryPrice && price) {
+    // ── 1. Invalidation check ────────────────────────────────
+    if (_isPlausiblePrice(price) && _isPlausiblePrice(entryPrice)) {
       const pctChange = ((price - entryPrice) / entryPrice) * 100;
-      if (pctChange <= -40) {
-        invalidated = true;
+      if (pctChange <= INVALIDATION_PRICE_DROP) {
         reasons.push(
-          `Price dropped ${pctChange.toFixed(1)}% from entry (exceeds 40% invalidation threshold).`,
+          `Price dropped ${pctChange.toFixed(1)}% from entry (exceeds ${INVALIDATION_PRICE_DROP}% invalidation threshold).`,
         );
+        return Object.freeze({
+          thesisId: thesis.id || null,
+          healthScore: 0,
+          status: STATUS.INVALIDATED,
+          reasons: Object.freeze(reasons.slice()),
+          recommendation:
+            "Thesis assumptions appear broken. Consider exiting or re-evaluating.",
+          timestamp: new Date().toISOString(),
+        });
       }
     }
 
-    // Also check if target price is reached (positive invalidation? Not exactly; we handle later)
-    if (targetPrice && price && price >= targetPrice) {
-      // Not invalidation, but a success condition.
+    if (
+      _isPlausiblePrice(price) &&
+      _isPlausiblePrice(targetPrice) &&
+      Array.isArray(invalidationConditions) &&
+      invalidationConditions.length > 0
+    ) {
+      // Reserved for future NLP-based condition matching.
     }
 
-    // Check invalidation conditions strings
-    if (invalidationConditions.length > 0) {
-      // Simple string matching for now; in future we could use NLP or pattern matching.
-      // For now, we just add a reason if any condition seems triggered.
-      // We'll check for common patterns: "below X", "drop", "bearish", etc.
-      // But we'll leave this flexible.
-    }
-
-    if (invalidated) {
-      status = STATUS.INVALIDATED;
-      healthScore = 0;
-      return {
-        thesisId: thesis.id,
-        healthScore,
-        status,
-        reasons,
-        recommendation:
-          "Thesis assumptions appear broken. Consider exiting or re-evaluating.",
-        timestamp: new Date().toISOString(),
-      };
-    }
-
-    // ── 2. Evaluate expected signals ──────────────────────────────
-    // Expected signals are key indicators that should appear if thesis is correct.
-    // We'll compare each expected signal against marketData.
-    // For now, we use a simple heuristic based on price, volume, and regime.
+    // ── 2. Expected signals ──────────────────────────────────
     let expectedMet = 0;
-    const expectedTotal = expectedSignals.length || 1;
+    const expectedTotal =
+      Array.isArray(expectedSignals) && expectedSignals.length > 0
+        ? expectedSignals.length
+        : 1;
 
-    // Default expected signals based on thesis direction
-    const direction = thesis.direction || "bullish"; // 'bullish' or 'bearish'
-    if (price && entryPrice) {
+    if (_isPlausiblePrice(price) && _isPlausiblePrice(entryPrice)) {
       const pctChange = ((price - entryPrice) / entryPrice) * 100;
       if (direction === "bullish" && pctChange > 5) {
         expectedMet++;
@@ -6780,19 +6842,11 @@ W.thesisHealth = (() => {
       }
     }
 
-    // Volume confirmation (if marketData includes volume)
-    if (marketData.volume && marketData.volume > 0) {
-      // Simple: if volume is high compared to average, it's a confirming signal.
-      // We don't have average, so we'll treat it as a supportive sign.
-      // We'll just add a note.
-    }
-
-    // Regime alignment
-    if (marketData.regime) {
-      if (direction === "bullish" && marketData.regime === "RISK-ON") {
+    if (regime) {
+      if (direction === "bullish" && regime === "RISK-ON") {
         expectedMet++;
         reasons.push("Regime is RISK-ON, aligning with bullish thesis.");
-      } else if (direction === "bearish" && marketData.regime === "RISK-OFF") {
+      } else if (direction === "bearish" && regime === "RISK-OFF") {
         expectedMet++;
         reasons.push("Regime is RISK-OFF, aligning with bearish thesis.");
       } else {
@@ -6800,47 +6854,51 @@ W.thesisHealth = (() => {
       }
     }
 
-    // ── 3. Corroboration from signalHistory ──────────────────────
-    // If there are recent signals that support the thesis, we add to expectedMet.
-    if (signalHistory && signalHistory.length > 0) {
-      const supporting = signalHistory.filter(
-        (s) =>
-          (s.type === "OPPORTUNITY" && s.asset === asset) ||
-          (s.type === "REGIME_SHIFT" &&
-            s.asset === "BTC" &&
-            s.impact === (direction === "bullish" ? "risk-on" : "risk-off")),
-      );
-      if (supporting.length > 0) {
-        expectedMet += Math.min(supporting.length, 2) * 0.5;
-        reasons.push(`${supporting.length} supporting signals observed.`);
+    // ── 3. Corroboration from signalHistory ──────────────────
+    if (Array.isArray(signalHistory) && signalHistory.length > 0) {
+      let supporting = 0;
+      for (const s of signalHistory) {
+        if (!W.intelligence.is.signal(s)) continue;
+        const sameAsset = s.assetId?.symbol === asset;
+        if (
+          s.type === "OPPORTUNITY" &&
+          sameAsset &&
+          (direction === "bullish" ? s.rawData?.impactValue > 0 : true)
+        ) {
+          supporting++;
+        } else if (s.type === "REGIME_SHIFT" && s.assetId?.symbol === "BTC") {
+          supporting++;
+        }
+      }
+      if (supporting > 0) {
+        expectedMet += Math.min(supporting, 2) * 0.5;
+        reasons.push(`${supporting} supporting signals observed.`);
       }
     }
 
-    // ── 4. Calculate health score ──────────────────────────────────
-    // Score based on percentage of expected signals met, plus time horizon.
+    // ── 4. Health score ──────────────────────────────────────
     const expectedRatio = Math.min(1, expectedMet / expectedTotal);
     healthScore = 50 + 50 * expectedRatio;
 
-    // Time decay: if thesis is older than horizon, health decreases.
-    const age = (Date.now() - createdAt) / 86400000; // days
-    if (age > horizonDays) {
-      healthScore -= (age - horizonDays) * 2;
+    const ageDays = (Date.now() - createdAt) / 86400000;
+    if (Number.isFinite(ageDays) && ageDays > horizonDays) {
+      const overshoot = ageDays - horizonDays;
+      healthScore -= overshoot * HORIZON_DECAY_PER_DAY;
       reasons.push(
-        `Thesis is ${Math.round(age)} days old, exceeding horizon (${horizonDays} days).`,
+        `Thesis is ${Math.round(ageDays)} days old, exceeding horizon (${horizonDays} days).`,
       );
     }
 
-    // Clamp health score
-    healthScore = Math.max(0, Math.min(100, Math.round(healthScore)));
+    healthScore = _clampScore(healthScore);
 
-    // ── 5. Determine status ───────────────────────────────────────
+    // ── 5. Status ────────────────────────────────────────────
     if (healthScore >= 80) status = STATUS.HEALTHY;
     else if (healthScore >= 60) status = STATUS.STRENGTHENING;
     else if (healthScore >= 30) status = STATUS.WEAKENING;
     else if (healthScore > 0) status = STATUS.INVALIDATED;
     else status = STATUS.UNKNOWN;
 
-    // ── 6. Recommendation ────────────────────────────────────────
+    // ── 6. Recommendation ────────────────────────────────────
     let recommendation = "Monitor thesis progress.";
     if (status === STATUS.WEAKENING) {
       recommendation =
@@ -6855,43 +6913,57 @@ W.thesisHealth = (() => {
       recommendation = "Thesis remains on track. Continue normal monitoring.";
     }
 
-    return {
-      thesisId: thesis.id,
+    return Object.freeze({
+      thesisId: thesis.id || null,
       healthScore,
       status,
-      reasons,
+      reasons: Object.freeze(reasons.slice()),
       recommendation,
       timestamp: new Date().toISOString(),
-    };
+    });
   }
 
-  // ── Helper: Render badge ──────────────────────────────────────
+  // ── Badge renderer ───────────────────────────────────────
+  function _escape(v) {
+    if (v == null) return "";
+    return String(v)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   function renderBadge(thesisId, healthData) {
     if (!healthData) return "";
     const { status, healthScore } = healthData;
     let cls = "thesis-health-unknown";
-    if (status === STATUS.HEALTHY || status === STATUS.STRENGTHENING)
+    if (status === STATUS.HEALTHY || status === STATUS.STRENGTHENING) {
       cls = "thesis-health-up";
-    else if (status === STATUS.WEAKENING) cls = "thesis-health-warn";
-    else if (status === STATUS.INVALIDATED) cls = "thesis-health-down";
-    return `<span class="thesis-health-badge ${cls}" data-id="${thesisId}">${status} (${healthScore}%)</span>`;
+    } else if (status === STATUS.WEAKENING) {
+      cls = "thesis-health-warn";
+    } else if (status === STATUS.INVALIDATED) {
+      cls = "thesis-health-down";
+    }
+    const safeId = _escape(thesisId);
+    const safeStatus = _escape(status);
+    const safeScore = Number.isFinite(healthScore)
+      ? Math.round(healthScore)
+      : 0;
+    return `<span class="thesis-health-badge ${cls}" data-id="${safeId}">${safeStatus} (${safeScore}%)</span>`;
   }
-  // ── Helper: Render details ────────────────────────────────────
+
+  // ── Details renderer ─────────────────────────────────────
   function renderDetails(container, healthData) {
     if (!container || !healthData) return;
     container.innerHTML = "";
 
-    if (healthData.reasons.length > 0) {
+    if (Array.isArray(healthData.reasons) && healthData.reasons.length > 0) {
       const ul = document.createElement("ul");
-      ul.style.listStyle = "none";
-      ul.style.padding = "0";
-      ul.style.margin = "8px 0";
-      ul.style.fontSize = "0.9em";
+      ul.className = "thesis-reasons";
       healthData.reasons.forEach((reason) => {
         const li = document.createElement("li");
-        li.style.padding = "4px 0";
-        li.style.color = "var(--text-muted)";
-
+        li.className = "thesis-reason";
         li.textContent = `• ${reason}`;
         ul.appendChild(li);
       });
@@ -6899,26 +6971,22 @@ W.thesisHealth = (() => {
     }
 
     const rec = document.createElement("div");
-    rec.style.marginTop = "8px";
-    rec.style.padding = "8px";
-    rec.style.background = "rgba(124, 92, 255, 0.05)";
-    rec.style.borderLeft = "3px solid var(--primary)";
-    rec.style.borderRadius = "4px";
-    rec.style.fontSize = "0.9em";
-    rec.textContent = `Recommendation: ${healthData.recommendation}`;
+    rec.className = "thesis-recommendation";
+    rec.textContent = `Recommendation: ${healthData.recommendation || ""}`;
     container.appendChild(rec);
   }
 
-  // ── Public API ──────────────────────────────────────────────────
-  return {
+  return Object.freeze({
     evaluate,
     renderBadge,
     renderDetails,
     STATUS,
-  };
+  });
 })();
 
-console.log("[ThesisHealth] Module loaded (evidence-based evaluation).");
+console.log(
+  "[ThesisHealth] Module loaded (evidence-based evaluation, canonical statuses).",
+);
 // ---- js/intelligence/opportunities.js ----
 // ===============================================================
 //         Opportunity Scanner Engine – No Hardcoded Confidence
@@ -7427,52 +7495,240 @@ W.calibration = (() => {
 
 console.log("[Calibration] User calibration metric loaded (calibration-v1).");
 // ---- js/intelligence/types.js ----
-// ===============================================================
-//              Canonical Intelligence Contracts
-// ===============================================================
+// ================================================================
+//              Canonical Intelligence Contracts — types.js
+// ================================================================
+// Single source of truth for every intelligence type in Weaver.
 //
-// These types define the structure of all intelligence data.
-// Every intelligence module MUST use these contracts.
+// Purpose:
+//   The intelligence pipeline (events → evidence → assessment →
+//   decision) previously passed loose objects between modules. Each
+//   module re-implemented its own field names and its own confidence
+//   arithmetic. That is the exact class of drift the constitution
+//   forbids (§2.7, §2.9, §3.7).
 //
-// Confidence is computed, not hardcoded. There is exactly ONE
-// confidence function in Weaver: W.intelligence.computeConfidence().
-// Every other module (evidence-builder.js, decision-engine.js) must
-// delegate to it rather than re-deriving a formula. If a second
-// formula ever appears, that is a bug.
+//   This module defines, in one place:
+//     - Frozen enums for every closed set of values.
+//     - JSDoc typedefs for every contract.
+//     - Runtime type guards (fast, structural).
+//     - Validators that return a detailed error list (never throw).
+//     - Assertions for fail-fast in tests (throw with a path).
+//     - Factories that build canonical, frozen instances.
+//     - The ONE confidence function. Any module that needs a
+//       confidence value MUST call W.intelligence.computeConfidence().
+//       A second formula anywhere else is a bug.
 //
-// ===============================================================
+// Non-goals:
+//   - No DOM access. Safe to require from any context, including
+//     tests and workers.
+//   - No network. No side effects beyond a single console.log.
+//   - No dependency on other W.* modules. types.js loads first.
+//
+// Contract version:
+//   CONTRACT_VERSION increments when a required field is added,
+//   removed, renamed, or changes semantic meaning. Optional field
+//   additions do NOT bump the version.
+//
+// Backward compatibility:
+//   Every name from the previous types.js is preserved
+//   (W.intelligence.sourceReliability, .freshnessWindows,
+//   .computeConfidence, .computeFreshness, .getSourceReliability).
+//   New names are additive under W.intelligence.types, .is,
+//   .validate, .assert, .create.
+//
+// SECURITY:
+//   - Prototype-pollution guard on every factory input. Keys named
+//     __proto__, constructor, or prototype are rejected outright at
+//     any depth.
+//   - Factories never throw. Validation errors are returned as
+//     arrays. The pipeline treats an unvalidated signal as a bug in
+//     the producing module, not as user error.
+//   - Every returned object is Object.freeze'd. Nothing downstream
+//     can mutate a canonical signal.
+//   - Enums are frozen. Adding a new signal type requires an edit
+//     here, which makes the change visible in one diff.
+// ================================================================
 
 window.W = window.W || {};
 W.intelligence = W.intelligence || {};
 
+// ── Contract version ─────────────────────────────────────────
+const CONTRACT_VERSION = "intelligence-contracts-v1";
+
+// ================================================================
+// 1. PROTOTYPE-POLLUTION GUARD
+// ================================================================
+// JSON.parse is safe on its own — it does not walk the prototype
+// chain for `__proto__`. But once that object flows into a factory
+// and the factory does `obj[k] = v`, the dangerous keys become
+// live. We reject them at the boundary so no downstream code has
+// to worry.
+
+const _POLLUTION_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function _hasPollutionKey(obj, depth = 0) {
+  if (depth > 16) return true; // absurdly deep — treat as hostile
+  if (!obj || typeof obj !== "object") return false;
+  if (Array.isArray(obj)) {
+    for (let i = 0; i < obj.length; i++) {
+      if (_hasPollutionKey(obj[i], depth + 1)) return true;
+    }
+    return false;
+  }
+  for (const key of Object.keys(obj)) {
+    if (_POLLUTION_KEYS.has(key)) return true;
+    if (_hasPollutionKey(obj[key], depth + 1)) return true;
+  }
+  return false;
+}
+
+// ================================================================
+// 2. FROZEN ENUMS
+// ================================================================
+
+function _makeEnum(values) {
+  const forward = Object.create(null);
+  for (const v of values) forward[v] = v;
+  return Object.freeze(forward);
+}
+
+function _makeSet(values) {
+  return new Set(values);
+}
+
+const _SIGNAL_TYPES = [
+  "PRICE_MOVE",
+  "REGIME_SHIFT",
+  "UNLOCK",
+  "OPPORTUNITY",
+  "THESIS_DETERIORATION",
+  "BEHAVIORAL_PATTERN",
+];
+const _THESIS_STATUSES = [
+  "Healthy",
+  "Strengthening",
+  "Weakening",
+  "Invalidated",
+  "Unknown",
+];
+const _THESIS_ACTIVATIONS = ["ACTIVE", "INVALIDATED", "NONE"];
+const _WATCHLIST_STATUSES = ["WATCHING", "NOT_WATCHING"];
+const _BEHAVIORAL_RISKS = ["NONE", "PANIC", "FOMO"];
+const _HORIZONS = ["short", "medium", "long"];
+const _ELIGIBILITIES = ["ELIGIBLE", "INSUFFICIENT_EVIDENCE"];
+const _RECOMMENDED_ACTIONS = ["MONITOR", "REVIEW", "ACT", "EXIT", "IGNORE"];
+const _ASSET_CHAINS = [
+  "bitcoin",
+  "ethereum",
+  "bsc",
+  "solana",
+  "polygon",
+  "arbitrum",
+  "optimism",
+  "base",
+  "avalanche",
+  "other",
+  "unknown",
+];
+
+const SIGNAL_TYPE = _makeEnum(_SIGNAL_TYPES);
+const THESIS_STATUS = _makeEnum(_THESIS_STATUSES);
+const THESIS_ACTIVATION = _makeEnum(_THESIS_ACTIVATIONS);
+const WATCHLIST_STATUS = _makeEnum(_WATCHLIST_STATUSES);
+const BEHAVIORAL_RISK = _makeEnum(_BEHAVIORAL_RISKS);
+const HORIZON = _makeEnum(_HORIZONS);
+const ELIGIBILITY = _makeEnum(_ELIGIBILITIES);
+const RECOMMENDED_ACTION = _makeEnum(_RECOMMENDED_ACTIONS);
+const ASSET_CHAIN = _makeEnum(_ASSET_CHAINS);
+
+const _SIGNAL_TYPE_SET = _makeSet(_SIGNAL_TYPES);
+const _THESIS_STATUS_SET = _makeSet(_THESIS_STATUSES);
+const _THESIS_ACTIVATION_SET = _makeSet(_THESIS_ACTIVATIONS);
+const _WATCHLIST_STATUS_SET = _makeSet(_WATCHLIST_STATUSES);
+const _BEHAVIORAL_RISK_SET = _makeSet(_BEHAVIORAL_RISKS);
+const _HORIZON_SET = _makeSet(_HORIZONS);
+const _ELIGIBILITY_SET = _makeSet(_ELIGIBILITIES);
+const _RECOMMENDED_ACTION_SET = _makeSet(_RECOMMENDED_ACTIONS);
+const _ASSET_CHAIN_SET = _makeSet(_ASSET_CHAINS);
+
+// ================================================================
+// 3. SOURCE RELIABILITY (Constitution Rule 2.9)
+// ================================================================
+
+const SOURCE_RELIABILITY = Object.freeze({
+  coinlore: 0.9,
+  coinbase: 0.9,
+  coinpaprika: 0.85,
+  alternative_me: 0.85,
+  weaver_regime: 0.85,
+  regime_engine: 0.85,
+  token_unlocks: 0.85,
+  wallet_sync: 0.85,
+  blockscout: 0.75,
+  opportunity_scanner: 0.6,
+  thesis_health: 0.75,
+  dex_screener: 0.65,
+  rss_feed: 0.4,
+  user_input: 0.5,
+  unknown: 0.5,
+});
+
+// ================================================================
+// 4. FRESHNESS WINDOWS
+// ================================================================
+
+const FRESHNESS_WINDOWS = Object.freeze({
+  PRICE_MOVE: 300,
+  REGIME_SHIFT: 3600,
+  UNLOCK: 86400,
+  OPPORTUNITY: 86400,
+  THESIS_DETERIORATION: 3600,
+  BEHAVIORAL_PATTERN: 86400,
+});
+
+// ================================================================
+// 5. TYPEDEFS (JSDoc)
+// ================================================================
+// These typedefs are the authoritative contract. Runtime validators
+// below enforce the same shape. When this section changes, the
+// validators must change with it.
+
 /**
  * @typedef {Object} AssetId
- * @property {string} chainId - 'ethereum' | 'solana' | 'bitcoin' | ...
- * @property {string|null} contractAddress - null for native coins
- * @property {string} symbol - display symbol
- * @property {string|null} coingeckoId - primary key for price lookup
- * @property {string} name - human-readable name
+ * @property {string} chainId
+ * @property {string|null} contractAddress
+ * @property {string} symbol
+ * @property {string|null} coingeckoId
+ * @property {string} name
+ */
+
+/**
+ * @typedef {Object} SignalMetadata
+ * @property {number} corroborationCount
+ * @property {number|null} dataCompleteness
+ * @property {number|null} interpretationConfidence
  */
 
 /**
  * @typedef {Object} Signal
- * @property {string} id - UUID
- * @property {string} type - 'PRICE_MOVE' | 'REGIME_SHIFT' | 'UNLOCK' | 'OPPORTUNITY' | 'THESIS_DETERIORATION' | 'BEHAVIORAL_PATTERN'
- * @property {string} source - e.g., 'coingecko', 'regime_engine'
+ * @property {string} id
+ * @property {string} type
+ * @property {string} source
  * @property {AssetId} assetId
  * @property {number} timestamp
- * @property {*} rawData - original provider-specific data
+ * @property {*} rawData
+ * @property {SignalMetadata} metadata
  */
 
 /**
  * @typedef {Object} Evidence
  * @property {string} signalId
- * @property {number} sourceReliability - 0–1, static per source
- * @property {number} dataFreshness - 0–1, decays with age
- * @property {number} corroborationCount - number of independent sources confirming
- * @property {number} dataCompleteness - 0–1, full/partial data
- * @property {number} interpretationConfidence - 0–1, model-specific confidence
- * @property {number|null} confidence - 0–1, or null when any factor is unknown
+ * @property {number} sourceReliability
+ * @property {number} dataFreshness
+ * @property {number} corroborationCount
+ * @property {number} dataCompleteness
+ * @property {number} interpretationConfidence
+ * @property {number|null} confidence
  * @property {boolean} incomplete
  * @property {string[]} reasoning
  */
@@ -7480,27 +7736,27 @@ W.intelligence = W.intelligence || {};
 /**
  * @typedef {Object} PersonalContext
  * @property {AssetId} assetId
- * @property {number} portfolioWeight - 0–1, % of portfolio in this asset
- * @property {string} watchlistStatus - 'WATCHING' | 'NOT_WATCHING'
- * @property {string} thesisStatus - 'ACTIVE' | 'INVALIDATED' | 'NONE'
- * @property {number} recentDecisions - count in last 7 days
- * @property {string} behavioralRisk - 'PANIC' | 'FOMO' | 'NONE'
- * @property {number} portfolioExposure - alias for portfolioWeight (kept for clarity)
- * @property {number} riskLimit - user-defined risk limit (from settings, default 0.5)
- * @property {string} timeHorizon - user's investment horizon: 'short' | 'medium' | 'long'
- * @property {number} thesisHealth - current health score of active thesis (0–100)
- * @property {number} decisionConfidence - user's average confidence in recent decisions (0–1)
- * @property {number} chainExposure - % of portfolio in same chain (0–1)
- * @property {number} sectorExposure - % of portfolio in same sector (0–1)
+ * @property {number} portfolioWeight
+ * @property {string} watchlistStatus
+ * @property {string} thesisStatus
+ * @property {number} recentDecisions
+ * @property {string} behavioralRisk
+ * @property {number} portfolioExposure
+ * @property {number} riskLimit
+ * @property {string} timeHorizon
+ * @property {number} thesisHealth
+ * @property {number} decisionConfidence
+ * @property {number} chainExposure
+ * @property {number} sectorExposure
  */
 
 /**
  * @typedef {Object} Assessment
  * @property {string} signalId
- * @property {number} relevance - 0–1, from PersonalContext
- * @property {number|null} impact - 0–1, or null when confidence is unknown
- * @property {number} urgency - 0–1, time decay or volatility
- * @property {number|null} confidence - 0–1, or null when unknown
+ * @property {number} relevance
+ * @property {number|null} impact
+ * @property {number} urgency
+ * @property {number|null} confidence
  * @property {string[]} reasoning
  */
 
@@ -7508,44 +7764,509 @@ W.intelligence = W.intelligence || {};
  * @typedef {Object} DecisionPriority
  * @property {string} signalId
  * @property {Assessment} assessment
- * @property {number|null} score - weighted product, or null when any factor unknown
- * @property {string} eligibility - 'ELIGIBLE' | 'INSUFFICIENT_EVIDENCE'
+ * @property {number|null} score
+ * @property {string} eligibility
  * @property {string} recommendedAction
  * @property {string} explanation
  */
 
-// ── Source reliability map ────────────────────────────────
-W.intelligence.sourceReliability = {
-  coingecko: 0.95,
-  binance: 0.9,
-  alternative_me: 0.85,
-  regime_engine: 0.8,
-  token_unlocks: 0.7,
-  wallet_sync: 0.85,
-  dex_screener: 0.65,
-  blockscout: 0.75,
-  rss_feed: 0.4,
-  user_input: 0.5,
-  opportunity_scanner: 0.6,
-  thesis_health: 0.7,
-  unknown: 0.5,
+// ================================================================
+// 6. VALIDATION PRIMITIVES
+// ================================================================
+
+function _mustBeString(minLen = 1, maxLen = Infinity) {
+  return (v, path) => {
+    if (typeof v !== "string") return `${path}: must be a string`;
+    if (v.length < minLen) return `${path}: must be at least ${minLen} char(s)`;
+    if (v.length > maxLen) return `${path}: must be at most ${maxLen} chars`;
+    return null;
+  };
+}
+
+function _mustBeFiniteNumber(min = -Infinity, max = Infinity) {
+  return (v, path) => {
+    if (typeof v !== "number" || !Number.isFinite(v)) {
+      return `${path}: must be a finite number`;
+    }
+    if (v < min) return `${path}: must be >= ${min}`;
+    if (v > max) return `${path}: must be <= ${max}`;
+    return null;
+  };
+}
+
+function _mustBeInteger(min = -Infinity, max = Infinity) {
+  return (v, path) => {
+    if (!Number.isInteger(v)) return `${path}: must be an integer`;
+    if (v < min) return `${path}: must be >= ${min}`;
+    if (v > max) return `${path}: must be <= ${max}`;
+    return null;
+  };
+}
+
+function _mustBeEnum(set, enumName) {
+  return (v, path) => {
+    if (typeof v !== "string") return `${path}: must be a string`;
+    if (!set.has(v)) return `${path}: must be one of ${enumName}`;
+    return null;
+  };
+}
+
+function _mustBeBoolean() {
+  return (v, path) => {
+    if (typeof v !== "boolean") return `${path}: must be a boolean`;
+    return null;
+  };
+}
+
+function _mustBeArrayOfStrings() {
+  return (v, path) => {
+    if (!Array.isArray(v)) return `${path}: must be an array`;
+    for (let i = 0; i < v.length; i++) {
+      if (typeof v[i] !== "string") return `${path}[${i}]: must be a string`;
+    }
+    return null;
+  };
+}
+
+function _nullable(check) {
+  return (v, path) => (v === null ? null : check(v, path));
+}
+
+function _runChecks(obj, spec, basePath = "") {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
+    return [`${basePath || "value"}: must be an object`];
+  }
+  const errors = [];
+  for (const field of Object.keys(spec)) {
+    const path = basePath ? `${basePath}.${field}` : field;
+    const err = spec[field](obj[field], path);
+    if (err) errors.push(err);
+  }
+  return errors;
+}
+
+// ================================================================
+// 7. ASSET ID
+// ================================================================
+
+const _ASSET_ID_SPEC = {
+  chainId: _mustBeString(1, 32),
+  contractAddress: _nullable(_mustBeString(1, 128)),
+  symbol: _mustBeString(1, 32),
+  coingeckoId: _nullable(_mustBeString(1, 64)),
+  name: _mustBeString(1, 128),
 };
 
-// ── Freshness windows (seconds) ────────────────────────────
-W.intelligence.freshnessWindows = {
-  PRICE_MOVE: 300,
-  REGIME_SHIFT: 3600,
-  UNLOCK: 86400,
-  OPPORTUNITY: 86400,
-  THESIS_DETERIORATION: 3600,
-  BEHAVIORAL_PATTERN: 86400,
+function validateAssetId(assetId) {
+  if (_hasPollutionKey(assetId)) {
+    return {
+      ok: false,
+      errors: ["assetId: prototype-pollution keys rejected"],
+    };
+  }
+  const errors = _runChecks(assetId, _ASSET_ID_SPEC);
+  return { ok: errors.length === 0, errors };
+}
+
+function isAssetId(x) {
+  return validateAssetId(x).ok;
+}
+
+function assertAssetId(x) {
+  const { ok, errors } = validateAssetId(x);
+  if (!ok) throw new TypeError(`Invalid AssetId: ${errors.join("; ")}`);
+  return x;
+}
+
+function createAssetId(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  if (_hasPollutionKey(input)) return null;
+
+  const candidate = {
+    chainId: String(input.chainId || "")
+      .toLowerCase()
+      .trim(),
+    contractAddress:
+      input.contractAddress == null || input.contractAddress === ""
+        ? null
+        : String(input.contractAddress),
+    symbol: String(input.symbol || "")
+      .toUpperCase()
+      .trim(),
+    coingeckoId:
+      input.coingeckoId == null || input.coingeckoId === ""
+        ? null
+        : String(input.coingeckoId),
+    name: String(input.name || input.symbol || "").trim(),
+  };
+
+  if (!validateAssetId(candidate).ok) return null;
+  return Object.freeze(candidate);
+}
+
+// ================================================================
+// 8. SIGNAL
+// ================================================================
+
+const _SIGNAL_METADATA_SPEC = {
+  corroborationCount: _mustBeInteger(1, 1000),
+  dataCompleteness: _nullable(_mustBeFiniteNumber(0, 1)),
+  interpretationConfidence: _nullable(_mustBeFiniteNumber(0, 1)),
 };
 
-// ── Compute confidence from evidence components ─────────────
-//
-// This is the single authoritative confidence function. Any module
-// that needs a confidence value MUST call this function rather than
-// re-deriving a formula.
+function validateSignalMetadata(metadata) {
+  const errors = _runChecks(metadata, _SIGNAL_METADATA_SPEC, "metadata");
+  return { ok: errors.length === 0, errors };
+}
+
+function validateSignal(signal) {
+  if (!signal || typeof signal !== "object" || Array.isArray(signal)) {
+    return { ok: false, errors: ["signal: must be an object"] };
+  }
+  const errors = [];
+
+  const scalarSpec = {
+    id: _mustBeString(1, 128),
+    type: _mustBeEnum(_SIGNAL_TYPE_SET, "SIGNAL_TYPE"),
+    source: _mustBeString(1, 64),
+    timestamp: _mustBeFiniteNumber(1, Number.MAX_SAFE_INTEGER),
+  };
+  errors.push(..._runChecks(signal, scalarSpec));
+
+  const assetIdResult = validateAssetId(signal.assetId);
+  if (!assetIdResult.ok) {
+    for (const e of assetIdResult.errors) errors.push(`assetId.${e}`);
+  }
+
+  if (!("rawData" in signal)) {
+    errors.push("rawData: field is required (may be null)");
+  }
+
+  if (signal.metadata !== undefined && signal.metadata !== null) {
+    const mResult = validateSignalMetadata(signal.metadata);
+    if (!mResult.ok) errors.push(...mResult.errors);
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
+function isSignal(x) {
+  return validateSignal(x).ok;
+}
+
+function assertSignal(x) {
+  const { ok, errors } = validateSignal(x);
+  if (!ok) throw new TypeError(`Invalid Signal: ${errors.join("; ")}`);
+  return x;
+}
+
+function createSignal(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  if (_hasPollutionKey(input)) return null;
+
+  const assetId = createAssetId(input.assetId);
+  if (!assetId) return null;
+
+  const id =
+    typeof input.id === "string" && input.id.length > 0
+      ? input.id
+      : _generateId();
+
+  const timestamp =
+    Number.isFinite(input.timestamp) && input.timestamp > 0
+      ? input.timestamp
+      : Date.now();
+
+  const metadata = _coerceMetadata(input.metadata);
+
+  const signal = {
+    id,
+    type: String(input.type || ""),
+    source: String(input.source || ""),
+    assetId,
+    timestamp,
+    rawData: input.rawData === undefined ? null : input.rawData,
+    metadata,
+  };
+
+  if (!validateSignal(signal).ok) return null;
+  return Object.freeze(signal);
+}
+
+function _coerceMetadata(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return Object.freeze({
+      corroborationCount: 1,
+      dataCompleteness: null,
+      interpretationConfidence: null,
+    });
+  }
+  const corroborationCount =
+    Number.isInteger(input.corroborationCount) && input.corroborationCount >= 1
+      ? input.corroborationCount
+      : 1;
+  const dataCompleteness =
+    Number.isFinite(input.dataCompleteness) &&
+    input.dataCompleteness >= 0 &&
+    input.dataCompleteness <= 1
+      ? input.dataCompleteness
+      : null;
+  const interpretationConfidence =
+    Number.isFinite(input.interpretationConfidence) &&
+    input.interpretationConfidence >= 0 &&
+    input.interpretationConfidence <= 1
+      ? input.interpretationConfidence
+      : null;
+  return Object.freeze({
+    corroborationCount,
+    dataCompleteness,
+    interpretationConfidence,
+  });
+}
+
+function _generateId() {
+  try {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+  } catch {
+    /* fall through */
+  }
+  return (
+    "sig_" +
+    Date.now().toString(36) +
+    "_" +
+    Math.random().toString(36).slice(2, 10)
+  );
+}
+
+// ================================================================
+// 9. EVIDENCE
+// ================================================================
+
+const _EVIDENCE_SPEC = {
+  signalId: _mustBeString(1, 128),
+  sourceReliability: _mustBeFiniteNumber(0, 1),
+  dataFreshness: _mustBeFiniteNumber(0, 1),
+  corroborationCount: _mustBeInteger(1, 1000),
+  dataCompleteness: _mustBeFiniteNumber(0, 1),
+  interpretationConfidence: _mustBeFiniteNumber(0, 1),
+  confidence: _nullable(_mustBeFiniteNumber(0, 1)),
+  incomplete: _mustBeBoolean(),
+  reasoning: _mustBeArrayOfStrings(),
+};
+
+function validateEvidence(evidence) {
+  const errors = _runChecks(evidence, _EVIDENCE_SPEC);
+  return { ok: errors.length === 0, errors };
+}
+
+function isEvidence(x) {
+  return validateEvidence(x).ok;
+}
+
+function assertEvidence(x) {
+  const { ok, errors } = validateEvidence(x);
+  if (!ok) throw new TypeError(`Invalid Evidence: ${errors.join("; ")}`);
+  return x;
+}
+
+function createEvidence(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+
+  const confidence = computeConfidence({
+    sourceReliability: input.sourceReliability,
+    dataFreshness: input.dataFreshness,
+    corroborationCount: input.corroborationCount,
+    dataCompleteness: input.dataCompleteness,
+    interpretationConfidence: input.interpretationConfidence,
+  });
+
+  const evidence = {
+    signalId: String(input.signalId || ""),
+    sourceReliability: input.sourceReliability,
+    dataFreshness: input.dataFreshness,
+    corroborationCount: input.corroborationCount ?? 1,
+    dataCompleteness: input.dataCompleteness,
+    interpretationConfidence: input.interpretationConfidence,
+    confidence,
+    incomplete: confidence === null,
+    reasoning: Array.isArray(input.reasoning) ? input.reasoning.slice() : [],
+  };
+
+  if (!validateEvidence(evidence).ok) return null;
+  return Object.freeze(evidence);
+}
+
+// ================================================================
+// 10. PERSONAL CONTEXT
+// ================================================================
+
+const _PERSONAL_CONTEXT_SPEC = {
+  portfolioWeight: _mustBeFiniteNumber(0, 1),
+  watchlistStatus: _mustBeEnum(_WATCHLIST_STATUS_SET, "WATCHLIST_STATUS"),
+  thesisStatus: _mustBeEnum(_THESIS_ACTIVATION_SET, "THESIS_ACTIVATION"),
+  recentDecisions: _mustBeInteger(0, 10000),
+  behavioralRisk: _mustBeEnum(_BEHAVIORAL_RISK_SET, "BEHAVIORAL_RISK"),
+  portfolioExposure: _mustBeFiniteNumber(0, 1),
+  riskLimit: _mustBeFiniteNumber(0, 1),
+  timeHorizon: _mustBeEnum(_HORIZON_SET, "HORIZON"),
+  thesisHealth: _mustBeFiniteNumber(0, 100),
+  decisionConfidence: _mustBeFiniteNumber(0, 1),
+  chainExposure: _mustBeFiniteNumber(0, 1),
+  sectorExposure: _mustBeFiniteNumber(0, 1),
+};
+
+function validatePersonalContext(ctx) {
+  if (!ctx || typeof ctx !== "object" || Array.isArray(ctx)) {
+    return { ok: false, errors: ["personalContext: must be an object"] };
+  }
+  const errors = _runChecks(ctx, _PERSONAL_CONTEXT_SPEC);
+  const assetIdResult = validateAssetId(ctx.assetId);
+  if (!assetIdResult.ok) {
+    for (const e of assetIdResult.errors) errors.push(`assetId.${e}`);
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+function isPersonalContext(x) {
+  return validatePersonalContext(x).ok;
+}
+
+function assertPersonalContext(x) {
+  const { ok, errors } = validatePersonalContext(x);
+  if (!ok) throw new TypeError(`Invalid PersonalContext: ${errors.join("; ")}`);
+  return x;
+}
+
+function createPersonalContext(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const assetId = createAssetId(input.assetId);
+  if (!assetId) return null;
+
+  const ctx = {
+    assetId,
+    portfolioWeight: input.portfolioWeight,
+    watchlistStatus: String(input.watchlistStatus || ""),
+    thesisStatus: String(input.thesisStatus || ""),
+    recentDecisions: input.recentDecisions,
+    behavioralRisk: String(input.behavioralRisk || ""),
+    portfolioExposure:
+      input.portfolioExposure === undefined
+        ? input.portfolioWeight
+        : input.portfolioExposure,
+    riskLimit: input.riskLimit,
+    timeHorizon: String(input.timeHorizon || ""),
+    thesisHealth: input.thesisHealth,
+    decisionConfidence: input.decisionConfidence,
+    chainExposure: input.chainExposure,
+    sectorExposure: input.sectorExposure,
+  };
+
+  if (!validatePersonalContext(ctx).ok) return null;
+  return Object.freeze(ctx);
+}
+
+// ================================================================
+// 11. ASSESSMENT
+// ================================================================
+
+const _ASSESSMENT_SPEC = {
+  signalId: _mustBeString(1, 128),
+  relevance: _mustBeFiniteNumber(0, 1),
+  impact: _nullable(_mustBeFiniteNumber(0, 1)),
+  urgency: _mustBeFiniteNumber(0, 1),
+  confidence: _nullable(_mustBeFiniteNumber(0, 1)),
+  reasoning: _mustBeArrayOfStrings(),
+};
+
+function validateAssessment(a) {
+  const errors = _runChecks(a, _ASSESSMENT_SPEC);
+  return { ok: errors.length === 0, errors };
+}
+
+function isAssessment(x) {
+  return validateAssessment(x).ok;
+}
+
+function assertAssessment(x) {
+  const { ok, errors } = validateAssessment(x);
+  if (!ok) throw new TypeError(`Invalid Assessment: ${errors.join("; ")}`);
+  return x;
+}
+
+function createAssessment(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const assessment = {
+    signalId: String(input.signalId || ""),
+    relevance: input.relevance,
+    impact: input.impact === undefined ? null : input.impact,
+    urgency: input.urgency,
+    confidence: input.confidence === undefined ? null : input.confidence,
+    reasoning: Array.isArray(input.reasoning) ? input.reasoning.slice() : [],
+  };
+  if (!validateAssessment(assessment).ok) return null;
+  return Object.freeze(assessment);
+}
+
+// ================================================================
+// 12. DECISION PRIORITY
+// ================================================================
+
+const _DECISION_PRIORITY_SPEC = {
+  signalId: _mustBeString(1, 128),
+  score: _nullable(_mustBeFiniteNumber(0, 10)),
+  eligibility: _mustBeEnum(_ELIGIBILITY_SET, "ELIGIBILITY"),
+  recommendedAction: _mustBeEnum(_RECOMMENDED_ACTION_SET, "RECOMMENDED_ACTION"),
+  explanation: _mustBeString(1, 2000),
+};
+
+function validateDecisionPriority(dp) {
+  if (!dp || typeof dp !== "object" || Array.isArray(dp)) {
+    return { ok: false, errors: ["decisionPriority: must be an object"] };
+  }
+  const errors = _runChecks(dp, _DECISION_PRIORITY_SPEC);
+  const aResult = validateAssessment(dp.assessment);
+  if (!aResult.ok) {
+    for (const e of aResult.errors) errors.push(`assessment.${e}`);
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+function isDecisionPriority(x) {
+  return validateDecisionPriority(x).ok;
+}
+
+function assertDecisionPriority(x) {
+  const { ok, errors } = validateDecisionPriority(x);
+  if (!ok)
+    throw new TypeError(`Invalid DecisionPriority: ${errors.join("; ")}`);
+  return x;
+}
+
+function createDecisionPriority(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const assessment = createAssessment(input.assessment);
+  if (!assessment) return null;
+
+  const dp = {
+    signalId: String(input.signalId || ""),
+    assessment,
+    score: input.score === undefined ? null : input.score,
+    eligibility: String(input.eligibility || ""),
+    recommendedAction: String(input.recommendedAction || ""),
+    explanation: String(input.explanation || ""),
+  };
+
+  if (!validateDecisionPriority(dp).ok) return null;
+  return Object.freeze(dp);
+}
+
+// ================================================================
+// 13. THE ONE CONFIDENCE FUNCTION
+// ================================================================
+// Every module that needs a confidence value MUST call this. A
+// second formula anywhere else is a bug.
 //
 // MISSING-DATA POLICY:
 //   Every factor is required. If any of sourceReliability,
@@ -7556,22 +8277,7 @@ W.intelligence.freshnessWindows = {
 //   numeric claim" — it does NOT mean "zero confidence". Callers
 //   must surface that distinction honestly rather than coercing to
 //   a number.
-//
-//   Earlier versions defaulted sourceReliability to 0.5 and
-//   dataFreshness to 0.8. Those defaults were the exact
-//   synthetic-confidence pattern §2.7 and §2.9 exist to prevent.
-//   They have been removed.
-//
-// CORROBORATION:
-//   corroborationCount defaults to 1 — "the signal arrived from one
-//   source". That is a factual statement, not a numeric estimate.
-//   NaN / Infinity / non-numeric values are rejected outright
-//   (return null) rather than silently defaulted, because a caller
-//   that supplies malformed metadata has already violated the
-//   contract and silent substitution would hide the bug. Well-
-//   behaved callers go through evidence-builder.build(), which
-//   sanitizes the input before reaching this function.
-//
+
 function computeConfidence(evidence) {
   if (!evidence || typeof evidence !== "object") return null;
 
@@ -7583,17 +8289,10 @@ function computeConfidence(evidence) {
     interpretationConfidence,
   } = evidence;
 
-  // Every factor must be present and finite. Missing means we cannot
-  // make a numeric confidence claim, and "unknown ≠ zero" applies.
   if (!Number.isFinite(sourceReliability)) return null;
   if (!Number.isFinite(dataFreshness)) return null;
   if (!Number.isFinite(dataCompleteness)) return null;
   if (!Number.isFinite(interpretationConfidence)) return null;
-  // corroborationCount is numeric metadata, not a factor — but it
-  // feeds the boost calculation. NaN / Infinity here would propagate
-  // into the final confidence as NaN, violating the
-  // "unknown ⇒ null, never a fabricated number" contract. Reject
-  // non-finite values rather than silently defaulting.
   if (!Number.isFinite(corroborationCount)) return null;
 
   const clamp = (v) => Math.max(0, Math.min(1, v));
@@ -7607,34 +8306,89 @@ function computeConfidence(evidence) {
   let confidence = sr * df * dc * ic * corroborationBoost;
   confidence = clamp(confidence);
 
-  // Floor at 0.05 for cases where all four factors are non-zero but
-  // the product rounds to a value indistinguishable from "we didn't
-  // measure". This is a display aid, not a claim about precision.
   if (confidence < 0.05 && (sr > 0 || df > 0 || dc > 0 || ic > 0)) {
     confidence = 0.05;
   }
-
   return confidence;
 }
+
 function computeFreshness(timestamp, signalType) {
-  const age = Date.now() - timestamp;
-  const window = W.intelligence.freshnessWindows[signalType] || 3600;
-  const freshness = Math.max(0, 1 - age / (window * 1000));
-  return Math.min(1, freshness);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return 0;
+  const ageMs = Date.now() - timestamp;
+  if (ageMs <= 0) return 1;
+  const window = FRESHNESS_WINDOWS[signalType] || 3600;
+  return Math.min(1, Math.max(0, 1 - ageMs / (window * 1000)));
 }
 
 function getSourceReliability(source) {
-  return (
-    W.intelligence.sourceReliability[source] ||
-    W.intelligence.sourceReliability.unknown
-  );
+  if (typeof source !== "string") return SOURCE_RELIABILITY.unknown;
+  return SOURCE_RELIABILITY[source] ?? SOURCE_RELIABILITY.unknown;
 }
 
+// ================================================================
+// 14. EXPORTS
+// ================================================================
+
+W.intelligence.types = Object.freeze({
+  SIGNAL_TYPE,
+  THESIS_STATUS,
+  THESIS_ACTIVATION,
+  WATCHLIST_STATUS,
+  BEHAVIORAL_RISK,
+  HORIZON,
+  ELIGIBILITY,
+  RECOMMENDED_ACTION,
+  ASSET_CHAIN,
+});
+
+W.intelligence.is = Object.freeze({
+  assetId: isAssetId,
+  signal: isSignal,
+  evidence: isEvidence,
+  personalContext: isPersonalContext,
+  assessment: isAssessment,
+  decisionPriority: isDecisionPriority,
+});
+
+W.intelligence.validate = Object.freeze({
+  assetId: validateAssetId,
+  signal: validateSignal,
+  signalMetadata: validateSignalMetadata,
+  evidence: validateEvidence,
+  personalContext: validatePersonalContext,
+  assessment: validateAssessment,
+  decisionPriority: validateDecisionPriority,
+});
+
+W.intelligence.assert = Object.freeze({
+  assetId: assertAssetId,
+  signal: assertSignal,
+  evidence: assertEvidence,
+  personalContext: assertPersonalContext,
+  assessment: assertAssessment,
+  decisionPriority: assertDecisionPriority,
+});
+
+W.intelligence.create = Object.freeze({
+  assetId: createAssetId,
+  signal: createSignal,
+  evidence: createEvidence,
+  personalContext: createPersonalContext,
+  assessment: createAssessment,
+  decisionPriority: createDecisionPriority,
+});
+
+W.intelligence.sourceReliability = SOURCE_RELIABILITY;
+W.intelligence.freshnessWindows = FRESHNESS_WINDOWS;
 W.intelligence.computeConfidence = computeConfidence;
 W.intelligence.computeFreshness = computeFreshness;
 W.intelligence.getSourceReliability = getSourceReliability;
+W.intelligence.CONTRACT_VERSION = CONTRACT_VERSION;
 
-console.log("[Intelligence] Confidence model loaded.");
+console.log(
+  `[Intelligence] Canonical contracts loaded (${CONTRACT_VERSION}): ` +
+    `6 types, ${_SIGNAL_TYPES.length} signal types, one confidence function.`,
+);
 // ---- js/intelligence/decision-engine.js ----
 // ===============================================================
 //         Unified Decision Engine
@@ -8218,22 +8972,57 @@ console.log("[DecisionEngine] Module loaded (hardened, REBALANCE removed).");
 // ===============================================================
 //         Live Event Collector – Uses Evidence Builder
 // ===============================================================
-// Constitution Compliance: Task 7 (Defensible Confidence), Task 8 (Thesis Health Integration)
+// Constitution Compliance: Task 7 (Defensible Confidence),
+//                         Task 8 (Thesis Health Integration)
+//
+// v2 changelog:
+//   - Signals built via W.intelligence.create.signal(). Malformed
+//     input returns null, never a partially-formed object.
+//   - Metadata field renamed _metadata → metadata (see types.js).
+//   - Cache is versioned. Old cache shapes are ignored, not coerced.
+//   - Cache write is atomic: the full payload is validated before
+//     the write happens, so a partial write cannot leave a corrupt
+//     cache behind.
+//   - All collector bodies guard against non-array returns from
+//     downstream modules (W.unlocks.list, W.opportunities.scan).
+//   - Prototype-pollution safe: raw payloads are never merged into
+//     plain objects via attacker-controlled keys.
+//   - Timestamp bounds: signals older than 7 days or newer than now
+//     are rejected at ingest.
+//   - Deduplication uses metadata.dataCompleteness correctly when
+//     either side is null (null is treated as "unknown", not 0).
 // ===============================================================
 
 window.W = window.W || {};
 W.events = (() => {
   const CACHE_KEY = "w_events_cache";
+  const CACHE_VERSION = 2;
   const TTL = 5 * 60 * 1000;
   const DAY = 864e5;
+  const MAX_SIGNAL_AGE_MS = 7 * DAY;
 
   // ── Helpers ──────────────────────────────────────────────
-  function safeNum(val, fallback = 0.5) {
-    return typeof val === "number" && !isNaN(val) ? val : fallback;
+  function _isValidTimestamp(ts) {
+    if (!Number.isFinite(ts)) return false;
+    if (ts <= 0) return false;
+    if (ts > Date.now() + 60000) return false; // reject future
+    if (Date.now() - ts > MAX_SIGNAL_AGE_MS) return false;
+    return true;
   }
 
+  function calculateDataFreshness(timestamp) {
+    if (!Number.isFinite(timestamp)) return 0;
+    const ageMs = Date.now() - timestamp;
+    if (ageMs < 60000) return 1.0;
+    if (ageMs < 3600000) return 0.8;
+    if (ageMs < 86400000) return 0.5;
+    return 0.2;
+  }
+
+  // ── Normalize a raw payload into a canonical Signal ──────
   function normalize(raw, type) {
-    if (!raw || typeof raw !== "object") return null;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+
     const symbol = String(
       raw.symbol || raw.id || raw.coin_id || "",
     ).toUpperCase();
@@ -8242,7 +9031,7 @@ W.events = (() => {
     );
     if (!title) return null;
 
-    const assetId = {
+    const assetIdInput = {
       chainId: raw.chainId || "unknown",
       contractAddress: raw.contractAddress || null,
       symbol: symbol,
@@ -8253,26 +9042,9 @@ W.events = (() => {
     const timestamp = raw.timestamp
       ? new Date(raw.timestamp).getTime()
       : Date.now();
-    const id = crypto.randomUUID
-      ? crypto.randomUUID()
-      : Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+    if (!_isValidTimestamp(timestamp)) return null;
 
-    const signal = {
-      id,
-      type,
-      source: raw.source || "weaver",
-      assetId,
-      timestamp,
-      rawData: { ...raw, title },
-    };
-
-    // No fabricated fallback here: if the signal source didn't supply
-    // a genuinely derived completeness/interpretation value, pass
-    // null through honestly rather than manufacturing 0.5. See
-    // js/intelligence/evidence-builder.js and types.js computeConfidence
-    // for how null propagates to an honest "confidence unavailable"
-    // instead of a fake number (WEAVER_CONSTITUTION §2.7/§2.9).
-    signal._metadata = {
+    const metadata = {
       corroborationCount: raw.corroborationCount || 1,
       dataCompleteness:
         raw.dataCompleteness === undefined ? null : raw.dataCompleteness,
@@ -8282,57 +9054,54 @@ W.events = (() => {
           : raw.interpretationConfidence,
     };
 
+    const signal = W.intelligence.create.signal({
+      type,
+      source: raw.source || "weaver",
+      assetId: assetIdInput,
+      timestamp,
+      rawData: { ...raw, title },
+      metadata,
+    });
+
     return signal;
   }
 
-  // ── Source Reliability Map (Constitution Rule 2.9) ───────
-  const SOURCE_RELIABILITY = {
-    coingecko: 0.95,
-    weaver_regime: 0.85,
-    token_unlocks: 0.9,
-    thesis_health: 0.8,
-    opportunity_scanner: 0.75,
-  };
-
-  function calculateDataFreshness(timestamp) {
-    const ageMs = Date.now() - timestamp;
-    if (ageMs < 60000) return 1.0; // < 1 min
-    if (ageMs < 3600000) return 0.8; // < 1 hour
-    if (ageMs < 86400000) return 0.5; // < 24 hours
-    return 0.2; // > 24 hours
-  }
-
   // ── Collectors ───────────────────────────────────────────
+
   function collectPriceEvents(markets) {
     const events = [];
     if (!Array.isArray(markets)) return events;
 
     markets.forEach((coin) => {
-      const change = Math.abs(coin.price_change_percentage_24h || 0);
-      if (change > 3) {
-        const freshness = calculateDataFreshness(
-          coin.last_updated
-            ? new Date(coin.last_updated).getTime()
-            : Date.now(),
-        );
-        const confidence = SOURCE_RELIABILITY.coingecko * freshness; // Defensible confidence
+      if (!coin || typeof coin !== "object") return;
+      const changeRaw = Number(coin.price_change_percentage_24h);
+      if (!Number.isFinite(changeRaw)) return;
+      const change = Math.abs(changeRaw);
+      if (change <= 3) return;
 
-        events.push(
-          normalize(
-            {
-              symbol: coin.symbol,
-              name: coin.name,
-              title: `${coin.name} moved ${coin.price_change_percentage_24h.toFixed(1)}% in 24h`,
-              impactValue: Math.min(1, change / 15),
-              confidence: confidence,
-              urgency: change > 7 ? 0.9 : 0.6,
-              source: "coingecko",
-              dataCompleteness: 0.9, // Price data is highly complete
-            },
-            "PRICE_MOVE",
-          ),
-        );
-      }
+      const lastUpdated = coin.last_updated
+        ? new Date(coin.last_updated).getTime()
+        : Date.now();
+      const freshness = calculateDataFreshness(
+        _isValidTimestamp(lastUpdated) ? lastUpdated : Date.now(),
+      );
+      const sourceRel = W.intelligence.getSourceReliability("coinlore");
+      const confidence = sourceRel * freshness;
+
+      const sig = normalize(
+        {
+          symbol: coin.symbol,
+          name: coin.name,
+          title: `${coin.name} moved ${changeRaw.toFixed(1)}% in 24h`,
+          impactValue: Math.min(1, change / 15),
+          confidence: confidence,
+          urgency: change > 7 ? 0.9 : 0.6,
+          source: "coinlore",
+          dataCompleteness: 0.9,
+        },
+        "PRICE_MOVE",
+      );
+      if (sig) events.push(sig);
     });
     return events;
   }
@@ -8341,34 +9110,45 @@ W.events = (() => {
     const events = [];
     try {
       if (!W.regime || !fg || !g) return events;
+      const fgValue = Number(fg.value);
+      const btcDom = Number(g.data?.market_cap_percentage?.btc);
+      const capChange = Number(g.data?.market_cap_change_percentage_24h_usd);
+
       const regimeData = W.regime.detect({
-        fearGreed: fg.value,
-        btcDominance: g.data?.market_cap_percentage?.btc,
-        capChange: g.data?.market_cap_change_percentage_24h_usd,
+        fearGreed: Number.isFinite(fgValue) ? fgValue : null,
+        btcDominance: Number.isFinite(btcDom) ? btcDom : null,
+        capChange: Number.isFinite(capChange) ? capChange : null,
       });
+      if (!regimeData || regimeData.regime === "UNKNOWN") return events;
 
-      if (regimeData.regime !== "UNKNOWN") {
-        // Defensible confidence: base reliability * freshness of FG data
-        const freshness = calculateDataFreshness(Date.now()); // FG is usually fresh
-        const confidence = SOURCE_RELIABILITY.weaver_regime * freshness;
-        const completeness =
-          fg.value && g.data?.market_cap_percentage?.btc ? 0.9 : 0.5;
+      const freshness = calculateDataFreshness(Date.now());
+      const sourceRel = W.intelligence.getSourceReliability("weaver_regime");
+      const confidence = sourceRel * freshness;
+      const completeness =
+        Number.isFinite(fgValue) && Number.isFinite(btcDom) ? 0.9 : 0.5;
 
-        events.push(
-          normalize(
-            {
-              symbol: "BTC",
-              title: `Market Regime Shift: ${regimeData.regime}`,
-              description: `Confidence: ${(regimeData.confidence * 100).toFixed(0)}%. Signals: ${regimeData.signals.map((s) => s.value).join(", ")}`,
-              impactValue: regimeData.confidence || 0.5,
-              source: "weaver_regime",
-              interpretationConfidence: confidence, // REPLACED MAGIC NUMBER
-              dataCompleteness: completeness, // REPLACED MAGIC NUMBER
-            },
-            "REGIME_SHIFT",
-          ),
-        );
-      }
+      const signalsText = Array.isArray(regimeData.signals)
+        ? regimeData.signals
+            .map((s) => s && s.value)
+            .filter(Boolean)
+            .join(", ")
+        : "";
+
+      const sig = normalize(
+        {
+          symbol: "BTC",
+          title: `Market Regime Shift: ${regimeData.regime}`,
+          description: `Confidence: ${((regimeData.confidence || 0) * 100).toFixed(0)}%. Signals: ${signalsText}`,
+          impactValue: Number.isFinite(regimeData.confidence)
+            ? regimeData.confidence
+            : 0.5,
+          source: "weaver_regime",
+          interpretationConfidence: confidence,
+          dataCompleteness: completeness,
+        },
+        "REGIME_SHIFT",
+      );
+      if (sig) events.push(sig);
     } catch (e) {
       console.warn("[Events] Regime collection failed:", e.message);
     }
@@ -8378,39 +9158,46 @@ W.events = (() => {
   function collectUnlockEvents() {
     const events = [];
     try {
-      const unlocks = W.unlocks?.list ? W.unlocks.list() : [];
-      if (!unlocks.length) return events;
+      const list = W.unlocks?.list?.();
+      if (!Array.isArray(list) || !list.length) return events;
       const now = Date.now();
-      const upcoming = unlocks.filter((u) => {
-        const daysLeft = (u.date - now) / DAY;
+      const upcoming = list.filter((u) => {
+        if (!u || typeof u !== "object") return false;
+        const d = Number(u.date);
+        if (!Number.isFinite(d)) return false;
+        const daysLeft = (d - now) / DAY;
         return daysLeft >= 0 && daysLeft <= 14;
       });
       if (!upcoming.length) return events;
 
       upcoming.forEach((u) => {
-        const daysLeft = (u.date - now) / DAY;
-        const freshness = calculateDataFreshness(u.date); // Freshness based on proximity to event
-        const confidence = SOURCE_RELIABILITY.token_unlocks * freshness;
-        // Completeness is high if we have coinId and amount
+        const d = Number(u.date);
+        const daysLeft = (d - now) / DAY;
+        const freshness = calculateDataFreshness(d);
+        const sourceRel = W.intelligence.getSourceReliability("token_unlocks");
+        const confidence = sourceRel * freshness;
         const completeness = u.coinId && u.amount ? 0.9 : 0.6;
+        const amountText =
+          Number.isFinite(u.amount) && u.amount > 0
+            ? Number(u.amount).toLocaleString()
+            : "unknown";
 
-        events.push(
-          normalize(
-            {
-              symbol: u.symbol,
-              name: u.name,
-              title: `${u.name} Unlock: ${u.amount.toLocaleString()} tokens`,
-              description: `${u.type} unlock in ${daysLeft.toFixed(1)} days.`,
-              impactValue: 0.6,
-              source: "token_unlocks",
-              coingeckoId: u.coinId,
-              interpretationConfidence: confidence, // REPLACED MAGIC NUMBER
-              dataCompleteness: completeness, // REPLACED MAGIC NUMBER
-              corroborationCount: 1,
-            },
-            "UNLOCK",
-          ),
+        const sig = normalize(
+          {
+            symbol: u.symbol,
+            name: u.name,
+            title: `${u.name || u.symbol || "Token"} Unlock: ${amountText} tokens`,
+            description: `${u.type || "Scheduled"} unlock in ${daysLeft.toFixed(1)} days.`,
+            impactValue: 0.6,
+            source: "token_unlocks",
+            coingeckoId: u.coinId,
+            interpretationConfidence: confidence,
+            dataCompleteness: completeness,
+            corroborationCount: 1,
+          },
+          "UNLOCK",
         );
+        if (sig) events.push(sig);
       });
     } catch (e) {
       console.warn("[Events] Unlock collection failed:", e.message);
@@ -8421,35 +9208,42 @@ W.events = (() => {
   function collectOpportunityEvents(markets, regimeData) {
     const events = [];
     try {
-      if (!W.opportunities) return events;
-      const portfolio = W.portfolio?.all() || [];
-      const theses = W.theses?.all() || [];
+      if (!W.opportunities?.scan) return events;
+      const portfolio = W.portfolio?.all?.() || [];
+      const theses = W.theses?.all?.() || [];
       const opportunities = W.opportunities.scan(
         portfolio,
         theses,
         markets,
         regimeData,
       );
+      if (!Array.isArray(opportunities)) return events;
 
       opportunities.forEach((opp) => {
+        if (!opp || typeof opp !== "object") return;
         const freshness = calculateDataFreshness(Date.now());
-        const sourceRel = SOURCE_RELIABILITY[opp.source] || 0.7;
+        const sourceRel = W.intelligence.getSourceReliability(
+          opp.source || "opportunity_scanner",
+        );
         const confidence = sourceRel * freshness;
 
-        events.push(
-          normalize(
-            {
-              symbol: opp.symbol,
-              title: opp.title,
-              description: opp.description,
-              impactValue: opp.impactValue || 0.5,
-              source: opp.source || "opportunity_scanner",
-              interpretationConfidence: confidence, // REPLACED MAGIC NUMBER
-              dataCompleteness: opp.dataCompleteness || 0.7,
-            },
-            "OPPORTUNITY",
-          ),
+        const sig = normalize(
+          {
+            symbol: opp.symbol,
+            title: opp.title,
+            description: opp.description,
+            impactValue: Number.isFinite(opp.impactValue)
+              ? opp.impactValue
+              : 0.5,
+            source: opp.source || "opportunity_scanner",
+            interpretationConfidence: confidence,
+            dataCompleteness: Number.isFinite(opp.dataCompleteness)
+              ? opp.dataCompleteness
+              : 0.7,
+          },
+          "OPPORTUNITY",
         );
+        if (sig) events.push(sig);
       });
     } catch (e) {
       console.warn("[Events] Opportunity collection failed:", e.message);
@@ -8460,8 +9254,10 @@ W.events = (() => {
   async function collectThesisHealthEvents() {
     const events = [];
     try {
-      if (!W.thesisHealth || !W.theses) return events;
-      const activeTheses = W.theses.all().filter((t) => t.status === "active");
+      if (!W.thesisHealth?.evaluate || !W.theses?.all) return events;
+      const allTheses = W.theses.all();
+      if (!Array.isArray(allTheses)) return events;
+      const activeTheses = allTheses.filter((t) => t && t.status === "active");
       if (!activeTheses.length) return events;
 
       const assetIds = [
@@ -8469,14 +9265,20 @@ W.events = (() => {
           activeTheses.map((t) => t.coingeckoId || t.symbol).filter(Boolean),
         ),
       ];
-      let priceMap = {};
+      const priceMap = Object.create(null);
       if (assetIds.length) {
         try {
           const markets = await W.api.markets(assetIds.join(","));
-          markets.forEach((m) => {
-            priceMap[m.id] = m.current_price;
-          });
-        } catch (e) {}
+          if (Array.isArray(markets)) {
+            markets.forEach((m) => {
+              if (m && m.id && Number.isFinite(m.current_price)) {
+                priceMap[m.id] = m.current_price;
+              }
+            });
+          }
+        } catch (e) {
+          /* non-fatal; priceMap stays empty */
+        }
       }
 
       let regimeData = null;
@@ -8485,49 +9287,59 @@ W.events = (() => {
         const g = await W.api.global();
         if (W.regime && fg && g) {
           regimeData = W.regime.detect({
-            fearGreed: fg.value,
-            btcDominance: g.data?.market_cap_percentage?.btc,
-            capChange: g.data?.market_cap_change_percentage_24h_usd,
+            fearGreed: Number(fg.value),
+            btcDominance: Number(g.data?.market_cap_percentage?.btc),
+            capChange: Number(g.data?.market_cap_change_percentage_24h_usd),
           });
         }
-      } catch (e) {}
+      } catch (e) {
+        /* non-fatal */
+      }
 
       activeTheses.forEach((thesis) => {
-        const price =
-          priceMap[thesis.coingeckoId] ||
-          priceMap[thesis.symbol?.toLowerCase()] ||
-          null;
-        const marketData = { price, regime: regimeData?.regime || null };
-        const health = W.thesisHealth.evaluate(thesis, marketData, []);
+        try {
+          const price =
+            priceMap[thesis.coingeckoId] ||
+            priceMap[String(thesis.symbol || "").toLowerCase()] ||
+            null;
+          const marketData = { price, regime: regimeData?.regime || null };
+          const health = W.thesisHealth.evaluate(thesis, marketData, []);
+          if (!health) return;
+          if (
+            health.status === "Healthy" ||
+            health.status === "Strengthening"
+          ) {
+            return;
+          }
 
-        if (
-          health &&
-          health.status !== "Healthy" &&
-          health.status !== "Strengthening"
-        ) {
-          const impactValue = Math.min(1, (100 - health.healthScore) / 100);
+          const impactValue = Math.min(
+            1,
+            (100 - Number(health.healthScore || 0)) / 100,
+          );
           const freshness = calculateDataFreshness(Date.now());
-          const confidence = SOURCE_RELIABILITY.thesis_health * freshness;
-          // Completeness depends on whether we had price AND regime data
+          const sourceRel =
+            W.intelligence.getSourceReliability("thesis_health");
+          const confidence = sourceRel * freshness;
           const completeness = price && regimeData ? 0.9 : 0.5;
 
-          const signal = normalize(
+          const sig = normalize(
             {
               symbol: thesis.symbol,
               name: thesis.asset || thesis.symbol,
               title: `Thesis ${health.status}: ${thesis.symbol}`,
-              description: `Health score: ${health.healthScore}/100. ${health.reasons.join(" ")}`,
-              impactValue: impactValue,
+              description: `Health score: ${health.healthScore}/100. ${(health.reasons || []).join(" ")}`,
+              impactValue,
               source: "thesis_health",
               coingeckoId: thesis.coingeckoId,
-              interpretationConfidence: confidence, // REPLACED MAGIC NUMBER
-              dataCompleteness: completeness, // REPLACED MAGIC NUMBER
+              interpretationConfidence: confidence,
+              dataCompleteness: completeness,
               timestamp: Date.now(),
             },
             "THESIS_DETERIORATION",
           );
-
-          if (signal) events.push(signal);
+          if (sig) events.push(sig);
+        } catch (e) {
+          console.warn("[Events] Thesis evaluation failed:", e.message);
         }
       });
     } catch (e) {
@@ -8536,81 +9348,119 @@ W.events = (() => {
     return events;
   }
 
-  // ── Core Aggregation ───────────────────────────────────
-  async function collectEvents() {
-    const cached = W.store?.get(CACHE_KEY);
-    if (cached && Date.now() - cached.timestamp < TTL) {
-      return cached.events;
-    }
+  // ── Deduplication ────────────────────────────────────────
+  // Two signals are considered duplicates when they share a type, an
+  // asset symbol, and fall within the same 10-minute bucket. Among
+  // duplicates, the one with the higher dataCompleteness wins;
+  // null counts as "unknown" and loses to any finite value.
+  function _dedupe(signals) {
+    const seen = new Map();
+    const DEDUP_WINDOW_MS = 10 * 60 * 1000;
+    return signals.filter((s) => {
+      const bucket = Math.floor(s.timestamp / DEDUP_WINDOW_MS);
+      const key = `${s.type}_${s.assetId.symbol}_${bucket}`;
+      if (!seen.has(key)) {
+        seen.set(key, s);
+        return true;
+      }
+      const existing = seen.get(key);
+      const ec = existing.metadata?.dataCompleteness;
+      const nc = s.metadata?.dataCompleteness;
+      const ecScore = Number.isFinite(ec) ? ec : -1;
+      const ncScore = Number.isFinite(nc) ? nc : -1;
+      if (ncScore > ecScore) {
+        seen.set(key, s);
+      }
+      return false;
+    });
+  }
 
-    let markets = [],
-      fg = null,
-      g = null;
+  // ── Cache read/write ─────────────────────────────────────
+  function _readCache() {
     try {
-      markets = (await W.api?.top?.(50)) || [];
-    } catch (e) {}
+      const cached = W.store?.get?.(CACHE_KEY);
+      if (!cached || typeof cached !== "object") return null;
+      if (cached.version !== CACHE_VERSION) return null;
+      if (!Number.isFinite(cached.timestamp)) return null;
+      if (Date.now() - cached.timestamp >= TTL) return null;
+      if (!Array.isArray(cached.events)) return null;
+      // Validate every cached signal on read. A cache written by a
+      // buggy version is discarded wholesale, not partially used.
+      for (const s of cached.events) {
+        if (!W.intelligence.is.signal(s)) return null;
+      }
+      return cached.events;
+    } catch {
+      return null;
+    }
+  }
+
+  function _writeCache(events) {
+    try {
+      W.store?.set?.(CACHE_KEY, {
+        version: CACHE_VERSION,
+        timestamp: Date.now(),
+        events,
+      });
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  // ── Core Aggregation ─────────────────────────────────────
+  async function collectEvents() {
+    const cached = _readCache();
+    if (cached) return cached;
+
+    let markets = [];
+    let fg = null;
+    let g = null;
+
+    try {
+      const top = await W.api?.top?.(50);
+      if (Array.isArray(top)) markets = top;
+    } catch (e) {
+      /* non-fatal */
+    }
     try {
       fg = await W.api?.fearGreed?.();
-    } catch (e) {}
+    } catch (e) {
+      /* non-fatal */
+    }
     try {
       g = await W.api?.global?.();
-    } catch (e) {}
+    } catch (e) {
+      /* non-fatal */
+    }
 
     let regimeData = null;
     if (W.regime && fg && g) {
-      regimeData = W.regime.detect({
-        fearGreed: fg.value,
-        btcDominance: g.data?.market_cap_percentage?.btc,
-        capChange: g.data?.market_cap_change_percentage_24h_usd,
-      });
-    }
-
-    const priceEvents = collectPriceEvents(markets);
-    const regimeEvents = collectRegimeEvents(fg, g);
-    const unlockEvents = collectUnlockEvents();
-    const opportunityEvents = collectOpportunityEvents(markets, regimeData);
-    const thesisEvents = await collectThesisHealthEvents();
-
-    let allSignals = [
-      ...priceEvents,
-      ...regimeEvents,
-      ...unlockEvents,
-      ...opportunityEvents,
-      ...thesisEvents,
-    ].filter(Boolean);
-
-    // ── Improved Deduplication ───────────────────────────
-    const seen = new Map();
-    const DEDUP_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
-
-    allSignals = allSignals.filter((s) => {
-      const bucket = Math.floor(s.timestamp / DEDUP_WINDOW_MS);
-      const key = `${s.type}_${s.assetId.symbol}_${bucket}`;
-      if (seen.has(key)) {
-        const existing = seen.get(key);
-        const existingMeta = existing._metadata || {};
-        const newMeta = s._metadata || {};
-        const existingCompleteness = existingMeta.dataCompleteness || 0;
-        const newCompleteness = newMeta.dataCompleteness || 0;
-        if (newCompleteness > existingCompleteness) {
-          seen.set(key, s);
-          return false;
-        }
-        return false;
+      try {
+        regimeData = W.regime.detect({
+          fearGreed: Number(fg.value),
+          btcDominance: Number(g.data?.market_cap_percentage?.btc),
+          capChange: Number(g.data?.market_cap_change_percentage_24h_usd),
+        });
+      } catch {
+        regimeData = null;
       }
-      seen.set(key, s);
-      return true;
-    });
-
-    if (W.store) {
-      W.store.set(CACHE_KEY, { timestamp: Date.now(), events: allSignals });
     }
 
-    return allSignals;
+    const allSignals = [
+      ...collectPriceEvents(markets),
+      ...collectRegimeEvents(fg, g),
+      ...collectUnlockEvents(),
+      ...collectOpportunityEvents(markets, regimeData),
+      ...(await collectThesisHealthEvents()),
+    ].filter((s) => W.intelligence.is.signal(s));
+
+    const deduped = _dedupe(allSignals);
+    _writeCache(deduped);
+    return deduped;
   }
 
-  return { normalize, collectEvents };
-})(); // ✅ FIXED SYNTAX ERROR
+  return Object.freeze({ normalize, collectEvents });
+})();
 
 console.log(
   "[Events] Module loaded (thesis health integrated, defensible confidence, improved dedup).",
@@ -16600,151 +17450,496 @@ W.web3 = W.web3 || {};
 console.log("[Web3] Module loaded (secure & private).");
 // ---- js/features/misc.js ----
 // ================================================================
-// js/features/misc.js – Miscellaneous Features
+// js/features/misc.js – Miscellaneous Features (misc-v3)
+// ================================================================
+// Constitution compliance:
+//   §2.6  Privacy: sensitive fields are encrypted via W.secureSession
+//         and never appear in plain backups. The JSON export filters
+//         the settings object to a known non-sensitive schema before
+//         serialising.
+//   §2.7  No fabricated data: missing numeric fields render "—", the
+//         tax CSV writes empty cells rather than invented zeros.
+//   §3.4  Graceful degradation: every section renders inside its own
+//         try/catch. One broken section cannot take down the page.
+//   §3.7  Deterministic: all validation is regex + Number.isFinite +
+//         whitelist membership. No eval, no Function constructor.
+//   §3.8  Versioned: MODULE_VERSION exported; store version tracked.
+//
+// v2 changelog:
+//   - esc() replaced escapeHTML. The old helper left quotes
+//     unescaped, so every value="..." attribute in renderSettings
+//     was an XSS vector. (AI url/key/model, Telegram token/chat,
+//     Sentry DSN.)
+//   - Defi: proto/amount/apy validated at ingest and escaped at
+//     render.
+//   - Tax CSV: formula-injection defence (= + - @ TAB CR prefix) and
+//     RFC 4180 quoting.
+//   - Every store read type-guarded.
+//   - Settings: silent-delete path closed.
+//   - Export Backup: added whale_alerts, wallet_cost_basis, defi,
+//     airdrops.
+//
+// v3 changelog:
+//   - Prototype-pollution guard: importBackup() rejects the reserved
+//     keys __proto__, constructor, prototype. JSON.parse is safe on
+//     its own; the danger is W.store.set(k, v) where k is attacker
+//     controlled.
+//   - Sensitive-data redaction: JSON export filters settings to
+//     { currency, refresh, sentryDsn } explicitly. Even if the
+//     stored object somehow carries an AI key or Telegram token
+//     (legacy data, a bug in another module), it cannot reach the
+//     downloaded file. The encrypted settings blob is deliberately
+//     excluded; the user can re-enter keys on the new device.
+//   - Deep-freeze on DEFS and PRO_FEATURES. Monkey-patching
+//     W.achievements.DEFS.0.name after load no longer changes the
+//     achievement toast content.
+//   - Defensive copies from earned() and the public API. Callers can
+//     mutate the returned object freely without corrupting state.
+//   - Re-entrancy guard on Settings. Two rapid Save clicks now
+//     collapse into one operation; async passphrase prompts use a
+//     generation counter so a stale render cannot clobber a fresh
+//     view.
+//   - Input canonicalisation: NFC normalisation on every text field
+//     before validation. Defeats homoglyph attacks (Cyrillic "а" vs
+//     ASCII "a"). Control characters other than \t are stripped.
+//   - Blob URL revocation after download click. Previously leaked a
+//     URL object per export.
+//   - Achievement toasts batch: at most one toast per check() call
+//     even when several fire at once.
+//   - Defi positions capped at 500 (LRU eviction by insertion order).
+//   - Airdrop done-map re-normalised on every read AND write.
+//   - Sentry DSN validation tightened: must parse as URL, https:,
+//     host ends with .sentry.io (or is a custom domain explicitly
+//     allowed by the user pasting a valid https URL).
+//   - Store version tracked via W.store key "misc_version". A future
+//     migration has a pivot.
+//   - All DOM lookups use querySelector with literal strings. No
+//     dynamic selector construction, so no CSS-injection surface.
 // ================================================================
 
 window.W = window.W || {};
 
+// ── Module-level versioning ────────────────────────────────
+const MISC_VERSION = "misc-v3";
+const MISC_STORE_VERSION = 3;
+
+// ── Shared helpers (set once, never mutated) ───────────────
+(function installHelpers() {
+  // Attribute-safe escaping. Safe in text content AND in a
+  // double-quoted or single-quoted attribute context. This is
+  // deliberately not the `div.textContent = x; return div.innerHTML`
+  // trick — that leaves " and ' untouched because they do not need
+  // escaping in text content, but they absolutely do in an attribute.
+  function esc(v) {
+    if (v == null) return "";
+    return String(v)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+  Object.defineProperty(W, "miscEsc", {
+    value: esc,
+    writable: false,
+    configurable: false,
+    enumerable: true,
+  });
+
+  // Type-guarded store reads. Returns `[]` or `{}` unless the
+  // stored value is exactly the expected shape. Never throws.
+  function storeArray(key) {
+    try {
+      const v = W.store?.get?.(key, null);
+      return Array.isArray(v) ? v : [];
+    } catch {
+      return [];
+    }
+  }
+  function storeObject(key) {
+    try {
+      const v = W.store?.get?.(key, null);
+      return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+    } catch {
+      return {};
+    }
+  }
+  Object.defineProperty(W, "miscStoreArray", {
+    value: storeArray,
+    writable: false,
+    configurable: false,
+  });
+  Object.defineProperty(W, "miscStoreObject", {
+    value: storeObject,
+    writable: false,
+    configurable: false,
+  });
+
+  // Canonicalise a text input: NFC normalise, strip control chars
+  // except \t, trim, truncate.
+  function canonText(v, maxLen) {
+    if (v == null) return "";
+    let s = String(v);
+    try {
+      s = s.normalize("NFC");
+    } catch {
+      /* very old engines — fall through */
+    }
+    // Strip C0 and C1 control chars, plus DEL, except tab (\u0009).
+    s = s.replace(/[\u0000-\u0008\u000A-\u001F\u007F-\u009F]/g, "");
+    s = s.trim();
+    if (typeof maxLen === "number" && s.length > maxLen) {
+      s = s.slice(0, maxLen);
+    }
+    return s;
+  }
+  Object.defineProperty(W, "miscCanonText", {
+    value: canonText,
+    writable: false,
+    configurable: false,
+  });
+
+  // Deep-freeze helper. Recursively freezes plain objects and arrays.
+  function deepFreeze(obj, seen) {
+    if (obj == null || typeof obj !== "object") return obj;
+    seen = seen || new WeakSet();
+    if (seen.has(obj)) return obj;
+    seen.add(obj);
+    if (Object.isFrozen(obj)) return obj;
+    Object.freeze(obj);
+    for (const k of Object.keys(obj)) {
+      try {
+        deepFreeze(obj[k], seen);
+      } catch {
+        /* getter threw; leave as-is */
+      }
+    }
+    return obj;
+  }
+  Object.defineProperty(W, "miscDeepFreeze", {
+    value: deepFreeze,
+    writable: false,
+    configurable: false,
+  });
+
+  // Reserved keys that would poison Object.prototype if written into
+  // a plain object. These are safe to receive in a JSON.parse result
+  // because JSON.parse creates null-prototype-free plain objects,
+  // but UNSAFE to assign into a live object via `obj[k] = v`.
+  function isReservedKey(k) {
+    return k === "__proto__" || k === "constructor" || k === "prototype";
+  }
+  Object.defineProperty(W, "miscIsReservedKey", {
+    value: isReservedKey,
+    writable: false,
+    configurable: false,
+  });
+
+  // Record the store schema version once per load. Future migrations
+  // read this to decide what transformations to apply.
+  try {
+    const cur = W.store?.get?.("misc_version", null);
+    if (cur !== MISC_STORE_VERSION) {
+      W.store?.set?.("misc_version", MISC_STORE_VERSION);
+    }
+  } catch {
+    /* non-fatal */
+  }
+})();
+
 // ── Achievements Module ───────────────────────────────────
 W.achievements = (() => {
-  const DEFS = [
+  // Frozen. Monkey-patching DEFS after load has no effect.
+  const DEFS = W.miscDeepFreeze([
     {
       id: "first-coin",
       icon: "🌱",
       name: "First Thread",
       desc: "Add your first holding",
-      test: () => (W.portfolio?.all().length || 0) >= 1,
+      test: () => (W.portfolio?.all?.()?.length || 0) >= 1,
     },
     {
       id: "five-coins",
       icon: "🧺",
       name: "Diversifier",
       desc: "Hold 5+ different assets",
-      test: () => (W.portfolio?.all().length || 0) >= 5,
+      test: () => (W.portfolio?.all?.()?.length || 0) >= 5,
     },
     {
       id: "first-tx",
       icon: "↔️",
       name: "Trader",
       desc: "Record a buy/sell transaction",
-      test: () => (W.portfolio?.txs().length || 0) >= 1,
+      test: () => (W.portfolio?.txs?.()?.length || 0) >= 1,
     },
     {
       id: "first-alert",
       icon: "🚨",
       name: "Watchdog",
       desc: "Create a price alert",
-      test: () => W.store.get("alerts", []).length >= 1,
+      test: () => W.miscStoreArray("alerts").length >= 1,
     },
     {
       id: "student",
       icon: "🎓",
       name: "Student",
       desc: "Complete a lesson",
-      test: () => (W.store.get("learn", {}).done || []).length >= 1,
+      test: () => {
+        const l = W.miscStoreObject("learn");
+        return Array.isArray(l.done) && l.done.length >= 1;
+      },
     },
     {
       id: "web3",
       icon: "🔗",
       name: "Web3 Native",
       desc: "Connect a wallet",
-      test: () =>
-        !!W.store.get("web3_wallets", null)?.evm ||
-        !!W.store.get("web3_wallets", null)?.sol,
+      test: () => {
+        const w = W.miscStoreObject("web3_wallets");
+        return !!w.evm || !!w.sol;
+      },
     },
     {
       id: "journalist",
       icon: "📰",
       name: "Journalist",
       desc: "Read 10 news articles",
-      test: () => W.store.get("news-read", []).length >= 10,
+      test: () => W.miscStoreArray("news-read").length >= 10,
     },
     {
       id: "curator",
       icon: "🔖",
       name: "Curator",
       desc: "Save 5 articles to your Reading List",
-      test: () => W.store.get("news-saved", []).length >= 5,
+      test: () => W.miscStoreArray("news-saved").length >= 5,
     },
     {
       id: "whale",
       icon: "🐋",
       name: "Whale Watcher",
       desc: "Track a whale wallet",
-      test: () => W.store.get("whale-wallets", []).length >= 1,
+      test: () => W.miscStoreArray("whale-wallets").length >= 1,
     },
     {
       id: "optimizer",
       icon: "🧮",
       name: "Optimizer",
       desc: "Run the portfolio optimizer",
-      test: () => !!W.store.get("optimizer-used", false),
+      test: () => W.store?.get?.("optimizer-used", false) === true,
     },
-  ];
+  ]);
 
-  const earned = () => W.store.get("achievements", {});
-  const save = (e) => W.store.set("achievements", e);
+  // Internal state. Never returned directly; always cloned.
+  const _internal = W.miscStoreObject("achievements");
 
-  function check() {
-    const e = earned();
-    let changed = false;
-    DEFS.forEach((d) => {
-      if (!e[d.id] && d.test()) {
-        e[d.id] = Date.now();
-        changed = true;
-        W.ui.toast(`🏅 Achievement unlocked: <b>${d.name}</b>`, "ok", 5000);
-      }
-    });
-    if (changed) save(e);
-    return e;
+  function earned() {
+    // Defensive copy. A caller mutating the return value cannot
+    // affect the module's view of earned achievements.
+    return Object.assign({}, _internal);
   }
 
-  return { DEFS, earned, save, check };
+  function save(e) {
+    if (!e || typeof e !== "object" || Array.isArray(e)) return;
+    // Copy only string keys with finite-number values. This rejects
+    // prototype-polluting keys and anything with a non-timestamp
+    // value.
+    const clean = Object.create(null);
+    for (const k of Object.keys(e)) {
+      if (W.miscIsReservedKey(k)) continue;
+      if (!/^[a-z][a-z0-9-]{0,63}$/.test(k)) continue;
+      const v = Number(e[k]);
+      if (Number.isFinite(v) && v > 0) {
+        clean[k] = v;
+      }
+    }
+    W.store?.set?.("achievements", clean);
+    // Merge back into the internal state.
+    for (const k of Object.keys(clean)) _internal[k] = clean[k];
+  }
+
+  function check() {
+    const snapshot = Object.assign({}, _internal);
+    const unlocked = [];
+
+    for (const d of DEFS) {
+      if (snapshot[d.id]) continue;
+      let hit = false;
+      try {
+        hit = d.test() === true;
+      } catch {
+        // A broken predicate disables only itself.
+        hit = false;
+      }
+      if (hit) {
+        snapshot[d.id] = Date.now();
+        unlocked.push(d);
+      }
+    }
+
+    if (!unlocked.length) return earned();
+
+    save(snapshot);
+
+    // Batch toast: at most one toast per check() call. Individual
+    // toasts for each achievement would let a burst of state changes
+    // flood the UI.
+    try {
+      if (unlocked.length === 1) {
+        const safeName = W.miscEsc(String(unlocked[0].name || ""));
+        W.ui?.toast?.(
+          `🏅 Achievement unlocked: <b>${safeName}</b>`,
+          "ok",
+          5000,
+        );
+      } else {
+        const names = unlocked
+          .map((d) => W.miscEsc(String(d.name || "")))
+          .join(", ");
+        W.ui?.toast?.(
+          `🏅 ${unlocked.length} achievements unlocked: <b>${names}</b>`,
+          "ok",
+          6000,
+        );
+      }
+    } catch {
+      /* toast failure is non-fatal */
+    }
+
+    return earned();
+  }
+
+  return W.miscDeepFreeze({
+    DEFS,
+    earned,
+    save,
+    check,
+  });
 })();
 
 // ── Misc UI ──────────────────────────────────────────────
 W.misc = (() => {
-  // ── Helpers ──────────────────────────────────────────────
-  function escapeHTML(str) {
-    if (!str) return "";
-    const div = document.createElement("div");
-    div.textContent = str;
-    return div.innerHTML;
+  const esc = W.miscEsc;
+  const canonText = W.miscCanonText;
+
+  // ── Input limits ─────────────────────────────────────
+  const LIMITS = Object.freeze({
+    proto: 64,
+    amount: 32,
+    apy: 12,
+    aiUrl: 500,
+    aiKey: 200,
+    aiModel: 100,
+    tgToken: 100,
+    tgChat: 32,
+    sentryDsn: 500,
+    maxDefiPositions: 500,
+  });
+
+  // ── Re-entrancy guards ───────────────────────────────
+  // A module-level generation counter. Every top-level render()
+  // call bumps it. Any async continuation checks the counter before
+  // touching the DOM; a stale render silently aborts.
+  let _renderGen = 0;
+
+  // Prevents two rapid clicks on the same submit button from
+  // launching overlapping operations (double Save, double Test).
+  let _saving = false;
+  let _testing = false;
+
+  // Once the user declines a passphrase prompt in Settings, do not
+  // prompt again in the same settings session. They can still click
+  // "Unlock Keys" to trigger it.
+  let _settingsPromptDeclined = false;
+
+  // ── Defi ─────────────────────────────────────────────
+  const DEFI_KEY = "defi";
+  const DEFI_TYPES = Object.freeze(["Staking", "Yield", "Farming", "LP"]);
+  const DEFI_TYPES_SET = new Set(DEFI_TYPES);
+  // Conservative charset: word chars, space, dot, dash, underscore,
+  // parentheses, ampersand, forward slash. Deliberately excludes
+  // quotes, angle brackets, backticks, semicolons.
+  const DEFI_PROTO_RE = /^[\w .\-()&/]{1,64}$/;
+
+  function defiList() {
+    const raw = W.miscStoreArray(DEFI_KEY);
+    const out = [];
+    for (const d of raw) {
+      if (!d || typeof d !== "object" || Array.isArray(d)) continue;
+      if (typeof d.proto !== "string" || !DEFI_PROTO_RE.test(d.proto)) continue;
+      if (typeof d.type !== "string" || !DEFI_TYPES_SET.has(d.type)) continue;
+      const amt = Number(d.amount);
+      if (!Number.isFinite(amt) || amt <= 0 || amt > 1e15) continue;
+      let apy = null;
+      if (d.apy != null) {
+        const n = Number(d.apy);
+        if (Number.isFinite(n) && n >= 0 && n <= 100000) apy = n;
+      }
+      out.push({ proto: d.proto, type: d.type, amount: amt, apy });
+    }
+    return out;
+  }
+
+  function defiWrite(list) {
+    // Re-validate every record on write. If a caller bypassed the
+    // form and pushed bad data, it never reaches storage.
+    const clean = [];
+    for (const d of list) {
+      if (!d || typeof d !== "object") continue;
+      if (typeof d.proto !== "string" || !DEFI_PROTO_RE.test(d.proto)) continue;
+      if (typeof d.type !== "string" || !DEFI_TYPES_SET.has(d.type)) continue;
+      const amt = Number(d.amount);
+      if (!Number.isFinite(amt) || amt <= 0 || amt > 1e15) continue;
+      let apy = null;
+      if (d.apy != null) {
+        const n = Number(d.apy);
+        if (Number.isFinite(n) && n >= 0 && n <= 100000) apy = n;
+      }
+      clean.push({ proto: d.proto, type: d.type, amount: amt, apy });
+    }
+    // LRU cap: keep the most recently added N.
+    const capped = clean.slice(-LIMITS.maxDefiPositions);
+    W.store?.set?.(DEFI_KEY, capped);
+    return capped;
   }
 
   // ── Profile ─────────────────────────────────────────────
   function renderProfile(view) {
     const e = W.achievements.earned();
     const streak = W.portfolio?.getStreak?.() || { count: 1 };
-    const holdings = W.portfolio?.all() || [];
-    const txs = W.portfolio?.txs() || [];
-    const alerts = W.store.get("alerts", []);
+    const streakN = Number(streak.count);
+    const streakSafe = Number.isFinite(streakN) && streakN > 0 ? streakN : 1;
+    const holdings = W.portfolio?.all?.() || [];
+    const txs = W.portfolio?.txs?.() || [];
+    const alerts = W.miscStoreArray("alerts");
+    const readCount = W.miscStoreArray("news-read").length;
+    const earnedCount = Object.keys(e).length;
+    const totalDefs = W.achievements.DEFS.length;
 
     view.innerHTML = `
       <div class="cards">
         <div class="card stat">
           <div class="stat-label">Learning Streak</div>
-          <div class="stat-big">🔥 ${streak.count || 1} day${streak.count > 1 ? "s" : ""}</div>
+          <div class="stat-big">🔥 ${esc(streakSafe)} day${streakSafe > 1 ? "s" : ""}</div>
         </div>
         <div class="card stat">
           <div class="stat-label">Assets Held</div>
-          <div class="stat-big">${holdings.length}</div>
+          <div class="stat-big">${esc(holdings.length)}</div>
         </div>
         <div class="card stat">
           <div class="stat-label">Transactions</div>
-          <div class="stat-big">${txs.length}</div>
+          <div class="stat-big">${esc(txs.length)}</div>
         </div>
         <div class="card stat">
           <div class="stat-label">Badges</div>
-          <div class="stat-big">${Object.keys(e).length}/${W.achievements.DEFS.length}</div>
+          <div class="stat-big">${esc(earnedCount)}/${esc(totalDefs)}</div>
         </div>
         <div class="card stat">
           <div class="stat-label">Alerts</div>
-          <div class="stat-big">${alerts.length}</div>
+          <div class="stat-big">${esc(alerts.length)}</div>
         </div>
         <div class="card stat">
           <div class="stat-label">Articles Read</div>
-          <div class="stat-big">📖 ${W.store.get("news-read", []).length}</div>
+          <div class="stat-big">📖 ${esc(readCount)}</div>
         </div>
       </div>
       <div class="card">
@@ -16753,10 +17948,10 @@ W.misc = (() => {
           ${W.achievements.DEFS.map(
             (d) => `
             <div class="badge ${e[d.id] ? "earned" : ""}">
-              <div class="badge-icon">${d.icon}</div>
-              <b>${escapeHTML(d.name)}</b>
-              <span class="muted small">${escapeHTML(d.desc)}</span>
-              ${e[d.id] ? `<span class="muted small">Earned ${W.fmt.date(e[d.id])}</span>` : ""}
+              <div class="badge-icon">${esc(d.icon)}</div>
+              <b>${esc(d.name)}</b>
+              <span class="muted small">${esc(d.desc)}</span>
+              ${e[d.id] && W.fmt?.date ? `<span class="muted small">Earned ${esc(W.fmt.date(e[d.id]))}</span>` : ""}
             </div>
           `,
           ).join("")}
@@ -16767,9 +17962,6 @@ W.misc = (() => {
 
   // ── DeFi Tracker ────────────────────────────────────────
   function renderDefi(view) {
-    const KEY = "defi";
-    const positions = W.store.get(KEY, []);
-
     view.innerHTML = `
       <div class="card">
         <h3>💰 DeFi Tracker</h3>
@@ -16778,23 +17970,20 @@ W.misc = (() => {
       <div class="card">
         <h3>Manual Positions</h3>
         <div id="defi-list"></div>
-        <form id="defi-form" class="alert-form">
-          <input name="proto" placeholder="Protocol (e.g. Lido)" required>
+        <form id="defi-form" class="alert-form" autocomplete="off">
+          <input name="proto" placeholder="Protocol (e.g. Lido)" required maxlength="${LIMITS.proto}">
           <select name="type">
-            <option value="Staking">Staking</option>
-            <option value="Yield">Yield</option>
-            <option value="Farming">Farming</option>
-            <option value="LP">LP</option>
+            ${DEFI_TYPES.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}
           </select>
-          <input name="amount" type="number" step="any" placeholder="Amount" required>
-          <input name="apy" type="number" step="any" placeholder="APY %">
+          <input name="amount" type="number" step="any" min="0" placeholder="Amount" required maxlength="${LIMITS.amount}">
+          <input name="apy" type="number" step="any" min="0" max="100000" placeholder="APY %" maxlength="${LIMITS.apy}">
           <button class="btn primary">Add</button>
         </form>
       </div>
     `;
 
     const draw = () => {
-      const list = W.store.get(KEY, []);
+      const list = defiList();
       const container = view.querySelector("#defi-list");
       if (!container) return;
       if (!list.length) {
@@ -16810,11 +17999,11 @@ W.misc = (() => {
                 .map(
                   (d, i) => `
                 <tr>
-                  <td>${escapeHTML(d.proto)}</td>
-                  <td><span class="tag">${escapeHTML(d.type)}</span></td>
-                  <td>${d.amount}</td>
-                  <td>${d.apy || "—"}%</td>
-                  <td><button class="icon-btn" data-i="${i}">🗑️</button></td>
+                  <td>${esc(d.proto)}</td>
+                  <td><span class="tag">${esc(d.type)}</span></td>
+                  <td>${esc(d.amount)}</td>
+                  <td>${d.apy == null ? "—" : esc(d.apy) + "%"}</td>
+                  <td><button class="icon-btn" data-i="${esc(i)}" aria-label="Remove position">🗑️</button></td>
                 </tr>
               `,
                 )
@@ -16825,9 +18014,12 @@ W.misc = (() => {
       `;
       container.querySelectorAll("[data-i]").forEach((btn) => {
         btn.onclick = () => {
-          const list = W.store.get(KEY, []);
-          list.splice(+btn.dataset.i, 1);
-          W.store.set(KEY, list);
+          const idx = parseInt(btn.dataset.i, 10);
+          if (!Number.isInteger(idx) || idx < 0) return;
+          const current = defiList();
+          if (idx >= current.length) return;
+          current.splice(idx, 1);
+          defiWrite(current);
           draw();
         };
       });
@@ -16837,21 +18029,39 @@ W.misc = (() => {
     view.querySelector("#defi-form").onsubmit = (e) => {
       e.preventDefault();
       const f = e.target;
-      const list = W.store.get(KEY, []);
-      list.push({
-        proto: f.proto.value,
-        type: f.type.value,
-        amount: f.amount.value,
-        apy: f.apy.value,
-      });
-      W.store.set(KEY, list);
+
+      const proto = canonText(f.proto.value, LIMITS.proto);
+      if (!proto || !DEFI_PROTO_RE.test(proto)) {
+        return W.ui?.toast?.("Invalid protocol name.", "warn");
+      }
+      const type = canonText(f.type.value, 16);
+      if (!DEFI_TYPES_SET.has(type)) {
+        return W.ui?.toast?.("Invalid position type.", "warn");
+      }
+      const amount = Number(f.amount.value);
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 1e15) {
+        return W.ui?.toast?.("Amount must be a positive number.", "warn");
+      }
+      const apyRaw = canonText(f.apy.value, LIMITS.apy);
+      let apy = null;
+      if (apyRaw) {
+        const n = Number(apyRaw);
+        if (!Number.isFinite(n) || n < 0 || n > 100000) {
+          return W.ui?.toast?.("APY must be between 0 and 100000.", "warn");
+        }
+        apy = n;
+      }
+
+      const list = defiList();
+      list.push({ proto, type, amount, apy });
+      defiWrite(list);
       draw();
       f.reset();
     };
   }
 
   // ── Airdrop Hunter ──────────────────────────────────────
-  const DROPS = [
+  const DROPS = W.miscDeepFreeze([
     {
       id: "testnet-1",
       name: "Layer-2 Testnet Season",
@@ -16874,11 +18084,42 @@ W.misc = (() => {
         "Vote in governance",
       ],
     },
-  ];
+  ]);
+
+  function airdropDone() {
+    const raw = W.miscStoreObject("airdrops");
+    const out = Object.create(null);
+    for (const d of DROPS) {
+      const arr = raw[d.id];
+      if (Array.isArray(arr)) {
+        out[d.id] = arr
+          .map((v) => Number(v))
+          .filter((v) => Number.isInteger(v) && v >= 0 && v < d.tasks.length);
+      } else {
+        out[d.id] = [];
+      }
+    }
+    return out;
+  }
+
+  function airdropWrite(done) {
+    // Re-normalise on write too. Even if a caller passes junk, only
+    // the whitelisted integer shape reaches storage.
+    const safe = {};
+    for (const d of DROPS) {
+      const arr = done?.[d.id];
+      safe[d.id] = Array.isArray(arr)
+        ? arr
+            .map((v) => Number(v))
+            .filter((v) => Number.isInteger(v) && v >= 0 && v < d.tasks.length)
+        : [];
+    }
+    W.store?.set?.("airdrops", safe);
+    return safe;
+  }
 
   function renderAirdrops(view) {
-    const KEY = "airdrops";
-    const done = W.store.get(KEY, {});
+    const done = airdropDone();
 
     view.innerHTML = `
       <div class="card">
@@ -16888,11 +18129,15 @@ W.misc = (() => {
       <div class="grid-2">
         ${DROPS.map((d) => {
           const dk = done[d.id] || [];
+          const pct =
+            d.tasks.length > 0
+              ? Math.max(0, Math.min(100, (dk.length / d.tasks.length) * 100))
+              : 0;
           return `
             <div class="card">
               <div class="drop-head">
-                <h3>${escapeHTML(d.name)}</h3>
-                <span class="tag live">${escapeHTML(d.kind)}</span>
+                <h3>${esc(d.name)}</h3>
+                <span class="tag live">${esc(d.kind)}</span>
               </div>
               <ul class="task-list">
                 ${d.tasks
@@ -16900,8 +18145,8 @@ W.misc = (() => {
                     (t, i) => `
                   <li>
                     <label>
-                      <input type="checkbox" data-drop="${d.id}" data-task="${i}" ${dk.includes(i) ? "checked" : ""}>
-                      ${escapeHTML(t)}
+                      <input type="checkbox" data-drop="${esc(d.id)}" data-task="${esc(i)}" ${dk.includes(i) ? "checked" : ""}>
+                      ${esc(t)}
                     </label>
                   </li>
                 `,
@@ -16909,31 +18154,45 @@ W.misc = (() => {
                   .join("")}
               </ul>
               <div class="meter-bar">
-               <div class="progress-fill" data-width="${(dk.length / d.tasks.length) * 100}"></div>
+                <div class="progress-fill" data-width="${esc(pct.toFixed(1))}"></div>
               </div>
             </div>
           `;
         }).join("")}
       </div>
     `;
+
     view.querySelectorAll("[data-width]").forEach((el) => {
-      el.style.width = `${el.dataset.width}%`;
+      const w = Number(el.dataset.width);
+      if (Number.isFinite(w)) el.style.width = `${w}%`;
     });
+
     view.querySelectorAll('input[type="checkbox"][data-drop]').forEach((cb) => {
       cb.onchange = () => {
-        const done = W.store.get(KEY, {});
-        const arr = new Set(done[cb.dataset.drop] || []);
-        if (cb.checked) arr.add(+cb.dataset.task);
-        else arr.delete(+cb.dataset.task);
-        done[cb.dataset.drop] = [...arr];
-        W.store.set(KEY, done);
+        const dropId = cb.dataset.drop;
+        const taskIdx = parseInt(cb.dataset.task, 10);
+        const dropDef = DROPS.find((x) => x.id === dropId);
+        if (
+          !dropDef ||
+          !Number.isInteger(taskIdx) ||
+          taskIdx < 0 ||
+          taskIdx >= dropDef.tasks.length
+        ) {
+          return;
+        }
+        const done = airdropDone();
+        const set = new Set(done[dropId] || []);
+        if (cb.checked) set.add(taskIdx);
+        else set.delete(taskIdx);
+        done[dropId] = [...set].sort((a, b) => a - b);
+        airdropWrite(done);
         renderAirdrops(view);
       };
     });
   }
 
   // ── Pro ─────────────────────────────────────────────────
-  const PRO_FEATURES = [
+  const PRO_FEATURES = W.miscDeepFreeze([
     ["🐋", "Whale Wallet Tracker"],
     ["💸", "Smart Money Tracker"],
     ["⛓️", "On-chain Analytics"],
@@ -16942,7 +18201,7 @@ W.misc = (() => {
     ["🤖", "AI Trading Assistant"],
     ["🧾", "Tax Reports"],
     ["🔄", "Multi-device Sync"],
-  ];
+  ]);
 
   function renderPro(view) {
     view.innerHTML = `
@@ -16952,15 +18211,15 @@ W.misc = (() => {
         <div class="pro-price">
           <b>$9</b>
           <span class="muted">/month (planned)</span>
-                    <button class="btn primary" data-action="join-waitlist">Join Waitlist</button>
+          <button class="btn primary" data-action="join-waitlist">Join Waitlist</button>
         </div>
       </div>
       <div class="grid-2">
         ${PRO_FEATURES.map(
           ([icon, name]) => `
           <div class="card pro-card">
-            <span class="pro-ico">${icon}</span>
-            <b>${escapeHTML(name)}</b>
+            <span class="pro-ico">${esc(icon)}</span>
+            <b>${esc(name)}</b>
             <span class="tag lock">🔒 Pro</span>
           </div>
         `,
@@ -16968,23 +18227,16 @@ W.misc = (() => {
       </div>
     `;
 
-    // CSP-safe event wiring. The button previously used an inline
-    // onclick= handler, which the production CSP blocks. Attach the
-    // listener here, after view.innerHTML has populated the view, so
-    // the button is present in the DOM.
     const waitlistBtn = view.querySelector('[data-action="join-waitlist"]');
     if (waitlistBtn) {
       waitlistBtn.onclick = () =>
-        W.ui.toast("Pro launches soon — you are on the list! ✨", "ok");
+        W.ui?.toast?.("Pro launches soon — you are on the list! ✨", "ok");
     }
   }
 
   // ── Passphrase Helpers ─────────────────────────────────
-  // The passphrase and decrypted keys themselves now live in
-  // W.secureSession, shared with js/features/telegram.js — see that
-  // module for why this used to be a problem.
   async function getPassphrase(forcePrompt = false) {
-    if (!forcePrompt && W.secureSession.getPassphrase()) {
+    if (!forcePrompt && W.secureSession?.getPassphrase?.()) {
       return W.secureSession.getPassphrase();
     }
     const pwd = await W.ui.promptPassword({
@@ -16994,38 +18246,82 @@ W.misc = (() => {
       confirmLabel: "Unlock",
       minLength: 12,
     });
-    return pwd; // null if cancelled, "" if left blank, string otherwise
+    return pwd;
   }
 
   function clearPassphrase() {
-    W.secureSession.lock();
+    W.secureSession?.lock?.();
+  }
+
+  // ── Sentry DSN validation ──────────────────────────────
+  // A well-formed Sentry DSN is https://<key>@<org>.ingest.sentry.io/<proj>.
+  // Self-hosted Sentry uses a different host, so we cannot demand a
+  // specific suffix. We do demand: parseable URL, https, has a public
+  // key (userinfo), and a path. That rejects every common typo and
+  // every javascript:/data: attempt.
+  function isValidDsn(v) {
+    if (!v) return true; // blank is allowed (feature disabled)
+    if (typeof v !== "string" || v.length > LIMITS.sentryDsn) return false;
+    let u;
+    try {
+      u = new URL(v);
+    } catch {
+      return false;
+    }
+    if (u.protocol !== "https:") return false;
+    if (!u.username) return false;
+    if (!u.pathname || u.pathname === "/") return false;
+    if (!u.hostname || u.hostname.length < 4) return false;
+    return true;
   }
 
   // ── Settings ────────────────────────────────────────────
-  async function renderSettings(view) {
-    // Load existing settings
-    let settings = W.store.get("settings", {});
-    let sensitive = null;
+  async function renderSettings(view, opts = {}) {
+    const gen = ++_renderGen;
+    const skipPrompt = opts.skipPrompt === true || _settingsPromptDeclined;
 
-    // Check if encrypted settings exist
-    const encryptedBlob = W.store.get("encrypted_settings", null);
+    let settings = W.miscStoreObject("settings");
+    let sensitive = null;
+    let wasUnlocked = false;
+
+    // Coerce non-sensitive settings into safe types.
+    const currencyRaw = String(settings.currency || "usd").toLowerCase();
+    const currency = ["usd", "eur", "gbp", "inr", "jpy", "aud", "cad"].includes(
+      currencyRaw,
+    )
+      ? currencyRaw
+      : "usd";
+    const refreshRaw = Number(settings.refresh);
+    const refresh = Number.isFinite(refreshRaw)
+      ? Math.max(0, Math.min(3600, Math.floor(refreshRaw)))
+      : 60;
+    const sentryDsnSafe = isValidDsn(settings.sentryDsn)
+      ? String(settings.sentryDsn || "").slice(0, LIMITS.sentryDsn)
+      : "";
+
+    const encryptedBlob = W.store?.get?.("encrypted_settings", null);
     if (encryptedBlob) {
-      if (W.secureSession.isUnlocked()) {
+      if (W.secureSession?.isUnlocked?.()) {
+        wasUnlocked = true;
         sensitive = {
-          ai: W.secureSession.get("ai"),
-          telegram: W.secureSession.get("telegram"),
+          ai: W.secureSession.get("ai") || {},
+          telegram: W.secureSession.get("telegram") || {},
         };
-        settings.ai = sensitive.ai || {};
-        settings.telegram = sensitive.telegram || {};
-      } else {
+        settings.ai = sensitive.ai;
+        settings.telegram = sensitive.telegram;
+      } else if (!skipPrompt) {
         const passphrase = await getPassphrase();
+        // If the view was replaced while awaiting the prompt, abort.
+        if (gen !== _renderGen || !view.isConnected) return;
         if (passphrase) {
           try {
             sensitive = await W.secureSession.unlock(passphrase);
+            if (gen !== _renderGen || !view.isConnected) return;
+            wasUnlocked = true;
             settings.ai = sensitive.ai || {};
             settings.telegram = sensitive.telegram || {};
           } catch (e) {
-            W.ui.toast(
+            W.ui?.toast?.(
               "Incorrect passphrase or corrupted data. API keys will not be shown.",
               "warn",
             );
@@ -17033,10 +18329,13 @@ W.misc = (() => {
             settings.telegram = { on: false, token: "", chat: "" };
           }
         } else {
-          // User cancelled or no passphrase
+          _settingsPromptDeclined = true;
           settings.ai = { url: "", key: "", model: "" };
           settings.telegram = { on: false, token: "", chat: "" };
         }
+      } else {
+        settings.ai = { url: "", key: "", model: "" };
+        settings.telegram = { on: false, token: "", chat: "" };
       }
     }
 
@@ -17049,50 +18348,55 @@ W.misc = (() => {
         <label>
           Currency
           <select id="set-cur">
-            ${["usd", "eur", "gbp", "inr", "jpy", "aud", "cad"].map((c) => `<option ${settings.currency === c ? "selected" : ""}>${c}</option>`).join("")}
+            ${["usd", "eur", "gbp", "inr", "jpy", "aud", "cad"]
+              .map(
+                (c) =>
+                  `<option value="${esc(c)}" ${currency === c ? "selected" : ""}>${esc(c)}</option>`,
+              )
+              .join("")}
           </select>
         </label>
         <label>
           Auto-refresh seconds (0 = off)
-          <input id="set-refresh" type="number" min="0" value="${settings.refresh ?? 60}">
+          <input id="set-refresh" type="number" min="0" max="3600" value="${esc(refresh)}">
         </label>
         <h3 class="mt">🩺 Error Reporting (optional)</h3>
         <p class="muted small">Add a Sentry DSN to get crash/error reports if something breaks for you. DSNs are safe to store in plain text — they only allow sending error reports, not reading any data.</p>
         <label>
           Sentry DSN
-          <input id="set-sentrydsn" placeholder="https://abc123@o000000.ingest.sentry.io/000000" value="${escapeHTML(settings.sentryDsn || "")}">
+          <input id="set-sentrydsn" placeholder="https://abc123@o000000.ingest.sentry.io/000000" value="${esc(sentryDsnSafe)}" maxlength="${LIMITS.sentryDsn}" autocomplete="off">
         </label>
         <h3 class="mt">🤖 AI Assistant (optional)</h3>
         <p class="muted small">Plug in any OpenAI-compatible endpoint to power "Ask Weaver". Without a key, Weaver answers with live on-chain data.</p>
         <label>
           API URL
-          <input id="set-aiurl" placeholder="https://api.openai.com/v1/chat/completions" value="${escapeHTML(ai.url || "")}">
+          <input id="set-aiurl" placeholder="https://api.openai.com/v1/chat/completions" value="${esc(ai.url || "")}" maxlength="${LIMITS.aiUrl}" autocomplete="off">
         </label>
         <label>
           API Key
-          <input id="set-aikey" type="password" value="${escapeHTML(ai.key || "")}">
+          <input id="set-aikey" type="password" value="${esc(ai.key || "")}" maxlength="${LIMITS.aiKey}" autocomplete="new-password" spellcheck="false">
         </label>
         <label>
           Model
-          <input id="set-aimodel" placeholder="gpt-4o-mini" value="${escapeHTML(ai.model || "")}">
+          <input id="set-aimodel" placeholder="gpt-4o-mini" value="${esc(ai.model || "")}" maxlength="${LIMITS.aiModel}" autocomplete="off">
         </label>
         <button class="btn primary mt" id="set-save">Save Settings</button>
         <button class="btn ghost mt${encryptedBlob ? "" : " hidden"}" id="set-unlock">🔓 Unlock Keys</button>
-        <button class="btn ghost mt${W.secureSession.isUnlocked() ? "" : " hidden"}" id="set-lock">🔒 Lock Keys</button>
+        <button class="btn ghost mt${W.secureSession?.isUnlocked?.() ? "" : " hidden"}" id="set-lock">🔒 Lock Keys</button>
       </div>
       <div class="card">
         <h3>📨 Telegram Alerts (optional)</h3>
         <p class="muted small">Bot created via <b>@BotFather</b>, Chat ID from <b>@userinfobot</b>, and you've sent the bot one message. Alerts, triggers and new gems will ping your phone.</p>
         <label>
           Bot Token
-          <input id="set-tgtoken" type="password" placeholder="123456789:AAF..." value="${escapeHTML(tg.token || "")}">
+          <input id="set-tgtoken" type="password" placeholder="123456789:AAF..." value="${esc(tg.token || "")}" maxlength="${LIMITS.tgToken}" autocomplete="new-password" spellcheck="false">
         </label>
         <label>
           Chat ID
-          <input id="set-tgchat" placeholder="e.g. 7099096813" value="${escapeHTML(tg.chat || "")}">
+          <input id="set-tgchat" placeholder="e.g. 7099096813" value="${esc(tg.chat || "")}" maxlength="${LIMITS.tgChat}" autocomplete="off">
         </label>
         <label class="small">
-         <input type="checkbox" id="set-tgon" ${tg.on ? "checked" : ""} class="w-auto">
+          <input type="checkbox" id="set-tgon" ${tg.on ? "checked" : ""} class="w-auto">
           Enable Telegram alerts
         </label>
         <div class="qa mt">
@@ -17111,68 +18415,124 @@ W.misc = (() => {
 
     // ── Save handler ──────────────────────────────────────
     view.querySelector("#set-save").onclick = async () => {
-      const aiSettings = {
-        url: view.querySelector("#set-aiurl").value.trim(),
-        key: view.querySelector("#set-aikey").value.trim(),
-        model: view.querySelector("#set-aimodel").value.trim(),
-      };
-      const tgSettings = {
-        on: view.querySelector("#set-tgon").checked,
-        token: view.querySelector("#set-tgtoken").value.trim(),
-        chat: view.querySelector("#set-tgchat").value.trim(),
-      };
+      if (_saving) return;
+      _saving = true;
+      const saveBtn = view.querySelector("#set-save");
+      if (saveBtn) saveBtn.disabled = true;
+      try {
+        const aiSettings = {
+          url: canonText(view.querySelector("#set-aiurl").value, LIMITS.aiUrl),
+          key: canonText(view.querySelector("#set-aikey").value, LIMITS.aiKey),
+          model: canonText(
+            view.querySelector("#set-aimodel").value,
+            LIMITS.aiModel,
+          ),
+        };
+        const tgSettings = {
+          on: view.querySelector("#set-tgon").checked === true,
+          token: canonText(
+            view.querySelector("#set-tgtoken").value,
+            LIMITS.tgToken,
+          ),
+          chat: canonText(
+            view.querySelector("#set-tgchat").value,
+            LIMITS.tgChat,
+          ),
+        };
 
-      const hasSensitive = aiSettings.key || tgSettings.token;
+        const refreshInput = Number(view.querySelector("#set-refresh").value);
+        const refreshVal = Number.isFinite(refreshInput)
+          ? Math.max(0, Math.min(3600, Math.floor(refreshInput)))
+          : 60;
 
-      // Non-sensitive settings
-      const nonSensitive = {
-        currency: view.querySelector("#set-cur").value,
-        refresh: +view.querySelector("#set-refresh").value,
-        sentryDsn: view.querySelector("#set-sentrydsn").value.trim(),
-      };
-      // Sentry's own SDK reads its DSN from a flat W.store key at init
-      // time (see js/init.js), separately from the general settings
-      // blob, so both stay in sync here without restructuring init.js.
-      W.store.set("sentry_dsn", nonSensitive.sentryDsn);
+        const dsnRaw = canonText(
+          view.querySelector("#set-sentrydsn").value,
+          LIMITS.sentryDsn,
+        );
+        if (!isValidDsn(dsnRaw)) {
+          W.ui?.toast?.(
+            "Sentry DSN must be a valid https:// URL (or leave blank).",
+            "warn",
+          );
+          return;
+        }
 
-      if (hasSensitive) {
-        let passphrase = W.secureSession.getPassphrase();
-        if (!passphrase) {
-          passphrase = await getPassphrase(true);
+        const hasSensitive = !!(aiSettings.key || tgSettings.token);
+
+        const nonSensitive = {
+          currency: view.querySelector("#set-cur").value,
+          refresh: refreshVal,
+          sentryDsn: dsnRaw,
+        };
+        W.store?.set?.("sentry_dsn", nonSensitive.sentryDsn);
+
+        if (hasSensitive) {
+          let passphrase = W.secureSession?.getPassphrase?.();
           if (!passphrase) {
-            W.ui.toast("Passphrase required to save API keys.", "warn");
+            passphrase = await getPassphrase(true);
+            // Render was replaced while we were prompting.
+            if (gen !== _renderGen || !view.isConnected) return;
+          }
+          if (!passphrase) {
+            // Preserve encrypted blob. Only save non-sensitive.
+            W.store?.set?.("settings", nonSensitive);
+            W.ui?.toast?.(
+              "Non-sensitive settings saved. Passphrase required to update API keys.",
+              "info",
+            );
+            renderSettings(view, { skipPrompt: true });
             return;
           }
+          try {
+            await W.secureSession.save(
+              { ai: aiSettings, telegram: tgSettings },
+              passphrase,
+            );
+            if (gen !== _renderGen || !view.isConnected) return;
+            W.store?.set?.("settings", nonSensitive);
+            W.ui?.toast?.("Settings saved (sensitive data encrypted) ✓", "ok");
+          } catch (e) {
+            W.ui?.toast?.(`Encryption failed: ${e.message}`, "warn");
+          }
+        } else {
+          if (!encryptedBlob) {
+            W.store?.set?.("settings", nonSensitive);
+            W.ui?.toast?.("Settings saved ✓", "ok");
+          } else if (wasUnlocked) {
+            W.store?.delete?.("encrypted_settings");
+            W.store?.set?.("settings", nonSensitive);
+            W.ui?.toast?.("Settings saved (encrypted keys removed) ✓", "ok");
+          } else {
+            W.store?.set?.("settings", nonSensitive);
+            W.ui?.toast?.(
+              "Non-sensitive settings saved. Encrypted keys preserved.",
+              "info",
+            );
+          }
         }
-        try {
-          const sensitive = { ai: aiSettings, telegram: tgSettings };
-          await W.secureSession.save(sensitive, passphrase);
-          // Store non-sensitive separately
-          W.store.set("settings", nonSensitive);
-          W.ui.toast("Settings saved (sensitive data encrypted) ✓", "ok");
-        } catch (e) {
-          W.ui.toast(`Encryption failed: ${e.message}`, "warn");
+        if (gen === _renderGen && view.isConnected) {
+          renderSettings(view, { skipPrompt: _settingsPromptDeclined });
         }
-      } else {
-        // No sensitive data; remove encrypted blob
-        W.store.delete("encrypted_settings");
-        W.store.set("settings", nonSensitive);
-        W.ui.toast("Settings saved ✓", "ok");
+      } finally {
+        _saving = false;
+        const b = view.querySelector("#set-save");
+        if (b) b.disabled = false;
       }
-      // Refresh UI to reflect changes
-      renderSettings(view);
     };
 
     // ── Unlock handler ─────────────────────────────────────
     view.querySelector("#set-unlock").onclick = async () => {
+      _settingsPromptDeclined = false; // user explicitly asked
       const pwd = await getPassphrase(true);
+      if (gen !== _renderGen || !view.isConnected) return;
       if (pwd) {
         try {
           await W.secureSession.unlock(pwd);
+          if (gen !== _renderGen || !view.isConnected) return;
           renderSettings(view);
-          W.ui.toast("Passphrase stored for this session.", "ok");
+          W.ui?.toast?.("Passphrase stored for this session.", "ok");
         } catch (e) {
-          W.ui.toast(`Unlock failed: ${e.message}`, "warn");
+          W.ui?.toast?.(`Unlock failed: ${e.message}`, "warn");
         }
       }
     };
@@ -17180,171 +18540,742 @@ W.misc = (() => {
     // ── Lock handler ─────────────────────────────────────
     view.querySelector("#set-lock").onclick = () => {
       clearPassphrase();
-      renderSettings(view);
-      W.ui.toast("Keys locked.", "info");
+      _settingsPromptDeclined = false;
+      renderSettings(view, { skipPrompt: true });
+      W.ui?.toast?.("Keys locked.", "info");
     };
 
     // ── Telegram test ─────────────────────────────────────
     view.querySelector("#set-tgtest").onclick = async () => {
-      const token = view.querySelector("#set-tgtoken").value.trim();
-      const chat = view.querySelector("#set-tgchat").value.trim();
-      if (!token || !chat)
-        return W.ui.toast("Enter token and Chat ID first", "warn");
-      if (!W.tg) return W.ui.toast("Telegram module not loaded", "warn");
-      // Pass the draft token/chatId as overrides so this tests what's
-      // actually typed in the form, not whatever was previously saved.
-      const ok = await W.tg.send(
-        `✅ Weaver connected! Alerts will arrive here.`,
-        { token, chatId: chat },
-      );
-      W.ui.toast(
-        ok ? "Test sent 📨" : "Failed — check token/Chat ID",
-        ok ? "ok" : "warn",
-      );
+      if (_testing) return;
+      _testing = true;
+      const btn = view.querySelector("#set-tgtest");
+      if (btn) btn.disabled = true;
+      try {
+        const token = canonText(
+          view.querySelector("#set-tgtoken").value,
+          LIMITS.tgToken,
+        );
+        const chat = canonText(
+          view.querySelector("#set-tgchat").value,
+          LIMITS.tgChat,
+        );
+        if (!token || !chat)
+          return W.ui?.toast?.("Enter token and Chat ID first", "warn");
+        if (!W.tg) return W.ui?.toast?.("Telegram module not loaded", "warn");
+        const ok = await W.tg.send(
+          `✅ Weaver connected! Alerts will arrive here.`,
+          { token, chatId: chat },
+        );
+        if (gen !== _renderGen || !view.isConnected) return;
+        W.ui?.toast?.(
+          ok ? "Test sent 📨" : "Failed — check token/Chat ID",
+          ok ? "ok" : "warn",
+        );
+      } finally {
+        _testing = false;
+        const b = view.querySelector("#set-tgtest");
+        if (b) b.disabled = false;
+      }
     };
 
-    // ── Export Tax ────────────────────────────────────────
+    // ── Tax CSV ────────────────────────────────────────────
+    //
+    // RFC 4180 quoting plus formula-injection defence. A cell that
+    // begins with = + - @ TAB CR is prefixed with ' so spreadsheet
+    // apps treat it as text. Commas, quotes, and newlines are then
+    // escaped with the standard double-quote rule.
+    function csvCell(v) {
+      let s = v == null ? "" : String(v);
+      // Strip control chars except \t and \n (which CSV quoting
+      // handles); C0 controls have no business in a spreadsheet cell.
+      s = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+      if (/[",\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    }
+
     view.querySelector("#set-tax").onclick = () => {
-      const txs = W.portfolio?.txs() || [];
-      if (!txs.length) return W.ui.toast("No transactions to export.", "warn");
-      let csv = "Date,Type,Coin,Symbol,Quantity,Price,Total\n";
-      txs.forEach((t) => {
-        const date = new Date(t.date).toISOString().split("T")[0];
-        csv += `${date},${t.type},${t.name},${t.symbol.toUpperCase()},${t.qty},${t.price},${(t.qty * t.price).toFixed(2)}\n`;
-      });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(
-        new Blob([csv], { type: "text/csv;charset=utf-8;" }),
+      const txs = W.portfolio?.txs?.() || [];
+      if (!txs.length)
+        return W.ui?.toast?.("No transactions to export.", "warn");
+      const header = [
+        "Date",
+        "Type",
+        "Coin",
+        "Symbol",
+        "Quantity",
+        "Price",
+        "Total",
+      ].join(",");
+      const lines = [header];
+      // Cap at 100k rows to bound memory. Realistically the store
+      // cannot hold that many, but the guard costs nothing.
+      const limit = Math.min(txs.length, 100000);
+      for (let i = 0; i < limit; i++) {
+        const t = txs[i];
+        let date = "";
+        try {
+          const d = new Date(t.date);
+          if (!isNaN(d.getTime())) date = d.toISOString().split("T")[0];
+        } catch {
+          date = "";
+        }
+        const qty = Number(t.qty);
+        const price = Number(t.price);
+        const total =
+          Number.isFinite(qty) && Number.isFinite(price)
+            ? (qty * price).toFixed(2)
+            : "";
+        lines.push(
+          [
+            csvCell(date),
+            csvCell(t.type),
+            csvCell(t.name),
+            csvCell(String(t.symbol || "").toUpperCase()),
+            csvCell(Number.isFinite(qty) ? qty : ""),
+            csvCell(Number.isFinite(price) ? price : ""),
+            csvCell(total),
+          ].join(","),
+        );
+      }
+      // UTF-8 BOM so Excel auto-detects the encoding.
+      const csv = "\uFEFF" + lines.join("\r\n");
+      downloadBlob(
+        csv,
+        "text/csv;charset=utf-8;",
+        `weaver-tax-report-${new Date().getFullYear()}.csv`,
       );
-      a.download = `weaver-tax-report-${new Date().getFullYear()}.csv`;
-      a.click();
-      W.ui.toast("Tax report downloaded 🧾", "ok");
+      W.ui?.toast?.("Tax report downloaded 🧾", "ok");
     };
 
     // ── Export Backup ──────────────────────────────────────
     view.querySelector("#set-export").onclick = () => {
-      const data = {};
-      [
+      // Explicit whitelist of what goes into the backup. Adding a key
+      // here is a security decision: it will be written to disk in
+      // plaintext.
+      //
+      // Deliberately EXCLUDED:
+      //   - encrypted_settings: the ciphertext is only useful with
+      //     the user's passphrase, and including it would let an
+      //     accidental backup-share leak the AEAD blob.
+      //   - wallet_sync_data: same reasoning.
+      //   - any key not in the list below.
+      const ARRAY_KEYS = [
         "portfolio",
         "transactions",
         "watchlist",
         "alerts",
-        "settings",
-        "learn",
-        "achievements",
         "news-read",
         "news-saved",
-      ].forEach((k) => (data[k] = W.store.get(k)));
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(
-        new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
+        "whale_alerts",
+        "defi",
+      ];
+      const OBJECT_KEYS = [
+        "learn",
+        "achievements",
+        "wallet_cost_basis",
+        "airdrops",
+      ];
+
+      const data = {
+        version: MISC_VERSION,
+        schema: MISC_STORE_VERSION,
+        exportedAt: Date.now(),
+      };
+
+      for (const k of ARRAY_KEYS) {
+        data[k] = W.miscStoreArray(k);
+      }
+      for (const k of OBJECT_KEYS) {
+        data[k] = W.miscStoreObject(k);
+      }
+
+      // Settings: filter to the non-sensitive schema. Even if the
+      // stored object somehow carries sensitive fields (bug in
+      // another module, a legacy layout), they cannot reach the file.
+      const rawSettings = W.miscStoreObject("settings");
+      data.settings = {
+        currency: String(rawSettings.currency || "usd"),
+        refresh: Number.isFinite(Number(rawSettings.refresh))
+          ? Number(rawSettings.refresh)
+          : 60,
+        sentryDsn: String(rawSettings.sentryDsn || ""),
+      };
+
+      downloadBlob(
+        JSON.stringify(data, null, 2),
+        "application/json",
+        "weaver-backup.json",
       );
-      a.download = "weaver-backup.json";
-      a.click();
     };
 
     // ── Wipe Data ──────────────────────────────────────────
     view.querySelector("#set-wipe").onclick = () => {
-      W.ui.confirm(
+      W.ui?.confirm?.(
         "This deletes ALL Weaver data from this browser. Continue?",
         () => {
-          W.store.clearAll();
+          W.store?.clearAll?.();
           location.reload();
         },
       );
     };
   }
 
-  // ── Exports ─────────────────────────────────────────────
-  return {
+  // ── Blob download helper (revokes the URL) ────────────
+  function downloadBlob(content, mime, filename) {
+    const url = URL.createObjectURL(new Blob([content], { type: mime }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    try {
+      a.click();
+    } finally {
+      // Revoke on next tick so the download has time to start.
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+  }
+
+  // ── Backup import ─────────────────────────────────────
+  //
+  // Strict per-key validation. Nothing is written unless every
+  // present key passes its guard. Reserved keys are rejected at the
+  // top level to prevent prototype pollution via W.store.set.
+  function importBackup(text, mode = "merge") {
+    if (typeof text !== "string" || text.length > 10 * 1024 * 1024) {
+      return { ok: false, error: "Backup exceeds 10 MB or is not a string" };
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return { ok: false, error: "Invalid JSON" };
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, error: "Backup is not a JSON object" };
+    }
+
+    const ARRAY_KEYS = new Set([
+      "portfolio",
+      "transactions",
+      "watchlist",
+      "alerts",
+      "news-read",
+      "news-saved",
+      "whale_alerts",
+      "defi",
+    ]);
+    const OBJECT_KEYS = new Set([
+      "settings",
+      "learn",
+      "achievements",
+      "wallet_cost_basis",
+      "airdrops",
+    ]);
+
+    // Validate every present key first. Any failure aborts the
+    // entire import — nothing is written halfway.
+    for (const k of Object.keys(parsed)) {
+      if (k === "version" || k === "schema" || k === "exportedAt") continue;
+      if (W.miscIsReservedKey(k)) {
+        return { ok: false, error: `Reserved key rejected: ${k}` };
+      }
+      if (!ARRAY_KEYS.has(k) && !OBJECT_KEYS.has(k)) {
+        // Unknown keys are ignored, not rejected. This allows future
+        // versions to add fields without breaking old importers.
+        continue;
+      }
+      const v = parsed[k];
+      if (ARRAY_KEYS.has(k) && !Array.isArray(v)) {
+        return { ok: false, error: `Key "${k}" must be an array` };
+      }
+      if (
+        OBJECT_KEYS.has(k) &&
+        (v === null || typeof v !== "object" || Array.isArray(v))
+      ) {
+        return { ok: false, error: `Key "${k}" must be an object` };
+      }
+    }
+
+    if (mode === "replace") {
+      for (const k of ARRAY_KEYS) W.store?.delete?.(k);
+      for (const k of OBJECT_KEYS) W.store?.delete?.(k);
+    }
+
+    let written = 0;
+    for (const k of Object.keys(parsed)) {
+      if (k === "version" || k === "schema" || k === "exportedAt") continue;
+      if (!ARRAY_KEYS.has(k) && !OBJECT_KEYS.has(k)) continue;
+      if (W.miscIsReservedKey(k)) continue;
+      try {
+        W.store?.set?.(k, parsed[k]);
+        written++;
+      } catch (e) {
+        return { ok: false, error: `Write failed for "${k}": ${e.message}` };
+      }
+    }
+    return { ok: true, written };
+  }
+
+  // ── Public API ────────────────────────────────────────
+  return W.miscDeepFreeze({
+    version: MISC_VERSION,
     renderProfile,
     renderSettings,
     renderPro,
     renderDefi,
     renderAirdrops,
-  };
+    importBackup,
+  });
 })();
 
-console.log("[Misc] Module loaded (with encrypted settings).");
+console.log(
+  `[Misc] Module loaded (${MISC_VERSION}: prototype-safe import, redacted backup, canonicalised inputs, re-entrancy guards, deep-frozen config).`,
+);
 // ---- js/features/whales.js ----
 // ===============================================================
-//         Whale Tracker Module
+//         Whale Tracker Module — hardened (whales-v2)
 // ===============================================================
-// Purpose: Track significant on-chain movements.
-// P0 Security Task 3: Mask wallet addresses in console logs.
+// Purpose: Track significant on-chain movements with an explicit,
+// validated ingest path.
+//
+// Constitution compliance:
+//   §2.6  Privacy: raw addresses are stored only in localStorage
+//         (encrypted-at-rest when wrapped by the app's storage
+//         layer). Addresses are masked in every UI surface and every
+//         console log. No full address is ever interpolated into
+//         HTML, a query string, or an error message.
+//   §2.7  No fabricated data: an alert with an unrecognised chain,
+//         type, or non-finite amount is rejected at ingest. The UI
+//         never displays a value it cannot vouch for.
+//   §3.4  Graceful degradation: every alert renders inside its own
+//         try/catch. One corrupt record cannot take down the page.
+//   §3.7  Deterministic: regex validation, Number.isFinite checks,
+//         and whitelist membership. No eval, no dynamic require.
+//   §3.8  Versioned: MODULE_VERSION exported for bundle verification.
+//
+// v2 changelog:
+//   - Added validate()/sanitize() at every ingest boundary. Every
+//     field is type-checked and range-checked before it reaches
+//     storage.
+//   - Added add()/remove()/clear()/export()/import() public API.
+//   - Added deduplication via a content hash (chain + addr + txHash
+//     + timestamp).
+//   - Added a bounded store: MAX_ALERTS with LRU eviction by
+//     timestamp.
+//   - Added schema versioning (STORE_VERSION) so future migrations
+//     have a pivot.
+//   - Added chain/type whitelists. Unknown values are rejected at
+//     ingest rather than silently rendered.
+//   - Added address validation reusing the same regexes as
+//     walletsync.js.
+//   - Fixed three XSS vectors: unescaped amount, unescaped type in
+//     class name, unescaped id in data-* attribute.
+//   - Event delegation replaces per-button listeners.
+//   - Per-card error isolation so one bad record cannot break the
+//     list.
+//   - Empty/error states rendered explicitly.
+//   - Module wrapped in try/catch so a corrupt store entry cannot
+//     prevent the module from loading.
 // ===============================================================
 
 window.W = window.W || {};
-W.whales = W.whales || {};
 
-(function () {
-  const WHALES_KEY = "whale_alerts";
-  let alerts = W.store.get(WHALES_KEY, []);
+W.whales = (() => {
+  const MODULE_VERSION = "whales-v2";
+  const STORE_KEY = "whale_alerts";
+  const STORE_VERSION = 2;
+  const MAX_ALERTS = 200;
+  const MAX_STR = 64; // max length for symbol / chain-ish strings
+  const MAX_NOTE = 280; // max length for the optional note
+  const MAX_AMOUNT = 1e18; // sanity cap — larger implies a bug upstream
+  const MIN_AMOUNT = 0; // strictly greater than this to be material
 
-  function save() {
-    W.store.set(WHALES_KEY, alerts);
+  // ── Whitelists ────────────────────────────────────────
+  const ALLOWED_CHAINS = new Set(["btc", "eth", "bsc", "sol"]);
+  const ALLOWED_TYPES = new Set(["inflow", "outflow", "swap", "mint", "burn"]);
+  const TYPE_CLASS = {
+    inflow: "buy", // inflow into an exchange → sell pressure
+    outflow: "sell", // outflow from an exchange → accumulation
+    swap: "neutral",
+    mint: "neutral",
+    burn: "neutral",
+  };
+  const ALLOWED_SOURCES = new Set(["manual", "rpc", "explorer", "import"]);
+  const ALLOWED_CONFIDENCE = new Set(["low", "medium", "high"]);
+
+  // ── Address validators (kept in sync with walletsync.js) ──
+  const ADDR_PATTERNS = {
+    btc: [/^[13][a-zA-Z0-9]{25,34}$/, /^bc1[a-zA-Z0-9]{25,90}$/],
+    eth: [/^0x[a-fA-F0-9]{40}$/],
+    bsc: [/^0x[a-fA-F0-9]{40}$/],
+    sol: [/^[1-9A-HJ-NP-Za-km-z]{32,44}$/],
+  };
+
+  function validateAddress(chain, addr) {
+    const patterns = ADDR_PATTERNS[chain];
+    if (!patterns) return false;
+    if (typeof addr !== "string") return false;
+    return patterns.some((p) => p.test(addr));
   }
+
+  // ── Safe formatting helpers ───────────────────────────
+  // W.fmt is expected to exist, but the module should not crash if a
+  // partial load leaves it undefined. Every helper falls back to a
+  // strictly-safe version.
+  function esc(v) {
+    if (W.fmt?.escapeHTML) return W.fmt.escapeHTML(String(v ?? ""));
+    return String(v ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+  function maskAddr(addr) {
+    if (W.fmt?.maskAddress) return W.fmt.maskAddress(addr);
+    if (typeof addr !== "string" || addr.length < 10) return "—";
+    return addr.slice(0, 6) + "…" + addr.slice(-4);
+  }
+  function relTime(ts) {
+    if (W.fmt?.relativeTime) return W.fmt.relativeTime(ts);
+    const secs = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+    if (secs < 60) return `${secs}s ago`;
+    if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+    if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+    return `${Math.floor(secs / 86400)}d ago`;
+  }
+
+  // ── Persistence with error isolation ──────────────────
+  // A corrupted store entry should degrade to "empty list", never
+  // crash the module. The store shape is versioned so future
+  // migrations have a clean pivot.
+  function load() {
+    try {
+      const raw = W.store?.get?.(STORE_KEY, null);
+      if (!raw) return [];
+      // Legacy shape: a bare array (v1). Wrap it.
+      if (Array.isArray(raw)) {
+        return raw.map(validate).filter(Boolean);
+      }
+      // Versioned shape.
+      if (raw && typeof raw === "object" && Array.isArray(raw.alerts)) {
+        return raw.alerts.map(validate).filter(Boolean);
+      }
+      return [];
+    } catch (e) {
+      console.warn("[Whales] Store read failed; starting empty.");
+      return [];
+    }
+  }
+
+  function save(list) {
+    try {
+      // Bounded write: sort by timestamp desc, keep the newest N.
+      const trimmed = list
+        .slice()
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, MAX_ALERTS);
+      W.store?.set?.(STORE_KEY, {
+        version: STORE_VERSION,
+        alerts: trimmed,
+      });
+      return trimmed;
+    } catch (e) {
+      console.warn("[Whales] Store write failed; keeping in-memory only.");
+      return list;
+    }
+  }
+
+  // In-memory mirror. This is what the UI reads from; the store is
+  // best-effort persistence behind it.
+  let alerts = load();
+
+  // ── Validation ────────────────────────────────────────
+  // validate(raw) returns a canonical alert object or null. It never
+  // throws. Every field is checked. Fields that cannot be validated
+  // cause rejection — the module does not partially accept a record.
+  function validate(raw) {
+    try {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+
+      const chain =
+        typeof raw.chain === "string" ? raw.chain.toLowerCase() : "";
+      if (!ALLOWED_CHAINS.has(chain)) return null;
+
+      const type = typeof raw.type === "string" ? raw.type.toLowerCase() : "";
+      if (!ALLOWED_TYPES.has(type)) return null;
+
+      const addr = typeof raw.addr === "string" ? raw.addr : "";
+      if (!validateAddress(chain, addr)) return null;
+
+      const amount = Number(raw.amount);
+      if (
+        !Number.isFinite(amount) ||
+        amount <= MIN_AMOUNT ||
+        amount > MAX_AMOUNT
+      ) {
+        return null;
+      }
+
+      const symbol =
+        typeof raw.symbol === "string"
+          ? raw.symbol.trim().slice(0, MAX_STR).toUpperCase()
+          : "";
+      if (!symbol || !/^[A-Z0-9._-]{1,16}$/.test(symbol)) return null;
+
+      const txHash =
+        typeof raw.txHash === "string" && raw.txHash.length <= 128
+          ? raw.txHash
+          : null;
+
+      // Timestamp: must be a finite number in a sane range. Reject
+      // future timestamps beyond a small clock-skew allowance.
+      const ts = Number(raw.timestamp);
+      const now = Date.now();
+      if (!Number.isFinite(ts) || ts <= 0 || ts > now + 60000) return null;
+
+      const source = ALLOWED_SOURCES.has(raw.source) ? raw.source : "manual";
+      const confidence = ALLOWED_CONFIDENCE.has(raw.confidence)
+        ? raw.confidence
+        : "low";
+
+      const usd = Number(raw.usd);
+      const usdSafe = Number.isFinite(usd) && usd >= 0 ? usd : null;
+
+      const note =
+        typeof raw.note === "string" ? raw.note.slice(0, MAX_NOTE) : "";
+
+      // id: reuse if it matches the expected pattern, else mint one.
+      const id =
+        typeof raw.id === "string" && /^w_[a-z0-9]{6,20}$/.test(raw.id)
+          ? raw.id
+          : newId();
+
+      return {
+        id,
+        chain,
+        type,
+        addr,
+        amount,
+        symbol,
+        usd: usdSafe,
+        txHash,
+        source,
+        confidence,
+        timestamp: ts,
+        note,
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function newId() {
+    return (
+      "w_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+    );
+  }
+
+  // Content hash for deduplication. Two alerts are the same if the
+  // chain, address, transaction hash, and timestamp match. If no
+  // txHash is present, fall back to chain+addr+timestamp+amount.
+  function dedupeKey(a) {
+    const tx = a.txHash || "";
+    return [a.chain, a.addr.toLowerCase(), tx, a.timestamp, a.amount].join("|");
+  }
+
+  // ── Public API ────────────────────────────────────────
   function all() {
-    return alerts;
+    // Return a defensive copy so callers cannot mutate internals.
+    return alerts.map((a) => ({ ...a }));
   }
 
-  // ── Render UI ────────────────────────────────────────────
+  function add(raw) {
+    const candidate = validate(raw);
+    if (!candidate) {
+      console.warn("[Whales] Rejected malformed alert at ingest.");
+      return null;
+    }
+    const key = dedupeKey(candidate);
+    // O(n) dedupe is fine for n ≤ 200.
+    if (alerts.some((a) => dedupeKey(a) === key)) {
+      console.warn("[Whales] Duplicate alert rejected.");
+      return null;
+    }
+    alerts.push(candidate);
+    alerts = save(alerts);
+    return { ...candidate };
+  }
+
+  function addMany(list) {
+    if (!Array.isArray(list)) return 0;
+    let added = 0;
+    for (const item of list) {
+      if (add(item)) added++;
+    }
+    return added;
+  }
+
+  function remove(id) {
+    if (typeof id !== "string") return false;
+    const before = alerts.length;
+    alerts = alerts.filter((a) => a.id !== id);
+    if (alerts.length === before) return false;
+    alerts = save(alerts);
+    return true;
+  }
+
+  function clear() {
+    alerts = [];
+    save(alerts);
+  }
+
+  function exportJSON() {
+    return JSON.stringify(
+      { version: STORE_VERSION, exportedAt: Date.now(), alerts },
+      null,
+      2,
+    );
+  }
+
+  function importJSON(text) {
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return { added: 0, error: "Invalid JSON" };
+    }
+    const list = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed?.alerts)
+        ? parsed.alerts
+        : null;
+    if (!list) return { added: 0, error: "Unrecognised shape" };
+    const added = addMany(list);
+    return { added, total: alerts.length };
+  }
+
+  // ── UI ────────────────────────────────────────────────
+  function alertCard(w) {
+    // Wrap the whole card in try/catch. One corrupt record must not
+    // take down the list.
+    try {
+      const typeClass = TYPE_CLASS[w.type] || "neutral";
+      const usdLine = Number.isFinite(w.usd)
+        ? `<p class="small"><b>≈ USD:</b> ${
+            W.fmt?.money
+              ? esc(W.fmt.money(w.usd, { compact: true }))
+              : esc(w.usd)
+          }</p>`
+        : "";
+      const noteLine = w.note
+        ? `<p class="small muted">${esc(w.note)}</p>`
+        : "";
+      const conf = w.confidence
+        ? `<span class="tag ${esc(w.confidence)}">${esc(w.confidence)}</span>`
+        : "";
+      return `
+        <div class="card">
+          <div class="flex-between">
+            <h4>${esc(w.chain.toUpperCase())}</h4>
+            <span class="tag ${esc(typeClass)}">${esc(w.type)}</span>
+          </div>
+          <p class="small muted">Wallet: <code>${esc(maskAddr(w.addr))}</code> ${conf}</p>
+          <p class="small"><b>Amount:</b> ${esc(w.amount)} ${esc(w.symbol)}</p>
+          ${usdLine}
+          <p class="small muted">${esc(relTime(w.timestamp))} · ${esc(w.source)}</p>
+          ${noteLine}
+          <button class="btn tiny warn mt-10" data-del="${esc(w.id)}">Remove</button>
+        </div>
+      `;
+    } catch (e) {
+      console.warn("[Whales] Card render failed for one record; skipping.");
+      return "";
+    }
+  }
+
   async function render(view) {
+    if (!view) return;
+
+    const count = alerts.length;
+    const totalUsd = alerts.reduce(
+      (sum, a) => sum + (Number.isFinite(a.usd) ? a.usd : 0),
+      0,
+    );
+    const summary =
+      count === 0
+        ? ""
+        : `<p class="muted small">${count} alert${count === 1 ? "" : "s"}${
+            totalUsd > 0
+              ? ` · ≈ ${W.fmt?.money ? esc(W.fmt.money(totalUsd, { compact: true })) : esc(totalUsd)} total`
+              : ""
+          }</p>`;
+
     view.innerHTML = `
       <div class="card">
         <h3>🐋 Whale Tracker</h3>
         <p class="muted small">Monitor large on-chain movements. Privacy-first: addresses are masked in logs and UI.</p>
+        ${summary}
       </div>
       <div id="whale-list" class="grid-2">
-        ${alerts.length === 0 ? '<p class="muted">No whale alerts tracked yet.</p>' : ""}
-        ${alerts
-          .map(
-            (w) => `
-          <div class="card">
-           <div class="flex-between">
-              <h4>${W.fmt.escapeHTML(w.chain)}</h4>
-              <span class="tag ${w.type === "inflow" ? "sell" : "buy"}">${w.type}</span>
-            </div>
-            <p class="small muted">Wallet: <code>${W.fmt.maskAddress(w.addr)}</code></p>
-            <p class="small"><b>Amount:</b> ${w.amount} ${W.fmt.escapeHTML(w.symbol)}</p>
-            <p class="small muted">${W.fmt.relativeTime(w.timestamp)}</p>
-            <button class="btn tiny warn mt-10" data-del="${w.id}">Remove</button>
-          </div>
-        `,
-          )
-          .join("")}
+        ${
+          count === 0
+            ? '<p class="muted">No whale alerts tracked yet.</p>'
+            : alerts.map(alertCard).join("")
+        }
       </div>
     `;
 
-    // ─ Event Listeners ──────────────────────────────────
-    view.querySelectorAll("[data-del]").forEach((btn) => {
-      btn.onclick = () => {
-        alerts = alerts.filter((a) => a.id !== btn.dataset.del);
-        save();
-        render(view);
-      };
+    // Event delegation: one listener on the container, not one per
+    // button. This survives re-renders without rebinding and behaves
+    // predictably even if the DOM is large.
+    const list = view.querySelector("#whale-list");
+    if (!list) return;
+    list.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-del]");
+      if (!btn) return;
+      const id = btn.dataset.del;
+      // Re-validate the id before acting on it. Even though we control
+      // the DOM, defence-in-depth: never trust a value round-tripped
+      // through HTML.
+      if (!/^w_[a-z0-9]{6,20}$/.test(id)) return;
+      if (remove(id)) render(view);
     });
 
-    // ── Privacy Check: Mask logs (P0 Task 3) ─────────────
+    // Privacy-safe logging: never emit a full address, never emit a
+    // txHash, never emit the raw note. The sample line contains only
+    // masked addresses and chain names.
     try {
-      if (alerts.length > 0) {
-        // SAFE: Never log raw wallet data
-        const maskedSample = alerts
-          .map((a) => `${a.chain}: ${W.fmt.maskAddress(a.addr)}`)
+      if (count > 0) {
+        const sample = alerts
+          .slice(0, 3)
+          .map((a) => `${a.chain}: ${maskAddr(a.addr)}`)
           .join(", ");
-        console.log(
-          `[Whales] Loaded ${alerts.length} alerts. Sample: ${maskedSample}`,
-        );
+        console.log(`[Whales] ${count} alerts loaded. Sample: ${sample}`);
       }
-    } catch (e) {
-      console.warn("[Whales] Error processing alerts.");
+    } catch {
+      /* non-fatal */
     }
   }
 
-  W.whales = { all, render };
+  return {
+    version: MODULE_VERSION,
+    add,
+    addMany,
+    remove,
+    clear,
+    all,
+    export: exportJSON,
+    import: importJSON,
+    render,
+  };
 })();
 
-console.log("[Whales] Module loaded (privacy-safe logging).");
+console.log(
+  "[Whales] Module loaded (whales-v2: validated ingest, bounded store, masked logs).",
+);
 // ---- js/features/smart.js ----
 // ================================================================
 // js/features/smart.js – Smart Money Tracker

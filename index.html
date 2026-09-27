@@ -1,18 +1,78 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" dir="ltr">
 <head>
+  <!--
+    ================================================================
+    Weaver — index.html (production, hardened)
+    ================================================================
+    Security headers set in <meta> where the browser honours them.
+    Headers that CANNOT be set via <meta> (X-Frame-Options,
+    Strict-Transport-Security, X-Content-Type-Options,
+    Cross-Origin-Opener-Policy, Cross-Origin-Embedder-Policy,
+    Permissions-Policy, full Report-To) must be configured at the
+    HTTP layer. On GitHub Pages that is not possible; on a custom
+    host (Cloudflare Pages, Netlify, a reverse proxy) set them there.
+
+    Recommended HTTP headers (for the host layer):
+      Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+      X-Content-Type-Options: nosniff
+      X-Frame-Options: DENY
+      Referrer-Policy: strict-origin-when-cross-origin
+      Cross-Origin-Opener-Policy: same-origin
+      Cross-Origin-Resource-Policy: same-origin
+      Permissions-Policy: accelerometer=(), autoplay=(), camera=(),
+        display-capture=(), encrypted-media=(), fullscreen=(self),
+        geolocation=(), gyroscope=(), magnetometer=(), microphone=(),
+        midi=(), payment=(), picture-in-picture=(),
+        publickey-credentials-get=(self), screen-wake-lock=(),
+        sync-xhr=(), usb=(), web-share=(), xr-spatial-tracking=()
+    ================================================================
+  -->
+
+  <!-- Charset must be the first meta. Encoded as UTF-8. -->
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Viewport. No maximum-scale / user-scalable restrictions —
+       accessibility best practice. viewport-fit=cover for notched
+       devices. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+  <!-- Native UI theme awareness. Prevents white flash on dark-mode
+       devices before CSS loads. -->
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#07080d" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f5f7fa" media="(prefers-color-scheme: light)">
+
+  <!-- Referrer policy. cross-origin requests to the Worker and the
+       CDN carry only the origin, not the full URL. Protects against
+       accidental path/hash leakage in Referer headers. -->
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+
   <title>Weaver — Crypto Portfolio &amp; Intelligence</title>
-  <meta name="description" content="Evidence-driven crypto intelligence and safety platform.">
+  <meta name="description" content="Evidence-driven crypto intelligence and safety platform. Non-custodial portfolio tracking, on-chain analysis, and thesis monitoring.">
+
+  <!-- Prevent search-engine indexing of a personal app. Remove if
+       you want the site to be public. -->
+  <meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
 
   <!--
-    CSP Hardening (§5.3 / Global Const. P0-2):
-    - No 'unsafe-inline' for scripts or styles.
-    - connect-src includes every API the app actually calls.
-      CoinGecko, Binance, CoinCap, BscScan, and the official Solana RPC
-      have been removed — see cf-worker/index.js for why.
-    - object-src 'none' and base-uri 'self' prevent injection attacks.
+    Content Security Policy.
+
+    Changes vs the previous version:
+      + default-src 'self'          (was 'self'; kept — safer than 'none')
+      + frame-ancestors 'none'      clickjacking defence
+      + form-action 'none'          blocks form-submission hijacking
+      + frame-src 'none'            we have no <iframe>
+      + manifest-src 'self'         PWA manifest only from same origin
+      + worker-src 'self' blob:     service workers + blob workers
+      + upgrade-insecure-requests   auto-upgrade any http:// subresource
+      - removed: api.mainnet-beta.solana.com, solana.llamarpc.com,
+                 solana-rpc.publicnode.com  (all dead, replaced by Helius
+                 which is proxied via the Worker)
+      + kept:    all live fallback hosts so a Worker outage degrades to
+                 direct fetch instead of total failure
+    Note: report-to / report-uri cannot be set via <meta>; configure a
+    reporting endpoint at the HTTP layer if you want violation reports.
   -->
   <meta
     http-equiv="Content-Security-Policy"
@@ -20,47 +80,97 @@
       default-src 'self';
       script-src 'self' https://cdn.jsdelivr.net;
       style-src 'self' https://fonts.googleapis.com;
-      font-src 'self' https://fonts.gstatic.com;
+      font-src 'self' https://fonts.gstatic.com data:;
       img-src 'self' data: https:;
       connect-src 'self'
         http://localhost:3001
-        https://api.mainnet-beta.solana.com
-        https://solana.llamarpc.com
         https://api.coinlore.net
         https://api.coinbase.com
         https://api.coinpaprika.com
         https://api.alternative.me
         https://api.dexscreener.com
         https://api.gopluslabs.io
-        https://eth.blockscout.com
+        https://api.etherscan.io
         https://api.polygonscan.com
         https://api.arbiscan.io
         https://api.snowtrace.io
-        https://mempool.space
         https://api.solscan.io
-        https://api.etherscan.io
-        https://cdn.jsdelivr.net
-        https://weaver-proxy.ibis01-weaver.workers.dev
+        https://eth.blockscout.com
+        https://mempool.space
         https://ethereum.publicnode.com
         https://bsc-rpc.publicnode.com
-        https://solana-rpc.publicnode.com;
-      worker-src 'self';
-      object-src 'none';
+        https://mainnet.helius-rpc.com
+        https://cdn.jsdelivr.net
+        https://weaver-proxy.ibis01-weaver.workers.dev;
+      form-action 'none';
+      frame-ancestors 'none';
+      frame-src 'none';
       base-uri 'self';
+      object-src 'none';
+      manifest-src 'self';
+      worker-src 'self' blob:;
+      upgrade-insecure-requests;
     "
   >
 
-  <link rel="icon" href="assets/logo.png" type="image/png">
+  <!-- Preconnect: TLS handshakes before the browser discovers them in
+       the HTML stream. Saves ~100–300 ms on slow networks. -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="preconnect" href="https://weaver-proxy.ibis01-weaver.workers.dev" crossorigin>
+  <link rel="dns-prefetch" href="https://api.coinlore.net">
+  <link rel="dns-prefetch" href="https://api.coinbase.com">
+  <link rel="dns-prefetch" href="https://api.coinpaprika.com">
+
+  <!-- Icons. PNG favicon plus SVG where supported, plus an
+       apple-touch-icon for iOS home-screen installs. -->
+  <link rel="icon" type="image/png" href="assets/logo.png">
+  <link rel="apple-touch-icon" href="assets/logo.png">
+  <link rel="mask-icon" href="assets/logo.png" color="#7c5cff">
+
+  <!-- PWA manifest. If you do not ship a manifest yet, comment this
+       line out — the browser will log a 404 otherwise. -->
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Web fonts. display=swap prevents FOIT (invisible text) on slow
+       connections by showing the fallback face immediately. -->
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  >
+
+  <!-- Application styles. -->
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!--
+    Accessibility: skip link. First focusable element on the page.
+    Screen-reader and keyboard users can bypass the sidebar nav.
+  -->
+  <a href="#view" class="skip-link" style="position:absolute;left:-9999px;top:0;">Skip to main content</a>
+
+  <!--
+    <noscript>: the app is a client-rendered SPA; without JavaScript
+    nothing works. Show an honest, visible message instead of a blank
+    page.
+  -->
+  <noscript>
+    <div style="max-width:640px;margin:4rem auto;padding:2rem;font-family:system-ui,sans-serif;text-align:center;">
+      <h1 style="margin:0 0 1rem;">Weaver requires JavaScript</h1>
+      <p style="margin:0;color:#666;">
+        This application runs entirely in your browser. Enable
+        JavaScript for <code>ibis01.github.io</code> and reload the
+        page. No data leaves your device unless you explicitly connect
+        an API.
+      </p>
+    </div>
+  </noscript>
+
   <div class="app">
     <aside class="sidebar">
       <div class="brand">
-        <img src="assets/logo.png" alt="Weaver Logo">
+        <img src="assets/logo.png" alt="" width="32" height="32" decoding="async">
         <span>Weaver</span>
       </div>
       <nav id="nav" aria-label="Main navigation"></nav>
@@ -71,27 +181,100 @@
     <main class="main">
       <div class="topbar">
         <h1 id="page-title" class="topbar-title">Dashboard</h1>
-        <button class="hamburger" id="btn-hamburger" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="nav">☰</button>
+        <button
+          class="hamburger"
+          id="btn-hamburger"
+          type="button"
+          aria-label="Toggle navigation menu"
+          aria-expanded="false"
+          aria-controls="nav"
+        >☰</button>
         <div class="topbar-actions">
           <span id="last-updated" class="muted small" aria-live="polite"></span>
           <select id="currency" aria-label="Select display currency"></select>
-          <button class="icon-btn" id="btn-refresh" title="Refresh data" aria-label="Refresh data"></button>
+          <button
+            class="icon-btn"
+            id="btn-refresh"
+            type="button"
+            title="Refresh data"
+            aria-label="Refresh data"
+          ></button>
         </div>
       </div>
 
       <!-- Primary content container. Modules inject here. -->
-      <div id="view" role="main"></div>
+      <div id="view" role="main" tabindex="-1"></div>
     </main>
   </div>
 
-  <!-- Global UI overlays -->
+  <!-- Global UI overlays. modal-root stays aria-hidden until a modal
+       is actually open; W.ui is responsible for toggling it. -->
   <div id="toasts" class="toasts" aria-live="assertive" aria-atomic="true"></div>
-  <div id="modal-root" role="dialog" aria-modal="true"></div>
+  <div id="modal-root" role="dialog" aria-modal="true" aria-hidden="true"></div>
 
-  <!-- External dependencies (CSP allowed via script-src) -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <!--
+    Chart.js from jsDelivr.
 
-  <!-- Application bundle -->
+    Recommended hardening (fill in integrity yourself):
+      1. Download the exact version:
+           curl -sL https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js -o /tmp/chart.js
+      2. Compute the SRI hash:
+           openssl dgst -sha384 -binary /tmp/chart.js | openssl base64 -A
+      3. Paste the result into the `integrity` attribute below.
+
+    crossorigin="anonymous" is required for SRI to work with a
+    cross-origin script. Without it, the browser refuses the SRI check
+    and the script is loaded without integrity verification.
+
+    If you ship a version bump, UPDATE BOTH the version in the URL and
+    the SRI hash in the same commit. A mismatched hash silently blocks
+    Chart.js and breaks every chart in the app.
+
+    integrity="sha384-PLACEHOLDER_REPLACE_BEFORE_PRODUCTION"
+  -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+    crossorigin="anonymous"
+    referrerpolicy="no-referrer"
+  ></script>
+
+  <!--
+    Application bundle.
+
+    The ?v= query string is a cache-buster. Bump it whenever you ship
+    a new bundle so returning users get the fresh copy instead of the
+    one cached in their service worker / HTTP cache.
+
+    Current cache-buster: 20260935
+    Next bump should look like: 20260936, 20261001, etc.
+  -->
   <script src="dist/bundle.min.js?v=20260935"></script>
+
+  <!--
+    Failsafe: if bundle.min.js fails to load (404, CDN outage,
+    corrupted build), the page is blank. This block detects that
+    condition after a short delay and shows a message.
+
+    Runs after both scripts so window.W has a chance to be defined by
+    the bundle. If it is still undefined after 1.5 s, the bundle did
+    not load.
+  -->
+  <script>
+    (function () {
+      setTimeout(function () {
+        if (typeof window.W === "undefined") {
+          var root = document.getElementById("view");
+          if (root && !root.children.length) {
+            root.innerHTML =
+              '<div class="card" style="max-width:640px;margin:3rem auto;">' +
+              '<h3>Weaver failed to load</h3>' +
+              '<p class="muted small">The application bundle could not be fetched. This usually means a network outage or a stale cache entry.</p>' +
+              '<p class="muted small"><button class="btn primary" onclick="location.reload(true)">Reload</button></p>' +
+              '</div>';
+          }
+        }
+      }, 1500);
+    })();
+  </script>
 </body>
 </html>

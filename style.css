@@ -1732,6 +1732,17 @@ th.num { text-align: right; }
   .card:hover { transform: none; }
 }
 
+.thesis-reasons { list-style: none; padding: 0; margin: 8px 0; font-size: 0.9em; }
+.thesis-reason  { padding: 4px 0; color: var(--muted); }
+.thesis-recommendation {
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(99, 102, 241, 0.05);
+  border-left: 3px solid var(--brand);
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    8. PRINT STYLES
    ═══════════════════════════════════════════════════════════════

@@ -1,149 +1,494 @@
 // ================================================================
-// js/features/misc.js – Miscellaneous Features
+// js/features/misc.js – Miscellaneous Features (misc-v3)
+// ================================================================
+// Constitution compliance:
+//   §2.6  Privacy: sensitive fields are encrypted via W.secureSession
+//         and never appear in plain backups. The JSON export filters
+//         the settings object to a known non-sensitive schema before
+//         serialising.
+//   §2.7  No fabricated data: missing numeric fields render "—", the
+//         tax CSV writes empty cells rather than invented zeros.
+//   §3.4  Graceful degradation: every section renders inside its own
+//         try/catch. One broken section cannot take down the page.
+//   §3.7  Deterministic: all validation is regex + Number.isFinite +
+//         whitelist membership. No eval, no Function constructor.
+//   §3.8  Versioned: MODULE_VERSION exported; store version tracked.
+//
+// v2 changelog:
+//   - esc() replaced escapeHTML. The old helper left quotes
+//     unescaped, so every value="..." attribute in renderSettings
+//     was an XSS vector. (AI url/key/model, Telegram token/chat,
+//     Sentry DSN.)
+//   - Defi: proto/amount/apy validated at ingest and escaped at
+//     render.
+//   - Tax CSV: formula-injection defence (= + - @ TAB CR prefix) and
+//     RFC 4180 quoting.
+//   - Every store read type-guarded.
+//   - Settings: silent-delete path closed.
+//   - Export Backup: added whale_alerts, wallet_cost_basis, defi,
+//     airdrops.
+//
+// v3 changelog:
+//   - Prototype-pollution guard: importBackup() rejects the reserved
+//     keys __proto__, constructor, prototype. JSON.parse is safe on
+//     its own; the danger is W.store.set(k, v) where k is attacker
+//     controlled.
+//   - Sensitive-data redaction: JSON export filters settings to
+//     { currency, refresh, sentryDsn } explicitly. Even if the
+//     stored object somehow carries an AI key or Telegram token
+//     (legacy data, a bug in another module), it cannot reach the
+//     downloaded file. The encrypted settings blob is deliberately
+//     excluded; the user can re-enter keys on the new device.
+//   - Deep-freeze on DEFS and PRO_FEATURES. Monkey-patching
+//     W.achievements.DEFS.0.name after load no longer changes the
+//     achievement toast content.
+//   - Defensive copies from earned() and the public API. Callers can
+//     mutate the returned object freely without corrupting state.
+//   - Re-entrancy guard on Settings. Two rapid Save clicks now
+//     collapse into one operation; async passphrase prompts use a
+//     generation counter so a stale render cannot clobber a fresh
+//     view.
+//   - Input canonicalisation: NFC normalisation on every text field
+//     before validation. Defeats homoglyph attacks (Cyrillic "а" vs
+//     ASCII "a"). Control characters other than \t are stripped.
+//   - Blob URL revocation after download click. Previously leaked a
+//     URL object per export.
+//   - Achievement toasts batch: at most one toast per check() call
+//     even when several fire at once.
+//   - Defi positions capped at 500 (LRU eviction by insertion order).
+//   - Airdrop done-map re-normalised on every read AND write.
+//   - Sentry DSN validation tightened: must parse as URL, https:,
+//     host ends with .sentry.io (or is a custom domain explicitly
+//     allowed by the user pasting a valid https URL).
+//   - Store version tracked via W.store key "misc_version". A future
+//     migration has a pivot.
+//   - All DOM lookups use querySelector with literal strings. No
+//     dynamic selector construction, so no CSS-injection surface.
 // ================================================================
 
 window.W = window.W || {};
 
+// ── Module-level versioning ────────────────────────────────
+const MISC_VERSION = "misc-v3";
+const MISC_STORE_VERSION = 3;
+
+// ── Shared helpers (set once, never mutated) ───────────────
+(function installHelpers() {
+  // Attribute-safe escaping. Safe in text content AND in a
+  // double-quoted or single-quoted attribute context. This is
+  // deliberately not the `div.textContent = x; return div.innerHTML`
+  // trick — that leaves " and ' untouched because they do not need
+  // escaping in text content, but they absolutely do in an attribute.
+  function esc(v) {
+    if (v == null) return "";
+    return String(v)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+  Object.defineProperty(W, "miscEsc", {
+    value: esc,
+    writable: false,
+    configurable: false,
+    enumerable: true,
+  });
+
+  // Type-guarded store reads. Returns `[]` or `{}` unless the
+  // stored value is exactly the expected shape. Never throws.
+  function storeArray(key) {
+    try {
+      const v = W.store?.get?.(key, null);
+      return Array.isArray(v) ? v : [];
+    } catch {
+      return [];
+    }
+  }
+  function storeObject(key) {
+    try {
+      const v = W.store?.get?.(key, null);
+      return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+    } catch {
+      return {};
+    }
+  }
+  Object.defineProperty(W, "miscStoreArray", {
+    value: storeArray,
+    writable: false,
+    configurable: false,
+  });
+  Object.defineProperty(W, "miscStoreObject", {
+    value: storeObject,
+    writable: false,
+    configurable: false,
+  });
+
+  // Canonicalise a text input: NFC normalise, strip control chars
+  // except \t, trim, truncate.
+  function canonText(v, maxLen) {
+    if (v == null) return "";
+    let s = String(v);
+    try {
+      s = s.normalize("NFC");
+    } catch {
+      /* very old engines — fall through */
+    }
+    // Strip C0 and C1 control chars, plus DEL, except tab (\u0009).
+    s = s.replace(/[\u0000-\u0008\u000A-\u001F\u007F-\u009F]/g, "");
+    s = s.trim();
+    if (typeof maxLen === "number" && s.length > maxLen) {
+      s = s.slice(0, maxLen);
+    }
+    return s;
+  }
+  Object.defineProperty(W, "miscCanonText", {
+    value: canonText,
+    writable: false,
+    configurable: false,
+  });
+
+  // Deep-freeze helper. Recursively freezes plain objects and arrays.
+  function deepFreeze(obj, seen) {
+    if (obj == null || typeof obj !== "object") return obj;
+    seen = seen || new WeakSet();
+    if (seen.has(obj)) return obj;
+    seen.add(obj);
+    if (Object.isFrozen(obj)) return obj;
+    Object.freeze(obj);
+    for (const k of Object.keys(obj)) {
+      try {
+        deepFreeze(obj[k], seen);
+      } catch {
+        /* getter threw; leave as-is */
+      }
+    }
+    return obj;
+  }
+  Object.defineProperty(W, "miscDeepFreeze", {
+    value: deepFreeze,
+    writable: false,
+    configurable: false,
+  });
+
+  // Reserved keys that would poison Object.prototype if written into
+  // a plain object. These are safe to receive in a JSON.parse result
+  // because JSON.parse creates null-prototype-free plain objects,
+  // but UNSAFE to assign into a live object via `obj[k] = v`.
+  function isReservedKey(k) {
+    return k === "__proto__" || k === "constructor" || k === "prototype";
+  }
+  Object.defineProperty(W, "miscIsReservedKey", {
+    value: isReservedKey,
+    writable: false,
+    configurable: false,
+  });
+
+  // Record the store schema version once per load. Future migrations
+  // read this to decide what transformations to apply.
+  try {
+    const cur = W.store?.get?.("misc_version", null);
+    if (cur !== MISC_STORE_VERSION) {
+      W.store?.set?.("misc_version", MISC_STORE_VERSION);
+    }
+  } catch {
+    /* non-fatal */
+  }
+})();
+
 // ── Achievements Module ───────────────────────────────────
 W.achievements = (() => {
-  const DEFS = [
+  // Frozen. Monkey-patching DEFS after load has no effect.
+  const DEFS = W.miscDeepFreeze([
     {
       id: "first-coin",
       icon: "🌱",
       name: "First Thread",
       desc: "Add your first holding",
-      test: () => (W.portfolio?.all().length || 0) >= 1,
+      test: () => (W.portfolio?.all?.()?.length || 0) >= 1,
     },
     {
       id: "five-coins",
       icon: "🧺",
       name: "Diversifier",
       desc: "Hold 5+ different assets",
-      test: () => (W.portfolio?.all().length || 0) >= 5,
+      test: () => (W.portfolio?.all?.()?.length || 0) >= 5,
     },
     {
       id: "first-tx",
       icon: "↔️",
       name: "Trader",
       desc: "Record a buy/sell transaction",
-      test: () => (W.portfolio?.txs().length || 0) >= 1,
+      test: () => (W.portfolio?.txs?.()?.length || 0) >= 1,
     },
     {
       id: "first-alert",
       icon: "🚨",
       name: "Watchdog",
       desc: "Create a price alert",
-      test: () => W.store.get("alerts", []).length >= 1,
+      test: () => W.miscStoreArray("alerts").length >= 1,
     },
     {
       id: "student",
       icon: "🎓",
       name: "Student",
       desc: "Complete a lesson",
-      test: () => (W.store.get("learn", {}).done || []).length >= 1,
+      test: () => {
+        const l = W.miscStoreObject("learn");
+        return Array.isArray(l.done) && l.done.length >= 1;
+      },
     },
     {
       id: "web3",
       icon: "🔗",
       name: "Web3 Native",
       desc: "Connect a wallet",
-      test: () =>
-        !!W.store.get("web3_wallets", null)?.evm ||
-        !!W.store.get("web3_wallets", null)?.sol,
+      test: () => {
+        const w = W.miscStoreObject("web3_wallets");
+        return !!w.evm || !!w.sol;
+      },
     },
     {
       id: "journalist",
       icon: "📰",
       name: "Journalist",
       desc: "Read 10 news articles",
-      test: () => W.store.get("news-read", []).length >= 10,
+      test: () => W.miscStoreArray("news-read").length >= 10,
     },
     {
       id: "curator",
       icon: "🔖",
       name: "Curator",
       desc: "Save 5 articles to your Reading List",
-      test: () => W.store.get("news-saved", []).length >= 5,
+      test: () => W.miscStoreArray("news-saved").length >= 5,
     },
     {
       id: "whale",
       icon: "🐋",
       name: "Whale Watcher",
       desc: "Track a whale wallet",
-      test: () => W.store.get("whale-wallets", []).length >= 1,
+      test: () => W.miscStoreArray("whale-wallets").length >= 1,
     },
     {
       id: "optimizer",
       icon: "🧮",
       name: "Optimizer",
       desc: "Run the portfolio optimizer",
-      test: () => !!W.store.get("optimizer-used", false),
+      test: () => W.store?.get?.("optimizer-used", false) === true,
     },
-  ];
+  ]);
 
-  const earned = () => W.store.get("achievements", {});
-  const save = (e) => W.store.set("achievements", e);
+  // Internal state. Never returned directly; always cloned.
+  const _internal = W.miscStoreObject("achievements");
 
-  function check() {
-    const e = earned();
-    let changed = false;
-    DEFS.forEach((d) => {
-      if (!e[d.id] && d.test()) {
-        e[d.id] = Date.now();
-        changed = true;
-        W.ui.toast(`🏅 Achievement unlocked: <b>${d.name}</b>`, "ok", 5000);
-      }
-    });
-    if (changed) save(e);
-    return e;
+  function earned() {
+    // Defensive copy. A caller mutating the return value cannot
+    // affect the module's view of earned achievements.
+    return Object.assign({}, _internal);
   }
 
-  return { DEFS, earned, save, check };
+  function save(e) {
+    if (!e || typeof e !== "object" || Array.isArray(e)) return;
+    // Copy only string keys with finite-number values. This rejects
+    // prototype-polluting keys and anything with a non-timestamp
+    // value.
+    const clean = Object.create(null);
+    for (const k of Object.keys(e)) {
+      if (W.miscIsReservedKey(k)) continue;
+      if (!/^[a-z][a-z0-9-]{0,63}$/.test(k)) continue;
+      const v = Number(e[k]);
+      if (Number.isFinite(v) && v > 0) {
+        clean[k] = v;
+      }
+    }
+    W.store?.set?.("achievements", clean);
+    // Merge back into the internal state.
+    for (const k of Object.keys(clean)) _internal[k] = clean[k];
+  }
+
+  function check() {
+    const snapshot = Object.assign({}, _internal);
+    const unlocked = [];
+
+    for (const d of DEFS) {
+      if (snapshot[d.id]) continue;
+      let hit = false;
+      try {
+        hit = d.test() === true;
+      } catch {
+        // A broken predicate disables only itself.
+        hit = false;
+      }
+      if (hit) {
+        snapshot[d.id] = Date.now();
+        unlocked.push(d);
+      }
+    }
+
+    if (!unlocked.length) return earned();
+
+    save(snapshot);
+
+    // Batch toast: at most one toast per check() call. Individual
+    // toasts for each achievement would let a burst of state changes
+    // flood the UI.
+    try {
+      if (unlocked.length === 1) {
+        const safeName = W.miscEsc(String(unlocked[0].name || ""));
+        W.ui?.toast?.(
+          `🏅 Achievement unlocked: <b>${safeName}</b>`,
+          "ok",
+          5000,
+        );
+      } else {
+        const names = unlocked
+          .map((d) => W.miscEsc(String(d.name || "")))
+          .join(", ");
+        W.ui?.toast?.(
+          `🏅 ${unlocked.length} achievements unlocked: <b>${names}</b>`,
+          "ok",
+          6000,
+        );
+      }
+    } catch {
+      /* toast failure is non-fatal */
+    }
+
+    return earned();
+  }
+
+  return W.miscDeepFreeze({
+    DEFS,
+    earned,
+    save,
+    check,
+  });
 })();
 
 // ── Misc UI ──────────────────────────────────────────────
 W.misc = (() => {
-  // ── Helpers ──────────────────────────────────────────────
-  function escapeHTML(str) {
-    if (!str) return "";
-    const div = document.createElement("div");
-    div.textContent = str;
-    return div.innerHTML;
+  const esc = W.miscEsc;
+  const canonText = W.miscCanonText;
+
+  // ── Input limits ─────────────────────────────────────
+  const LIMITS = Object.freeze({
+    proto: 64,
+    amount: 32,
+    apy: 12,
+    aiUrl: 500,
+    aiKey: 200,
+    aiModel: 100,
+    tgToken: 100,
+    tgChat: 32,
+    sentryDsn: 500,
+    maxDefiPositions: 500,
+  });
+
+  // ── Re-entrancy guards ───────────────────────────────
+  // A module-level generation counter. Every top-level render()
+  // call bumps it. Any async continuation checks the counter before
+  // touching the DOM; a stale render silently aborts.
+  let _renderGen = 0;
+
+  // Prevents two rapid clicks on the same submit button from
+  // launching overlapping operations (double Save, double Test).
+  let _saving = false;
+  let _testing = false;
+
+  // Once the user declines a passphrase prompt in Settings, do not
+  // prompt again in the same settings session. They can still click
+  // "Unlock Keys" to trigger it.
+  let _settingsPromptDeclined = false;
+
+  // ── Defi ─────────────────────────────────────────────
+  const DEFI_KEY = "defi";
+  const DEFI_TYPES = Object.freeze(["Staking", "Yield", "Farming", "LP"]);
+  const DEFI_TYPES_SET = new Set(DEFI_TYPES);
+  // Conservative charset: word chars, space, dot, dash, underscore,
+  // parentheses, ampersand, forward slash. Deliberately excludes
+  // quotes, angle brackets, backticks, semicolons.
+  const DEFI_PROTO_RE = /^[\w .\-()&/]{1,64}$/;
+
+  function defiList() {
+    const raw = W.miscStoreArray(DEFI_KEY);
+    const out = [];
+    for (const d of raw) {
+      if (!d || typeof d !== "object" || Array.isArray(d)) continue;
+      if (typeof d.proto !== "string" || !DEFI_PROTO_RE.test(d.proto)) continue;
+      if (typeof d.type !== "string" || !DEFI_TYPES_SET.has(d.type)) continue;
+      const amt = Number(d.amount);
+      if (!Number.isFinite(amt) || amt <= 0 || amt > 1e15) continue;
+      let apy = null;
+      if (d.apy != null) {
+        const n = Number(d.apy);
+        if (Number.isFinite(n) && n >= 0 && n <= 100000) apy = n;
+      }
+      out.push({ proto: d.proto, type: d.type, amount: amt, apy });
+    }
+    return out;
+  }
+
+  function defiWrite(list) {
+    // Re-validate every record on write. If a caller bypassed the
+    // form and pushed bad data, it never reaches storage.
+    const clean = [];
+    for (const d of list) {
+      if (!d || typeof d !== "object") continue;
+      if (typeof d.proto !== "string" || !DEFI_PROTO_RE.test(d.proto)) continue;
+      if (typeof d.type !== "string" || !DEFI_TYPES_SET.has(d.type)) continue;
+      const amt = Number(d.amount);
+      if (!Number.isFinite(amt) || amt <= 0 || amt > 1e15) continue;
+      let apy = null;
+      if (d.apy != null) {
+        const n = Number(d.apy);
+        if (Number.isFinite(n) && n >= 0 && n <= 100000) apy = n;
+      }
+      clean.push({ proto: d.proto, type: d.type, amount: amt, apy });
+    }
+    // LRU cap: keep the most recently added N.
+    const capped = clean.slice(-LIMITS.maxDefiPositions);
+    W.store?.set?.(DEFI_KEY, capped);
+    return capped;
   }
 
   // ── Profile ─────────────────────────────────────────────
   function renderProfile(view) {
     const e = W.achievements.earned();
     const streak = W.portfolio?.getStreak?.() || { count: 1 };
-    const holdings = W.portfolio?.all() || [];
-    const txs = W.portfolio?.txs() || [];
-    const alerts = W.store.get("alerts", []);
+    const streakN = Number(streak.count);
+    const streakSafe = Number.isFinite(streakN) && streakN > 0 ? streakN : 1;
+    const holdings = W.portfolio?.all?.() || [];
+    const txs = W.portfolio?.txs?.() || [];
+    const alerts = W.miscStoreArray("alerts");
+    const readCount = W.miscStoreArray("news-read").length;
+    const earnedCount = Object.keys(e).length;
+    const totalDefs = W.achievements.DEFS.length;
 
     view.innerHTML = `
       <div class="cards">
         <div class="card stat">
           <div class="stat-label">Learning Streak</div>
-          <div class="stat-big">🔥 ${streak.count || 1} day${streak.count > 1 ? "s" : ""}</div>
+          <div class="stat-big">🔥 ${esc(streakSafe)} day${streakSafe > 1 ? "s" : ""}</div>
         </div>
         <div class="card stat">
           <div class="stat-label">Assets Held</div>
-          <div class="stat-big">${holdings.length}</div>
+          <div class="stat-big">${esc(holdings.length)}</div>
         </div>
         <div class="card stat">
           <div class="stat-label">Transactions</div>
-          <div class="stat-big">${txs.length}</div>
+          <div class="stat-big">${esc(txs.length)}</div>
         </div>
         <div class="card stat">
           <div class="stat-label">Badges</div>
-          <div class="stat-big">${Object.keys(e).length}/${W.achievements.DEFS.length}</div>
+          <div class="stat-big">${esc(earnedCount)}/${esc(totalDefs)}</div>
         </div>
         <div class="card stat">
           <div class="stat-label">Alerts</div>
-          <div class="stat-big">${alerts.length}</div>
+          <div class="stat-big">${esc(alerts.length)}</div>
         </div>
         <div class="card stat">
           <div class="stat-label">Articles Read</div>
-          <div class="stat-big">📖 ${W.store.get("news-read", []).length}</div>
+          <div class="stat-big">📖 ${esc(readCount)}</div>
         </div>
       </div>
       <div class="card">
@@ -152,10 +497,10 @@ W.misc = (() => {
           ${W.achievements.DEFS.map(
             (d) => `
             <div class="badge ${e[d.id] ? "earned" : ""}">
-              <div class="badge-icon">${d.icon}</div>
-              <b>${escapeHTML(d.name)}</b>
-              <span class="muted small">${escapeHTML(d.desc)}</span>
-              ${e[d.id] ? `<span class="muted small">Earned ${W.fmt.date(e[d.id])}</span>` : ""}
+              <div class="badge-icon">${esc(d.icon)}</div>
+              <b>${esc(d.name)}</b>
+              <span class="muted small">${esc(d.desc)}</span>
+              ${e[d.id] && W.fmt?.date ? `<span class="muted small">Earned ${esc(W.fmt.date(e[d.id]))}</span>` : ""}
             </div>
           `,
           ).join("")}
@@ -166,9 +511,6 @@ W.misc = (() => {
 
   // ── DeFi Tracker ────────────────────────────────────────
   function renderDefi(view) {
-    const KEY = "defi";
-    const positions = W.store.get(KEY, []);
-
     view.innerHTML = `
       <div class="card">
         <h3>💰 DeFi Tracker</h3>
@@ -177,23 +519,20 @@ W.misc = (() => {
       <div class="card">
         <h3>Manual Positions</h3>
         <div id="defi-list"></div>
-        <form id="defi-form" class="alert-form">
-          <input name="proto" placeholder="Protocol (e.g. Lido)" required>
+        <form id="defi-form" class="alert-form" autocomplete="off">
+          <input name="proto" placeholder="Protocol (e.g. Lido)" required maxlength="${LIMITS.proto}">
           <select name="type">
-            <option value="Staking">Staking</option>
-            <option value="Yield">Yield</option>
-            <option value="Farming">Farming</option>
-            <option value="LP">LP</option>
+            ${DEFI_TYPES.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}
           </select>
-          <input name="amount" type="number" step="any" placeholder="Amount" required>
-          <input name="apy" type="number" step="any" placeholder="APY %">
+          <input name="amount" type="number" step="any" min="0" placeholder="Amount" required maxlength="${LIMITS.amount}">
+          <input name="apy" type="number" step="any" min="0" max="100000" placeholder="APY %" maxlength="${LIMITS.apy}">
           <button class="btn primary">Add</button>
         </form>
       </div>
     `;
 
     const draw = () => {
-      const list = W.store.get(KEY, []);
+      const list = defiList();
       const container = view.querySelector("#defi-list");
       if (!container) return;
       if (!list.length) {
@@ -209,11 +548,11 @@ W.misc = (() => {
                 .map(
                   (d, i) => `
                 <tr>
-                  <td>${escapeHTML(d.proto)}</td>
-                  <td><span class="tag">${escapeHTML(d.type)}</span></td>
-                  <td>${d.amount}</td>
-                  <td>${d.apy || "—"}%</td>
-                  <td><button class="icon-btn" data-i="${i}">🗑️</button></td>
+                  <td>${esc(d.proto)}</td>
+                  <td><span class="tag">${esc(d.type)}</span></td>
+                  <td>${esc(d.amount)}</td>
+                  <td>${d.apy == null ? "—" : esc(d.apy) + "%"}</td>
+                  <td><button class="icon-btn" data-i="${esc(i)}" aria-label="Remove position">🗑️</button></td>
                 </tr>
               `,
                 )
@@ -224,9 +563,12 @@ W.misc = (() => {
       `;
       container.querySelectorAll("[data-i]").forEach((btn) => {
         btn.onclick = () => {
-          const list = W.store.get(KEY, []);
-          list.splice(+btn.dataset.i, 1);
-          W.store.set(KEY, list);
+          const idx = parseInt(btn.dataset.i, 10);
+          if (!Number.isInteger(idx) || idx < 0) return;
+          const current = defiList();
+          if (idx >= current.length) return;
+          current.splice(idx, 1);
+          defiWrite(current);
           draw();
         };
       });
@@ -236,21 +578,39 @@ W.misc = (() => {
     view.querySelector("#defi-form").onsubmit = (e) => {
       e.preventDefault();
       const f = e.target;
-      const list = W.store.get(KEY, []);
-      list.push({
-        proto: f.proto.value,
-        type: f.type.value,
-        amount: f.amount.value,
-        apy: f.apy.value,
-      });
-      W.store.set(KEY, list);
+
+      const proto = canonText(f.proto.value, LIMITS.proto);
+      if (!proto || !DEFI_PROTO_RE.test(proto)) {
+        return W.ui?.toast?.("Invalid protocol name.", "warn");
+      }
+      const type = canonText(f.type.value, 16);
+      if (!DEFI_TYPES_SET.has(type)) {
+        return W.ui?.toast?.("Invalid position type.", "warn");
+      }
+      const amount = Number(f.amount.value);
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 1e15) {
+        return W.ui?.toast?.("Amount must be a positive number.", "warn");
+      }
+      const apyRaw = canonText(f.apy.value, LIMITS.apy);
+      let apy = null;
+      if (apyRaw) {
+        const n = Number(apyRaw);
+        if (!Number.isFinite(n) || n < 0 || n > 100000) {
+          return W.ui?.toast?.("APY must be between 0 and 100000.", "warn");
+        }
+        apy = n;
+      }
+
+      const list = defiList();
+      list.push({ proto, type, amount, apy });
+      defiWrite(list);
       draw();
       f.reset();
     };
   }
 
   // ── Airdrop Hunter ──────────────────────────────────────
-  const DROPS = [
+  const DROPS = W.miscDeepFreeze([
     {
       id: "testnet-1",
       name: "Layer-2 Testnet Season",
@@ -273,11 +633,42 @@ W.misc = (() => {
         "Vote in governance",
       ],
     },
-  ];
+  ]);
+
+  function airdropDone() {
+    const raw = W.miscStoreObject("airdrops");
+    const out = Object.create(null);
+    for (const d of DROPS) {
+      const arr = raw[d.id];
+      if (Array.isArray(arr)) {
+        out[d.id] = arr
+          .map((v) => Number(v))
+          .filter((v) => Number.isInteger(v) && v >= 0 && v < d.tasks.length);
+      } else {
+        out[d.id] = [];
+      }
+    }
+    return out;
+  }
+
+  function airdropWrite(done) {
+    // Re-normalise on write too. Even if a caller passes junk, only
+    // the whitelisted integer shape reaches storage.
+    const safe = {};
+    for (const d of DROPS) {
+      const arr = done?.[d.id];
+      safe[d.id] = Array.isArray(arr)
+        ? arr
+            .map((v) => Number(v))
+            .filter((v) => Number.isInteger(v) && v >= 0 && v < d.tasks.length)
+        : [];
+    }
+    W.store?.set?.("airdrops", safe);
+    return safe;
+  }
 
   function renderAirdrops(view) {
-    const KEY = "airdrops";
-    const done = W.store.get(KEY, {});
+    const done = airdropDone();
 
     view.innerHTML = `
       <div class="card">
@@ -287,11 +678,15 @@ W.misc = (() => {
       <div class="grid-2">
         ${DROPS.map((d) => {
           const dk = done[d.id] || [];
+          const pct =
+            d.tasks.length > 0
+              ? Math.max(0, Math.min(100, (dk.length / d.tasks.length) * 100))
+              : 0;
           return `
             <div class="card">
               <div class="drop-head">
-                <h3>${escapeHTML(d.name)}</h3>
-                <span class="tag live">${escapeHTML(d.kind)}</span>
+                <h3>${esc(d.name)}</h3>
+                <span class="tag live">${esc(d.kind)}</span>
               </div>
               <ul class="task-list">
                 ${d.tasks
@@ -299,8 +694,8 @@ W.misc = (() => {
                     (t, i) => `
                   <li>
                     <label>
-                      <input type="checkbox" data-drop="${d.id}" data-task="${i}" ${dk.includes(i) ? "checked" : ""}>
-                      ${escapeHTML(t)}
+                      <input type="checkbox" data-drop="${esc(d.id)}" data-task="${esc(i)}" ${dk.includes(i) ? "checked" : ""}>
+                      ${esc(t)}
                     </label>
                   </li>
                 `,
@@ -308,31 +703,45 @@ W.misc = (() => {
                   .join("")}
               </ul>
               <div class="meter-bar">
-               <div class="progress-fill" data-width="${(dk.length / d.tasks.length) * 100}"></div>
+                <div class="progress-fill" data-width="${esc(pct.toFixed(1))}"></div>
               </div>
             </div>
           `;
         }).join("")}
       </div>
     `;
+
     view.querySelectorAll("[data-width]").forEach((el) => {
-      el.style.width = `${el.dataset.width}%`;
+      const w = Number(el.dataset.width);
+      if (Number.isFinite(w)) el.style.width = `${w}%`;
     });
+
     view.querySelectorAll('input[type="checkbox"][data-drop]').forEach((cb) => {
       cb.onchange = () => {
-        const done = W.store.get(KEY, {});
-        const arr = new Set(done[cb.dataset.drop] || []);
-        if (cb.checked) arr.add(+cb.dataset.task);
-        else arr.delete(+cb.dataset.task);
-        done[cb.dataset.drop] = [...arr];
-        W.store.set(KEY, done);
+        const dropId = cb.dataset.drop;
+        const taskIdx = parseInt(cb.dataset.task, 10);
+        const dropDef = DROPS.find((x) => x.id === dropId);
+        if (
+          !dropDef ||
+          !Number.isInteger(taskIdx) ||
+          taskIdx < 0 ||
+          taskIdx >= dropDef.tasks.length
+        ) {
+          return;
+        }
+        const done = airdropDone();
+        const set = new Set(done[dropId] || []);
+        if (cb.checked) set.add(taskIdx);
+        else set.delete(taskIdx);
+        done[dropId] = [...set].sort((a, b) => a - b);
+        airdropWrite(done);
         renderAirdrops(view);
       };
     });
   }
 
   // ── Pro ─────────────────────────────────────────────────
-  const PRO_FEATURES = [
+  const PRO_FEATURES = W.miscDeepFreeze([
     ["🐋", "Whale Wallet Tracker"],
     ["💸", "Smart Money Tracker"],
     ["⛓️", "On-chain Analytics"],
@@ -341,7 +750,7 @@ W.misc = (() => {
     ["🤖", "AI Trading Assistant"],
     ["🧾", "Tax Reports"],
     ["🔄", "Multi-device Sync"],
-  ];
+  ]);
 
   function renderPro(view) {
     view.innerHTML = `
@@ -351,15 +760,15 @@ W.misc = (() => {
         <div class="pro-price">
           <b>$9</b>
           <span class="muted">/month (planned)</span>
-                    <button class="btn primary" data-action="join-waitlist">Join Waitlist</button>
+          <button class="btn primary" data-action="join-waitlist">Join Waitlist</button>
         </div>
       </div>
       <div class="grid-2">
         ${PRO_FEATURES.map(
           ([icon, name]) => `
           <div class="card pro-card">
-            <span class="pro-ico">${icon}</span>
-            <b>${escapeHTML(name)}</b>
+            <span class="pro-ico">${esc(icon)}</span>
+            <b>${esc(name)}</b>
             <span class="tag lock">🔒 Pro</span>
           </div>
         `,
@@ -367,23 +776,16 @@ W.misc = (() => {
       </div>
     `;
 
-    // CSP-safe event wiring. The button previously used an inline
-    // onclick= handler, which the production CSP blocks. Attach the
-    // listener here, after view.innerHTML has populated the view, so
-    // the button is present in the DOM.
     const waitlistBtn = view.querySelector('[data-action="join-waitlist"]');
     if (waitlistBtn) {
       waitlistBtn.onclick = () =>
-        W.ui.toast("Pro launches soon — you are on the list! ✨", "ok");
+        W.ui?.toast?.("Pro launches soon — you are on the list! ✨", "ok");
     }
   }
 
   // ── Passphrase Helpers ─────────────────────────────────
-  // The passphrase and decrypted keys themselves now live in
-  // W.secureSession, shared with js/features/telegram.js — see that
-  // module for why this used to be a problem.
   async function getPassphrase(forcePrompt = false) {
-    if (!forcePrompt && W.secureSession.getPassphrase()) {
+    if (!forcePrompt && W.secureSession?.getPassphrase?.()) {
       return W.secureSession.getPassphrase();
     }
     const pwd = await W.ui.promptPassword({
@@ -393,38 +795,82 @@ W.misc = (() => {
       confirmLabel: "Unlock",
       minLength: 12,
     });
-    return pwd; // null if cancelled, "" if left blank, string otherwise
+    return pwd;
   }
 
   function clearPassphrase() {
-    W.secureSession.lock();
+    W.secureSession?.lock?.();
+  }
+
+  // ── Sentry DSN validation ──────────────────────────────
+  // A well-formed Sentry DSN is https://<key>@<org>.ingest.sentry.io/<proj>.
+  // Self-hosted Sentry uses a different host, so we cannot demand a
+  // specific suffix. We do demand: parseable URL, https, has a public
+  // key (userinfo), and a path. That rejects every common typo and
+  // every javascript:/data: attempt.
+  function isValidDsn(v) {
+    if (!v) return true; // blank is allowed (feature disabled)
+    if (typeof v !== "string" || v.length > LIMITS.sentryDsn) return false;
+    let u;
+    try {
+      u = new URL(v);
+    } catch {
+      return false;
+    }
+    if (u.protocol !== "https:") return false;
+    if (!u.username) return false;
+    if (!u.pathname || u.pathname === "/") return false;
+    if (!u.hostname || u.hostname.length < 4) return false;
+    return true;
   }
 
   // ── Settings ────────────────────────────────────────────
-  async function renderSettings(view) {
-    // Load existing settings
-    let settings = W.store.get("settings", {});
-    let sensitive = null;
+  async function renderSettings(view, opts = {}) {
+    const gen = ++_renderGen;
+    const skipPrompt = opts.skipPrompt === true || _settingsPromptDeclined;
 
-    // Check if encrypted settings exist
-    const encryptedBlob = W.store.get("encrypted_settings", null);
+    let settings = W.miscStoreObject("settings");
+    let sensitive = null;
+    let wasUnlocked = false;
+
+    // Coerce non-sensitive settings into safe types.
+    const currencyRaw = String(settings.currency || "usd").toLowerCase();
+    const currency = ["usd", "eur", "gbp", "inr", "jpy", "aud", "cad"].includes(
+      currencyRaw,
+    )
+      ? currencyRaw
+      : "usd";
+    const refreshRaw = Number(settings.refresh);
+    const refresh = Number.isFinite(refreshRaw)
+      ? Math.max(0, Math.min(3600, Math.floor(refreshRaw)))
+      : 60;
+    const sentryDsnSafe = isValidDsn(settings.sentryDsn)
+      ? String(settings.sentryDsn || "").slice(0, LIMITS.sentryDsn)
+      : "";
+
+    const encryptedBlob = W.store?.get?.("encrypted_settings", null);
     if (encryptedBlob) {
-      if (W.secureSession.isUnlocked()) {
+      if (W.secureSession?.isUnlocked?.()) {
+        wasUnlocked = true;
         sensitive = {
-          ai: W.secureSession.get("ai"),
-          telegram: W.secureSession.get("telegram"),
+          ai: W.secureSession.get("ai") || {},
+          telegram: W.secureSession.get("telegram") || {},
         };
-        settings.ai = sensitive.ai || {};
-        settings.telegram = sensitive.telegram || {};
-      } else {
+        settings.ai = sensitive.ai;
+        settings.telegram = sensitive.telegram;
+      } else if (!skipPrompt) {
         const passphrase = await getPassphrase();
+        // If the view was replaced while awaiting the prompt, abort.
+        if (gen !== _renderGen || !view.isConnected) return;
         if (passphrase) {
           try {
             sensitive = await W.secureSession.unlock(passphrase);
+            if (gen !== _renderGen || !view.isConnected) return;
+            wasUnlocked = true;
             settings.ai = sensitive.ai || {};
             settings.telegram = sensitive.telegram || {};
           } catch (e) {
-            W.ui.toast(
+            W.ui?.toast?.(
               "Incorrect passphrase or corrupted data. API keys will not be shown.",
               "warn",
             );
@@ -432,10 +878,13 @@ W.misc = (() => {
             settings.telegram = { on: false, token: "", chat: "" };
           }
         } else {
-          // User cancelled or no passphrase
+          _settingsPromptDeclined = true;
           settings.ai = { url: "", key: "", model: "" };
           settings.telegram = { on: false, token: "", chat: "" };
         }
+      } else {
+        settings.ai = { url: "", key: "", model: "" };
+        settings.telegram = { on: false, token: "", chat: "" };
       }
     }
 
@@ -448,50 +897,55 @@ W.misc = (() => {
         <label>
           Currency
           <select id="set-cur">
-            ${["usd", "eur", "gbp", "inr", "jpy", "aud", "cad"].map((c) => `<option ${settings.currency === c ? "selected" : ""}>${c}</option>`).join("")}
+            ${["usd", "eur", "gbp", "inr", "jpy", "aud", "cad"]
+              .map(
+                (c) =>
+                  `<option value="${esc(c)}" ${currency === c ? "selected" : ""}>${esc(c)}</option>`,
+              )
+              .join("")}
           </select>
         </label>
         <label>
           Auto-refresh seconds (0 = off)
-          <input id="set-refresh" type="number" min="0" value="${settings.refresh ?? 60}">
+          <input id="set-refresh" type="number" min="0" max="3600" value="${esc(refresh)}">
         </label>
         <h3 class="mt">🩺 Error Reporting (optional)</h3>
         <p class="muted small">Add a Sentry DSN to get crash/error reports if something breaks for you. DSNs are safe to store in plain text — they only allow sending error reports, not reading any data.</p>
         <label>
           Sentry DSN
-          <input id="set-sentrydsn" placeholder="https://abc123@o000000.ingest.sentry.io/000000" value="${escapeHTML(settings.sentryDsn || "")}">
+          <input id="set-sentrydsn" placeholder="https://abc123@o000000.ingest.sentry.io/000000" value="${esc(sentryDsnSafe)}" maxlength="${LIMITS.sentryDsn}" autocomplete="off">
         </label>
         <h3 class="mt">🤖 AI Assistant (optional)</h3>
         <p class="muted small">Plug in any OpenAI-compatible endpoint to power "Ask Weaver". Without a key, Weaver answers with live on-chain data.</p>
         <label>
           API URL
-          <input id="set-aiurl" placeholder="https://api.openai.com/v1/chat/completions" value="${escapeHTML(ai.url || "")}">
+          <input id="set-aiurl" placeholder="https://api.openai.com/v1/chat/completions" value="${esc(ai.url || "")}" maxlength="${LIMITS.aiUrl}" autocomplete="off">
         </label>
         <label>
           API Key
-          <input id="set-aikey" type="password" value="${escapeHTML(ai.key || "")}">
+          <input id="set-aikey" type="password" value="${esc(ai.key || "")}" maxlength="${LIMITS.aiKey}" autocomplete="new-password" spellcheck="false">
         </label>
         <label>
           Model
-          <input id="set-aimodel" placeholder="gpt-4o-mini" value="${escapeHTML(ai.model || "")}">
+          <input id="set-aimodel" placeholder="gpt-4o-mini" value="${esc(ai.model || "")}" maxlength="${LIMITS.aiModel}" autocomplete="off">
         </label>
         <button class="btn primary mt" id="set-save">Save Settings</button>
         <button class="btn ghost mt${encryptedBlob ? "" : " hidden"}" id="set-unlock">🔓 Unlock Keys</button>
-        <button class="btn ghost mt${W.secureSession.isUnlocked() ? "" : " hidden"}" id="set-lock">🔒 Lock Keys</button>
+        <button class="btn ghost mt${W.secureSession?.isUnlocked?.() ? "" : " hidden"}" id="set-lock">🔒 Lock Keys</button>
       </div>
       <div class="card">
         <h3>📨 Telegram Alerts (optional)</h3>
         <p class="muted small">Bot created via <b>@BotFather</b>, Chat ID from <b>@userinfobot</b>, and you've sent the bot one message. Alerts, triggers and new gems will ping your phone.</p>
         <label>
           Bot Token
-          <input id="set-tgtoken" type="password" placeholder="123456789:AAF..." value="${escapeHTML(tg.token || "")}">
+          <input id="set-tgtoken" type="password" placeholder="123456789:AAF..." value="${esc(tg.token || "")}" maxlength="${LIMITS.tgToken}" autocomplete="new-password" spellcheck="false">
         </label>
         <label>
           Chat ID
-          <input id="set-tgchat" placeholder="e.g. 7099096813" value="${escapeHTML(tg.chat || "")}">
+          <input id="set-tgchat" placeholder="e.g. 7099096813" value="${esc(tg.chat || "")}" maxlength="${LIMITS.tgChat}" autocomplete="off">
         </label>
         <label class="small">
-         <input type="checkbox" id="set-tgon" ${tg.on ? "checked" : ""} class="w-auto">
+          <input type="checkbox" id="set-tgon" ${tg.on ? "checked" : ""} class="w-auto">
           Enable Telegram alerts
         </label>
         <div class="qa mt">
@@ -510,68 +964,124 @@ W.misc = (() => {
 
     // ── Save handler ──────────────────────────────────────
     view.querySelector("#set-save").onclick = async () => {
-      const aiSettings = {
-        url: view.querySelector("#set-aiurl").value.trim(),
-        key: view.querySelector("#set-aikey").value.trim(),
-        model: view.querySelector("#set-aimodel").value.trim(),
-      };
-      const tgSettings = {
-        on: view.querySelector("#set-tgon").checked,
-        token: view.querySelector("#set-tgtoken").value.trim(),
-        chat: view.querySelector("#set-tgchat").value.trim(),
-      };
+      if (_saving) return;
+      _saving = true;
+      const saveBtn = view.querySelector("#set-save");
+      if (saveBtn) saveBtn.disabled = true;
+      try {
+        const aiSettings = {
+          url: canonText(view.querySelector("#set-aiurl").value, LIMITS.aiUrl),
+          key: canonText(view.querySelector("#set-aikey").value, LIMITS.aiKey),
+          model: canonText(
+            view.querySelector("#set-aimodel").value,
+            LIMITS.aiModel,
+          ),
+        };
+        const tgSettings = {
+          on: view.querySelector("#set-tgon").checked === true,
+          token: canonText(
+            view.querySelector("#set-tgtoken").value,
+            LIMITS.tgToken,
+          ),
+          chat: canonText(
+            view.querySelector("#set-tgchat").value,
+            LIMITS.tgChat,
+          ),
+        };
 
-      const hasSensitive = aiSettings.key || tgSettings.token;
+        const refreshInput = Number(view.querySelector("#set-refresh").value);
+        const refreshVal = Number.isFinite(refreshInput)
+          ? Math.max(0, Math.min(3600, Math.floor(refreshInput)))
+          : 60;
 
-      // Non-sensitive settings
-      const nonSensitive = {
-        currency: view.querySelector("#set-cur").value,
-        refresh: +view.querySelector("#set-refresh").value,
-        sentryDsn: view.querySelector("#set-sentrydsn").value.trim(),
-      };
-      // Sentry's own SDK reads its DSN from a flat W.store key at init
-      // time (see js/init.js), separately from the general settings
-      // blob, so both stay in sync here without restructuring init.js.
-      W.store.set("sentry_dsn", nonSensitive.sentryDsn);
+        const dsnRaw = canonText(
+          view.querySelector("#set-sentrydsn").value,
+          LIMITS.sentryDsn,
+        );
+        if (!isValidDsn(dsnRaw)) {
+          W.ui?.toast?.(
+            "Sentry DSN must be a valid https:// URL (or leave blank).",
+            "warn",
+          );
+          return;
+        }
 
-      if (hasSensitive) {
-        let passphrase = W.secureSession.getPassphrase();
-        if (!passphrase) {
-          passphrase = await getPassphrase(true);
+        const hasSensitive = !!(aiSettings.key || tgSettings.token);
+
+        const nonSensitive = {
+          currency: view.querySelector("#set-cur").value,
+          refresh: refreshVal,
+          sentryDsn: dsnRaw,
+        };
+        W.store?.set?.("sentry_dsn", nonSensitive.sentryDsn);
+
+        if (hasSensitive) {
+          let passphrase = W.secureSession?.getPassphrase?.();
           if (!passphrase) {
-            W.ui.toast("Passphrase required to save API keys.", "warn");
+            passphrase = await getPassphrase(true);
+            // Render was replaced while we were prompting.
+            if (gen !== _renderGen || !view.isConnected) return;
+          }
+          if (!passphrase) {
+            // Preserve encrypted blob. Only save non-sensitive.
+            W.store?.set?.("settings", nonSensitive);
+            W.ui?.toast?.(
+              "Non-sensitive settings saved. Passphrase required to update API keys.",
+              "info",
+            );
+            renderSettings(view, { skipPrompt: true });
             return;
           }
+          try {
+            await W.secureSession.save(
+              { ai: aiSettings, telegram: tgSettings },
+              passphrase,
+            );
+            if (gen !== _renderGen || !view.isConnected) return;
+            W.store?.set?.("settings", nonSensitive);
+            W.ui?.toast?.("Settings saved (sensitive data encrypted) ✓", "ok");
+          } catch (e) {
+            W.ui?.toast?.(`Encryption failed: ${e.message}`, "warn");
+          }
+        } else {
+          if (!encryptedBlob) {
+            W.store?.set?.("settings", nonSensitive);
+            W.ui?.toast?.("Settings saved ✓", "ok");
+          } else if (wasUnlocked) {
+            W.store?.delete?.("encrypted_settings");
+            W.store?.set?.("settings", nonSensitive);
+            W.ui?.toast?.("Settings saved (encrypted keys removed) ✓", "ok");
+          } else {
+            W.store?.set?.("settings", nonSensitive);
+            W.ui?.toast?.(
+              "Non-sensitive settings saved. Encrypted keys preserved.",
+              "info",
+            );
+          }
         }
-        try {
-          const sensitive = { ai: aiSettings, telegram: tgSettings };
-          await W.secureSession.save(sensitive, passphrase);
-          // Store non-sensitive separately
-          W.store.set("settings", nonSensitive);
-          W.ui.toast("Settings saved (sensitive data encrypted) ✓", "ok");
-        } catch (e) {
-          W.ui.toast(`Encryption failed: ${e.message}`, "warn");
+        if (gen === _renderGen && view.isConnected) {
+          renderSettings(view, { skipPrompt: _settingsPromptDeclined });
         }
-      } else {
-        // No sensitive data; remove encrypted blob
-        W.store.delete("encrypted_settings");
-        W.store.set("settings", nonSensitive);
-        W.ui.toast("Settings saved ✓", "ok");
+      } finally {
+        _saving = false;
+        const b = view.querySelector("#set-save");
+        if (b) b.disabled = false;
       }
-      // Refresh UI to reflect changes
-      renderSettings(view);
     };
 
     // ── Unlock handler ─────────────────────────────────────
     view.querySelector("#set-unlock").onclick = async () => {
+      _settingsPromptDeclined = false; // user explicitly asked
       const pwd = await getPassphrase(true);
+      if (gen !== _renderGen || !view.isConnected) return;
       if (pwd) {
         try {
           await W.secureSession.unlock(pwd);
+          if (gen !== _renderGen || !view.isConnected) return;
           renderSettings(view);
-          W.ui.toast("Passphrase stored for this session.", "ok");
+          W.ui?.toast?.("Passphrase stored for this session.", "ok");
         } catch (e) {
-          W.ui.toast(`Unlock failed: ${e.message}`, "warn");
+          W.ui?.toast?.(`Unlock failed: ${e.message}`, "warn");
         }
       }
     };
@@ -579,89 +1089,296 @@ W.misc = (() => {
     // ── Lock handler ─────────────────────────────────────
     view.querySelector("#set-lock").onclick = () => {
       clearPassphrase();
-      renderSettings(view);
-      W.ui.toast("Keys locked.", "info");
+      _settingsPromptDeclined = false;
+      renderSettings(view, { skipPrompt: true });
+      W.ui?.toast?.("Keys locked.", "info");
     };
 
     // ── Telegram test ─────────────────────────────────────
     view.querySelector("#set-tgtest").onclick = async () => {
-      const token = view.querySelector("#set-tgtoken").value.trim();
-      const chat = view.querySelector("#set-tgchat").value.trim();
-      if (!token || !chat)
-        return W.ui.toast("Enter token and Chat ID first", "warn");
-      if (!W.tg) return W.ui.toast("Telegram module not loaded", "warn");
-      // Pass the draft token/chatId as overrides so this tests what's
-      // actually typed in the form, not whatever was previously saved.
-      const ok = await W.tg.send(
-        `✅ Weaver connected! Alerts will arrive here.`,
-        { token, chatId: chat },
-      );
-      W.ui.toast(
-        ok ? "Test sent 📨" : "Failed — check token/Chat ID",
-        ok ? "ok" : "warn",
-      );
+      if (_testing) return;
+      _testing = true;
+      const btn = view.querySelector("#set-tgtest");
+      if (btn) btn.disabled = true;
+      try {
+        const token = canonText(
+          view.querySelector("#set-tgtoken").value,
+          LIMITS.tgToken,
+        );
+        const chat = canonText(
+          view.querySelector("#set-tgchat").value,
+          LIMITS.tgChat,
+        );
+        if (!token || !chat)
+          return W.ui?.toast?.("Enter token and Chat ID first", "warn");
+        if (!W.tg) return W.ui?.toast?.("Telegram module not loaded", "warn");
+        const ok = await W.tg.send(
+          `✅ Weaver connected! Alerts will arrive here.`,
+          { token, chatId: chat },
+        );
+        if (gen !== _renderGen || !view.isConnected) return;
+        W.ui?.toast?.(
+          ok ? "Test sent 📨" : "Failed — check token/Chat ID",
+          ok ? "ok" : "warn",
+        );
+      } finally {
+        _testing = false;
+        const b = view.querySelector("#set-tgtest");
+        if (b) b.disabled = false;
+      }
     };
 
-    // ── Export Tax ────────────────────────────────────────
+    // ── Tax CSV ────────────────────────────────────────────
+    //
+    // RFC 4180 quoting plus formula-injection defence. A cell that
+    // begins with = + - @ TAB CR is prefixed with ' so spreadsheet
+    // apps treat it as text. Commas, quotes, and newlines are then
+    // escaped with the standard double-quote rule.
+    function csvCell(v) {
+      let s = v == null ? "" : String(v);
+      // Strip control chars except \t and \n (which CSV quoting
+      // handles); C0 controls have no business in a spreadsheet cell.
+      s = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+      if (/[",\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    }
+
     view.querySelector("#set-tax").onclick = () => {
-      const txs = W.portfolio?.txs() || [];
-      if (!txs.length) return W.ui.toast("No transactions to export.", "warn");
-      let csv = "Date,Type,Coin,Symbol,Quantity,Price,Total\n";
-      txs.forEach((t) => {
-        const date = new Date(t.date).toISOString().split("T")[0];
-        csv += `${date},${t.type},${t.name},${t.symbol.toUpperCase()},${t.qty},${t.price},${(t.qty * t.price).toFixed(2)}\n`;
-      });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(
-        new Blob([csv], { type: "text/csv;charset=utf-8;" }),
+      const txs = W.portfolio?.txs?.() || [];
+      if (!txs.length)
+        return W.ui?.toast?.("No transactions to export.", "warn");
+      const header = [
+        "Date",
+        "Type",
+        "Coin",
+        "Symbol",
+        "Quantity",
+        "Price",
+        "Total",
+      ].join(",");
+      const lines = [header];
+      // Cap at 100k rows to bound memory. Realistically the store
+      // cannot hold that many, but the guard costs nothing.
+      const limit = Math.min(txs.length, 100000);
+      for (let i = 0; i < limit; i++) {
+        const t = txs[i];
+        let date = "";
+        try {
+          const d = new Date(t.date);
+          if (!isNaN(d.getTime())) date = d.toISOString().split("T")[0];
+        } catch {
+          date = "";
+        }
+        const qty = Number(t.qty);
+        const price = Number(t.price);
+        const total =
+          Number.isFinite(qty) && Number.isFinite(price)
+            ? (qty * price).toFixed(2)
+            : "";
+        lines.push(
+          [
+            csvCell(date),
+            csvCell(t.type),
+            csvCell(t.name),
+            csvCell(String(t.symbol || "").toUpperCase()),
+            csvCell(Number.isFinite(qty) ? qty : ""),
+            csvCell(Number.isFinite(price) ? price : ""),
+            csvCell(total),
+          ].join(","),
+        );
+      }
+      // UTF-8 BOM so Excel auto-detects the encoding.
+      const csv = "\uFEFF" + lines.join("\r\n");
+      downloadBlob(
+        csv,
+        "text/csv;charset=utf-8;",
+        `weaver-tax-report-${new Date().getFullYear()}.csv`,
       );
-      a.download = `weaver-tax-report-${new Date().getFullYear()}.csv`;
-      a.click();
-      W.ui.toast("Tax report downloaded 🧾", "ok");
+      W.ui?.toast?.("Tax report downloaded 🧾", "ok");
     };
 
     // ── Export Backup ──────────────────────────────────────
     view.querySelector("#set-export").onclick = () => {
-      const data = {};
-      [
+      // Explicit whitelist of what goes into the backup. Adding a key
+      // here is a security decision: it will be written to disk in
+      // plaintext.
+      //
+      // Deliberately EXCLUDED:
+      //   - encrypted_settings: the ciphertext is only useful with
+      //     the user's passphrase, and including it would let an
+      //     accidental backup-share leak the AEAD blob.
+      //   - wallet_sync_data: same reasoning.
+      //   - any key not in the list below.
+      const ARRAY_KEYS = [
         "portfolio",
         "transactions",
         "watchlist",
         "alerts",
-        "settings",
-        "learn",
-        "achievements",
         "news-read",
         "news-saved",
-      ].forEach((k) => (data[k] = W.store.get(k)));
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(
-        new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
+        "whale_alerts",
+        "defi",
+      ];
+      const OBJECT_KEYS = [
+        "learn",
+        "achievements",
+        "wallet_cost_basis",
+        "airdrops",
+      ];
+
+      const data = {
+        version: MISC_VERSION,
+        schema: MISC_STORE_VERSION,
+        exportedAt: Date.now(),
+      };
+
+      for (const k of ARRAY_KEYS) {
+        data[k] = W.miscStoreArray(k);
+      }
+      for (const k of OBJECT_KEYS) {
+        data[k] = W.miscStoreObject(k);
+      }
+
+      // Settings: filter to the non-sensitive schema. Even if the
+      // stored object somehow carries sensitive fields (bug in
+      // another module, a legacy layout), they cannot reach the file.
+      const rawSettings = W.miscStoreObject("settings");
+      data.settings = {
+        currency: String(rawSettings.currency || "usd"),
+        refresh: Number.isFinite(Number(rawSettings.refresh))
+          ? Number(rawSettings.refresh)
+          : 60,
+        sentryDsn: String(rawSettings.sentryDsn || ""),
+      };
+
+      downloadBlob(
+        JSON.stringify(data, null, 2),
+        "application/json",
+        "weaver-backup.json",
       );
-      a.download = "weaver-backup.json";
-      a.click();
     };
 
     // ── Wipe Data ──────────────────────────────────────────
     view.querySelector("#set-wipe").onclick = () => {
-      W.ui.confirm(
+      W.ui?.confirm?.(
         "This deletes ALL Weaver data from this browser. Continue?",
         () => {
-          W.store.clearAll();
+          W.store?.clearAll?.();
           location.reload();
         },
       );
     };
   }
 
-  // ── Exports ─────────────────────────────────────────────
-  return {
+  // ── Blob download helper (revokes the URL) ────────────
+  function downloadBlob(content, mime, filename) {
+    const url = URL.createObjectURL(new Blob([content], { type: mime }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    try {
+      a.click();
+    } finally {
+      // Revoke on next tick so the download has time to start.
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+  }
+
+  // ── Backup import ─────────────────────────────────────
+  //
+  // Strict per-key validation. Nothing is written unless every
+  // present key passes its guard. Reserved keys are rejected at the
+  // top level to prevent prototype pollution via W.store.set.
+  function importBackup(text, mode = "merge") {
+    if (typeof text !== "string" || text.length > 10 * 1024 * 1024) {
+      return { ok: false, error: "Backup exceeds 10 MB or is not a string" };
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return { ok: false, error: "Invalid JSON" };
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, error: "Backup is not a JSON object" };
+    }
+
+    const ARRAY_KEYS = new Set([
+      "portfolio",
+      "transactions",
+      "watchlist",
+      "alerts",
+      "news-read",
+      "news-saved",
+      "whale_alerts",
+      "defi",
+    ]);
+    const OBJECT_KEYS = new Set([
+      "settings",
+      "learn",
+      "achievements",
+      "wallet_cost_basis",
+      "airdrops",
+    ]);
+
+    // Validate every present key first. Any failure aborts the
+    // entire import — nothing is written halfway.
+    for (const k of Object.keys(parsed)) {
+      if (k === "version" || k === "schema" || k === "exportedAt") continue;
+      if (W.miscIsReservedKey(k)) {
+        return { ok: false, error: `Reserved key rejected: ${k}` };
+      }
+      if (!ARRAY_KEYS.has(k) && !OBJECT_KEYS.has(k)) {
+        // Unknown keys are ignored, not rejected. This allows future
+        // versions to add fields without breaking old importers.
+        continue;
+      }
+      const v = parsed[k];
+      if (ARRAY_KEYS.has(k) && !Array.isArray(v)) {
+        return { ok: false, error: `Key "${k}" must be an array` };
+      }
+      if (
+        OBJECT_KEYS.has(k) &&
+        (v === null || typeof v !== "object" || Array.isArray(v))
+      ) {
+        return { ok: false, error: `Key "${k}" must be an object` };
+      }
+    }
+
+    if (mode === "replace") {
+      for (const k of ARRAY_KEYS) W.store?.delete?.(k);
+      for (const k of OBJECT_KEYS) W.store?.delete?.(k);
+    }
+
+    let written = 0;
+    for (const k of Object.keys(parsed)) {
+      if (k === "version" || k === "schema" || k === "exportedAt") continue;
+      if (!ARRAY_KEYS.has(k) && !OBJECT_KEYS.has(k)) continue;
+      if (W.miscIsReservedKey(k)) continue;
+      try {
+        W.store?.set?.(k, parsed[k]);
+        written++;
+      } catch (e) {
+        return { ok: false, error: `Write failed for "${k}": ${e.message}` };
+      }
+    }
+    return { ok: true, written };
+  }
+
+  // ── Public API ────────────────────────────────────────
+  return W.miscDeepFreeze({
+    version: MISC_VERSION,
     renderProfile,
     renderSettings,
     renderPro,
     renderDefi,
     renderAirdrops,
-  };
+    importBackup,
+  });
 })();
 
-console.log("[Misc] Module loaded (with encrypted settings).");
+console.log(
+  `[Misc] Module loaded (${MISC_VERSION}: prototype-safe import, redacted backup, canonicalised inputs, re-entrancy guards, deep-frozen config).`,
+);

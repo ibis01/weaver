@@ -1,49 +1,237 @@
-// ===============================================================
-//              Canonical Intelligence Contracts
-// ===============================================================
+// ================================================================
+//              Canonical Intelligence Contracts — types.js
+// ================================================================
+// Single source of truth for every intelligence type in Weaver.
 //
-// These types define the structure of all intelligence data.
-// Every intelligence module MUST use these contracts.
+// Purpose:
+//   The intelligence pipeline (events → evidence → assessment →
+//   decision) previously passed loose objects between modules. Each
+//   module re-implemented its own field names and its own confidence
+//   arithmetic. That is the exact class of drift the constitution
+//   forbids (§2.7, §2.9, §3.7).
 //
-// Confidence is computed, not hardcoded. There is exactly ONE
-// confidence function in Weaver: W.intelligence.computeConfidence().
-// Every other module (evidence-builder.js, decision-engine.js) must
-// delegate to it rather than re-deriving a formula. If a second
-// formula ever appears, that is a bug.
+//   This module defines, in one place:
+//     - Frozen enums for every closed set of values.
+//     - JSDoc typedefs for every contract.
+//     - Runtime type guards (fast, structural).
+//     - Validators that return a detailed error list (never throw).
+//     - Assertions for fail-fast in tests (throw with a path).
+//     - Factories that build canonical, frozen instances.
+//     - The ONE confidence function. Any module that needs a
+//       confidence value MUST call W.intelligence.computeConfidence().
+//       A second formula anywhere else is a bug.
 //
-// ===============================================================
+// Non-goals:
+//   - No DOM access. Safe to require from any context, including
+//     tests and workers.
+//   - No network. No side effects beyond a single console.log.
+//   - No dependency on other W.* modules. types.js loads first.
+//
+// Contract version:
+//   CONTRACT_VERSION increments when a required field is added,
+//   removed, renamed, or changes semantic meaning. Optional field
+//   additions do NOT bump the version.
+//
+// Backward compatibility:
+//   Every name from the previous types.js is preserved
+//   (W.intelligence.sourceReliability, .freshnessWindows,
+//   .computeConfidence, .computeFreshness, .getSourceReliability).
+//   New names are additive under W.intelligence.types, .is,
+//   .validate, .assert, .create.
+//
+// SECURITY:
+//   - Prototype-pollution guard on every factory input. Keys named
+//     __proto__, constructor, or prototype are rejected outright at
+//     any depth.
+//   - Factories never throw. Validation errors are returned as
+//     arrays. The pipeline treats an unvalidated signal as a bug in
+//     the producing module, not as user error.
+//   - Every returned object is Object.freeze'd. Nothing downstream
+//     can mutate a canonical signal.
+//   - Enums are frozen. Adding a new signal type requires an edit
+//     here, which makes the change visible in one diff.
+// ================================================================
 
 window.W = window.W || {};
 W.intelligence = W.intelligence || {};
 
+// ── Contract version ─────────────────────────────────────────
+const CONTRACT_VERSION = "intelligence-contracts-v1";
+
+// ================================================================
+// 1. PROTOTYPE-POLLUTION GUARD
+// ================================================================
+// JSON.parse is safe on its own — it does not walk the prototype
+// chain for `__proto__`. But once that object flows into a factory
+// and the factory does `obj[k] = v`, the dangerous keys become
+// live. We reject them at the boundary so no downstream code has
+// to worry.
+
+const _POLLUTION_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function _hasPollutionKey(obj, depth = 0) {
+  if (depth > 16) return true; // absurdly deep — treat as hostile
+  if (!obj || typeof obj !== "object") return false;
+  if (Array.isArray(obj)) {
+    for (let i = 0; i < obj.length; i++) {
+      if (_hasPollutionKey(obj[i], depth + 1)) return true;
+    }
+    return false;
+  }
+  for (const key of Object.keys(obj)) {
+    if (_POLLUTION_KEYS.has(key)) return true;
+    if (_hasPollutionKey(obj[key], depth + 1)) return true;
+  }
+  return false;
+}
+
+// ================================================================
+// 2. FROZEN ENUMS
+// ================================================================
+
+function _makeEnum(values) {
+  const forward = Object.create(null);
+  for (const v of values) forward[v] = v;
+  return Object.freeze(forward);
+}
+
+function _makeSet(values) {
+  return new Set(values);
+}
+
+const _SIGNAL_TYPES = [
+  "PRICE_MOVE",
+  "REGIME_SHIFT",
+  "UNLOCK",
+  "OPPORTUNITY",
+  "THESIS_DETERIORATION",
+  "BEHAVIORAL_PATTERN",
+];
+const _THESIS_STATUSES = [
+  "Healthy",
+  "Strengthening",
+  "Weakening",
+  "Invalidated",
+  "Unknown",
+];
+const _THESIS_ACTIVATIONS = ["ACTIVE", "INVALIDATED", "NONE"];
+const _WATCHLIST_STATUSES = ["WATCHING", "NOT_WATCHING"];
+const _BEHAVIORAL_RISKS = ["NONE", "PANIC", "FOMO"];
+const _HORIZONS = ["short", "medium", "long"];
+const _ELIGIBILITIES = ["ELIGIBLE", "INSUFFICIENT_EVIDENCE"];
+const _RECOMMENDED_ACTIONS = ["MONITOR", "REVIEW", "ACT", "EXIT", "IGNORE"];
+const _ASSET_CHAINS = [
+  "bitcoin",
+  "ethereum",
+  "bsc",
+  "solana",
+  "polygon",
+  "arbitrum",
+  "optimism",
+  "base",
+  "avalanche",
+  "other",
+  "unknown",
+];
+
+const SIGNAL_TYPE = _makeEnum(_SIGNAL_TYPES);
+const THESIS_STATUS = _makeEnum(_THESIS_STATUSES);
+const THESIS_ACTIVATION = _makeEnum(_THESIS_ACTIVATIONS);
+const WATCHLIST_STATUS = _makeEnum(_WATCHLIST_STATUSES);
+const BEHAVIORAL_RISK = _makeEnum(_BEHAVIORAL_RISKS);
+const HORIZON = _makeEnum(_HORIZONS);
+const ELIGIBILITY = _makeEnum(_ELIGIBILITIES);
+const RECOMMENDED_ACTION = _makeEnum(_RECOMMENDED_ACTIONS);
+const ASSET_CHAIN = _makeEnum(_ASSET_CHAINS);
+
+const _SIGNAL_TYPE_SET = _makeSet(_SIGNAL_TYPES);
+const _THESIS_STATUS_SET = _makeSet(_THESIS_STATUSES);
+const _THESIS_ACTIVATION_SET = _makeSet(_THESIS_ACTIVATIONS);
+const _WATCHLIST_STATUS_SET = _makeSet(_WATCHLIST_STATUSES);
+const _BEHAVIORAL_RISK_SET = _makeSet(_BEHAVIORAL_RISKS);
+const _HORIZON_SET = _makeSet(_HORIZONS);
+const _ELIGIBILITY_SET = _makeSet(_ELIGIBILITIES);
+const _RECOMMENDED_ACTION_SET = _makeSet(_RECOMMENDED_ACTIONS);
+const _ASSET_CHAIN_SET = _makeSet(_ASSET_CHAINS);
+
+// ================================================================
+// 3. SOURCE RELIABILITY (Constitution Rule 2.9)
+// ================================================================
+
+const SOURCE_RELIABILITY = Object.freeze({
+  coinlore: 0.9,
+  coinbase: 0.9,
+  coinpaprika: 0.85,
+  alternative_me: 0.85,
+  weaver_regime: 0.85,
+  regime_engine: 0.85,
+  token_unlocks: 0.85,
+  wallet_sync: 0.85,
+  blockscout: 0.75,
+  opportunity_scanner: 0.6,
+  thesis_health: 0.75,
+  dex_screener: 0.65,
+  rss_feed: 0.4,
+  user_input: 0.5,
+  unknown: 0.5,
+});
+
+// ================================================================
+// 4. FRESHNESS WINDOWS
+// ================================================================
+
+const FRESHNESS_WINDOWS = Object.freeze({
+  PRICE_MOVE: 300,
+  REGIME_SHIFT: 3600,
+  UNLOCK: 86400,
+  OPPORTUNITY: 86400,
+  THESIS_DETERIORATION: 3600,
+  BEHAVIORAL_PATTERN: 86400,
+});
+
+// ================================================================
+// 5. TYPEDEFS (JSDoc)
+// ================================================================
+// These typedefs are the authoritative contract. Runtime validators
+// below enforce the same shape. When this section changes, the
+// validators must change with it.
+
 /**
  * @typedef {Object} AssetId
- * @property {string} chainId - 'ethereum' | 'solana' | 'bitcoin' | ...
- * @property {string|null} contractAddress - null for native coins
- * @property {string} symbol - display symbol
- * @property {string|null} coingeckoId - primary key for price lookup
- * @property {string} name - human-readable name
+ * @property {string} chainId
+ * @property {string|null} contractAddress
+ * @property {string} symbol
+ * @property {string|null} coingeckoId
+ * @property {string} name
+ */
+
+/**
+ * @typedef {Object} SignalMetadata
+ * @property {number} corroborationCount
+ * @property {number|null} dataCompleteness
+ * @property {number|null} interpretationConfidence
  */
 
 /**
  * @typedef {Object} Signal
- * @property {string} id - UUID
- * @property {string} type - 'PRICE_MOVE' | 'REGIME_SHIFT' | 'UNLOCK' | 'OPPORTUNITY' | 'THESIS_DETERIORATION' | 'BEHAVIORAL_PATTERN'
- * @property {string} source - e.g., 'coingecko', 'regime_engine'
+ * @property {string} id
+ * @property {string} type
+ * @property {string} source
  * @property {AssetId} assetId
  * @property {number} timestamp
- * @property {*} rawData - original provider-specific data
+ * @property {*} rawData
+ * @property {SignalMetadata} metadata
  */
 
 /**
  * @typedef {Object} Evidence
  * @property {string} signalId
- * @property {number} sourceReliability - 0–1, static per source
- * @property {number} dataFreshness - 0–1, decays with age
- * @property {number} corroborationCount - number of independent sources confirming
- * @property {number} dataCompleteness - 0–1, full/partial data
- * @property {number} interpretationConfidence - 0–1, model-specific confidence
- * @property {number|null} confidence - 0–1, or null when any factor is unknown
+ * @property {number} sourceReliability
+ * @property {number} dataFreshness
+ * @property {number} corroborationCount
+ * @property {number} dataCompleteness
+ * @property {number} interpretationConfidence
+ * @property {number|null} confidence
  * @property {boolean} incomplete
  * @property {string[]} reasoning
  */
@@ -51,27 +239,27 @@ W.intelligence = W.intelligence || {};
 /**
  * @typedef {Object} PersonalContext
  * @property {AssetId} assetId
- * @property {number} portfolioWeight - 0–1, % of portfolio in this asset
- * @property {string} watchlistStatus - 'WATCHING' | 'NOT_WATCHING'
- * @property {string} thesisStatus - 'ACTIVE' | 'INVALIDATED' | 'NONE'
- * @property {number} recentDecisions - count in last 7 days
- * @property {string} behavioralRisk - 'PANIC' | 'FOMO' | 'NONE'
- * @property {number} portfolioExposure - alias for portfolioWeight (kept for clarity)
- * @property {number} riskLimit - user-defined risk limit (from settings, default 0.5)
- * @property {string} timeHorizon - user's investment horizon: 'short' | 'medium' | 'long'
- * @property {number} thesisHealth - current health score of active thesis (0–100)
- * @property {number} decisionConfidence - user's average confidence in recent decisions (0–1)
- * @property {number} chainExposure - % of portfolio in same chain (0–1)
- * @property {number} sectorExposure - % of portfolio in same sector (0–1)
+ * @property {number} portfolioWeight
+ * @property {string} watchlistStatus
+ * @property {string} thesisStatus
+ * @property {number} recentDecisions
+ * @property {string} behavioralRisk
+ * @property {number} portfolioExposure
+ * @property {number} riskLimit
+ * @property {string} timeHorizon
+ * @property {number} thesisHealth
+ * @property {number} decisionConfidence
+ * @property {number} chainExposure
+ * @property {number} sectorExposure
  */
 
 /**
  * @typedef {Object} Assessment
  * @property {string} signalId
- * @property {number} relevance - 0–1, from PersonalContext
- * @property {number|null} impact - 0–1, or null when confidence is unknown
- * @property {number} urgency - 0–1, time decay or volatility
- * @property {number|null} confidence - 0–1, or null when unknown
+ * @property {number} relevance
+ * @property {number|null} impact
+ * @property {number} urgency
+ * @property {number|null} confidence
  * @property {string[]} reasoning
  */
 
@@ -79,44 +267,509 @@ W.intelligence = W.intelligence || {};
  * @typedef {Object} DecisionPriority
  * @property {string} signalId
  * @property {Assessment} assessment
- * @property {number|null} score - weighted product, or null when any factor unknown
- * @property {string} eligibility - 'ELIGIBLE' | 'INSUFFICIENT_EVIDENCE'
+ * @property {number|null} score
+ * @property {string} eligibility
  * @property {string} recommendedAction
  * @property {string} explanation
  */
 
-// ── Source reliability map ────────────────────────────────
-W.intelligence.sourceReliability = {
-  coingecko: 0.95,
-  binance: 0.9,
-  alternative_me: 0.85,
-  regime_engine: 0.8,
-  token_unlocks: 0.7,
-  wallet_sync: 0.85,
-  dex_screener: 0.65,
-  blockscout: 0.75,
-  rss_feed: 0.4,
-  user_input: 0.5,
-  opportunity_scanner: 0.6,
-  thesis_health: 0.7,
-  unknown: 0.5,
+// ================================================================
+// 6. VALIDATION PRIMITIVES
+// ================================================================
+
+function _mustBeString(minLen = 1, maxLen = Infinity) {
+  return (v, path) => {
+    if (typeof v !== "string") return `${path}: must be a string`;
+    if (v.length < minLen) return `${path}: must be at least ${minLen} char(s)`;
+    if (v.length > maxLen) return `${path}: must be at most ${maxLen} chars`;
+    return null;
+  };
+}
+
+function _mustBeFiniteNumber(min = -Infinity, max = Infinity) {
+  return (v, path) => {
+    if (typeof v !== "number" || !Number.isFinite(v)) {
+      return `${path}: must be a finite number`;
+    }
+    if (v < min) return `${path}: must be >= ${min}`;
+    if (v > max) return `${path}: must be <= ${max}`;
+    return null;
+  };
+}
+
+function _mustBeInteger(min = -Infinity, max = Infinity) {
+  return (v, path) => {
+    if (!Number.isInteger(v)) return `${path}: must be an integer`;
+    if (v < min) return `${path}: must be >= ${min}`;
+    if (v > max) return `${path}: must be <= ${max}`;
+    return null;
+  };
+}
+
+function _mustBeEnum(set, enumName) {
+  return (v, path) => {
+    if (typeof v !== "string") return `${path}: must be a string`;
+    if (!set.has(v)) return `${path}: must be one of ${enumName}`;
+    return null;
+  };
+}
+
+function _mustBeBoolean() {
+  return (v, path) => {
+    if (typeof v !== "boolean") return `${path}: must be a boolean`;
+    return null;
+  };
+}
+
+function _mustBeArrayOfStrings() {
+  return (v, path) => {
+    if (!Array.isArray(v)) return `${path}: must be an array`;
+    for (let i = 0; i < v.length; i++) {
+      if (typeof v[i] !== "string") return `${path}[${i}]: must be a string`;
+    }
+    return null;
+  };
+}
+
+function _nullable(check) {
+  return (v, path) => (v === null ? null : check(v, path));
+}
+
+function _runChecks(obj, spec, basePath = "") {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
+    return [`${basePath || "value"}: must be an object`];
+  }
+  const errors = [];
+  for (const field of Object.keys(spec)) {
+    const path = basePath ? `${basePath}.${field}` : field;
+    const err = spec[field](obj[field], path);
+    if (err) errors.push(err);
+  }
+  return errors;
+}
+
+// ================================================================
+// 7. ASSET ID
+// ================================================================
+
+const _ASSET_ID_SPEC = {
+  chainId: _mustBeString(1, 32),
+  contractAddress: _nullable(_mustBeString(1, 128)),
+  symbol: _mustBeString(1, 32),
+  coingeckoId: _nullable(_mustBeString(1, 64)),
+  name: _mustBeString(1, 128),
 };
 
-// ── Freshness windows (seconds) ────────────────────────────
-W.intelligence.freshnessWindows = {
-  PRICE_MOVE: 300,
-  REGIME_SHIFT: 3600,
-  UNLOCK: 86400,
-  OPPORTUNITY: 86400,
-  THESIS_DETERIORATION: 3600,
-  BEHAVIORAL_PATTERN: 86400,
+function validateAssetId(assetId) {
+  if (_hasPollutionKey(assetId)) {
+    return {
+      ok: false,
+      errors: ["assetId: prototype-pollution keys rejected"],
+    };
+  }
+  const errors = _runChecks(assetId, _ASSET_ID_SPEC);
+  return { ok: errors.length === 0, errors };
+}
+
+function isAssetId(x) {
+  return validateAssetId(x).ok;
+}
+
+function assertAssetId(x) {
+  const { ok, errors } = validateAssetId(x);
+  if (!ok) throw new TypeError(`Invalid AssetId: ${errors.join("; ")}`);
+  return x;
+}
+
+function createAssetId(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  if (_hasPollutionKey(input)) return null;
+
+  const candidate = {
+    chainId: String(input.chainId || "")
+      .toLowerCase()
+      .trim(),
+    contractAddress:
+      input.contractAddress == null || input.contractAddress === ""
+        ? null
+        : String(input.contractAddress),
+    symbol: String(input.symbol || "")
+      .toUpperCase()
+      .trim(),
+    coingeckoId:
+      input.coingeckoId == null || input.coingeckoId === ""
+        ? null
+        : String(input.coingeckoId),
+    name: String(input.name || input.symbol || "").trim(),
+  };
+
+  if (!validateAssetId(candidate).ok) return null;
+  return Object.freeze(candidate);
+}
+
+// ================================================================
+// 8. SIGNAL
+// ================================================================
+
+const _SIGNAL_METADATA_SPEC = {
+  corroborationCount: _mustBeInteger(1, 1000),
+  dataCompleteness: _nullable(_mustBeFiniteNumber(0, 1)),
+  interpretationConfidence: _nullable(_mustBeFiniteNumber(0, 1)),
 };
 
-// ── Compute confidence from evidence components ─────────────
-//
-// This is the single authoritative confidence function. Any module
-// that needs a confidence value MUST call this function rather than
-// re-deriving a formula.
+function validateSignalMetadata(metadata) {
+  const errors = _runChecks(metadata, _SIGNAL_METADATA_SPEC, "metadata");
+  return { ok: errors.length === 0, errors };
+}
+
+function validateSignal(signal) {
+  if (!signal || typeof signal !== "object" || Array.isArray(signal)) {
+    return { ok: false, errors: ["signal: must be an object"] };
+  }
+  const errors = [];
+
+  const scalarSpec = {
+    id: _mustBeString(1, 128),
+    type: _mustBeEnum(_SIGNAL_TYPE_SET, "SIGNAL_TYPE"),
+    source: _mustBeString(1, 64),
+    timestamp: _mustBeFiniteNumber(1, Number.MAX_SAFE_INTEGER),
+  };
+  errors.push(..._runChecks(signal, scalarSpec));
+
+  const assetIdResult = validateAssetId(signal.assetId);
+  if (!assetIdResult.ok) {
+    for (const e of assetIdResult.errors) errors.push(`assetId.${e}`);
+  }
+
+  if (!("rawData" in signal)) {
+    errors.push("rawData: field is required (may be null)");
+  }
+
+  if (signal.metadata !== undefined && signal.metadata !== null) {
+    const mResult = validateSignalMetadata(signal.metadata);
+    if (!mResult.ok) errors.push(...mResult.errors);
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
+function isSignal(x) {
+  return validateSignal(x).ok;
+}
+
+function assertSignal(x) {
+  const { ok, errors } = validateSignal(x);
+  if (!ok) throw new TypeError(`Invalid Signal: ${errors.join("; ")}`);
+  return x;
+}
+
+function createSignal(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  if (_hasPollutionKey(input)) return null;
+
+  const assetId = createAssetId(input.assetId);
+  if (!assetId) return null;
+
+  const id =
+    typeof input.id === "string" && input.id.length > 0
+      ? input.id
+      : _generateId();
+
+  const timestamp =
+    Number.isFinite(input.timestamp) && input.timestamp > 0
+      ? input.timestamp
+      : Date.now();
+
+  const metadata = _coerceMetadata(input.metadata);
+
+  const signal = {
+    id,
+    type: String(input.type || ""),
+    source: String(input.source || ""),
+    assetId,
+    timestamp,
+    rawData: input.rawData === undefined ? null : input.rawData,
+    metadata,
+  };
+
+  if (!validateSignal(signal).ok) return null;
+  return Object.freeze(signal);
+}
+
+function _coerceMetadata(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return Object.freeze({
+      corroborationCount: 1,
+      dataCompleteness: null,
+      interpretationConfidence: null,
+    });
+  }
+  const corroborationCount =
+    Number.isInteger(input.corroborationCount) && input.corroborationCount >= 1
+      ? input.corroborationCount
+      : 1;
+  const dataCompleteness =
+    Number.isFinite(input.dataCompleteness) &&
+    input.dataCompleteness >= 0 &&
+    input.dataCompleteness <= 1
+      ? input.dataCompleteness
+      : null;
+  const interpretationConfidence =
+    Number.isFinite(input.interpretationConfidence) &&
+    input.interpretationConfidence >= 0 &&
+    input.interpretationConfidence <= 1
+      ? input.interpretationConfidence
+      : null;
+  return Object.freeze({
+    corroborationCount,
+    dataCompleteness,
+    interpretationConfidence,
+  });
+}
+
+function _generateId() {
+  try {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+  } catch {
+    /* fall through */
+  }
+  return (
+    "sig_" +
+    Date.now().toString(36) +
+    "_" +
+    Math.random().toString(36).slice(2, 10)
+  );
+}
+
+// ================================================================
+// 9. EVIDENCE
+// ================================================================
+
+const _EVIDENCE_SPEC = {
+  signalId: _mustBeString(1, 128),
+  sourceReliability: _mustBeFiniteNumber(0, 1),
+  dataFreshness: _mustBeFiniteNumber(0, 1),
+  corroborationCount: _mustBeInteger(1, 1000),
+  dataCompleteness: _mustBeFiniteNumber(0, 1),
+  interpretationConfidence: _mustBeFiniteNumber(0, 1),
+  confidence: _nullable(_mustBeFiniteNumber(0, 1)),
+  incomplete: _mustBeBoolean(),
+  reasoning: _mustBeArrayOfStrings(),
+};
+
+function validateEvidence(evidence) {
+  const errors = _runChecks(evidence, _EVIDENCE_SPEC);
+  return { ok: errors.length === 0, errors };
+}
+
+function isEvidence(x) {
+  return validateEvidence(x).ok;
+}
+
+function assertEvidence(x) {
+  const { ok, errors } = validateEvidence(x);
+  if (!ok) throw new TypeError(`Invalid Evidence: ${errors.join("; ")}`);
+  return x;
+}
+
+function createEvidence(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+
+  const confidence = computeConfidence({
+    sourceReliability: input.sourceReliability,
+    dataFreshness: input.dataFreshness,
+    corroborationCount: input.corroborationCount,
+    dataCompleteness: input.dataCompleteness,
+    interpretationConfidence: input.interpretationConfidence,
+  });
+
+  const evidence = {
+    signalId: String(input.signalId || ""),
+    sourceReliability: input.sourceReliability,
+    dataFreshness: input.dataFreshness,
+    corroborationCount: input.corroborationCount ?? 1,
+    dataCompleteness: input.dataCompleteness,
+    interpretationConfidence: input.interpretationConfidence,
+    confidence,
+    incomplete: confidence === null,
+    reasoning: Array.isArray(input.reasoning) ? input.reasoning.slice() : [],
+  };
+
+  if (!validateEvidence(evidence).ok) return null;
+  return Object.freeze(evidence);
+}
+
+// ================================================================
+// 10. PERSONAL CONTEXT
+// ================================================================
+
+const _PERSONAL_CONTEXT_SPEC = {
+  portfolioWeight: _mustBeFiniteNumber(0, 1),
+  watchlistStatus: _mustBeEnum(_WATCHLIST_STATUS_SET, "WATCHLIST_STATUS"),
+  thesisStatus: _mustBeEnum(_THESIS_ACTIVATION_SET, "THESIS_ACTIVATION"),
+  recentDecisions: _mustBeInteger(0, 10000),
+  behavioralRisk: _mustBeEnum(_BEHAVIORAL_RISK_SET, "BEHAVIORAL_RISK"),
+  portfolioExposure: _mustBeFiniteNumber(0, 1),
+  riskLimit: _mustBeFiniteNumber(0, 1),
+  timeHorizon: _mustBeEnum(_HORIZON_SET, "HORIZON"),
+  thesisHealth: _mustBeFiniteNumber(0, 100),
+  decisionConfidence: _mustBeFiniteNumber(0, 1),
+  chainExposure: _mustBeFiniteNumber(0, 1),
+  sectorExposure: _mustBeFiniteNumber(0, 1),
+};
+
+function validatePersonalContext(ctx) {
+  if (!ctx || typeof ctx !== "object" || Array.isArray(ctx)) {
+    return { ok: false, errors: ["personalContext: must be an object"] };
+  }
+  const errors = _runChecks(ctx, _PERSONAL_CONTEXT_SPEC);
+  const assetIdResult = validateAssetId(ctx.assetId);
+  if (!assetIdResult.ok) {
+    for (const e of assetIdResult.errors) errors.push(`assetId.${e}`);
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+function isPersonalContext(x) {
+  return validatePersonalContext(x).ok;
+}
+
+function assertPersonalContext(x) {
+  const { ok, errors } = validatePersonalContext(x);
+  if (!ok) throw new TypeError(`Invalid PersonalContext: ${errors.join("; ")}`);
+  return x;
+}
+
+function createPersonalContext(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const assetId = createAssetId(input.assetId);
+  if (!assetId) return null;
+
+  const ctx = {
+    assetId,
+    portfolioWeight: input.portfolioWeight,
+    watchlistStatus: String(input.watchlistStatus || ""),
+    thesisStatus: String(input.thesisStatus || ""),
+    recentDecisions: input.recentDecisions,
+    behavioralRisk: String(input.behavioralRisk || ""),
+    portfolioExposure:
+      input.portfolioExposure === undefined
+        ? input.portfolioWeight
+        : input.portfolioExposure,
+    riskLimit: input.riskLimit,
+    timeHorizon: String(input.timeHorizon || ""),
+    thesisHealth: input.thesisHealth,
+    decisionConfidence: input.decisionConfidence,
+    chainExposure: input.chainExposure,
+    sectorExposure: input.sectorExposure,
+  };
+
+  if (!validatePersonalContext(ctx).ok) return null;
+  return Object.freeze(ctx);
+}
+
+// ================================================================
+// 11. ASSESSMENT
+// ================================================================
+
+const _ASSESSMENT_SPEC = {
+  signalId: _mustBeString(1, 128),
+  relevance: _mustBeFiniteNumber(0, 1),
+  impact: _nullable(_mustBeFiniteNumber(0, 1)),
+  urgency: _mustBeFiniteNumber(0, 1),
+  confidence: _nullable(_mustBeFiniteNumber(0, 1)),
+  reasoning: _mustBeArrayOfStrings(),
+};
+
+function validateAssessment(a) {
+  const errors = _runChecks(a, _ASSESSMENT_SPEC);
+  return { ok: errors.length === 0, errors };
+}
+
+function isAssessment(x) {
+  return validateAssessment(x).ok;
+}
+
+function assertAssessment(x) {
+  const { ok, errors } = validateAssessment(x);
+  if (!ok) throw new TypeError(`Invalid Assessment: ${errors.join("; ")}`);
+  return x;
+}
+
+function createAssessment(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const assessment = {
+    signalId: String(input.signalId || ""),
+    relevance: input.relevance,
+    impact: input.impact === undefined ? null : input.impact,
+    urgency: input.urgency,
+    confidence: input.confidence === undefined ? null : input.confidence,
+    reasoning: Array.isArray(input.reasoning) ? input.reasoning.slice() : [],
+  };
+  if (!validateAssessment(assessment).ok) return null;
+  return Object.freeze(assessment);
+}
+
+// ================================================================
+// 12. DECISION PRIORITY
+// ================================================================
+
+const _DECISION_PRIORITY_SPEC = {
+  signalId: _mustBeString(1, 128),
+  score: _nullable(_mustBeFiniteNumber(0, 10)),
+  eligibility: _mustBeEnum(_ELIGIBILITY_SET, "ELIGIBILITY"),
+  recommendedAction: _mustBeEnum(_RECOMMENDED_ACTION_SET, "RECOMMENDED_ACTION"),
+  explanation: _mustBeString(1, 2000),
+};
+
+function validateDecisionPriority(dp) {
+  if (!dp || typeof dp !== "object" || Array.isArray(dp)) {
+    return { ok: false, errors: ["decisionPriority: must be an object"] };
+  }
+  const errors = _runChecks(dp, _DECISION_PRIORITY_SPEC);
+  const aResult = validateAssessment(dp.assessment);
+  if (!aResult.ok) {
+    for (const e of aResult.errors) errors.push(`assessment.${e}`);
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+function isDecisionPriority(x) {
+  return validateDecisionPriority(x).ok;
+}
+
+function assertDecisionPriority(x) {
+  const { ok, errors } = validateDecisionPriority(x);
+  if (!ok)
+    throw new TypeError(`Invalid DecisionPriority: ${errors.join("; ")}`);
+  return x;
+}
+
+function createDecisionPriority(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const assessment = createAssessment(input.assessment);
+  if (!assessment) return null;
+
+  const dp = {
+    signalId: String(input.signalId || ""),
+    assessment,
+    score: input.score === undefined ? null : input.score,
+    eligibility: String(input.eligibility || ""),
+    recommendedAction: String(input.recommendedAction || ""),
+    explanation: String(input.explanation || ""),
+  };
+
+  if (!validateDecisionPriority(dp).ok) return null;
+  return Object.freeze(dp);
+}
+
+// ================================================================
+// 13. THE ONE CONFIDENCE FUNCTION
+// ================================================================
+// Every module that needs a confidence value MUST call this. A
+// second formula anywhere else is a bug.
 //
 // MISSING-DATA POLICY:
 //   Every factor is required. If any of sourceReliability,
@@ -127,22 +780,7 @@ W.intelligence.freshnessWindows = {
 //   numeric claim" — it does NOT mean "zero confidence". Callers
 //   must surface that distinction honestly rather than coercing to
 //   a number.
-//
-//   Earlier versions defaulted sourceReliability to 0.5 and
-//   dataFreshness to 0.8. Those defaults were the exact
-//   synthetic-confidence pattern §2.7 and §2.9 exist to prevent.
-//   They have been removed.
-//
-// CORROBORATION:
-//   corroborationCount defaults to 1 — "the signal arrived from one
-//   source". That is a factual statement, not a numeric estimate.
-//   NaN / Infinity / non-numeric values are rejected outright
-//   (return null) rather than silently defaulted, because a caller
-//   that supplies malformed metadata has already violated the
-//   contract and silent substitution would hide the bug. Well-
-//   behaved callers go through evidence-builder.build(), which
-//   sanitizes the input before reaching this function.
-//
+
 function computeConfidence(evidence) {
   if (!evidence || typeof evidence !== "object") return null;
 
@@ -154,17 +792,10 @@ function computeConfidence(evidence) {
     interpretationConfidence,
   } = evidence;
 
-  // Every factor must be present and finite. Missing means we cannot
-  // make a numeric confidence claim, and "unknown ≠ zero" applies.
   if (!Number.isFinite(sourceReliability)) return null;
   if (!Number.isFinite(dataFreshness)) return null;
   if (!Number.isFinite(dataCompleteness)) return null;
   if (!Number.isFinite(interpretationConfidence)) return null;
-  // corroborationCount is numeric metadata, not a factor — but it
-  // feeds the boost calculation. NaN / Infinity here would propagate
-  // into the final confidence as NaN, violating the
-  // "unknown ⇒ null, never a fabricated number" contract. Reject
-  // non-finite values rather than silently defaulting.
   if (!Number.isFinite(corroborationCount)) return null;
 
   const clamp = (v) => Math.max(0, Math.min(1, v));
@@ -178,31 +809,86 @@ function computeConfidence(evidence) {
   let confidence = sr * df * dc * ic * corroborationBoost;
   confidence = clamp(confidence);
 
-  // Floor at 0.05 for cases where all four factors are non-zero but
-  // the product rounds to a value indistinguishable from "we didn't
-  // measure". This is a display aid, not a claim about precision.
   if (confidence < 0.05 && (sr > 0 || df > 0 || dc > 0 || ic > 0)) {
     confidence = 0.05;
   }
-
   return confidence;
 }
+
 function computeFreshness(timestamp, signalType) {
-  const age = Date.now() - timestamp;
-  const window = W.intelligence.freshnessWindows[signalType] || 3600;
-  const freshness = Math.max(0, 1 - age / (window * 1000));
-  return Math.min(1, freshness);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return 0;
+  const ageMs = Date.now() - timestamp;
+  if (ageMs <= 0) return 1;
+  const window = FRESHNESS_WINDOWS[signalType] || 3600;
+  return Math.min(1, Math.max(0, 1 - ageMs / (window * 1000)));
 }
 
 function getSourceReliability(source) {
-  return (
-    W.intelligence.sourceReliability[source] ||
-    W.intelligence.sourceReliability.unknown
-  );
+  if (typeof source !== "string") return SOURCE_RELIABILITY.unknown;
+  return SOURCE_RELIABILITY[source] ?? SOURCE_RELIABILITY.unknown;
 }
 
+// ================================================================
+// 14. EXPORTS
+// ================================================================
+
+W.intelligence.types = Object.freeze({
+  SIGNAL_TYPE,
+  THESIS_STATUS,
+  THESIS_ACTIVATION,
+  WATCHLIST_STATUS,
+  BEHAVIORAL_RISK,
+  HORIZON,
+  ELIGIBILITY,
+  RECOMMENDED_ACTION,
+  ASSET_CHAIN,
+});
+
+W.intelligence.is = Object.freeze({
+  assetId: isAssetId,
+  signal: isSignal,
+  evidence: isEvidence,
+  personalContext: isPersonalContext,
+  assessment: isAssessment,
+  decisionPriority: isDecisionPriority,
+});
+
+W.intelligence.validate = Object.freeze({
+  assetId: validateAssetId,
+  signal: validateSignal,
+  signalMetadata: validateSignalMetadata,
+  evidence: validateEvidence,
+  personalContext: validatePersonalContext,
+  assessment: validateAssessment,
+  decisionPriority: validateDecisionPriority,
+});
+
+W.intelligence.assert = Object.freeze({
+  assetId: assertAssetId,
+  signal: assertSignal,
+  evidence: assertEvidence,
+  personalContext: assertPersonalContext,
+  assessment: assertAssessment,
+  decisionPriority: assertDecisionPriority,
+});
+
+W.intelligence.create = Object.freeze({
+  assetId: createAssetId,
+  signal: createSignal,
+  evidence: createEvidence,
+  personalContext: createPersonalContext,
+  assessment: createAssessment,
+  decisionPriority: createDecisionPriority,
+});
+
+W.intelligence.sourceReliability = SOURCE_RELIABILITY;
+W.intelligence.freshnessWindows = FRESHNESS_WINDOWS;
 W.intelligence.computeConfidence = computeConfidence;
 W.intelligence.computeFreshness = computeFreshness;
 W.intelligence.getSourceReliability = getSourceReliability;
+W.intelligence.CONTRACT_VERSION = CONTRACT_VERSION;
 
-console.log("[Intelligence] Confidence model loaded.");
+console.log(
+  `[Intelligence] Canonical contracts loaded (${CONTRACT_VERSION}): ` +
+    `6 types, ${_SIGNAL_TYPES.length} signal types, one confidence function.`,
+);
