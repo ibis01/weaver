@@ -10,8 +10,8 @@
     CSP Hardening (§5.3 / Global Const. P0-2):
     - No 'unsafe-inline' for scripts or styles.
     - connect-src includes every API the app actually calls.
-      CoinGecko, Binance, and CoinCap have been removed — see
-      cf-worker/index.js for why.
+      CoinGecko, Binance, CoinCap, BscScan, and the official Solana RPC
+      have been removed — see cf-worker/index.js for why.
     - object-src 'none' and base-uri 'self' prevent injection attacks.
   -->
   <meta
@@ -31,8 +31,6 @@
         https://api.dexscreener.com
         https://api.gopluslabs.io
         https://eth.blockscout.com
-        https://api.mainnet-beta.solana.com
-        https://api.bscscan.com
         https://api.polygonscan.com
         https://api.arbiscan.io
         https://api.snowtrace.io
@@ -41,7 +39,9 @@
         https://api.etherscan.io
         https://cdn.jsdelivr.net
         https://weaver-proxy.ibis01-weaver.workers.dev
-        https://ethereum.publicnode.com;
+        https://ethereum.publicnode.com
+        https://bsc-rpc.publicnode.com
+        https://solana-rpc.publicnode.com;
       worker-src 'self';
       object-src 'none';
       base-uri 'self';

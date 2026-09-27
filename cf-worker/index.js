@@ -129,28 +129,31 @@ const ALLOWED_EVM_CHAIN_IDS = new Set([
 //          api.coincap.io (v2 API is dead — DNS no longer resolves).
 // Added:   api.coinlore.net, api.coinbase.com.
 const ALLOWED_PROXY_HOSTS = new Set([
+  // ── Market data ──
   "api.coinpaprika.com",
   "api.coinlore.net",
   "api.coinbase.com",
   "api.alternative.me",
   "api.dexscreener.com",
+  "api.llama.fi",
+  // ── Security / analysis ──
   "api.gopluslabs.io",
   "api.etherscan.io",
-  "api.bscscan.com",
   "api.polygonscan.com",
   "api.arbiscan.io",
   "api.snowtrace.io",
   "api.solscan.io",
-  "api.mainnet-beta.solana.com",
+  // ── Chain RPCs / explorers ──
+  "ethereum.publicnode.com",
+  "bsc-rpc.publicnode.com",
+  "solana-rpc.publicnode.com",
   "eth.blockscout.com",
   "mempool.space",
-  "api.llama.fi",
-  // --- News RSS Feed Hosts ---
+  // ── News RSS ──
   "www.coindesk.com",
   "cointelegraph.com",
   "decrypt.co",
 ]);
-
 const CHAIN_TO_BITQUERY_NETWORK = {
   ethereum: "eth",
   bsc: "bsc",

@@ -1,5 +1,5 @@
 // ================================================================
-//  Secure Multi‑Chain Wallet Sync — FINAL (walletsync-v3)
+//  Secure Multi‑Chain Wallet Sync — FINAL (walletsync-v3.1)
 // ================================================================
 // Constitution compliance:
 //   §2.1  Non-custodial: read-only public balance queries. Never keys,
@@ -16,12 +16,23 @@
 //   §3.7  Deterministic: regex validation and plain arithmetic only.
 //   §3.8  Versioned: MODULE_VERSION exported for bundle verification.
 //   v2 P1-2  Manual cost basis for wallet holdings.
+//
+// v3.1 changelog:
+//   - BSC: switched from api.bscscan.com (returned 301 → Cloudflare
+//     HTML, no valid JSON) to bsc-rpc.publicnode.com using JSON-RPC
+//     eth_getBalance / eth_call. BSC is EVM-compatible so the calls
+//     are identical to the Ethereum path that was already working.
+//   - SOL: switched from api.mainnet-beta.solana.com (works from curl
+//     but CORS-restricted and heavily rate-limited from shared egress)
+//     to solana-rpc.publicnode.com, which is CORS-permissive and not
+//     subject to the same IP throttling.
+//   - PROXY_REQUIRED_DOMAINS updated to the two publicnode hosts.
 // ================================================================
 
 window.W = window.W || {};
 
 W.walletSync = (() => {
-  const MODULE_VERSION = "walletsync-v3";
+  const MODULE_VERSION = "walletsync-v3.1";
   const STORAGE_KEY = "wallet_sync_data"; // encrypted wallet list
   const CACHE_KEY = "wallet_sync_cache"; // sanitized sync results
   const BASIS_KEY = "wallet_cost_basis"; // manual cost basis map
@@ -32,10 +43,13 @@ W.walletSync = (() => {
   const WORKER_PROXY =
     "https://weaver-proxy.ibis01-weaver.workers.dev/proxy?url=";
 
-  // Domains that MUST go through the Worker proxy to bypass browser CORS
+  // Domains that MUST go through the Worker proxy to bypass browser CORS.
+  // publicnode RPCs are CORS-permissive but rate-limit per IP; routing
+  // them through the Worker gives us the Worker's egress IP and lets
+  // the Worker's edge cache absorb bursts.
   const PROXY_REQUIRED_DOMAINS = [
-    "api.bscscan.com",
-    "api.mainnet-beta.solana.com",
+    "bsc-rpc.publicnode.com",
+    "solana-rpc.publicnode.com",
   ];
 
   // ── Fetch helper ──────────────────────────────────────
@@ -72,11 +86,12 @@ W.walletSync = (() => {
     return data;
   }
 
-  // Helper for Solana resilience: uses official RPC via Worker Proxy
+  // Helper for Solana resilience: uses publicnode's Solana RPC via the
+  // Worker proxy. The official api.mainnet-beta.solana.com endpoint is
+  // CORS-restricted from the browser and rate-limits shared egress very
+  // aggressively, so it is deliberately not used here.
   async function solanaRpcCall(rpcBody) {
-    // Only use the official endpoint, as it is explicitly in the Worker's ALLOWED_PROXY_HOSTS.
-    // Fallbacks like Ankr/Alchemy are omitted to prevent 403 Forbidden from the Worker.
-    const url = "https://api.mainnet-beta.solana.com";
+    const url = "https://solana-rpc.publicnode.com";
 
     const response = await fetchJSON(
       url,
@@ -200,13 +215,25 @@ W.walletSync = (() => {
       icon: "🟡",
       coingeckoId: "binancecoin",
       explorer: "https://bscscan.com/address/",
+      // BSC is EVM-compatible, so we use the exact same JSON-RPC calls
+      // as the Ethereum path. The previous bscscan.com REST endpoint
+      // returned a 301 redirect to an HTML page, which broke JSON parsing.
       balance: async (addr) => {
         const data = await fetchJSON(
-          `https://api.bscscan.com/api?module=account&action=balance&address=${addr}&tag=latest`,
-          undefined,
-          "bscscan",
+          "https://bsc-rpc.publicnode.com",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "eth_getBalance",
+              params: [addr, "latest"],
+            }),
+          },
+          "jsonRpc",
         );
-        return parseInt(data.result || "0") / 1e18;
+        return parseInt(data.result || "0x0", 16) / 1e18;
       },
       tokens: async (addr) => {
         const tokens = [
@@ -232,15 +259,30 @@ W.walletSync = (() => {
         const results = [];
         for (const token of tokens) {
           try {
-            // Use BSCScan tokenbalance API (already in Worker allowlist) instead of direct RPC
+            // ERC-20 balanceOf(address) via eth_call — identical to the
+            // Ethereum path. Selector 0x70a08231 + 32-byte padded address.
             const data = await fetchJSON(
-              `https://api.bscscan.com/api?module=account&action=tokenbalance&contractaddress=${token.address}&address=${addr}&tag=latest`,
-              undefined,
-              "bscscan",
+              "https://bsc-rpc.publicnode.com",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: 1,
+                  method: "eth_call",
+                  params: [
+                    {
+                      to: token.address,
+                      data: "0x70a08231" + addr.slice(2).padStart(64, "0"),
+                    },
+                    "latest",
+                  ],
+                }),
+              },
+              "jsonRpc",
             );
-            // BSCScan returns result as a string
             const balance =
-              parseInt(data.result || "0", 10) / Math.pow(10, token.decimals);
+              parseInt(data.result || "0x0", 16) / Math.pow(10, token.decimals);
             if (balance > 1e-9) results.push({ ...token, balance });
           } catch (e) {
             console.warn(
@@ -904,5 +946,5 @@ W.walletSync = (() => {
 })();
 
 console.log(
-  "[WalletSync] Module loaded (walletsync-v3: secure, sanitized cache, honest valuation, render-time re-pricing, all-network proxy routing).",
+  "[WalletSync] Module loaded (walletsync-v3.1: publicnode RPCs for BSC + SOL, secure cache, honest valuation).",
 );
