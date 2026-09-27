@@ -839,6 +839,28 @@ code {
 @media (min-width: 1024px) {
   .news-list { grid-template-columns: repeat(3, 1fr); }
 }
+.feed-summary {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  padding: 6px 0;
+  list-style: none; /* hide the default disclosure triangle on WebKit */
+}
+.feed-summary::-webkit-details-marker {
+  /* Chrome/Safari expose the marker through this pseudo-element. */
+  color: var(--muted);
+}
+.feed-summary:hover {
+  color: var(--text);
+}
+.feed-summary:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.feed-monitoring[open] > .feed-summary {
+  margin-bottom: 4px;
+}
 .news-item {
   background: var(--card);
   border: 1px solid var(--border);
