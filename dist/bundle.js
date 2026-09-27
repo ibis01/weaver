@@ -6419,10 +6419,44 @@ console.log("[Behavior] Pattern detection engine loaded.");
 // NO-EVIDENCE NOTE: when there is no evidence at all, confidence
 // must be `null`, never `0.5`. A fabricated "middle" value implies
 // certainty that does not exist. See WEAVER_CONSTITUTION §2.9.
+//
+// v2 changelog (canonical-contract enforcement):
+//   - Confidence aggregation delegated to
+//     W.intelligence.computeAggregateConfidence(). This module no
+//     longer performs any arithmetic on confidence values directly.
+//     The contract in types.js is the sole owner of every confidence
+//     computation — see the "one confidence function" rule in
+//     intelligence-contracts-v1.
+//   - The prior
+//         evidence.reduce((sum, e) => sum + e.confidence, 0)
+//     silently treated a null confidence as zero, because
+//     `0 + null === 0`. A null means "could not be measured" — it
+//     must not drag the aggregate toward zero. The canonical
+//     function excludes null items from the average and reports
+//     `coverage` (measured / total) instead.
+//   - The returned object now carries `confidenceCoverage` so the
+//     renderer can distinguish "0.7 from 3 of 3 items" from
+//     "0.7 from 3 of 5 items". Coverage is honest metadata, not a
+//     confidence number.
+//   - renderContext() displays coverage when it is less than 1.
+//   - event.type comparisons now use the canonical SIGNAL_TYPE
+//     enum rather than the legacy lowercase strings.
 // ===============================================================
 
 window.W = window.W || {};
 W.context = (() => {
+  // Canonical signal types. Falls back to literals if types.js has
+  // not loaded yet, which cannot happen in practice given concat.js
+  // ordering, but costs nothing to defend against.
+  const SIGNAL_TYPE = W.intelligence?.types?.SIGNAL_TYPE || {
+    PRICE_MOVE: "PRICE_MOVE",
+    REGIME_SHIFT: "REGIME_SHIFT",
+    UNLOCK: "UNLOCK",
+    OPPORTUNITY: "OPPORTUNITY",
+    THESIS_DETERIORATION: "THESIS_DETERIORATION",
+    BEHAVIORAL_PATTERN: "BEHAVIORAL_PATTERN",
+  };
+
   function generateContext(event, userContext) {
     const portfolio = userContext?.portfolio || [];
     const theses = userContext?.theses || [];
@@ -6454,21 +6488,23 @@ W.context = (() => {
         claim: `User holds ${symbol}`,
         evidence: `${qty} units`,
         source: "portfolio",
-        // Direct local data read — timestamp reflects when the holding
-        // record actually changed, not when this function happened to run.
         timestamp: holding.updatedAt || new Date().toISOString(),
-        // A direct lookup against the user's own portfolio is a verified
-        // fact, not an estimate — no external staleness/reliability
-        // discount applies. See EVIDENCE_CONFIDENCE_NOTE above.
+        // Direct local data read — a verified fact, not an estimate.
+        // See EVIDENCE_CONFIDENCE_NOTE above.
         confidence: 1.0,
       });
     }
 
     if (thesis) {
       whyItMatters += `You have an active thesis on ${symbol}. `;
+      // Compare against the canonical signal-type enum rather than
+      // legacy lowercase strings. The previous `=== "price_change"`
+      // and `=== "unlock"` never matched a canonical signal, so the
+      // thesis-impact branch was dead code.
+      const type = event?.type;
       if (
-        (event.type === "price_change" && event.impactValue > 0.6) ||
-        event.type === "unlock"
+        (type === SIGNAL_TYPE.PRICE_MOVE && event.impactValue > 0.6) ||
+        type === SIGNAL_TYPE.UNLOCK
       ) {
         thesisImpact = "weakening";
         recommendedAction = "Review your thesis invalidation conditions.";
@@ -6488,7 +6524,6 @@ W.context = (() => {
         claim: `Recent decisions on ${symbol}`,
         evidence: `${recentDecisions.length} recent journal entries`,
         source: "journal",
-        // Use the most recent matching decision's own timestamp, not "now".
         timestamp:
           recentDecisions
             .map((d) => d.timestamp)
@@ -6506,17 +6541,27 @@ W.context = (() => {
       whyItMatters = `This event may impact the broader market, but you have no direct exposure to ${symbol}.`;
     }
 
-    // Confidence is only meaningful when at least one evidence item exists.
-    // If there is no evidence, confidence is null — never a fabricated 0.5.
+    // ── Confidence aggregation — DELEGATED ────────────────────
+    //
+    // This module does not compute a confidence number. The canonical
+    // aggregator in types.js owns the arithmetic, including the
+    // null-exclusion policy: evidence items with a null confidence
+    // are excluded from the average, not treated as zero. If every
+    // item is null, the aggregate is null — never a fabricated
+    // midpoint.
     let confidence = null;
-    if (evidence.length > 0) {
-      confidence = Math.min(
-        1,
-        Math.max(
-          0,
-          evidence.reduce((sum, e) => sum + e.confidence, 0) / evidence.length,
-        ),
-      );
+    let confidenceCoverage = 0;
+    let confidenceMeasured = 0;
+    let confidenceTotal = 0;
+
+    if (Array.isArray(evidence) && evidence.length > 0) {
+      const agg = W.intelligence?.computeAggregateConfidence?.(evidence);
+      if (agg) {
+        confidence = agg.confidence;
+        confidenceCoverage = agg.coverage;
+        confidenceMeasured = agg.measuredCount;
+        confidenceTotal = agg.totalCount;
+      }
     }
 
     return {
@@ -6527,6 +6572,9 @@ W.context = (() => {
       recommendedAction,
       evidence,
       confidence,
+      confidenceCoverage,
+      confidenceMeasured,
+      confidenceTotal,
     };
   }
 
@@ -6559,7 +6607,9 @@ W.context = (() => {
       div.appendChild(action);
     }
 
-    // Only display a confidence percentage when one is genuinely known.
+    // Only display a confidence percentage when one is genuinely
+    // known. A null confidence renders an honest "unavailable"
+    // message rather than a fabricated 0% or 50%.
     if (
       contextData.confidence !== undefined &&
       contextData.confidence !== null
@@ -6567,7 +6617,21 @@ W.context = (() => {
       const conf = document.createElement("div");
       conf.className = "small-text text-muted mt-4";
       const pct = (contextData.confidence * 100).toFixed(0);
-      conf.textContent = `Confidence: ${pct}%`;
+      // Coverage note when some evidence could not be measured.
+      // "3 of 5 measured" is materially different from "5 of 5
+      // measured" even when the numeric confidence is identical.
+      const cov = contextData.confidenceCoverage;
+      const measured = contextData.confidenceMeasured;
+      const total = contextData.confidenceTotal;
+      const covText =
+        typeof cov === "number" &&
+        cov < 1 &&
+        Number.isFinite(measured) &&
+        Number.isFinite(total) &&
+        total > 0
+          ? ` (based on ${measured} of ${total} evidence items)`
+          : "";
+      conf.textContent = `Confidence: ${pct}%${covText}`;
       div.appendChild(conf);
     } else {
       const noConf = document.createElement("div");
@@ -6584,7 +6648,7 @@ W.context = (() => {
 })();
 
 console.log(
-  "[Context] Why It Matters generator loaded (Phase 6 ready, CSP compliant).",
+  "[Context] Why It Matters generator loaded (Phase 6 ready, CSP compliant, canonical confidence).",
 );
 // ---- js/intelligence/ranker.js ----
 // ===============================================================
@@ -8312,6 +8376,66 @@ function computeConfidence(evidence) {
   return confidence;
 }
 
+// ================================================================
+//  AGGREGATE CONFIDENCE
+// ================================================================
+// Used when a composite view needs a single confidence number
+// derived from N independently-computed confidences.
+//
+// MISSING-DATA POLICY (matches computeConfidence):
+//   - Evidence items with null confidence are EXCLUDED from the
+//     average, not treated as zero. A null means "we could not
+//     measure this", not "we measured zero".
+//   - If NO evidence items have a finite confidence, the aggregate
+//     is null — never a fabricated midpoint.
+//   - The returned object carries `coverage` (measured / total) so
+//     callers can distinguish "0.7 from 3 of 3 items" from
+//     "0.7 from 3 of 5 items". Coverage itself is honest metadata,
+//     not a confidence number.
+//
+// This is deliberately the ONLY other function in the codebase
+// permitted to touch a confidence value. Any module that needs an
+// aggregate confidence MUST call this, not re-implement the
+// average inline.
+
+function computeAggregateConfidence(evidenceItems) {
+  if (!Array.isArray(evidenceItems)) return null;
+  if (evidenceItems.length === 0) {
+    return Object.freeze({
+      confidence: null,
+      coverage: 0,
+      measuredCount: 0,
+      totalCount: 0,
+    });
+  }
+  const finite = [];
+  for (const item of evidenceItems) {
+    if (!item || typeof item !== "object") continue;
+    const c = item.confidence;
+    if (Number.isFinite(c) && c >= 0 && c <= 1) finite.push(c);
+  }
+  const totalCount = evidenceItems.length;
+  const measuredCount = finite.length;
+  const coverage = totalCount > 0 ? measuredCount / totalCount : 0;
+  if (measuredCount === 0) {
+    return Object.freeze({
+      confidence: null,
+      coverage: 0,
+      measuredCount: 0,
+      totalCount,
+    });
+  }
+  const sum = finite.reduce((a, b) => a + b, 0);
+  const mean = sum / measuredCount;
+  const clamped = Math.max(0, Math.min(1, mean));
+  return Object.freeze({
+    confidence: clamped,
+    coverage,
+    measuredCount,
+    totalCount,
+  });
+}
+
 function computeFreshness(timestamp, signalType) {
   if (!Number.isFinite(timestamp) || timestamp <= 0) return 0;
   const ageMs = Date.now() - timestamp;
@@ -8381,6 +8505,10 @@ W.intelligence.create = Object.freeze({
 W.intelligence.sourceReliability = SOURCE_RELIABILITY;
 W.intelligence.freshnessWindows = FRESHNESS_WINDOWS;
 W.intelligence.computeConfidence = computeConfidence;
+// The aggregate function is the ONLY other permitted arithmetic
+// on confidence values. Any module that needs a composite
+// confidence MUST call this, not re-implement an average inline.
+W.intelligence.computeAggregateConfidence = computeAggregateConfidence;
 W.intelligence.computeFreshness = computeFreshness;
 W.intelligence.getSourceReliability = getSourceReliability;
 W.intelligence.CONTRACT_VERSION = CONTRACT_VERSION;

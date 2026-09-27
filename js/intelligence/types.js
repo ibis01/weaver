@@ -815,6 +815,66 @@ function computeConfidence(evidence) {
   return confidence;
 }
 
+// ================================================================
+//  AGGREGATE CONFIDENCE
+// ================================================================
+// Used when a composite view needs a single confidence number
+// derived from N independently-computed confidences.
+//
+// MISSING-DATA POLICY (matches computeConfidence):
+//   - Evidence items with null confidence are EXCLUDED from the
+//     average, not treated as zero. A null means "we could not
+//     measure this", not "we measured zero".
+//   - If NO evidence items have a finite confidence, the aggregate
+//     is null — never a fabricated midpoint.
+//   - The returned object carries `coverage` (measured / total) so
+//     callers can distinguish "0.7 from 3 of 3 items" from
+//     "0.7 from 3 of 5 items". Coverage itself is honest metadata,
+//     not a confidence number.
+//
+// This is deliberately the ONLY other function in the codebase
+// permitted to touch a confidence value. Any module that needs an
+// aggregate confidence MUST call this, not re-implement the
+// average inline.
+
+function computeAggregateConfidence(evidenceItems) {
+  if (!Array.isArray(evidenceItems)) return null;
+  if (evidenceItems.length === 0) {
+    return Object.freeze({
+      confidence: null,
+      coverage: 0,
+      measuredCount: 0,
+      totalCount: 0,
+    });
+  }
+  const finite = [];
+  for (const item of evidenceItems) {
+    if (!item || typeof item !== "object") continue;
+    const c = item.confidence;
+    if (Number.isFinite(c) && c >= 0 && c <= 1) finite.push(c);
+  }
+  const totalCount = evidenceItems.length;
+  const measuredCount = finite.length;
+  const coverage = totalCount > 0 ? measuredCount / totalCount : 0;
+  if (measuredCount === 0) {
+    return Object.freeze({
+      confidence: null,
+      coverage: 0,
+      measuredCount: 0,
+      totalCount,
+    });
+  }
+  const sum = finite.reduce((a, b) => a + b, 0);
+  const mean = sum / measuredCount;
+  const clamped = Math.max(0, Math.min(1, mean));
+  return Object.freeze({
+    confidence: clamped,
+    coverage,
+    measuredCount,
+    totalCount,
+  });
+}
+
 function computeFreshness(timestamp, signalType) {
   if (!Number.isFinite(timestamp) || timestamp <= 0) return 0;
   const ageMs = Date.now() - timestamp;
@@ -884,6 +944,10 @@ W.intelligence.create = Object.freeze({
 W.intelligence.sourceReliability = SOURCE_RELIABILITY;
 W.intelligence.freshnessWindows = FRESHNESS_WINDOWS;
 W.intelligence.computeConfidence = computeConfidence;
+// The aggregate function is the ONLY other permitted arithmetic
+// on confidence values. Any module that needs a composite
+// confidence MUST call this, not re-implement an average inline.
+W.intelligence.computeAggregateConfidence = computeAggregateConfidence;
 W.intelligence.computeFreshness = computeFreshness;
 W.intelligence.getSourceReliability = getSourceReliability;
 W.intelligence.CONTRACT_VERSION = CONTRACT_VERSION;
