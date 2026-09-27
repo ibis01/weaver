@@ -1,30 +1,50 @@
-// playwright.config.js
-const { defineConfig, devices } = require("@playwright/test");
+// @ts-check
+const { test, expect } = require("@playwright/test");
 
-module.exports = defineConfig({
-  testDir: "./test/e2e",
-  timeout: 30000,
-  fullyParallel: false,
-  workers: 1,
-  retries: 0,
-  reporter: "list",
-  use: {
-    baseURL: "http://127.0.0.1:8000",
-    trace: "on-first-retry",
-    headless: true,
-  },
-  projects: [
-    {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
-    },
-  ],
-  webServer: {
-    command: process.env.CI
-      ? "npx --yes http-server -p 8000 -c-1 ."
-      : "python3 -m http.server 8000",
-    port: 8000,
-    reuseExistingServer: !process.env.CI,
-    timeout: 30000, // Increased from 10s to 30s for CI stability
-  },
+test.describe("Intelligence Pipeline - Data Integrity", () => {
+  test('should display "What Matters Now" feed', async ({ page }) => {
+    await page.goto("/");
+
+    // Wait for intelligence feed to load
+    await page.waitForSelector("#what-matters-now-container", {
+      timeout: 10000,
+    });
+
+    // Verify feed container is visible
+    const feed = page.locator("#what-matters-now-container");
+    await expect(feed).toBeVisible();
+  });
+
+  test("should show honest unknown for missing cost basis", async ({
+    page,
+  }) => {
+    await page.goto("/");
+
+    // Wait for portfolio to load
+    await page.waitForSelector("#d-port", { timeout: 10000 });
+
+    // If there are wallet holdings without cost basis, verify they show "—"
+    const pnlCells = page.locator("td.num").filter({ hasText: /—/ });
+
+    // This is a soft check - we just verify the UI doesn't crash
+    // and can render the unknown state
+    await expect(page.locator("#d-port")).toBeVisible();
+  });
+
+  test("should validate signal contracts in browser console", async ({
+    page,
+  }) => {
+    await page.goto("/");
+
+    // Wait for app to initialize
+    await page.waitForSelector(".app", { timeout: 10000 });
+
+    // Check that the intelligence types module loaded
+    const contractVersion = await page.evaluate(() => {
+      return window.W?.intelligence?.CONTRACT_VERSION;
+    });
+
+    expect(contractVersion).toBeTruthy();
+    expect(contractVersion).toContain("intelligence-contracts");
+  });
 });

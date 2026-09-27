@@ -43,3 +43,9 @@ jobs:
       - name: Run Cloudflare Worker tests
         working-directory: ./cf-worker
         run: npx vitest run
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Run E2E tests
+        run: npm run test:e2e
