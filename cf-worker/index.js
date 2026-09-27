@@ -9,17 +9,31 @@
 //   POST /bitquery/deployer    body: { chain, deployerAddress }
 //   GET/POST /proxy?url=...    host-allowlisted market/news relay
 //
+// SOLANA RPC — KEYED PROVIDER INJECTION:
+//   Every keyless Solana RPC is now closed to Cloudflare Worker
+//   egress. Verified failures:
+//     - api.mainnet-beta.solana.com    → 403 IP block
+//     - solana.llamarpc.com            → 403 IP block
+//     - solana-rpc.publicnode.com      → 429 under load
+//     - solana.api.onfinality.io/public → -32029 rate limit
+//     - rpc.ankr.com/solana            → -32052 key required
+//   The client now points at Helius (mainnet.helius-rpc.com) with a
+//   placeholder api-key. This Worker swaps the placeholder for the
+//   real key stored as HELIUS_KEY before forwarding upstream. The
+//   key never reaches the browser bundle or git history.
+//
+//   Set the secret with:  npx wrangler secret put HELIUS_KEY
+//   Without it, /proxy returns 403 to the client for Helius hosts,
+//   which surfaces as a clean "Solana unreachable" in the UI.
+//
 // MARKET DATA AUTHENTICATION NOTE:
 //   CoinGecko, Binance, and CoinCap have all been removed.
-//     - CoinGecko: needs a key on datacenter egress; the keyed path
-//       returned 401, anonymous returned 429.
-//     - Binance:   blocks Cloudflare Worker IPs with HTTP 403
-//       (CloudFront "Request blocked" page).
-//     - CoinCap:   v2 API (api.coincap.io) is dead — DNS no longer
-//       resolves; the Worker reported 530 Origin DNS error.
-//   The client now sources prices from CoinPaprika (primary),
-//   CoinLore (secondary), and Coinbase (tertiary). None require a
-//   Worker-side secret.
+//     - CoinGecko: needs a key on datacenter egress; keyed path 401,
+//       anonymous 429.
+//     - Binance:   blocks Cloudflare Worker IPs with 403.
+//     - CoinCap:   v2 API (api.coincap.io) no longer resolves — 530.
+//   The client sources prices from CoinLore (primary), CoinBase
+//   (secondary), and CoinPaprika (tertiary). None require a key.
 //
 // BITQUERY ROUTE — DESIGN NOTES:
 //   The client sends only { chain, deployerAddress }. It does NOT
@@ -76,7 +90,7 @@
 //   PROXY_CACHE_FRESH_SECONDS (60). During upstream failures
 //   (429/5xx/timeout), a cached entry up to
 //   PROXY_CACHE_STALE_MAX_SECONDS (600) old is served instead of
-//   propagating the error, so a CoinPaprika hiccup degrades to a
+//   propagating the error, so a CoinLore hiccup degrades to a
 //   ≤10-minute-old price — never to a 1-day-old snapshot. The
 //   X-Weaver-Cache header reports HIT / MISS / REVALIDATED / STALE /
 //   NONE so clients and operators can see which path served a
@@ -95,6 +109,7 @@
 //
 // Deploy: see cf-worker/README.md in this folder.
 
+// Only these origins may call this worker from a browser.
 const ALLOWED_ORIGINS = [
   "https://ibis01.github.io",
   "http://localhost:3000",
@@ -124,10 +139,17 @@ const ALLOWED_EVM_CHAIN_IDS = new Set([
 // Hosts the /proxy route may forward to. Mirrors the connect-src
 // hosts in index.html's CSP. Keep the two in sync.
 //
-// Removed: api.coingecko.com, pro-api.coingecko.com (keyed path 401),
-//          api.binance.com (blocks CF egress with 403),
-//          api.coincap.io (v2 API is dead — DNS no longer resolves).
-// Added:   api.coinlore.net, api.coinbase.com.
+// Removed over the course of the provider migration:
+//   api.coingecko.com, pro-api.coingecko.com   (401 keyed, 429 anon)
+//   api.binance.com                             (403 CloudFront)
+//   api.coincap.io                              (DNS dead)
+//   api.bscscan.com                             (301 → HTML)
+//   api.mainnet-beta.solana.com                 (403 IP block)
+//   solana.llamarpc.com                         (403 IP block)
+//   solana-rpc.publicnode.com                   (429)
+//   solana.api.onfinality.io                    (-32029 rate limit)
+//   rpc.ankr.com                                (-32052 key required)
+//   rpc.publicnode.com                          (404 — EVM-only)
 const ALLOWED_PROXY_HOSTS = new Set([
   // ── Market data ──
   "api.coinpaprika.com",
@@ -143,10 +165,12 @@ const ALLOWED_PROXY_HOSTS = new Set([
   "api.arbiscan.io",
   "api.snowtrace.io",
   "api.solscan.io",
-  // ── Chain RPCs / explorers ──
+  // ── EVM RPCs ──
   "ethereum.publicnode.com",
   "bsc-rpc.publicnode.com",
-  "solana-rpc.publicnode.com",
+  // ── Solana RPC (keyed, injected by relayAllowedProxy) ──
+  "mainnet.helius-rpc.com",
+  // ── Explorers / misc ──
   "eth.blockscout.com",
   "mempool.space",
   // ── News RSS ──
@@ -154,6 +178,11 @@ const ALLOWED_PROXY_HOSTS = new Set([
   "cointelegraph.com",
   "decrypt.co",
 ]);
+
+// Bitquery network names for the chains the deployer route supports.
+// Deliberately narrower than ALLOWED_EVM_CHAIN_IDS — the V2 streaming
+// endpoint does not support every EVM chain. Chains absent from this
+// map are rejected with 400 before any upstream call.
 const CHAIN_TO_BITQUERY_NETWORK = {
   ethereum: "eth",
   bsc: "bsc",
@@ -163,6 +192,18 @@ const CHAIN_TO_BITQUERY_NETWORK = {
   optimism: "optimism",
 };
 
+// Fixed GraphQL query. The client never sees or supplies this. Only
+// the variables (network, address, limit) are per-request.
+//
+// EVIDENCE SEMANTICS — do not remove Receipt.ContractAddress:
+//   Bitquery distinguishes two creation cases:
+//     - Top-level deployment: the deployed address is
+//       Receipt.ContractAddress.
+//     - Factory/internal deployment: the deployed address is
+//       Call.To on the create call.
+//   Requesting only Call.To would silently misclassify every
+//   top-level deployment. Requesting both lets the client apply
+//   an explicit extraction policy (see deployer-graph.js).
 const DEPLOYER_QUERY = `query DeployerContracts(
   $network: evm_network!
   $address: String!
@@ -391,19 +432,35 @@ async function relayBitquery(env, network, address, headers) {
 }
 
 // Generic passthrough relay for /proxy?url=… — see header notes.
-async function relayAllowedProxy(request, url, headers, ctx) {
+//
+// KEYED-PROVIDER INJECTION:
+//   For hosts that require an API key (currently only Helius), the
+//   Worker swaps the client-supplied placeholder for the real secret
+//   stored in env. The client sends ?api-key=placeholder; the Worker
+//   replaces it with env.HELIUS_KEY before forwarding. This keeps the
+//   key out of the browser bundle, out of git, and off the wire
+//   between browser and Worker.
+async function relayAllowedProxy(request, url, headers, ctx, env) {
   const target = url.searchParams.get("url");
   if (!target) {
     return jsonResponse({ error: "Missing url param" }, 400, headers);
   }
 
-  let targetUrl;
-  try {
-    targetUrl = new URL(target);
-  } catch {
+  const targetUrl = (() => {
+    try {
+      return new URL(target);
+    } catch {
+      return null;
+    }
+  })();
+
+  if (!targetUrl) {
     return jsonResponse({ error: "Invalid url" }, 400, headers);
   }
 
+  // HTTPS only. http:// would let a browser on an allowlisted origin
+  // pull plaintext from an upstream and have the Worker launder it
+  // into an https response — a downgrade the client never asked for.
   if (targetUrl.protocol !== "https:") {
     return jsonResponse({ error: "Only https is allowed" }, 400, headers);
   }
@@ -412,6 +469,35 @@ async function relayAllowedProxy(request, url, headers, ctx) {
     return jsonResponse(
       { error: `Host not allowed: ${targetUrl.hostname}` },
       403,
+      headers,
+    );
+  }
+
+  // ── Keyed-provider injection ───────────────────────────────────
+  // The client sends a placeholder api-key value; the Worker replaces
+  // it with the real secret. This block is the only place the secret
+  // is ever read, and the only place it is attached to a request.
+  let effectiveTarget = targetUrl.toString();
+
+  if (
+    targetUrl.hostname === "mainnet.helius-rpc.com" &&
+    env &&
+    typeof env.HELIUS_KEY === "string" &&
+    env.HELIUS_KEY
+  ) {
+    const keyed = new URL(targetUrl.toString());
+    keyed.searchParams.set("api-key", env.HELIUS_KEY);
+    effectiveTarget = keyed.toString();
+  } else if (
+    targetUrl.hostname === "mainnet.helius-rpc.com" &&
+    (!env || !env.HELIUS_KEY)
+  ) {
+    // Missing key: fail closed rather than forwarding the request
+    // with the placeholder value, which would just produce a confusing
+    // upstream error.
+    return jsonResponse(
+      { error: "Helius RPC not configured on this Worker (set HELIUS_KEY)" },
+      503,
       headers,
     );
   }
@@ -430,7 +516,7 @@ async function relayAllowedProxy(request, url, headers, ctx) {
 
   // ── Edge cache lookup (GET only) ───────────────────────────────
   const cache = caches.default;
-  const cacheKey = new Request(targetUrl.toString(), {
+  const cacheKey = new Request(effectiveTarget, {
     method: "GET",
     headers: { Accept: "application/json" },
   });
@@ -470,7 +556,7 @@ async function relayAllowedProxy(request, url, headers, ctx) {
   let upstreamOk = false;
 
   try {
-    upstream = await fetch(targetUrl.toString(), {
+    upstream = await fetch(effectiveTarget, {
       ...init,
       signal: controller.signal,
     });
@@ -636,7 +722,7 @@ async function handleRequest(request, env, ctx) {
     if (request.method !== "GET" && request.method !== "POST") {
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
     }
-    return relayAllowedProxy(request, url, headers, ctx);
+    return relayAllowedProxy(request, url, headers, ctx, env);
   }
 
   // ── GoPlus routes — GET only, path-based. ────────────────────

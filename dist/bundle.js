@@ -4164,21 +4164,27 @@ console.log("[RequestGuard] Rate limiting and circuit breakers loaded.");
 // ===============================================================
 //                  Market Data API (Constitutionally Compliant)
 // ===============================================================
-// §3.4 Graceful Degradation: CoinLore → Coinbase → CoinPaprika → Cache
+// §3.4 Graceful Degradation: Binance → CoinCap → CoinPaprika → Cache
 // §3.6 Caching: Edge cache (Worker) + Local cache (last_known_prices)
 // §2.7 No Fabricated Data: Never returns $0.00 for missing prices.
 //
-// Provider selection rationale:
-//   CoinLore  — keyless, ~15k coins, one batched request, works from
-//               Cloudflare egress. PRIMARY for markets/top/global.
-//   Coinbase  — keyless, spot price per pair. SECONDARY for the
-//               well-known coins it lists; used when CoinLore misses.
-//   CoinPaprika — keyless but IP-blocked at 60 req/hour from CF
-//               egress, and a 402 block lasts 1 hour. TERTIARY,
-//               and the only provider wired for chart/ohlcv/search/
-//               trending/coin-detail. Those are infrequent calls.
+// CoinGecko has been fully removed. Reasons:
+//   - Requires a key on datacenter egress (Cloudflare Worker IP pool).
+//     Anonymous requests get 429; keyed requests got 401 (bad key).
+//   - Binance provides the same data, no key, no per-IP throttle of
+//     that severity, and is already in the Worker's allowlist.
+// CoinCap and CoinPaprika remain as fallbacks for IDs Binance does
+// not list (mostly long-tail / non-Binance tokens).
 //
-// Removed: CoinGecko, Binance, CoinCap — see cf-worker/index.js.
+// v4 changelog:
+//   - CoinCap removed entirely (api.coincap.io no longer resolves).
+//   - Provider order: CoinLore (primary) → CoinBase (secondary) →
+//     CoinPaprika (tertiary, chart/search/trending only).
+//   - CoinPaprika circuit breaker: HTTP 402 blocks the provider for
+//     1 hour. The 60 req/h anonymous limit is enforced per shared
+//     Cloudflare egress IP, so it trips constantly.
+//   - LONG_CACHE_TTL raised to 30 minutes for chart/coin/global data
+//     to reduce CoinPaprika call volume.
 // ===============================================================
 
 window.W = window.W || {};
@@ -4187,9 +4193,9 @@ W.api = (() => {
   const COINPAPRIKA_API = "https://api.coinpaprika.com/v1";
   const COINLORE_API = "https://api.coinlore.net/api";
   const COINBASE_API = "https://api.coinbase.com/v2";
-  const CACHE_TTL = 60000; // 1 minute
-  const LONG_CACHE_TTL = 300000; // 5 minutes
-  const TICKERS_TTL = 120000; // 2 minutes for the shared /tickers snapshot
+  const CACHE_TTL = 60000; // 1 minute for live prices
+  const LONG_CACHE_TTL = 1800000; // 30 minutes for chart/coin/global
+  const TICKERS_TTL = 120000; // 2 minutes for /tickers snapshots
 
   const PROXIES = [
     (u) =>
@@ -4285,6 +4291,20 @@ W.api = (() => {
     matic: "MATIC-USD",
   };
 
+  // ── Provider circuit breaker ─────────────────────────
+  // When a provider returns HTTP 402 (CoinPaprika's quota-exhausted
+  // signal), mark it blocked for 1 hour so subsequent calls skip it
+  // immediately instead of burning the request guard.
+  const providerBlockedUntil = {};
+  function isProviderBlocked(name) {
+    return (
+      providerBlockedUntil[name] && Date.now() < providerBlockedUntil[name]
+    );
+  }
+  function markProviderBlocked(name, ms) {
+    providerBlockedUntil[name] = Date.now() + ms;
+  }
+
   let source = "coinlore";
   let circuitBreaker = { failures: 0, until: 0 };
 
@@ -4353,7 +4373,9 @@ W.api = (() => {
         W.store.set("last_known_prices", priceCache);
       }
     } catch {
-      // CoinPaprika /tickers can exceed localStorage quota; skip silently.
+      // localStorage can overflow on large responses (CoinPaprika
+      // /tickers is ~1 MB). Silently skip caching in that case — the
+      // in-memory response is still returned to the caller.
     }
   }
 
@@ -4420,6 +4442,9 @@ W.api = (() => {
         return data;
       } catch (e) {
         clearTimeout(timer);
+        // 402 is CoinPaprika's "anonymous tier exhausted" response on
+        // some endpoints. Treat it like a rate limit and either serve
+        // stale cache or propagate so the failover chain moves on.
         if (/HTTP 429|HTTP 401|HTTP 402|HTTP 403|HTTP 530/.test(e.message)) {
           const stale = getCached(url, 86400000);
           if (stale !== null) {
@@ -4587,7 +4612,8 @@ W.api = (() => {
 
   // ── CoinPaprika (TERTIARY + chart/search/trending) ──
   // IP-blocked at 60 req/hour from Cloudflare egress, with a 1-hour
-  // block once tripped. Usable only for infrequent calls.
+  // block once tripped. Usable only for infrequent calls. The circuit
+  // breaker below skips it entirely for 1h after the first 402.
   const coinpaprika = {
     markets: async (ids) => {
       const wanted = (ids || []).filter((id) => ID_TO_SYMBOL[id]);
@@ -4735,11 +4761,12 @@ W.api = (() => {
   };
 
   const providers = { coinlore, coinbase, coinpaprika };
+  const ORDER = ["coinlore", "coinbase", "coinpaprika"];
 
-  // ── Failover ────────────────────────────────────────
+  // ── Smart failover ──────────────────────────────────
   // markets(): accumulate partial results across providers so an ID
-  // one provider misses is still priced by the next. All other
-  // methods: first success wins.
+  // CoinLore doesn't list still gets priced via CoinBase/CoinPaprika.
+  // everything else: first success wins.
   async function withFailover(method, ...args) {
     if (method === "markets") {
       const ids = Array.isArray(args[0])
@@ -4747,11 +4774,14 @@ W.api = (() => {
         : String(args[0] || "").split(",");
       const result = {};
       const missing = new Set(ids.filter(Boolean));
-      const order = ["coinlore", "coinbase", "coinpaprika"];
-      for (const name of order) {
+      for (const name of ORDER) {
         if (!missing.size) break;
         const provider = providers[name];
         if (!provider?.markets) continue;
+        if (isProviderBlocked(name)) {
+          console.warn(`[Prices] ${name} skipped (circuit open)`);
+          continue;
+        }
         try {
           const partial = await provider.markets([...missing]);
           for (const row of partial || []) {
@@ -4762,6 +4792,10 @@ W.api = (() => {
           }
           if (Object.keys(result).length) source = name;
         } catch (e) {
+          if (/HTTP 402/.test(e.message)) {
+            markProviderBlocked(name, 3600000);
+            console.warn(`[Prices] ${name} blocked for 1h (HTTP 402)`);
+          }
           console.warn(`[Prices] ${name}.markets failed:`, e.message);
         }
       }
@@ -4781,11 +4815,19 @@ W.api = (() => {
     for (const name of order) {
       const provider = providers[name];
       if (!provider?.[method]) continue;
+      if (isProviderBlocked(name)) {
+        console.warn(`[Prices] ${name}.${method} skipped (circuit open)`);
+        continue;
+      }
       try {
         const result = await provider[method](...args);
         source = name;
         return result;
       } catch (e) {
+        if (/HTTP 402/.test(e.message)) {
+          markProviderBlocked(name, 3600000);
+          console.warn(`[Prices] ${name} blocked for 1h (HTTP 402)`);
+        }
         console.warn(`[Prices] ${name}.${method} failed:`, e.message);
       }
     }
@@ -4849,7 +4891,7 @@ W.api = (() => {
 })();
 
 console.log(
-  "[Prices] Module loaded (CoinLore → Coinbase → CoinPaprika → Cache).",
+  "[Prices] Module loaded (CoinLore → CoinBase → CoinPaprika → Cache; circuit breaker active).",
 );
 // ---- js/api/snapshot.js ----
 // js/api/snapshot.js – Fallback Snapshot Cache
@@ -19795,7 +19837,7 @@ W.tg = (() => {
 console.log("[Telegram] Module loaded.");
 // ---- js/features/walletsync.js ----
 // ================================================================
-//  Secure Multi‑Chain Wallet Sync — FINAL (walletsync-v3.2)
+//  Secure Multi‑Chain Wallet Sync — FINAL (walletsync-v3.4)
 // ================================================================
 // Constitution compliance:
 //   §2.1  Non-custodial: read-only public balance queries. Never keys,
@@ -19815,28 +19857,43 @@ console.log("[Telegram] Module loaded.");
 //
 // v3.1 changelog:
 //   - BSC: switched from api.bscscan.com (returned 301 → Cloudflare
-//     HTML, no valid JSON) to bsc-rpc.publicnode.com using JSON-RPC
-//     eth_getBalance / eth_call. BSC is EVM-compatible so the calls
-//     are identical to the Ethereum path that was already working.
-//   - SOL: switched from api.mainnet-beta.solana.com (works from curl
-//     but CORS-restricted and heavily rate-limited from shared egress)
-//     to solana-rpc.publicnode.com, which is CORS-permissive and not
-//     subject to the same IP throttling.
-//   - PROXY_REQUIRED_DOMAINS updated to the two publicnode hosts.
+//     HTML) to bsc-rpc.publicnode.com JSON-RPC.
+//   - SOL: switched from api.mainnet-beta.solana.com to
+//     solana-rpc.publicnode.com.
 //
 // v3.2 changelog:
-//   - SOL: added multi-RPC failover. publicnode's Solana endpoint
-//     throttles hard from the shared Worker egress (HTTP 429 mid-sync).
-//     We now try official → LlamaRPC → publicnode in order and return
-//     the first success. The official endpoint is used first because
-//     it is the least loaded of the three for cheap read methods
-//     (getBalance / getTokenAccountsByOwner).
+//   - SOL: added multi-RPC failover.
+//
+// v3.3 changelog:
+//   - SOL: three previous RPCs all dead from CF Worker egress:
+//       * api.mainnet-beta.solana.com → 403 IP block
+//       * solana.llamarpc.com         → 403 IP block
+//       * solana-rpc.publicnode.com   → 429 under load
+//     Replaced with three alternates (OnFinality, Ankr, PublicNode).
+//   - SOL: partial-failure rendering — a failed wallet renders as "—"
+//     instead of a hard "error" cell.
+//
+// v3.4 changelog:
+//   - SOL: every keyless Solana RPC is now blocked from CF Worker
+//     egress. Confirmed dead:
+//       * api.mainnet-beta.solana.com     → 403 IP block
+//       * solana.llamarpc.com             → 403 IP block
+//       * solana-rpc.publicnode.com       → 429
+//       * solana.api.onfinality.io/public → -32029 rate limit
+//       * rpc.ankr.com/solana             → -32052 key required
+//       * rpc.publicnode.com              → 404 (EVM-only)
+//     Switched to Helius (keyed). The Worker injects HELIUS_KEY
+//     server-side; the client sends ?api-key=placeholder which never
+//     reaches Helius. See cf-worker/index.js for the injection block.
+//   - Fixed the module terminator: `})();` not `};)();`.
+//   - PROXY_REQUIRED_DOMAINS now routes mainnet.helius-rpc.com
+//     through the Worker.
 // ================================================================
 
 window.W = window.W || {};
 
 W.walletSync = (() => {
-  const MODULE_VERSION = "walletsync-v3.2";
+  const MODULE_VERSION = "walletsync-v3.4";
   const STORAGE_KEY = "wallet_sync_data"; // encrypted wallet list
   const CACHE_KEY = "wallet_sync_cache"; // sanitized sync results
   const BASIS_KEY = "wallet_cost_basis"; // manual cost basis map
@@ -19847,17 +19904,19 @@ W.walletSync = (() => {
   const WORKER_PROXY =
     "https://weaver-proxy.ibis01-weaver.workers.dev/proxy?url=";
 
-  // Domains that MUST go through the Worker proxy to bypass browser CORS.
-  // publicnode RPCs are CORS-permissive but rate-limit per IP; routing
-  // them through the Worker gives us the Worker's egress IP and lets
-  // the Worker's edge cache absorb bursts. The official Solana RPC and
-  // LlamaRPC are CORS-restricted from the browser and would fail
-  // without the proxy.
+  // Domains that MUST go through the Worker proxy.
+  //
+  // BSC: bsc-rpc.publicnode.com is CORS-permissive from a browser but
+  //      rate-limits per IP; the Worker's egress and edge cache absorb
+  //      the burst.
+  //
+  // SOL: mainnet.helius-rpc.com is a keyed endpoint. The browser sends
+  //      a placeholder api-key; the Worker swaps it for the real
+  //      HELIUS_KEY before forwarding. This keeps the key out of the
+  //      bundle and off the wire between browser and Worker.
   const PROXY_REQUIRED_DOMAINS = [
     "bsc-rpc.publicnode.com",
-    "api.mainnet-beta.solana.com",
-    "solana.llamarpc.com",
-    "solana-rpc.publicnode.com",
+    "mainnet.helius-rpc.com",
   ];
 
   // ── Fetch helper ──────────────────────────────────────
@@ -19879,6 +19938,9 @@ W.walletSync = (() => {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
 
+    // Solana JSON-RPC can return HTTP 200 with an error object in the
+    // body: {"jsonrpc":"2.0","id":1,"error":{"code":...,"message":...}}.
+    // Treat that as a failure so the failover chain advances.
     if (data.error) {
       throw new Error(
         `RPC Error: ${data.error.message || JSON.stringify(data.error)}`,
@@ -19894,21 +19956,18 @@ W.walletSync = (() => {
     return data;
   }
 
-  // ── Solana JSON-RPC with multi-endpoint failover ──────
+  // ── Solana JSON-RPC via Helius (keyed) ────────────────
   //
-  // No single public Solana RPC is reliable from shared egress:
-  //   - api.mainnet-beta.solana.com — CORS-restricted (solved by the
-  //     Worker proxy) but occasionally rate-limits the shared pool.
-  //   - solana.llamarpc.com — usually fast, occasionally flaky.
-  //   - solana-rpc.publicnode.com — frequently returns HTTP 429.
+  // Every keyless Solana RPC is now blocked from Cloudflare Worker
+  // egress (see cf-worker/index.js for the full list). The only
+  // durable path is a keyed provider. The Worker injects HELIUS_KEY
+  // server-side, so this URL carries a placeholder value that never
+  // reaches Helius.
   //
-  // We try them in order and return the first success. The official
-  // endpoint is first because it handles cheap read methods best.
-  const SOLANA_RPCS = [
-    "https://api.mainnet-beta.solana.com",
-    "https://solana.llamarpc.com",
-    "https://solana-rpc.publicnode.com",
-  ];
+  // If HELIUS_KEY is not set on the Worker, the request fails with
+  // HTTP 503 and the wallet row renders with "unreachable" — an
+  // honest signal that Solana needs configuration.
+  const SOLANA_RPCS = ["https://mainnet.helius-rpc.com/?api-key=placeholder"];
 
   async function solanaRpcCall(rpcBody) {
     let lastErr = null;
@@ -20371,13 +20430,21 @@ W.walletSync = (() => {
           `[WalletSync] Sync failed for ${wallet.chain}:${W.fmt.maskAddress(wallet.address)}`,
           e.message,
         );
-        results.push({ ...wallet, error: e.message });
+        // Partial-failure policy: keep the wallet in the result set with
+        // a null balance and an error string, so the UI can render "—"
+        // instead of the whole row collapsing.
+        results.push({
+          ...wallet,
+          nativeBalance: null,
+          tokenBalances: [],
+          error: e.message,
+        });
       }
     }
 
     const ids = new Set();
     for (const w of results) {
-      if (w.error) continue;
+      if (w.error || !Number.isFinite(w.nativeBalance)) continue;
       const chain = CHAINS[w.chain];
       if (chain?.coingeckoId) ids.add(chain.coingeckoId);
       for (const t of w.tokenBalances || [])
@@ -20390,6 +20457,9 @@ W.walletSync = (() => {
     let unpriced = 0;
 
     for (const w of results) {
+      // A wallet whose balance query failed keeps error set and its
+      // numeric fields null. It is deliberately excluded from
+      // totalValue, but remains visible in the table.
       if (w.error) {
         w.nativeValue = null;
         w.price = null;
@@ -20644,6 +20714,8 @@ W.walletSync = (() => {
       const notes = [];
       if (result.unpriced) notes.push(`${result.unpriced} wallet(s) unpriced`);
       if (result.stale) notes.push("some prices from cache");
+      const errored = result.wallets.filter((w) => w.error).length;
+      if (errored) notes.push(`${errored} wallet(s) unreachable`);
       status.innerHTML = `<p class="up">✅ Synced at ${new Date().toLocaleTimeString()}${notes.length ? " · " + W.fmt.escapeHTML(notes.join(" · ")) : ""}</p>`;
     } catch (e) {
       if (!view.isConnected) return;
@@ -20654,13 +20726,25 @@ W.walletSync = (() => {
   }
 
   function valueCell(w) {
-    if (w.error) return '<span class="down">error</span>';
+    if (w.error) {
+      // Render a compact diagnostic instead of just "error" so the
+      // user can distinguish a network problem from a bad address.
+      return `<span class="down" title="${W.fmt.escapeHTML(w.error)}">unreachable</span>`;
+    }
     if (!Number.isFinite(w.totalValue))
       return '<span class="text-muted" title="Price unavailable">—</span>';
     return (
       W.fmt.money(w.totalValue, { compact: true }) +
       (w.priceStale ? ' <span class="text-muted small-text">·stale</span>' : "")
     );
+  }
+
+  function balanceCell(w) {
+    if (w.error) return '<span class="down">—</span>';
+    if (!Number.isFinite(w.nativeBalance)) return "—";
+    const sym = CHAINS[w.chain]?.symbol || "";
+    const tokens = (w.tokenBalances || []).length;
+    return `${w.nativeBalance.toFixed(4)} ${sym}${tokens ? ` <span class="text-muted small-text">+${tokens} tokens</span>` : ""}`;
   }
 
   function displayWallets(view, wallets) {
@@ -20683,7 +20767,7 @@ W.walletSync = (() => {
                 <td>${CHAINS[w.chain]?.icon || "⛓️"} ${W.fmt.escapeHTML(w.chain.toUpperCase())}</td>
                 <td>${W.fmt.escapeHTML(w.label || "—")}</td>
                 <td><code>${W.fmt.escapeHTML(w.addressMasked || "—")}</code></td>
-                <td>${w.error ? '<span class="down">error</span>' : Number.isFinite(w.nativeBalance) ? `${w.nativeBalance.toFixed(4)} ${CHAINS[w.chain]?.symbol || ""}${(w.tokenBalances || []).length ? ` <span class="text-muted small-text">+${w.tokenBalances.length} tokens</span>` : ""}` : "—"}</td>
+                <td>${balanceCell(w)}</td>
                 <td>${valueCell(w)}</td>
                 <td><button class="icon-btn" data-remove="${W.fmt.escapeHTML(w.id)}">✕</button></td>
               </tr>
@@ -20776,7 +20860,7 @@ W.walletSync = (() => {
 })();
 
 console.log(
-  "[WalletSync] Module loaded (walletsync-v3.2: Solana multi-RPC failover, publicnode BSC, secure cache, honest valuation).",
+  "[WalletSync] Module loaded (walletsync-v3.4: Helius keyed RPC via Worker, graceful partial-failure rendering, publicnode BSC).",
 );
 // ---- js/features/theses.js ----
 // ===============================================================

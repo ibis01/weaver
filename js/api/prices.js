@@ -1,21 +1,27 @@
 // ===============================================================
 //                  Market Data API (Constitutionally Compliant)
 // ===============================================================
-// §3.4 Graceful Degradation: CoinLore → Coinbase → CoinPaprika → Cache
+// §3.4 Graceful Degradation: Binance → CoinCap → CoinPaprika → Cache
 // §3.6 Caching: Edge cache (Worker) + Local cache (last_known_prices)
 // §2.7 No Fabricated Data: Never returns $0.00 for missing prices.
 //
-// Provider selection rationale:
-//   CoinLore  — keyless, ~15k coins, one batched request, works from
-//               Cloudflare egress. PRIMARY for markets/top/global.
-//   Coinbase  — keyless, spot price per pair. SECONDARY for the
-//               well-known coins it lists; used when CoinLore misses.
-//   CoinPaprika — keyless but IP-blocked at 60 req/hour from CF
-//               egress, and a 402 block lasts 1 hour. TERTIARY,
-//               and the only provider wired for chart/ohlcv/search/
-//               trending/coin-detail. Those are infrequent calls.
+// CoinGecko has been fully removed. Reasons:
+//   - Requires a key on datacenter egress (Cloudflare Worker IP pool).
+//     Anonymous requests get 429; keyed requests got 401 (bad key).
+//   - Binance provides the same data, no key, no per-IP throttle of
+//     that severity, and is already in the Worker's allowlist.
+// CoinCap and CoinPaprika remain as fallbacks for IDs Binance does
+// not list (mostly long-tail / non-Binance tokens).
 //
-// Removed: CoinGecko, Binance, CoinCap — see cf-worker/index.js.
+// v4 changelog:
+//   - CoinCap removed entirely (api.coincap.io no longer resolves).
+//   - Provider order: CoinLore (primary) → CoinBase (secondary) →
+//     CoinPaprika (tertiary, chart/search/trending only).
+//   - CoinPaprika circuit breaker: HTTP 402 blocks the provider for
+//     1 hour. The 60 req/h anonymous limit is enforced per shared
+//     Cloudflare egress IP, so it trips constantly.
+//   - LONG_CACHE_TTL raised to 30 minutes for chart/coin/global data
+//     to reduce CoinPaprika call volume.
 // ===============================================================
 
 window.W = window.W || {};
@@ -24,9 +30,9 @@ W.api = (() => {
   const COINPAPRIKA_API = "https://api.coinpaprika.com/v1";
   const COINLORE_API = "https://api.coinlore.net/api";
   const COINBASE_API = "https://api.coinbase.com/v2";
-  const CACHE_TTL = 60000; // 1 minute
-  const LONG_CACHE_TTL = 300000; // 5 minutes
-  const TICKERS_TTL = 120000; // 2 minutes for the shared /tickers snapshot
+  const CACHE_TTL = 60000; // 1 minute for live prices
+  const LONG_CACHE_TTL = 1800000; // 30 minutes for chart/coin/global
+  const TICKERS_TTL = 120000; // 2 minutes for /tickers snapshots
 
   const PROXIES = [
     (u) =>
@@ -122,6 +128,20 @@ W.api = (() => {
     matic: "MATIC-USD",
   };
 
+  // ── Provider circuit breaker ─────────────────────────
+  // When a provider returns HTTP 402 (CoinPaprika's quota-exhausted
+  // signal), mark it blocked for 1 hour so subsequent calls skip it
+  // immediately instead of burning the request guard.
+  const providerBlockedUntil = {};
+  function isProviderBlocked(name) {
+    return (
+      providerBlockedUntil[name] && Date.now() < providerBlockedUntil[name]
+    );
+  }
+  function markProviderBlocked(name, ms) {
+    providerBlockedUntil[name] = Date.now() + ms;
+  }
+
   let source = "coinlore";
   let circuitBreaker = { failures: 0, until: 0 };
 
@@ -190,7 +210,9 @@ W.api = (() => {
         W.store.set("last_known_prices", priceCache);
       }
     } catch {
-      // CoinPaprika /tickers can exceed localStorage quota; skip silently.
+      // localStorage can overflow on large responses (CoinPaprika
+      // /tickers is ~1 MB). Silently skip caching in that case — the
+      // in-memory response is still returned to the caller.
     }
   }
 
@@ -257,6 +279,9 @@ W.api = (() => {
         return data;
       } catch (e) {
         clearTimeout(timer);
+        // 402 is CoinPaprika's "anonymous tier exhausted" response on
+        // some endpoints. Treat it like a rate limit and either serve
+        // stale cache or propagate so the failover chain moves on.
         if (/HTTP 429|HTTP 401|HTTP 402|HTTP 403|HTTP 530/.test(e.message)) {
           const stale = getCached(url, 86400000);
           if (stale !== null) {
@@ -424,7 +449,8 @@ W.api = (() => {
 
   // ── CoinPaprika (TERTIARY + chart/search/trending) ──
   // IP-blocked at 60 req/hour from Cloudflare egress, with a 1-hour
-  // block once tripped. Usable only for infrequent calls.
+  // block once tripped. Usable only for infrequent calls. The circuit
+  // breaker below skips it entirely for 1h after the first 402.
   const coinpaprika = {
     markets: async (ids) => {
       const wanted = (ids || []).filter((id) => ID_TO_SYMBOL[id]);
@@ -572,11 +598,12 @@ W.api = (() => {
   };
 
   const providers = { coinlore, coinbase, coinpaprika };
+  const ORDER = ["coinlore", "coinbase", "coinpaprika"];
 
-  // ── Failover ────────────────────────────────────────
+  // ── Smart failover ──────────────────────────────────
   // markets(): accumulate partial results across providers so an ID
-  // one provider misses is still priced by the next. All other
-  // methods: first success wins.
+  // CoinLore doesn't list still gets priced via CoinBase/CoinPaprika.
+  // everything else: first success wins.
   async function withFailover(method, ...args) {
     if (method === "markets") {
       const ids = Array.isArray(args[0])
@@ -584,11 +611,14 @@ W.api = (() => {
         : String(args[0] || "").split(",");
       const result = {};
       const missing = new Set(ids.filter(Boolean));
-      const order = ["coinlore", "coinbase", "coinpaprika"];
-      for (const name of order) {
+      for (const name of ORDER) {
         if (!missing.size) break;
         const provider = providers[name];
         if (!provider?.markets) continue;
+        if (isProviderBlocked(name)) {
+          console.warn(`[Prices] ${name} skipped (circuit open)`);
+          continue;
+        }
         try {
           const partial = await provider.markets([...missing]);
           for (const row of partial || []) {
@@ -599,6 +629,10 @@ W.api = (() => {
           }
           if (Object.keys(result).length) source = name;
         } catch (e) {
+          if (/HTTP 402/.test(e.message)) {
+            markProviderBlocked(name, 3600000);
+            console.warn(`[Prices] ${name} blocked for 1h (HTTP 402)`);
+          }
           console.warn(`[Prices] ${name}.markets failed:`, e.message);
         }
       }
@@ -618,11 +652,19 @@ W.api = (() => {
     for (const name of order) {
       const provider = providers[name];
       if (!provider?.[method]) continue;
+      if (isProviderBlocked(name)) {
+        console.warn(`[Prices] ${name}.${method} skipped (circuit open)`);
+        continue;
+      }
       try {
         const result = await provider[method](...args);
         source = name;
         return result;
       } catch (e) {
+        if (/HTTP 402/.test(e.message)) {
+          markProviderBlocked(name, 3600000);
+          console.warn(`[Prices] ${name} blocked for 1h (HTTP 402)`);
+        }
         console.warn(`[Prices] ${name}.${method} failed:`, e.message);
       }
     }
@@ -686,5 +728,5 @@ W.api = (() => {
 })();
 
 console.log(
-  "[Prices] Module loaded (CoinLore → Coinbase → CoinPaprika → Cache).",
+  "[Prices] Module loaded (CoinLore → CoinBase → CoinPaprika → Cache; circuit breaker active).",
 );

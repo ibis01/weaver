@@ -1,5 +1,5 @@
 // ================================================================
-//  Secure Multi‑Chain Wallet Sync — FINAL (walletsync-v3.2)
+//  Secure Multi‑Chain Wallet Sync — FINAL (walletsync-v3.4)
 // ================================================================
 // Constitution compliance:
 //   §2.1  Non-custodial: read-only public balance queries. Never keys,
@@ -19,28 +19,43 @@
 //
 // v3.1 changelog:
 //   - BSC: switched from api.bscscan.com (returned 301 → Cloudflare
-//     HTML, no valid JSON) to bsc-rpc.publicnode.com using JSON-RPC
-//     eth_getBalance / eth_call. BSC is EVM-compatible so the calls
-//     are identical to the Ethereum path that was already working.
-//   - SOL: switched from api.mainnet-beta.solana.com (works from curl
-//     but CORS-restricted and heavily rate-limited from shared egress)
-//     to solana-rpc.publicnode.com, which is CORS-permissive and not
-//     subject to the same IP throttling.
-//   - PROXY_REQUIRED_DOMAINS updated to the two publicnode hosts.
+//     HTML) to bsc-rpc.publicnode.com JSON-RPC.
+//   - SOL: switched from api.mainnet-beta.solana.com to
+//     solana-rpc.publicnode.com.
 //
 // v3.2 changelog:
-//   - SOL: added multi-RPC failover. publicnode's Solana endpoint
-//     throttles hard from the shared Worker egress (HTTP 429 mid-sync).
-//     We now try official → LlamaRPC → publicnode in order and return
-//     the first success. The official endpoint is used first because
-//     it is the least loaded of the three for cheap read methods
-//     (getBalance / getTokenAccountsByOwner).
+//   - SOL: added multi-RPC failover.
+//
+// v3.3 changelog:
+//   - SOL: three previous RPCs all dead from CF Worker egress:
+//       * api.mainnet-beta.solana.com → 403 IP block
+//       * solana.llamarpc.com         → 403 IP block
+//       * solana-rpc.publicnode.com   → 429 under load
+//     Replaced with three alternates (OnFinality, Ankr, PublicNode).
+//   - SOL: partial-failure rendering — a failed wallet renders as "—"
+//     instead of a hard "error" cell.
+//
+// v3.4 changelog:
+//   - SOL: every keyless Solana RPC is now blocked from CF Worker
+//     egress. Confirmed dead:
+//       * api.mainnet-beta.solana.com     → 403 IP block
+//       * solana.llamarpc.com             → 403 IP block
+//       * solana-rpc.publicnode.com       → 429
+//       * solana.api.onfinality.io/public → -32029 rate limit
+//       * rpc.ankr.com/solana             → -32052 key required
+//       * rpc.publicnode.com              → 404 (EVM-only)
+//     Switched to Helius (keyed). The Worker injects HELIUS_KEY
+//     server-side; the client sends ?api-key=placeholder which never
+//     reaches Helius. See cf-worker/index.js for the injection block.
+//   - Fixed the module terminator: `})();` not `};)();`.
+//   - PROXY_REQUIRED_DOMAINS now routes mainnet.helius-rpc.com
+//     through the Worker.
 // ================================================================
 
 window.W = window.W || {};
 
 W.walletSync = (() => {
-  const MODULE_VERSION = "walletsync-v3.2";
+  const MODULE_VERSION = "walletsync-v3.4";
   const STORAGE_KEY = "wallet_sync_data"; // encrypted wallet list
   const CACHE_KEY = "wallet_sync_cache"; // sanitized sync results
   const BASIS_KEY = "wallet_cost_basis"; // manual cost basis map
@@ -51,17 +66,19 @@ W.walletSync = (() => {
   const WORKER_PROXY =
     "https://weaver-proxy.ibis01-weaver.workers.dev/proxy?url=";
 
-  // Domains that MUST go through the Worker proxy to bypass browser CORS.
-  // publicnode RPCs are CORS-permissive but rate-limit per IP; routing
-  // them through the Worker gives us the Worker's egress IP and lets
-  // the Worker's edge cache absorb bursts. The official Solana RPC and
-  // LlamaRPC are CORS-restricted from the browser and would fail
-  // without the proxy.
+  // Domains that MUST go through the Worker proxy.
+  //
+  // BSC: bsc-rpc.publicnode.com is CORS-permissive from a browser but
+  //      rate-limits per IP; the Worker's egress and edge cache absorb
+  //      the burst.
+  //
+  // SOL: mainnet.helius-rpc.com is a keyed endpoint. The browser sends
+  //      a placeholder api-key; the Worker swaps it for the real
+  //      HELIUS_KEY before forwarding. This keeps the key out of the
+  //      bundle and off the wire between browser and Worker.
   const PROXY_REQUIRED_DOMAINS = [
     "bsc-rpc.publicnode.com",
-    "api.mainnet-beta.solana.com",
-    "solana.llamarpc.com",
-    "solana-rpc.publicnode.com",
+    "mainnet.helius-rpc.com",
   ];
 
   // ── Fetch helper ──────────────────────────────────────
@@ -83,6 +100,9 @@ W.walletSync = (() => {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
 
+    // Solana JSON-RPC can return HTTP 200 with an error object in the
+    // body: {"jsonrpc":"2.0","id":1,"error":{"code":...,"message":...}}.
+    // Treat that as a failure so the failover chain advances.
     if (data.error) {
       throw new Error(
         `RPC Error: ${data.error.message || JSON.stringify(data.error)}`,
@@ -98,21 +118,18 @@ W.walletSync = (() => {
     return data;
   }
 
-  // ── Solana JSON-RPC with multi-endpoint failover ──────
+  // ── Solana JSON-RPC via Helius (keyed) ────────────────
   //
-  // No single public Solana RPC is reliable from shared egress:
-  //   - api.mainnet-beta.solana.com — CORS-restricted (solved by the
-  //     Worker proxy) but occasionally rate-limits the shared pool.
-  //   - solana.llamarpc.com — usually fast, occasionally flaky.
-  //   - solana-rpc.publicnode.com — frequently returns HTTP 429.
+  // Every keyless Solana RPC is now blocked from Cloudflare Worker
+  // egress (see cf-worker/index.js for the full list). The only
+  // durable path is a keyed provider. The Worker injects HELIUS_KEY
+  // server-side, so this URL carries a placeholder value that never
+  // reaches Helius.
   //
-  // We try them in order and return the first success. The official
-  // endpoint is first because it handles cheap read methods best.
-  const SOLANA_RPCS = [
-    "https://api.mainnet-beta.solana.com",
-    "https://solana.llamarpc.com",
-    "https://solana-rpc.publicnode.com",
-  ];
+  // If HELIUS_KEY is not set on the Worker, the request fails with
+  // HTTP 503 and the wallet row renders with "unreachable" — an
+  // honest signal that Solana needs configuration.
+  const SOLANA_RPCS = ["https://mainnet.helius-rpc.com/?api-key=placeholder"];
 
   async function solanaRpcCall(rpcBody) {
     let lastErr = null;
@@ -575,13 +592,21 @@ W.walletSync = (() => {
           `[WalletSync] Sync failed for ${wallet.chain}:${W.fmt.maskAddress(wallet.address)}`,
           e.message,
         );
-        results.push({ ...wallet, error: e.message });
+        // Partial-failure policy: keep the wallet in the result set with
+        // a null balance and an error string, so the UI can render "—"
+        // instead of the whole row collapsing.
+        results.push({
+          ...wallet,
+          nativeBalance: null,
+          tokenBalances: [],
+          error: e.message,
+        });
       }
     }
 
     const ids = new Set();
     for (const w of results) {
-      if (w.error) continue;
+      if (w.error || !Number.isFinite(w.nativeBalance)) continue;
       const chain = CHAINS[w.chain];
       if (chain?.coingeckoId) ids.add(chain.coingeckoId);
       for (const t of w.tokenBalances || [])
@@ -594,6 +619,9 @@ W.walletSync = (() => {
     let unpriced = 0;
 
     for (const w of results) {
+      // A wallet whose balance query failed keeps error set and its
+      // numeric fields null. It is deliberately excluded from
+      // totalValue, but remains visible in the table.
       if (w.error) {
         w.nativeValue = null;
         w.price = null;
@@ -848,6 +876,8 @@ W.walletSync = (() => {
       const notes = [];
       if (result.unpriced) notes.push(`${result.unpriced} wallet(s) unpriced`);
       if (result.stale) notes.push("some prices from cache");
+      const errored = result.wallets.filter((w) => w.error).length;
+      if (errored) notes.push(`${errored} wallet(s) unreachable`);
       status.innerHTML = `<p class="up">✅ Synced at ${new Date().toLocaleTimeString()}${notes.length ? " · " + W.fmt.escapeHTML(notes.join(" · ")) : ""}</p>`;
     } catch (e) {
       if (!view.isConnected) return;
@@ -858,13 +888,25 @@ W.walletSync = (() => {
   }
 
   function valueCell(w) {
-    if (w.error) return '<span class="down">error</span>';
+    if (w.error) {
+      // Render a compact diagnostic instead of just "error" so the
+      // user can distinguish a network problem from a bad address.
+      return `<span class="down" title="${W.fmt.escapeHTML(w.error)}">unreachable</span>`;
+    }
     if (!Number.isFinite(w.totalValue))
       return '<span class="text-muted" title="Price unavailable">—</span>';
     return (
       W.fmt.money(w.totalValue, { compact: true }) +
       (w.priceStale ? ' <span class="text-muted small-text">·stale</span>' : "")
     );
+  }
+
+  function balanceCell(w) {
+    if (w.error) return '<span class="down">—</span>';
+    if (!Number.isFinite(w.nativeBalance)) return "—";
+    const sym = CHAINS[w.chain]?.symbol || "";
+    const tokens = (w.tokenBalances || []).length;
+    return `${w.nativeBalance.toFixed(4)} ${sym}${tokens ? ` <span class="text-muted small-text">+${tokens} tokens</span>` : ""}`;
   }
 
   function displayWallets(view, wallets) {
@@ -887,7 +929,7 @@ W.walletSync = (() => {
                 <td>${CHAINS[w.chain]?.icon || "⛓️"} ${W.fmt.escapeHTML(w.chain.toUpperCase())}</td>
                 <td>${W.fmt.escapeHTML(w.label || "—")}</td>
                 <td><code>${W.fmt.escapeHTML(w.addressMasked || "—")}</code></td>
-                <td>${w.error ? '<span class="down">error</span>' : Number.isFinite(w.nativeBalance) ? `${w.nativeBalance.toFixed(4)} ${CHAINS[w.chain]?.symbol || ""}${(w.tokenBalances || []).length ? ` <span class="text-muted small-text">+${w.tokenBalances.length} tokens</span>` : ""}` : "—"}</td>
+                <td>${balanceCell(w)}</td>
                 <td>${valueCell(w)}</td>
                 <td><button class="icon-btn" data-remove="${W.fmt.escapeHTML(w.id)}">✕</button></td>
               </tr>
@@ -980,5 +1022,5 @@ W.walletSync = (() => {
 })();
 
 console.log(
-  "[WalletSync] Module loaded (walletsync-v3.2: Solana multi-RPC failover, publicnode BSC, secure cache, honest valuation).",
+  "[WalletSync] Module loaded (walletsync-v3.4: Helius keyed RPC via Worker, graceful partial-failure rendering, publicnode BSC).",
 );
