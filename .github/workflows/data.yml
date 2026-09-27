@@ -1,8 +1,9 @@
-name: data
+name: Market Data Snapshot
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    # Run every hour to keep snapshots fresh and respect free-tier rate limits
+    - cron: '0 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -26,6 +27,8 @@ jobs:
           set -euo pipefail
           tmp_dir="$(mktemp -d)"
           trap 'rm -rf "$tmp_dir"' EXIT
+          
+          # Robust fetch function with retries and strict TLS
           fetch_json() {
             local url="$1"
             local output="$2"
@@ -33,26 +36,69 @@ jobs:
               --proto '=https' --tlsv1.2 \
               --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 60 \
               -A 'WeaverDataBot/1.0' "$url" -o "$output"
-            jq -e 'type == "array" or type == "object"' "$output" >/dev/null
           }
-          fetch_json "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&price_change_percentage=24h,7d,30d&sparkline=true" "$tmp_dir/top.json"
-          fetch_json "https://api.coingecko.com/api/v3/global" "$tmp_dir/global.json"
-          fetch_json "https://min-api.cryptocompare.com/data/v2/news/?lang=EN" "$tmp_dir/news.json"
+
+          echo "Fetching top 100 assets from CoinPaprika..."
+          fetch_json "https://api.coinpaprika.com/v1/tickers?limit=100&quotes=usd" "$tmp_dir/raw_top.json"
+          
+          # Transform CoinPaprika schema to match Weaver's expected live-app schema
+          jq '[.[] | {
+            id: .id,
+            symbol: .symbol,
+            name: .name,
+            current_price: .quotes.USD.price,
+            market_cap: .quotes.USD.market_cap,
+            total_volume: .quotes.USD.volume_24h,
+            price_change_percentage_24h_in_currency: .quotes.USD.percent_change_24h,
+            price_change_percentage_7d_in_currency: .quotes.USD.percent_change_7d,
+            price_change_percentage_30d_in_currency: .quotes.USD.percent_change_30d,
+            sparkline_in_7d: null,
+            market_cap_rank: .rank
+          }]' "$tmp_dir/raw_top.json" > "$tmp_dir/top.json"
+
+          echo "Fetching global market stats from CoinPaprika..."
+          fetch_json "https://api.coinpaprika.com/v1/global" "$tmp_dir/raw_global.json"
+          
+          # Transform global stats to match dashboard.js expectations (e.g., market_cap_percentage.btc)
+          jq '{
+            active_cryptocurrencies: .coins_count,
+            markets: .markets_count,
+            total_market_cap: .market_cap_usd,
+            total_volume: .volume_24h_usd,
+            market_cap_percentage: {
+              btc: .bitcoin_dominance_percentage
+            },
+            updated_at: .last_updated
+          }' "$tmp_dir/raw_global.json" > "$tmp_dir/global.json"
+
+          echo "Fetching Fear & Greed Index..."
           fetch_json "https://api.alternative.me/fng/?limit=1" "$tmp_dir/fng.json"
+
+          # Validation checks (Constitution §3.4: Fail gracefully but catch bad data early in CI)
+          echo "Validating top.json..."
           jq -e 'type == "array" and length > 0 and all(.[]; (.id | type == "string") and (.current_price | type == "number"))' "$tmp_dir/top.json" >/dev/null
-          jq -e 'has("data") and (.data | type == "object")' "$tmp_dir/global.json" >/dev/null
-          jq -e 'has("Data") and (.Data | type == "array")' "$tmp_dir/news.json" >/dev/null
+          
+          echo "Validating global.json..."
+          jq -e 'has("market_cap_percentage") and (.market_cap_percentage | has("btc"))' "$tmp_dir/global.json" >/dev/null
+          
+          echo "Validating fng.json..."
           jq -e 'has("data") and (.data | type == "array") and (.data | length > 0)' "$tmp_dir/fng.json" >/dev/null
+
+          # Commit to data directory
           mkdir -p data
           mv "$tmp_dir/top.json" data/top.json
           mv "$tmp_dir/global.json" data/global.json
-          mv "$tmp_dir/news.json" data/news.json
           mv "$tmp_dir/fng.json" data/fng.json
 
       - name: Commit validated snapshots
         run: |
           git config user.name "weaver-bot"
           git config user.email "bot@users.noreply.github.com"
-          git add data
-          git diff --cached --quiet || git commit -m "data: refresh market snapshot"
+          git add data/
+          git diff --cached --quiet || git commit -m "chore(data): refresh market snapshots via CoinPaprika
+
+          - Aligned CI snapshot pipeline with live app provider architecture
+          - Removed stale CoinGecko/CryptoCompare dependencies
+          - Ensured schema compatibility (current_price, market_cap_percentage.btc)
+          - Resolves P1 integration consistency issue"
           git push
