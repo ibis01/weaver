@@ -1,5 +1,5 @@
 // ===============================================================
-//                Weaver Dashboard (Command Center v3.1)
+//                Weaver Dashboard (Command Center v3.2)
 // ===============================================================
 // CSP Compliant: ZERO inline style="..." attributes.
 // Constitution Compliant:
@@ -9,6 +9,10 @@
 //            "100 - i*6" (a positional index) as a measured score.
 //          - BTC Dominance sparkline, which drew the same hardcoded
 //            SVG path on every load regardless of the data.
+//        v3.2 removes the blank grey avatar placeholders (CoinLore
+//        returns no image field for these pairs) in favour of letter
+//        monograms on deterministic colour slots, and adds a column
+//        header row above the Top Tokens list.
 //   §3.4 Graceful Degradation — failed price fetches fall back to a
 //        labeled last-known-good cache ("·stale"), never to $0.00.
 //   §3.6 Cache before repeated API calls.
@@ -20,7 +24,7 @@
 window.W = window.W || {};
 
 W.dashboard = (() => {
-  const MODULE_VERSION = "dashboard-v3.1";
+  const MODULE_VERSION = "dashboard-v3.2";
   const MARKET_ROWS_DEFAULT = 10;
   let marketRowsExpanded = false;
 
@@ -163,6 +167,25 @@ W.dashboard = (() => {
           .join(",")}"></canvas>`
       : '<span class="text-muted small-text">—</span>';
 
+  // ── Letter avatars for the Top Tokens table ─────────────────
+  //
+  // CoinLore does not return an image field, so every token in the
+  // previous version rendered as a blank dark dot. Instead we draw
+  // a three-letter monogram on a background colour derived
+  // deterministically from the symbol. Same symbol always maps to
+  // the same slot, so the colour functions as a visual identifier
+  // without needing image assets, external requests, or inline
+  // style attributes. The palette lives in style.css section 25
+  // (.token-avatar-slot-0 through .token-avatar-slot-9) and is
+  // selected here by class name only.
+  function avatarSlot(sym) {
+    let hash = 0;
+    for (let i = 0; i < sym.length; i++) {
+      hash = (hash * 31 + sym.charCodeAt(i)) | 0;
+    }
+    return Math.abs(hash) % 10;
+  }
+
   // ── Top-tokens row ──────────────────────────────────────────
   //
   // Five columns: rank, identity, price, 24h change, market cap.
@@ -202,11 +225,16 @@ W.dashboard = (() => {
             ? (mcap / 1e9).toFixed(2) + "B"
             : (mcap / 1e6).toFixed(2) + "M");
 
+    const slot = avatarSlot(symbol);
+    const initials = symbol.slice(0, 3);
+
     return `
       <button type="button" class="token-row" data-coin="${esc(id)}">
         <span class="token-rank">${esc(i + 1)}</span>
         <span class="token-ident">
-          <span class="token-dot" aria-hidden="true"></span>
+          <span class="token-avatar token-avatar-slot-${slot}" aria-hidden="true">
+            <span class="token-avatar-text">${esc(initials)}</span>
+          </span>
           <span class="token-ident-text">
             <span class="token-symbol">${esc(symbol)}</span>
             <span class="token-name">${esc(name)}</span>
@@ -1123,6 +1151,13 @@ W.dashboard = (() => {
             </div>
           </div>
           <div id="d-tape"></div>
+          <div class="token-header" role="row">
+            <span class="token-rank">#</span>
+            <span class="token-ident">Asset</span>
+            <span class="token-price">Price</span>
+            <span class="token-change">24h</span>
+            <span class="token-mcap">Market Cap</span>
+          </div>
           <div id="d-tokens"></div>
           <div id="d-market-more"></div>
         </div>
@@ -1545,5 +1580,5 @@ W.dashboard = (() => {
 })();
 
 console.log(
-  "[Dashboard] Module loaded (Command Center v3.1: no fabricated confidence or dominance sparkline).",
+  "[Dashboard] Module loaded (Command Center v3.2: letter avatars, column header, tighter rows).",
 );

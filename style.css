@@ -2961,3 +2961,219 @@ code { overflow-wrap: anywhere; }
 .insight-title { font-size: 14px; }
 .insight-text { font-size: 12.5px; }
 .insight-link { font-size: 12px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   25. TOP TOKENS — PROPER BUTTON RESET + AVATARS + ALIGNMENT
+   ═══════════════════════════════════════════════════════════════
+   Section 24 set -webkit-appearance: none on .token-row, which
+   removes the native button chrome but NOT the default background.
+   A <button> still has `background: ButtonFace` (a light grey)
+   from the user agent stylesheet. That was the grey rectangle
+   behind every row. This section sets background explicitly.
+
+   Also adds:
+     - A column header row above the token list.
+     - Letter-based avatars (CoinLore returns no images).
+     - Tighter row height while keeping 44px touch targets.
+     - Consistent right-alignment for numeric columns. */
+
+/* ── Reset: background is the missing piece ─────────────── */
+.token-row {
+  background: transparent;
+  border: none;
+  color: inherit;
+  text-align: left;
+  font-family: inherit;
+  width: 100%;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.token-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+.token-row:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+
+/* ── Column header row ──────────────────────────────────── */
+.token-header {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 2fr) minmax(90px, 1fr) minmax(80px, 1fr) minmax(90px, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 8px 12px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.token-header .token-rank   { text-align: center; }
+.token-header .token-ident  { text-align: left; }
+.token-header .token-price,
+.token-header .token-change,
+.token-header .token-mcap   { text-align: right; }
+
+/* ── Tighter row, correct alignment ─────────────────────── */
+.token-row {
+  grid-template-columns: 32px minmax(0, 2fr) minmax(90px, 1fr) minmax(80px, 1fr) minmax(90px, 1fr);
+  gap: 16px;
+  padding: 8px 12px;
+  min-height: 44px; /* touch target floor */
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  transition: background 0.12s;
+}
+.token-row:last-child { border-bottom: none; }
+
+.token-rank {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Avatar: letter monogram on a deterministic colour ──── */
+.token-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--av-bg, #1e293b);
+  color: var(--av-fg, #94a3b8);
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.token-avatar-text {
+  transform: translateY(0.5px);
+}
+
+/* Palette slots. Hash of the symbol picks a slot; the class
+   carries the colour. No inline style attribute is used, so the
+   strict style-src policy is unaffected. */
+.token-avatar-slot-0 { --av-bg: #473612; --av-fg: #f0b90b; }
+.token-avatar-slot-1 { --av-bg: #1e2849; --av-fg: #627eea; }
+.token-avatar-slot-2 { --av-bg: #0b3123; --av-fg: #26a17b; }
+.token-avatar-slot-3 { --av-bg: #4a2a08; --av-fg: #f7931a; }
+.token-avatar-slot-4 { --av-bg: #2e1550; --av-fg: #9945ff; }
+.token-avatar-slot-5 { --av-bg: #48010c; --av-fg: #eb0029; }
+.token-avatar-slot-6 { --av-bg: #0d2542; --av-fg: #2775ca; }
+.token-avatar-slot-7 { --av-bg: #1e1f4d; --av-fg: #6366f1; }
+.token-avatar-slot-8 { --av-bg: #2d1b3d; --av-fg: #c084fc; }
+.token-avatar-slot-9 { --av-bg: #134e4a; --av-fg: #5eead4; }
+
+/* ── Text alignment and weight ──────────────────────────── */
+.token-ident {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.token-ident-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+.token-symbol {
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.2;
+  color: var(--text);
+}
+.token-name {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.token-price,
+.token-change,
+.token-mcap {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  line-height: 1.2;
+  text-align: right;
+}
+.token-price {
+  color: var(--text);
+  font-weight: 600;
+}
+.token-change {
+  font-weight: 600;
+}
+.token-change.up   { color: var(--up); }
+.token-change.down { color: var(--down); }
+.token-mcap {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* ── "Show all" button: full-width row at the bottom ────── */
+#d-market-more {
+  margin-top: 4px;
+}
+#d-market-more > .btn {
+  width: 100%;
+  justify-content: center;
+  padding: 10px 16px;
+  background: transparent;
+  border-top: 1px solid var(--border);
+  border-right: none;
+  border-bottom: none;
+  border-left: none;
+  border-radius: 0;
+  color: var(--brand);
+  font-weight: 600;
+  font-size: 12px;
+}
+#d-market-more > .btn:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.06);
+  border-color: var(--border) rgba(0,0,0,0) rgba(0,0,0,0);
+}
+
+/* ── Tab pills: smaller, lower visual weight ────────────── */
+#d-mkt-tabs {
+  padding: 1px;
+}
+#d-mkt-tabs .dash-range-btn {
+  padding: 3px 9px;
+  font-size: 10.5px;
+}
+
+/* ── Responsive: header row follows the same grid shrink ── */
+@media (max-width: 860px) {
+  .token-header,
+  .token-row {
+    grid-template-columns: 28px minmax(0, 2fr) minmax(80px, 1fr) minmax(70px, 1fr);
+    gap: 12px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .token-header .token-mcap,
+  .token-row   .token-mcap { display: none; }
+}
+@media (max-width: 500px) {
+  .token-header,
+  .token-row {
+    grid-template-columns: 22px minmax(0, 1fr) minmax(70px, auto) minmax(60px, auto);
+    gap: 10px;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  .token-avatar { width: 28px; height: 28px; font-size: 9px; }
+}
