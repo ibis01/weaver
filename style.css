@@ -3155,6 +3155,28 @@ code { overflow-wrap: anywhere; }
   font-size: 10.5px;
 }
 
+/* Portfolio Holdings — one small affordance for the "Set cost basis"
+   hint that replaced the passive "—". Underscores on hover make it
+   read as actionable without being shouty. */
+.cost-basis-hint {
+  cursor: help;
+  border-bottom: 1px dashed var(--muted);
+  padding-bottom: 1px;
+}
+.cost-basis-hint:hover {
+  color: var(--brand);
+  border-bottom-color: var(--brand);
+}
+
+/* Avatars inside the holdings table inherit the same sizing as Top
+   Tokens, but override the legacy .coin-img rule just in case
+   specificity on that rule ever changes. */
+.coin-cell .token-avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 10px;
+}
+
 /* ── Responsive: header row follows the same grid shrink ── */
 @media (max-width: 860px) {
   .token-header,

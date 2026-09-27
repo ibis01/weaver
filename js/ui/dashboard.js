@@ -1,5 +1,5 @@
 // ===============================================================
-//                Weaver Dashboard (Command Center v3.2)
+//                Weaver Dashboard (Command Center v3.3)
 // ===============================================================
 // CSP Compliant: ZERO inline style="..." attributes.
 // Constitution Compliant:
@@ -9,10 +9,13 @@
 //            "100 - i*6" (a positional index) as a measured score.
 //          - BTC Dominance sparkline, which drew the same hardcoded
 //            SVG path on every load regardless of the data.
-//        v3.2 removes the blank grey avatar placeholders (CoinLore
+//        v3.2 removed the blank grey avatar placeholders (CoinLore
 //        returns no image field for these pairs) in favour of letter
-//        monograms on deterministic colour slots, and adds a column
+//        monograms on deterministic colour slots, and added a column
 //        header row above the Top Tokens list.
+//        v3.3 applied the same avatar treatment to Portfolio Holdings
+//        and turned the passive "—" cost-basis indicator into an
+//        actionable "Set cost basis" label.
 //   §3.4 Graceful Degradation — failed price fetches fall back to a
 //        labeled last-known-good cache ("·stale"), never to $0.00.
 //   §3.6 Cache before repeated API calls.
@@ -24,7 +27,7 @@
 window.W = window.W || {};
 
 W.dashboard = (() => {
-  const MODULE_VERSION = "dashboard-v3.2";
+  const MODULE_VERSION = "dashboard-v3.3";
   const MARKET_ROWS_DEFAULT = 10;
   let marketRowsExpanded = false;
 
@@ -167,11 +170,12 @@ W.dashboard = (() => {
           .join(",")}"></canvas>`
       : '<span class="text-muted small-text">—</span>';
 
-  // ── Letter avatars for the Top Tokens table ─────────────────
+  // ── Letter avatars ──────────────────────────────────────────
   //
-  // CoinLore does not return an image field, so every token in the
-  // previous version rendered as a blank dark dot. Instead we draw
-  // a three-letter monogram on a background colour derived
+  // CoinLore does not return an image field, so the previous version
+  // rendered every token and holding as a blank dark dot (or, for
+  // holdings, a broken <img> placeholder). Instead we draw a
+  // three-letter monogram on a background colour derived
   // deterministically from the symbol. Same symbol always maps to
   // the same slot, so the colour functions as a visual identifier
   // without needing image assets, external requests, or inline
@@ -184,6 +188,18 @@ W.dashboard = (() => {
       hash = (hash * 31 + sym.charCodeAt(i)) | 0;
     }
     return Math.abs(hash) % 10;
+  }
+
+  // ── Shared avatar markup ────────────────────────────────────
+  // Both the Top Tokens table and the Portfolio Holdings table use
+  // this. Accepts an optional extraClass so the holdings variant can
+  // inherit the .coin-img sizing reset when needed.
+  function avatarMarkup(symbol, extraClass) {
+    const sym = String(symbol || "?").toUpperCase();
+    const slot = avatarSlot(sym);
+    const initials = sym.slice(0, 3);
+    const cls = extraClass ? ` ${extraClass}` : "";
+    return `<span class="token-avatar token-avatar-slot-${slot}${cls}" aria-hidden="true"><span class="token-avatar-text">${esc(initials)}</span></span>`;
   }
 
   // ── Top-tokens row ──────────────────────────────────────────
@@ -225,16 +241,11 @@ W.dashboard = (() => {
             ? (mcap / 1e9).toFixed(2) + "B"
             : (mcap / 1e6).toFixed(2) + "M");
 
-    const slot = avatarSlot(symbol);
-    const initials = symbol.slice(0, 3);
-
     return `
       <button type="button" class="token-row" data-coin="${esc(id)}">
         <span class="token-rank">${esc(i + 1)}</span>
         <span class="token-ident">
-          <span class="token-avatar token-avatar-slot-${slot}" aria-hidden="true">
-            <span class="token-avatar-text">${esc(initials)}</span>
-          </span>
+          ${avatarMarkup(symbol)}
           <span class="token-ident-text">
             <span class="token-symbol">${esc(symbol)}</span>
             <span class="token-name">${esc(name)}</span>
@@ -367,24 +378,48 @@ W.dashboard = (() => {
   }
 
   // ── Holdings table ──────────────────────────────────────────
+  //
+  // Uses the same letter avatars as Top Tokens. W.api.markets()
+  // returns image: "" because CoinLore does not publish image URLs,
+  // and wallet-synced holdings never carry one. The previous
+  // version rendered <img src=""> which every browser paints as a
+  // broken-image placeholder. v3.3 replaces that with the shared
+  // avatarMarkup helper.
+  //
+  // Two smaller changes: the 24h cell now carries up/down colour,
+  // and the P/L cell shows "Set cost basis" rather than a passive
+  // "—" when the cost basis is genuinely unknown. Both were
+  // previously correct but visually misleading.
   const holdingsTable = (rows) => `
     <div class="table-wrap"><table><thead><tr><th>Asset</th><th>Price</th><th>24h</th><th>Qty</th><th>Value</th><th>P/L</th><th></th></tr></thead><tbody>
       ${rows
-        .map(
-          (r, i) => `<tr>
-        <td class="coin-cell"><img src="${esc(r.image || r.img || "")}" alt="${esc(r.name)}" class="coin-img"><div><b>${esc(r.name)}</b><br><span class="text-muted small-text">${esc(String(r.symbol).toUpperCase())}</span></div></td>
+        .map((r, i) => {
+          const sym = String(r.symbol || "?").toUpperCase();
+          const p24Cls = r.p24 === null ? "" : r.p24 >= 0 ? "up" : "down";
+          const pnlCell =
+            r.pnl !== null
+              ? signedMoney(r.pnl) +
+                '<div class="small-text">' +
+                W.fmt.pct(r.pnlPct) +
+                "</div>"
+              : `<span class="text-muted small-text cost-basis-hint" title="Click the pencil to enter the total amount paid">Set cost basis</span>`;
+          return `<tr>
+        <td class="coin-cell">
+          ${avatarMarkup(sym, "coin-img")}
+          <div><b>${esc(r.name)}</b><br><span class="text-muted small-text">${esc(sym)}</span></div>
+        </td>
         <td class="num">${r.price !== null ? W.fmt.price(r.price) + (r.priceStale ? ' <span class="text-muted small-text">·stale</span>' : "") : '<span class="text-muted">—</span>'}</td>
-        <td class="num">${r.p24 !== null ? W.fmt.pct(r.p24) : '<span class="text-muted">—</span>'}</td>
+        <td class="num ${p24Cls}">${r.p24 !== null ? W.fmt.pct(r.p24) : '<span class="text-muted">—</span>'}</td>
         <td class="num">${r.qty}</td>
         <td class="num">${r.value !== null ? `<b>${W.fmt.money(r.value)}</b>` : '<span class="text-muted">—</span>'}</td>
-        <td class="num">${r.pnl !== null ? signedMoney(r.pnl) + '<div class="small-text">' + W.fmt.pct(r.pnlPct) + "</div>" : '<span class="text-muted" title="Cost basis unknown">—</span>'}</td>
+        <td class="num">${pnlCell}</td>
         <td class="row-actions">${
           r.wallet
             ? `<span class="tag rank">wallet</span> <button class="icon-btn" data-basis="${i}" title="Set cost basis">✎</button>`
             : `<button class="icon-btn" data-edit="${esc(r.id)}" title="Edit">✎</button><button class="icon-btn" data-del="${esc(r.id)}" title="Remove">✕</button>`
         }</td>
-      </tr>`,
-        )
+      </tr>`;
+        })
         .join("")}
     </tbody></table></div>`;
 
@@ -1580,5 +1615,5 @@ W.dashboard = (() => {
 })();
 
 console.log(
-  "[Dashboard] Module loaded (Command Center v3.2: letter avatars, column header, tighter rows).",
+  "[Dashboard] Module loaded (Command Center v3.3: letter avatars in holdings, 24h colour, actionable cost-basis hint).",
 );
