@@ -1,28 +1,43 @@
-name: test-and-build
+name: Test and Build
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-    branches: [main]
-  workflow_dispatch:
+    branches: [ main ]
 
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: cf-worker/package-lock.json
+          node-version: '20'
+          cache: 'npm'
 
-      - name: Install cf-worker dependencies
-        working-directory: cf-worker
+      - name: Install root dependencies
         run: npm ci
 
-      - name: Run Worker tests
-        working-directory: cf-worker
+      - name: Build application bundles
+        run: npm run build && npm run minify
+
+      - name: Run root unit tests
+        run: npm run test:unit
+
+      - name: Run root integration tests
+        run: npm run test:integration
+
+      - name: Run root security tests
+        run: npm run test:security
+
+      - name: Install Worker dependencies
+        working-directory: ./cf-worker
+        run: npm ci
+
+      - name: Run Cloudflare Worker tests
+        working-directory: ./cf-worker
         run: npx vitest run
