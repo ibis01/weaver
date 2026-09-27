@@ -3,7 +3,7 @@
 <head>
   <!--
     ================================================================
-    Weaver — index.html (production, hardened)
+    Weaver — index.html (production, cross-device, CSP-strict)
     ================================================================
     Security headers set in <meta> where the browser honours them.
     Headers that CANNOT be set via <meta> (X-Frame-Options,
@@ -33,9 +33,12 @@
   <meta charset="UTF-8">
 
   <!-- Viewport. No maximum-scale / user-scalable restrictions —
-       accessibility best practice. viewport-fit=cover for notched
-       devices. -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+       accessibility best practice. viewport-fit=cover is required
+       for env(safe-area-inset-*) to return non-zero values on iOS. -->
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+  >
 
   <!-- Native UI theme awareness. Prevents white flash on dark-mode
        devices before CSS loads. -->
@@ -43,13 +46,29 @@
   <meta name="theme-color" content="#07080d" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#f5f7fa" media="(prefers-color-scheme: light)">
 
+  <!-- PWA / home-screen install hints. iOS needs the apple-* names;
+       Android uses mobile-web-app-capable. Both are safe to include
+       even when no manifest is present. -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Weaver">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="application-name" content="Weaver">
+
+  <!-- Disable iOS auto-detection of phone numbers / addresses. A
+       crypto app has lots of digit strings that Safari would
+       otherwise turn into tappable phone links. -->
+  <meta name="format-detection" content="telephone=no,address=no,email=no,date=no,url=no">
+
   <!-- Referrer policy. cross-origin requests to the Worker and the
-       CDN carry only the origin, not the full URL. Protects against
-       accidental path/hash leakage in Referer headers. -->
+       CDN carry only the origin, not the full URL. -->
   <meta name="referrer" content="strict-origin-when-cross-origin">
 
   <title>Weaver — Crypto Portfolio &amp; Intelligence</title>
-  <meta name="description" content="Evidence-driven crypto intelligence and safety platform. Non-custodial portfolio tracking, on-chain analysis, and thesis monitoring.">
+  <meta
+    name="description"
+    content="Evidence-driven crypto intelligence and safety platform. Non-custodial portfolio tracking, on-chain analysis, and thesis monitoring."
+  >
 
   <!-- Prevent search-engine indexing of a personal app. Remove if
        you want the site to be public. -->
@@ -58,21 +77,29 @@
   <!--
     Content Security Policy.
 
-    Changes vs the previous version:
-      + default-src 'self'          (was 'self'; kept — safer than 'none')
-      + frame-ancestors 'none'      clickjacking defence
-      + form-action 'none'          blocks form-submission hijacking
-      + frame-src 'none'            we have no <iframe>
-      + manifest-src 'self'         PWA manifest only from same origin
-      + worker-src 'self' blob:     service workers + blob workers
-      + upgrade-insecure-requests   auto-upgrade any http:// subresource
-      - removed: api.mainnet-beta.solana.com, solana.llamarpc.com,
-                 solana-rpc.publicnode.com  (all dead, replaced by Helius
-                 which is proxied via the Worker)
-      + kept:    all live fallback hosts so a Worker outage degrades to
-                 direct fetch instead of total failure
-    Note: report-to / report-uri cannot be set via <meta>; configure a
-    reporting endpoint at the HTTP layer if you want violation reports.
+    Every directive has a purpose:
+      script-src 'self' https://cdn.jsdelivr.net
+        No inline scripts. Chart.js is the only third-party script.
+      style-src 'self' https://fonts.googleapis.com
+        No inline styles. All styling lives in style.css or via
+        CSSOM property assignment (el.style.x = "...", which is NOT
+        blocked by CSP).
+      connect-src 'self' + allowlist
+        Every API the app actually calls. Dead hosts removed.
+      frame-ancestors 'none'
+        Clickjacking defence.
+      form-action 'none'
+        All forms are JS-handled; nothing should submit off-origin.
+      frame-src 'none'
+        We embed no iframes.
+      manifest-src 'self'
+        PWA manifest only from same origin.
+      worker-src 'self' blob:
+        Service workers and blob workers (Chart.js offscreen path).
+      upgrade-insecure-requests
+        Any accidental http:// subresource is rewritten to https://.
+    Note: report-to / report-uri cannot be set via <meta>; configure
+    a reporting endpoint at the HTTP layer if you want violations.
   -->
   <meta
     http-equiv="Content-Security-Policy"
@@ -123,18 +150,15 @@
   <link rel="dns-prefetch" href="https://api.coinbase.com">
   <link rel="dns-prefetch" href="https://api.coinpaprika.com">
 
-  <!-- Icons. PNG favicon plus SVG where supported, plus an
-       apple-touch-icon for iOS home-screen installs. -->
+  <!-- Icons. -->
   <link rel="icon" type="image/png" href="assets/logo.png">
   <link rel="apple-touch-icon" href="assets/logo.png">
   <link rel="mask-icon" href="assets/logo.png" color="#7c5cff">
 
-  <!-- PWA manifest. If you do not ship a manifest yet, comment this
-       line out — the browser will log a 404 otherwise. -->
+  <!-- PWA manifest. Comment out if you do not ship manifest.json. -->
   <link rel="manifest" href="manifest.json">
 
-  <!-- Web fonts. display=swap prevents FOIT (invisible text) on slow
-       connections by showing the fallback face immediately. -->
+  <!-- Web fonts. display=swap prevents FOIT on slow connections. -->
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
     rel="stylesheet"
@@ -146,19 +170,20 @@
 <body>
   <!--
     Accessibility: skip link. First focusable element on the page.
-    Screen-reader and keyboard users can bypass the sidebar nav.
+    Positioning is defined in style.css (.skip-link), not inline —
+    inline styles are blocked by the CSP above.
   -->
-  <a href="#view" class="skip-link" style="position:absolute;left:-9999px;top:0;">Skip to main content</a>
+  <a href="#view" class="skip-link">Skip to main content</a>
 
   <!--
     <noscript>: the app is a client-rendered SPA; without JavaScript
     nothing works. Show an honest, visible message instead of a blank
-    page.
+    page. Styling lives in .noscript-fallback in style.css.
   -->
   <noscript>
-    <div style="max-width:640px;margin:4rem auto;padding:2rem;font-family:system-ui,sans-serif;text-align:center;">
-      <h1 style="margin:0 0 1rem;">Weaver requires JavaScript</h1>
-      <p style="margin:0;color:#666;">
+    <div class="noscript-fallback">
+      <h1>Weaver requires JavaScript</h1>
+      <p>
         This application runs entirely in your browser. Enable
         JavaScript for <code>ibis01.github.io</code> and reload the
         page. No data leaves your device unless you explicitly connect
@@ -168,9 +193,15 @@
   </noscript>
 
   <div class="app">
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar">
       <div class="brand">
-        <img src="assets/logo.png" alt="" width="32" height="32" decoding="async">
+        <img
+          src="assets/logo.png"
+          alt=""
+          width="32"
+          height="32"
+          decoding="async"
+        >
         <span>Weaver</span>
       </div>
       <nav id="nav" aria-label="Main navigation"></nav>
@@ -215,22 +246,13 @@
   <!--
     Chart.js from jsDelivr.
 
-    Recommended hardening (fill in integrity yourself):
-      1. Download the exact version:
-           curl -sL https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js -o /tmp/chart.js
-      2. Compute the SRI hash:
-           openssl dgst -sha384 -binary /tmp/chart.js | openssl base64 -A
-      3. Paste the result into the `integrity` attribute below.
+    SRI recommendation: fill in the integrity attribute before you
+    call this production. See the deploy notes at the bottom of this
+    file's commit message for the exact commands.
 
-    crossorigin="anonymous" is required for SRI to work with a
-    cross-origin script. Without it, the browser refuses the SRI check
-    and the script is loaded without integrity verification.
-
-    If you ship a version bump, UPDATE BOTH the version in the URL and
-    the SRI hash in the same commit. A mismatched hash silently blocks
-    Chart.js and breaks every chart in the app.
-
-    integrity="sha384-PLACEHOLDER_REPLACE_BEFORE_PRODUCTION"
+    If you bump the version in the URL, update the SRI hash in the
+    same commit. A mismatched hash silently blocks Chart.js and
+    breaks every chart in the app.
   -->
   <script
     src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
@@ -241,40 +263,23 @@
   <!--
     Application bundle.
 
-    The ?v= query string is a cache-buster. Bump it whenever you ship
-    a new bundle so returning users get the fresh copy instead of the
-    one cached in their service worker / HTTP cache.
+    The ?v= query string is a cache-buster. Bump it whenever you
+    ship a new bundle so returning users get the fresh copy instead
+    of the one in their HTTP cache or service worker.
 
     Current cache-buster: 20260935
-    Next bump should look like: 20260936, 20261001, etc.
   -->
   <script src="dist/bundle.min.js?v=20260935"></script>
 
   <!--
-    Failsafe: if bundle.min.js fails to load (404, CDN outage,
-    corrupted build), the page is blank. This block detects that
-    condition after a short delay and shows a message.
+    Failsafe. Loaded as a separate file, NOT bundled, so it can run
+    even when the bundle itself fails to parse or 404s. It polls for
+    window.W after 1.5 s and, if the app never initialised, replaces
+    the empty #view with an honest error card.
 
-    Runs after both scripts so window.W has a chance to be defined by
-    the bundle. If it is still undefined after 1.5 s, the bundle did
-    not load.
+    defer ensures it runs after the DOM is parsed but does not block
+    initial paint.
   -->
-  <script>
-    (function () {
-      setTimeout(function () {
-        if (typeof window.W === "undefined") {
-          var root = document.getElementById("view");
-          if (root && !root.children.length) {
-            root.innerHTML =
-              '<div class="card" style="max-width:640px;margin:3rem auto;">' +
-              '<h3>Weaver failed to load</h3>' +
-              '<p class="muted small">The application bundle could not be fetched. This usually means a network outage or a stale cache entry.</p>' +
-              '<p class="muted small"><button class="btn primary" onclick="location.reload(true)">Reload</button></p>' +
-              '</div>';
-          }
-        }
-      }, 1500);
-    })();
-  </script>
+  <script src="js/failsafe.js" defer></script>
 </body>
 </html>

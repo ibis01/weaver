@@ -1,22 +1,26 @@
 /* ═══════════════════════════════════════════════════════════════
-   WEAVER · "COMMAND CENTER" DESIGN SYSTEM v3.1
-   (Calm Fintech Base + Institutional Data-Viz + Production Hardening)
+   WEAVER · "COMMAND CENTER" DESIGN SYSTEM v3.2
+   (Calm Fintech Base + Institutional Data-Viz + Cross-Device)
    ═══════════════════════════════════════════════════════════════
    Changelog v3.1 (production hardening):
      - Added .skip-link, .noscript-fallback, .bundle-error utilities.
      - Defined --border-highlight, --shadow-sm, --text-muted,
        --primary — previously referenced but never declared.
-     - Added @media (prefers-contrast: more) for high-contrast users.
+     - Added @media (prefers-contrast: more).
      - Added @media (prefers-reduced-data: reduce).
-     - Added @media print for tax reports / exports.
-     - Added :focus-visible on buttons, links, inputs, tabs.
-     - Fixed line-clamp (added standard property alongside -webkit-).
-     - Removed body overflow-x: hidden (broke sticky sidebar in some
-       browsers; harmless there because no horizontal overflow exists).
-     - Selection colour now adapts to light mode.
+     - Added @media print.
+     - Fixed line-clamp (added standard property).
+     - Removed body overflow-x: hidden.
      - Scrollbar colours use colour variables.
-     - All fallbacks use var(--x, #hex) so the file works even if a
-       future refactor drops a variable.
+   Changelog v3.2 (cross-device):
+     - Safe-area insets for notched/rounded iOS devices.
+     - Mobile input zoom prevention (16 px rule).
+     - Very narrow screens (≤400 px) layout pass.
+     - Touch-target minimums (@media (pointer: coarse)).
+     - Landscape phone compression (@media max-height 500px).
+     - 4K / ultrawide layout pass (@media min-width 2000px).
+     - Global overflow guards on media and text.
+     - .thesis-* classes grouped with components.
    ═══════════════════════════════════════════════════════════════ */
 
 /* ═══════════════════════════════════════════════════════════════
@@ -61,8 +65,7 @@
    2. ACCESSIBILITY & FALLBACK UTILITIES
    ═══════════════════════════════════════════════════════════════ */
 
-/* Skip link — first focusable element; hidden until focused.
-   Enables keyboard users to bypass the sidebar nav. */
+/* Skip link — first focusable element; hidden until focused. */
 .skip-link {
   position: absolute;
   left: -9999px;
@@ -110,8 +113,7 @@
   font-size: 0.9em;
 }
 
-/* Bundle load failure panel. Injected by index.html failsafe script
-   when window.W is still undefined 1.5 s after load. */
+/* Bundle load failure panel. Injected by js/failsafe.js. */
 .bundle-error {
   max-width: 640px;
   margin: 3rem auto;
@@ -128,26 +130,23 @@
 *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
 :root {
-  /* Neutral & Surfaces (Command Center Depth) */
+  /* Neutral & Surfaces */
   --bg: #0b0d12;
   --card: #12151e;
   --card-hover: #181c27;
   --border: rgba(255, 255, 255, 0.06);
-  /* --border-highlight is a slightly brighter border used for hover
-     and focus states where the base border is too subtle. */
   --border-highlight: rgba(255, 255, 255, 0.14);
   --text: #eef1f9;
   --muted: #8b94a7;
 
-  /* Semantic Colors (Calm & Meaningful) */
+  /* Semantic colours */
   --brand: #6366f1;
   --brand-hover: #4f46e5;
   --up: #10b981;
   --down: #ef4444;
   --warn: #f59e0b;
 
-  /* Backward-compatible aliases. Some modules reference --primary and
-     --text-muted from an earlier iteration of the design system. */
+  /* Backward-compatible aliases */
   --primary: var(--brand);
   --text-muted: var(--muted);
 
@@ -157,8 +156,6 @@
             0 2px 4px -1px rgba(0, 0, 0, 0.2);
   --shadow-hover: 0 10px 15px -3px rgba(0, 0, 0, 0.5),
                   0 4px 6px -2px rgba(0, 0, 0, 0.3);
-  /* --shadow-sm is used by feed-item hover. Small lift + tight
-     shadow distinguishes the feed cards from full cards. */
   --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3),
                inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
   --font-d: "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
@@ -166,8 +163,6 @@
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Source Code Pro",
                Menlo, Consolas, monospace;
 
-  /* Colour scheme hint. Tells the browser this page is dark by
-     default, avoiding a white flash before CSS applies. */
   color-scheme: dark;
 }
 
@@ -186,9 +181,6 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  /* Note: overflow-x: hidden was removed. It broke position: sticky
-     on the sidebar in some browsers by creating a scroll container.
-     No element in this file overflows horizontally anyway. */
 }
 
 ::selection {
@@ -196,7 +188,6 @@ body {
   color: #fff;
 }
 
-/* Scrollbar — subtle, adapts to theme variables. */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
@@ -219,13 +210,11 @@ h2, h3,
 input[type="checkbox"],
 input[type="radio"] { accent-color: var(--brand); }
 
-/* Focus ring. Only on keyboard navigation, never on mouse click. */
 :focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
   border-radius: 4px;
 }
-/* Remove the default outline for pointer users. */
 :focus:not(:focus-visible) { outline: none; }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -233,7 +222,6 @@ input[type="radio"] { accent-color: var(--brand); }
    ═══════════════════════════════════════════════════════════════ */
 .app { display: flex; min-height: 100vh; }
 
-/* ── Sidebar ────────────────────────────────────────── */
 .sidebar {
   width: 240px;
   background: var(--card);
@@ -268,14 +256,12 @@ input[type="radio"] { accent-color: var(--brand); }
   letter-spacing: -0.3px;
 }
 
-/* ── Navigation ─────────────────────────────────────── */
 #nav {
   display: flex;
   flex-direction: column;
   gap: 4px;
   overflow-y: auto;
   flex: 1;
-  /* Thin scrollbar for the nav when it overflows. */
   scrollbar-width: thin;
 }
 .nav-group-label {
@@ -315,13 +301,12 @@ input[type="radio"] { accent-color: var(--brand); }
   line-height: 1.6;
 }
 
-/* ── Main / Topbar ──────────────────────────────────── */
 .main {
   flex: 1;
   padding: 24px 32px;
   max-width: 1440px;
   margin: 0 auto;
-  min-width: 0; /* Prevent flex overflow in nested grids */
+  min-width: 0;
 }
 .topbar {
   display: flex;
@@ -343,7 +328,6 @@ input[type="radio"] { accent-color: var(--brand); }
   align-items: center;
 }
 
-/* ── Cards ─────────────────────────────────────────── */
 .card {
   background: var(--card);
   border: 1px solid var(--border);
@@ -379,7 +363,6 @@ input[type="radio"] { accent-color: var(--brand); }
   gap: 16px;
 }
 
-/* ── Stat Cards & Financial Typography ─────────────── */
 .num,
 .stat-big,
 .coin-price,
@@ -405,7 +388,6 @@ table td {
   color: var(--muted);
 }
 
-/* ── Tables ─────────────────────────────────────────── */
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
 th {
@@ -434,7 +416,6 @@ tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
 table.mini td { padding: 7px 6px; font-size: 13px; }
 tr.clickable { cursor: pointer; }
 
-/* ── Helpers ────────────────────────────────────────── */
 .up     { color: var(--up); }
 .down   { color: var(--down); }
 .muted  { color: var(--muted); }
@@ -445,7 +426,6 @@ tr.clickable { cursor: pointer; }
 .link   { color: var(--brand); }
 .link:hover { text-decoration: underline; }
 
-/* ── Buttons / Inputs ───────────────────────────────── */
 .btn {
   background: var(--card-hover);
   border: 1px solid var(--border);
@@ -462,7 +442,6 @@ tr.clickable { cursor: pointer; }
   justify-content: center;
   gap: 6px;
   line-height: 1.4;
-  /* Prevent text selection when rapidly clicking a submit button. */
   user-select: none;
   -webkit-user-select: none;
 }
@@ -556,7 +535,6 @@ code {
   word-break: break-all;
 }
 
-/* ── Modal ──────────────────────────────────────────── */
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -610,7 +588,6 @@ code {
 }
 .modal-x:hover { color: var(--down); }
 
-/* ── Toasts ─────────────────────────────────────────── */
 .toasts {
   position: fixed;
   bottom: 24px;
@@ -620,7 +597,7 @@ code {
   gap: 10px;
   z-index: 200;
   max-width: min(360px, calc(100vw - 48px));
-  pointer-events: none; /* children re-enable as needed */
+  pointer-events: none;
 }
 .toast {
   background: var(--card);
@@ -637,7 +614,6 @@ code {
 .toast.warn { border-left-color: var(--warn); }
 .toast.down { border-left-color: var(--down); }
 
-/* ── Coin Picker ────────────────────────────────────── */
 .picker { position: relative; }
 .picker-results {
   position: absolute;
@@ -682,7 +658,6 @@ code {
   cursor: pointer;
 }
 
-/* ── Tags ───────────────────────────────────────────── */
 .tag {
   display: inline-flex;
   align-items: center;
@@ -725,7 +700,6 @@ code {
 .tag-lg { font-size: 12px; padding: 5px 10px; }
 .tag-xl { font-size: 14px; padding: 8px 16px; }
 
-/* Opportunity strength badges */
 .tag.buy,
 .tag.strong-opportunity { color: var(--up);   background: rgba(16, 185, 129, 0.12); }
 .tag.live,
@@ -735,7 +709,6 @@ code {
 .tag.sell,
 .tag.weak-opportunity { color: var(--down); background: rgba(239, 68, 68, 0.12); }
 
-/* ── Components ─────────────────────────────────────── */
 .chart-box { position: relative; height: 260px; }
 .chart-box.tall { height: 340px; }
 .chart-canvas { width: 100%; display: block; cursor: crosshair; }
@@ -807,7 +780,6 @@ code {
 }
 .alert-form button { height: 38px; }
 
-/* ── Heatmap ────────────────────────────────────────── */
 .heatmap {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
@@ -826,7 +798,6 @@ code {
 .heat-cell:hover { background: rgba(255, 255, 255, 0.03); }
 .heat-cell span { color: rgba(255, 255, 255, 0.85); }
 
-/* ── News ───────────────────────────────────────────── */
 #news-container {
   display: flex;
   flex-direction: column;
@@ -921,7 +892,6 @@ code {
   font-weight: 500;
 }
 
-/* ── AI Briefs ──────────────────────────────────────── */
 .ai-brief {
   border: 1px solid rgba(99, 102, 241, 0.2);
   background: rgba(99, 102, 241, 0.05);
@@ -960,7 +930,6 @@ code {
 .risk-medium { color: var(--warn); }
 .risk-low    { color: var(--up); }
 
-/* ── Market Tools ───────────────────────────────────── */
 .trend-chip {
   display: inline-flex;
   align-items: center;
@@ -989,7 +958,6 @@ code {
   background: linear-gradient(90deg, var(--down), var(--warn), var(--up));
 }
 
-/* ── Profile / Learn / Pro ──────────────────────────── */
 .badge-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -1073,7 +1041,6 @@ code {
 .pro-ico { font-size: 24px; line-height: 1; }
 .pro-card .tag { margin-left: auto; }
 
-/* ── Spinner / Empty States ─────────────────────────── */
 .spinner {
   width: 32px;
   height: 32px;
@@ -1101,7 +1068,6 @@ code {
   margin-right: auto;
 }
 
-/* ── Newsroom Reader ────────────────────────────────── */
 .news-card { cursor: pointer; }
 .news-card.read .news-title { opacity: 0.55; }
 .reader { max-width: 700px; }
@@ -1137,7 +1103,6 @@ code {
 }
 .save-on { color: var(--brand); }
 
-/* ── Markets Terminal ───────────────────────────────── */
 th.num { text-align: right; }
 .term-table td {
   padding: 7px 10px;
@@ -1174,7 +1139,6 @@ th.num { text-align: right; }
 }
 @keyframes tape { to { transform: translateX(-50%); } }
 
-/* ── Mobile hamburger + off-canvas sidebar drawer ───── */
 .hamburger {
   display: none;
   background: transparent;
@@ -1199,7 +1163,6 @@ th.num { text-align: right; }
 }
 .sidebar-backdrop[hidden] { display: none; }
 
-/* ── Responsive ────────────────────────────────────── */
 @media (max-width: 1000px) {
   .grid-2 { grid-template-columns: 1fr; }
 }
@@ -1230,7 +1193,6 @@ th.num { text-align: right; }
   #last-updated { display: none; }
 }
 
-/* ── Data freshness status ─────────────────────────── */
 .data-status {
   display: flex;
   flex-wrap: wrap;
@@ -1251,7 +1213,6 @@ th.num { text-align: right; }
 .data-status-note  { color: var(--muted); }
 .data-status-note  { flex-basis: 100%; font-style: italic; }
 
-/* ── Layout utilities ───────────────────────────────── */
 .grid-full { grid-column: 1 / -1; }
 .text-right { text-align: right; }
 .m-0 { margin: 0; }
@@ -1273,11 +1234,9 @@ th.num { text-align: right; }
 .text-2xs { font-size: 10px; }
 .text-3xl { font-size: 26px; }
 
-/* ── Icons ──────────────────────────────────────────── */
 .icon-20 { width: 20px; height: 20px; border-radius: 50%; display: block; }
 .icon-24 { width: 24px; height: 24px; border-radius: 50%; display: block; }
 
-/* ── Verdict cards ──────────────────────────────────── */
 .card-warn {
   margin-top: 12px;
   padding: 12px;
@@ -1298,7 +1257,6 @@ th.num { text-align: right; }
 }
 .card-warn-mt { margin-top: 12px; }
 
-/* ── Dynamic bars ───────────────────────────────────── */
 .bar-track {
   width: 100%;
   height: 4px;
@@ -1314,8 +1272,6 @@ th.num { text-align: right; }
   transition: width 0.5s ease;
 }
 
-/* CSP-safe dynamic meters: JS selects a bucket class; CSS owns the
-   style via custom properties. No inline style attribute is used. */
 .meter-fill {
   height: 100%;
   width: var(--meter-width, 0%);
@@ -1328,8 +1284,6 @@ th.num { text-align: right; }
 .meter-fill-warn  { --meter-color: var(--warn); }
 .meter-fill-muted { --meter-color: var(--muted); }
 
-/* Percentage buckets. Add new buckets here rather than interpolating
-   a width in JS — that keeps CSP strict. */
 .meter-fill-0   { --meter-width: 0%; }
 .meter-fill-10  { --meter-width: 10%; }
 .meter-fill-20  { --meter-width: 20%; }
@@ -1342,7 +1296,6 @@ th.num { text-align: right; }
 .meter-fill-90  { --meter-width: 90%; }
 .meter-fill-100 { --meter-width: 100%; }
 
-/* Backward-compatible meter-bar colour overrides (older modules). */
 .meter-bar div.meter-fill-up    { background: var(--up); }
 .meter-bar div.meter-fill-down  { background: var(--down); }
 .meter-bar div.meter-fill-warn  { background: var(--warn); }
@@ -1351,7 +1304,6 @@ th.num { text-align: right; }
 .fundamental-breakdown { margin-top: 12px; }
 .fundamental-metric    { margin-top: 8px; }
 
-/* ── Track Record ───────────────────────────────────── */
 .tr-card { cursor: pointer; margin-bottom: 12px; }
 .tr-header { padding: 4px 0; }
 .tr-detail { border-top: 1px solid var(--border); padding-top: 12px; }
@@ -1367,12 +1319,10 @@ th.num { text-align: right; }
 .tr-outcome,
 .tr-methodology { padding: 4px 0; }
 
-/* ── Action card variants ───────────────────────────── */
 .card-action-buy  { border-color: var(--up); }
 .card-action-sell { border-color: var(--down); }
 .card-action-hold { border-color: var(--warn); }
 
-/* ── Wallet / Status ────────────────────────────────── */
 .wallet-status-row {
   display: flex;
   align-items: center;
@@ -1400,7 +1350,19 @@ th.num { text-align: right; }
 .thesis-health-down    { color: var(--down);  background: rgba(239, 68, 68, 0.15); }
 .thesis-health-unknown { color: var(--muted); background: rgba(154, 163, 178, 0.1); }
 
-/* Risk card variants */
+/* Thesis-health reason list and recommendation (used by
+   js/intelligence/thesis-health.js renderers). */
+.thesis-reasons { list-style: none; padding: 0; margin: 8px 0; font-size: 0.9em; }
+.thesis-reason  { padding: 4px 0; color: var(--muted); }
+.thesis-recommendation {
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(99, 102, 241, 0.05);
+  border-left: 3px solid var(--brand);
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
 .risk-card-low  { border-color: var(--up);   box-shadow: 0 0 40px transparent; }
 .risk-card-mid  { border-color: var(--warn); box-shadow: 0 0 40px transparent; }
 .risk-card-high { border-color: var(--down); box-shadow: 0 0 40px rgba(239, 68, 68, 0.2); }
@@ -1431,7 +1393,6 @@ th.num { text-align: right; }
   gap: 12px;
 }
 
-/* Skeleton loading states. */
 .skeleton {
   background: linear-gradient(
     90deg,
@@ -1478,7 +1439,7 @@ th.num { text-align: right; }
   right: 0;
   width: min(520px, 92vw);
   height: 100vh;
-  height: 100dvh; /* Better on mobile with dynamic toolbar */
+  height: 100dvh;
   background: var(--card);
   border-left: 1px solid var(--border);
   box-shadow: -8px 0 32px rgba(0, 0, 0, 0.4),
@@ -1594,7 +1555,6 @@ th.num { text-align: right; }
   margin-top: 2px;
 }
 
-/* ── Intelligence feed ─────────────────────────────── */
 .feed-item {
   padding: 16px;
   border: 1px solid var(--border);
@@ -1660,7 +1620,6 @@ th.num { text-align: right; }
 .feed-meter { width: 100px; flex-shrink: 0; }
 .meter-bar-sm { width: 80px; }
 
-/* ── Responsive: drawer goes full-width on mobile ──── */
 @media (max-width: 768px) {
   .evidence-drawer { width: 100vw; border-left: none; }
   .drawer-verdict {
@@ -1672,9 +1631,7 @@ th.num { text-align: right; }
 
 /* ═══════════════════════════════════════════════════════════════
    5. ACCESSIBILITY — REDUCED MOTION
-   ═══════════════════════════════════════════════════════════════
-   Users who have enabled "reduce motion" get no animations or
-   transitions. This is a WCAG 2.3.3 requirement. */
+   ═══════════════════════════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -1691,9 +1648,7 @@ th.num { text-align: right; }
 
 /* ═══════════════════════════════════════════════════════════════
    6. ACCESSIBILITY — HIGH CONTRAST
-   ═══════════════════════════════════════════════════════════════
-   Users who request increased contrast get brighter borders,
-   stronger text colour, and higher-opacity accents. */
+   ═══════════════════════════════════════════════════════════════ */
 @media (prefers-contrast: more) {
   :root {
     --muted: #b8c0d0;
@@ -1715,9 +1670,7 @@ th.num { text-align: right; }
 
 /* ═══════════════════════════════════════════════════════════════
    7. REDUCED DATA
-   ═══════════════════════════════════════════════════════════════
-   Honours prefers-reduced-data: no shimmering skeletons, no
-   animated tape, no decorative gradients. */
+   ═══════════════════════════════════════════════════════════════ */
 @media (prefers-reduced-data: reduce) {
   body { background: var(--bg); }
   .skeleton {
@@ -1732,19 +1685,235 @@ th.num { text-align: right; }
   .card:hover { transform: none; }
 }
 
-.thesis-reasons { list-style: none; padding: 0; margin: 8px 0; font-size: 0.9em; }
-.thesis-reason  { padding: 4px 0; color: var(--muted); }
-.thesis-recommendation {
-  margin-top: 8px;
-  padding: 8px;
-  background: rgba(99, 102, 241, 0.05);
-  border-left: 3px solid var(--brand);
-  border-radius: 4px;
-  font-size: 0.9em;
+/* ═══════════════════════════════════════════════════════════════
+   8. CROSS-DEVICE — SAFE AREAS (notch, rounded corners, gesture bar)
+   ═══════════════════════════════════════════════════════════════
+   env(safe-area-inset-*) is non-zero only when the viewport meta
+   contains viewport-fit=cover, which index.html sets. On desktop
+   and most Android devices the values are 0 and max() falls
+   through to the base value. */
+
+@supports (padding: env(safe-area-inset-top)) {
+  .sidebar {
+    padding-top: max(20px, env(safe-area-inset-top));
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+    padding-left: max(12px, env(safe-area-inset-left));
+  }
+  .main {
+    padding-top: max(24px, env(safe-area-inset-top));
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    padding-right: max(32px, env(safe-area-inset-right));
+    padding-left: max(32px, env(safe-area-inset-left));
+  }
+  .toasts {
+    bottom: max(24px, env(safe-area-inset-bottom));
+    right: max(24px, env(safe-area-inset-right));
+  }
+  .evidence-drawer {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+@media (max-width: 860px) {
+  @supports (padding: env(safe-area-inset-top)) {
+    .sidebar {
+      padding-top: max(16px, env(safe-area-inset-top));
+      padding-bottom: max(16px, env(safe-area-inset-bottom));
+      padding-left: max(16px, env(safe-area-inset-left));
+    }
+    .main {
+      padding-top: max(16px, env(safe-area-inset-top));
+      padding-bottom: max(16px, env(safe-area-inset-bottom));
+      padding-right: max(16px, env(safe-area-inset-right));
+      padding-left: max(16px, env(safe-area-inset-left));
+    }
+    .toasts {
+      left: max(12px, env(safe-area-inset-left));
+      right: max(12px, env(safe-area-inset-right));
+      bottom: max(12px, env(safe-area-inset-bottom));
+    }
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   8. PRINT STYLES
+   9. CROSS-DEVICE — MOBILE INPUT ZOOM PREVENTION
+   ═══════════════════════════════════════════════════════════════
+   iOS Safari zooms in when an input with font-size < 16px is
+   focused. On mobile, force 16px so the page does not zoom and
+   scroll on every tap. Checkboxes and radios are exempt. */
+
+@media (max-width: 768px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   10. CROSS-DEVICE — VERY NARROW SCREENS (320–400 px)
+   ═══════════════════════════════════════════════════════════════
+   iPhone SE, Galaxy Fold closed, older Android. Tighten spacing
+   and shrink display type so nothing wraps awkwardly. */
+
+@media (max-width: 400px) {
+  .main { padding: 12px; }
+  .card {
+    padding: 14px;
+    border-radius: 10px;
+  }
+  .card:hover { transform: none; }
+  .topbar-title { font-size: 20px; }
+  .stat-big { font-size: 20px; }
+  .coin-price { font-size: 20px; }
+  .alt-num { font-size: 32px; }
+  .drawer-score { font-size: 28px; }
+  .cards {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .grid-2 { gap: 12px; }
+  .modal {
+    border-radius: 12px;
+    width: 96vw;
+  }
+  .modal-body,
+  .modal-head,
+  .modal-foot { padding: 14px; }
+  .toasts {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    max-width: none;
+  }
+  .toast {
+    max-width: none;
+    font-size: 13px;
+  }
+  .evidence-drawer { width: 100vw; }
+  .reader-hero { height: 160px; }
+  .reader-title { font-size: 18px; }
+  .reader p:first-of-type::first-letter {
+    font-size: 34px;
+    padding: 2px 8px 0 0;
+  }
+  table th,
+  table td {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  .term-table td {
+    padding: 6px 8px;
+    font-size: 11.5px;
+  }
+  .badge-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+  }
+  .heatmap {
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  }
+  .pro-hero { padding: 24px 16px; }
+  .empty { padding: 32px 16px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   11. CROSS-DEVICE — TOUCH TARGETS
+   ═══════════════════════════════════════════════════════════════
+   WCAG 2.5.5 Target Size (Enhanced) recommends 44×44 px minimum.
+   Applies to touch input only, so dense desktop layouts are
+   unaffected. */
+
+@media (pointer: coarse) {
+  .btn,
+  .icon-btn,
+  .chip,
+  .hamburger,
+  .drawer-close,
+  .modal-x,
+  .picker-clear {
+    min-height: 44px;
+  }
+  .btn.tiny {
+    min-height: 36px;
+    padding: 8px 12px;
+  }
+  #nav a {
+    min-height: 44px;
+    padding: 11px 12px;
+  }
+  input,
+  select,
+  textarea {
+    min-height: 44px;
+  }
+  .quiz-opt { min-height: 44px; }
+  .task-list label { min-height: 36px; }
+  .tr-tab { min-height: 40px; }
+  .tag-lg,
+  .tag-xl { min-height: 32px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   12. CROSS-DEVICE — LANDSCAPE PHONES
+   ═══════════════════════════════════════════════════════════════
+   Vertical space is precious when a phone is sideways. Reduce
+   chrome so content fits without scrolling. */
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .sidebar {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .brand {
+    padding: 4px 8px 12px;
+    margin-bottom: 8px;
+  }
+  .nav-group-label { padding: 6px 10px 2px; }
+  .topbar { margin-bottom: 12px; }
+  .card {
+    padding: 14px;
+    margin-bottom: 10px;
+  }
+  .pro-hero { padding: 20px; }
+  .empty { padding: 24px 16px; }
+  .evidence-drawer .drawer-header { padding: 12px 20px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   13. CROSS-DEVICE — 4K AND ULTRAWIDE
+   ═══════════════════════════════════════════════════════════════
+   The base layout caps .main at 1440px, which is right for
+   laptops. On 4K displays that leaves very wide margins. Nudge
+   the cap up but keep text legible. */
+
+@media (min-width: 2000px) {
+  .main {
+    max-width: 1720px;
+    padding: 32px 48px;
+  }
+  body { font-size: 15px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   14. CROSS-DEVICE — OVERFLOW GUARDS
+   ═══════════════════════════════════════════════════════════════
+   Belt-and-braces against horizontal scroll caused by a wide
+   table, an oversized image, or a long unbroken string. */
+
+img,
+video,
+canvas,
+svg { max-width: 100%; }
+img,
+video { height: auto; }
+pre,
+code { overflow-wrap: anywhere; }
+
+/* ═══════════════════════════════════════════════════════════════
+   15. PRINT STYLES
    ═══════════════════════════════════════════════════════════════
    Tax reports, portfolio summaries, thesis pages. Hides chrome,
    forces black-on-white, avoids page breaks inside cards. */
