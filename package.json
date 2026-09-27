@@ -1,4 +1,12 @@
 {
+  "name": "weaver",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Weaver — evidence-driven crypto intelligence and non-custodial portfolio tracking",
+  "engines": {
+    "node": ">=22.22.2 <23",
+    "npm": ">=10"
+  },
   "scripts": {
     "build": "node concat.js",
     "minify": "esbuild dist/bundle.js --minify --outfile=dist/bundle.min.js",
@@ -12,7 +20,6 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
-    "axios": "^1.20.0",
     "chai": "^6.2.2",
     "esbuild": "^0.28.2",
     "jsdom": "^30.0.1",
@@ -31,8 +38,4 @@
     "stream-json": "^3.5.0",
     "image-size": "npm:image-size-next@2.1.0"
   }
-  
-  
-
-
 }
