@@ -3780,111 +3780,212 @@ W.ui.skeleton = (() => {
 console.log("[Skeleton] Module loaded.");
 // ---- js/ui/evidence-drawer.js ----
 // ===============================================================
-//         Weaver Evidence Drawer
+//         Weaver Evidence Drawer 
 // ===============================================================
-// Modal listing supporting evidence, contradicting evidence, and
-// unknowns for a Weaver conclusion.
-//
-// Constitution §2.2 (Transparency): every score or verdict must
-// show its reasoning.
-// Constitution §2.7 (Evidence Provenance): sources and methodology
-// surfaced alongside conclusions.
-//
-// RELATIONSHIP POLICY:
-//   `relationship` describes how an item relates to the scenario
-//   being evaluated: supporting, contradicting, neutral, or unknown.
-//   It is NEVER inferred from `status`.
-//
-//   A domain with status "verified" has not necessarily supported
-//   the thesis — it means the data was successfully obtained.
-//   A domain with status "failed" has not necessarily contradicted
-//   the thesis — it means the data was not obtained.
-//
-//   When a domain does not declare its relationship, the drawer
-//   places it under "Unknowns". It is never silently upgraded to
-//   "supporting" or demoted to "contradicting".
-//
-// TRAJECTORY POLICY:
-//   The drawer receives an already-summarised trajectory string. It
-//   does not read W.observations or call summariseTrajectory(). The
-//   caller is responsible for both. When the summary is absent or
-//   empty, the trajectory line is omitted from the body.
-//
-// OWNER POLICY:
-//   Same contract as the trajectory line. The drawer receives an
-//   already-summarised owner string. It does not read
-//   W.ownerAssociations — the caller does.
-//
-// DEPLOYER POLICY:
-//   Same contract again. The drawer receives an already-summarised
-//   deployer string. It does not read W.deployerGraph — the caller
-//   does. The absence of the line does not mean the deployer is
-//   safe; it means no deployer profile was available for this token.
-//
-// TRACK RECORD POLICY:
-//   Same contract again. The drawer receives an already-summarised
-//   Track Record string from the caller and does not read
-//   W.trackRecord. Absence of the line does not mean the user has
-//   no history with this asset; it means no matching records were
-//   found at the moment the drawer opened.
-//
-// CSP Compliant: no style="" attributes. All user content passes
-// through W.fmt.escapeHTML before insertion.
-// ===============================================================
+
 
 window.W = window.W || {};
 W.ui = W.ui || {};
 
 W.ui.evidenceDrawer = (() => {
-  const esc = (s) =>
-    W.fmt?.escapeHTML ? W.fmt.escapeHTML(String(s ?? "")) : String(s ?? "");
+  const MODULE_VERSION = "evidence-drawer-v2";
 
-  const RELATIONSHIP_VALUES = new Set([
-    "supporting",
-    "contradicting",
-    "neutral",
-    "unknown",
-  ]);
+  // ── Caps ────────────────────────────────────────────────────
+  // Chosen so a single drawer open cannot allocate more than a few
+  // hundred KB of DOM. A legitimate evidence drawer stays well
+  // under these.
+  const MAX_ITEMS_PER_BUCKET = 200;
+  const MAX_REASONS_PER_ITEM = 30;
+  const MAX_TITLE_LEN = 200;
+  const MAX_DETAIL_LEN = 2000;
+  const MAX_REASON_LEN = 500;
+  const MAX_META_LEN = 200;
+  const MAX_DOMAINS = 500;
+
+  // ── Escaping ───────────────────────────────────────────────
+  // Safe in both text and quoted-attribute contexts. Handles
+  // Symbol, BigInt, null, undefined, and objects whose toString
+  // throws. Prefers W.fmt.escapeHTML when it exists and behaves
+  // like a string escaper; otherwise falls back to the local
+  // implementation.
+  function localEsc(v) {
+    if (v === null || v === undefined) return "";
+    let s;
+    try {
+      s = String(v);
+    } catch {
+      // Symbol, BigInt wrappers with a broken toString, proxies
+      // that trap access — return an empty string rather than
+      // letting the render crash.
+      return "";
+    }
+    if (!/[&<>"']/.test(s)) return s;
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  const esc =
+    W.fmt && typeof W.fmt.escapeHTML === "function"
+      ? function (v) {
+          // Prefer the canonical escaper, but fall back to localEsc
+          // if it throws. A hostile value should not be able to
+          // disable escaping by triggering a throw inside the
+          // shared helper.
+          try {
+            return String(W.fmt.escapeHTML(String(v ?? "")));
+          } catch {
+            return localEsc(v);
+          }
+        }
+      : localEsc;
+
+  // Safe property access. A getter that throws, a Proxy that traps
+  // `get`, or a missing property all produce undefined rather than
+  // an uncaught exception.
+  function safeProp(obj, key) {
+    if (!obj || typeof obj !== "object") return undefined;
+    try {
+      return obj[key];
+    } catch {
+      return undefined;
+    }
+  }
+
+  // String coercion with a length cap. Applied before any HTML
+  // wrapping, so the cap counts the visible characters, not the
+  // escaped entities.
+  function capStr(v, max) {
+    if (v === null || v === undefined) return "";
+    let s;
+    try {
+      s = String(v);
+    } catch {
+      return "";
+    }
+    if (s.length > max) return s.slice(0, max) + "…";
+    return s;
+  }
+
+  // ── Relationship normalisation ─────────────────────────────
+  const RELATIONSHIP_VALUES = Object.freeze({
+    supporting: "supporting",
+    contradicting: "contradicting",
+    neutral: "neutral",
+    unknown: "unknown",
+  });
 
   function normalizeRelationship(value) {
     if (typeof value !== "string") return "unknown";
     const v = value.trim().toLowerCase();
-    return RELATIONSHIP_VALUES.has(v) ? v : "unknown";
+    return RELATIONSHIP_VALUES[v] || "unknown";
   }
 
-  // ── Bucketing ───────────────────────────────────────────
+  // Prototype-pollution guard. A hostile domain name of
+  // "__proto__" or "constructor" is dropped at ingest.
+  const RESERVED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+  function isReservedKey(k) {
+    return RESERVED_KEYS.has(k);
+  }
+
+  // ── Bucketing ───────────────────────────────────────────────
   // Relationship drives the bucket. Status is preserved on the item
   // for display but does not determine where the item appears.
   //
-  // A domain declaring relationship: "neutral" is placed under
-  // Unknowns — the drawer has three sections and neutral evidence
-  // is neither for nor against the thesis. Callers that want a
-  // distinct "neutral" section can extend the return shape, but the
-  // current three-bucket contract is unchanged.
+  // "neutral" is explicitly mapped to Unknowns — the drawer has
+  // three sections and neutral evidence is neither for nor against
+  // the thesis.
+  //
+  // Item count is capped at MAX_ITEMS_PER_BUCKET. Overflow is
+  // reported as a single note in the bucket rather than being
+  // silently dropped.
   function bucket(domains) {
     const out = { supporting: [], contradicting: [], unknowns: [] };
-    if (!domains || typeof domains !== "object") return out;
-    Object.entries(domains).forEach(([name, d]) => {
-      const relationship = normalizeRelationship(d && d.relationship);
+    if (!domains || typeof domains !== "object" || Array.isArray(domains)) {
+      return out;
+    }
+
+    let inspected = 0;
+    const keys = (() => {
+      try {
+        return Object.keys(domains);
+      } catch {
+        return [];
+      }
+    })();
+
+    for (const name of keys) {
+      if (inspected++ >= MAX_DOMAINS) break;
+      if (isReservedKey(name)) continue;
+
+      const d = safeProp(domains, name);
+      if (!d || typeof d !== "object") {
+        // A non-object domain value is recorded as unknown rather
+        // than dropped — the reader sees that something existed
+        // there but could not be interpreted.
+        out.unknowns.push({
+          name: capStr(name, MAX_TITLE_LEN),
+          status: "unknown",
+          source: undefined,
+          observedAt: undefined,
+          freshness: undefined,
+          methodologyVersion: undefined,
+          relationship: "unknown",
+          reliability: undefined,
+          reasons: [],
+        });
+        continue;
+      }
+
+      const relationship = normalizeRelationship(safeProp(d, "relationship"));
+      const rawReasons = safeProp(d, "reasons");
+      const reasons = Array.isArray(rawReasons)
+        ? rawReasons
+            .slice(0, MAX_REASONS_PER_ITEM)
+            .map((r) => capStr(r, MAX_REASON_LEN))
+            .filter(Boolean)
+        : [];
+
       const e = {
-        name,
-        status: (d && d.status) || "unknown",
-        source: d && d.source,
-        observedAt: d && (d.observedAt || d.asOf),
-        freshness: d && d.freshness,
-        methodologyVersion: d && d.methodologyVersion,
+        name: capStr(name, MAX_TITLE_LEN),
+        status: capStr(safeProp(d, "status") || "unknown", MAX_META_LEN),
+        source: capStr(safeProp(d, "source"), MAX_META_LEN) || undefined,
+        observedAt: safeProp(d, "observedAt") || safeProp(d, "asOf"),
+        freshness: safeProp(d, "freshness"),
+        methodologyVersion:
+          capStr(safeProp(d, "methodologyVersion"), MAX_META_LEN) || undefined,
         relationship,
-        reliability: d && d.reliability,
-        reasons: Array.isArray(d && d.reasons) ? d.reasons : [],
+        reliability: safeProp(d, "reliability"),
+        reasons,
       };
+
       if (relationship === "supporting") out.supporting.push(e);
       else if (relationship === "contradicting") out.contradicting.push(e);
       else out.unknowns.push(e);
-    });
+    }
+
+    // Enforce the per-bucket cap after sorting. Overflow produces a
+    // synthetic note rather than dropping the excess silently.
+    for (const k of Object.keys(out)) {
+      if (out[k].length > MAX_ITEMS_PER_BUCKET) {
+        const overflow = out[k].length - MAX_ITEMS_PER_BUCKET;
+        out[k] = out[k].slice(0, MAX_ITEMS_PER_BUCKET);
+        out[k].push({
+          name: `+${overflow} more not shown`,
+          status: "overflow",
+          relationship: "unknown",
+          reasons: [],
+        });
+      }
+    }
+
     return out;
   }
 
-  // ── Provenance rendering ────────────────────────────────
+  // ── Provenance rendering ────────────────────────────────────
   // Every field renders. Missing values become the literal string
   // "unknown" — they are never omitted, because an omitted field
   // reads as "not applicable" rather than "not known".
@@ -3892,7 +3993,7 @@ W.ui.evidenceDrawer = (() => {
     const v =
       rawValue === null || rawValue === undefined || rawValue === ""
         ? "unknown"
-        : String(rawValue);
+        : capStr(rawValue, MAX_META_LEN);
     return label + ": " + v;
   }
 
@@ -3902,6 +4003,9 @@ W.ui.evidenceDrawer = (() => {
 
   function formatDate(value) {
     if (!value) return null;
+    // Guard the type check before constructing a Date. Symbol and
+    // BigInt cannot be passed to new Date() without throwing.
+    if (typeof value !== "string" && typeof value !== "number") return null;
     try {
       const d = new Date(value);
       if (!Number.isFinite(d.getTime())) return null;
@@ -3924,22 +4028,34 @@ W.ui.evidenceDrawer = (() => {
   }
 
   function renderItems(items, empty) {
-    if (!items.length) return '<p class="muted small">' + esc(empty) + "</p>";
+    if (!Array.isArray(items) || !items.length) {
+      return '<p class="muted small">' + esc(empty) + "</p>";
+    }
     return (
       '<ul class="tx-list">' +
       items
         .map((it) => {
-          const title = esc(it.title || it.name || "Evidence");
-          const meta = esc(it.status || "");
-          const detail = it.detail || it.evidence;
-          const reasons = (it.reasons || [])
-            .map((r) => '<p class="muted small mt-4">• ' + esc(r) + "</p>")
+          if (!it || typeof it !== "object") return "";
+          const title = capStr(
+            it.title || it.name || "Evidence",
+            MAX_TITLE_LEN,
+          );
+          const meta = capStr(it.status || "", MAX_META_LEN);
+          const detail = capStr(it.detail || it.evidence || "", MAX_DETAIL_LEN);
+          const reasons = (Array.isArray(it.reasons) ? it.reasons : [])
+            .slice(0, MAX_REASONS_PER_ITEM)
+            .map(
+              (r) =>
+                '<p class="muted small mt-4">• ' +
+                esc(capStr(r, MAX_REASON_LEN)) +
+                "</p>",
+            )
             .join("");
           return (
             '<li><div class="flex-between"><b>' +
-            title +
+            esc(title) +
             '</b><span class="muted small">' +
-            meta +
+            esc(meta) +
             "</span></div>" +
             renderProvenance(it) +
             (detail
@@ -3961,101 +4077,120 @@ W.ui.evidenceDrawer = (() => {
   // relationship is NOT defaulted to "supporting" here — a caller
   // that produced bullish evidence has already declared that
   // relationship upstream, and this carry function preserves it.
+  //
+  // Reads go through safeProp; a source with a throwing getter
+  // yields undefined rather than crashing.
   function carryProvenance(item, source) {
-    const s = source || {};
+    const s = source && typeof source === "object" ? source : {};
+    const i = item && typeof item === "object" ? item : {};
+    const pick = (key) => {
+      const iv = safeProp(i, key);
+      if (iv !== undefined) return iv;
+      return safeProp(s, key);
+    };
     return {
-      ...item,
-      source: item.source ?? s.source,
-      observedAt: item.observedAt ?? s.observedAt ?? s.timestamp,
-      freshness: item.freshness ?? s.freshness,
-      methodologyVersion: item.methodologyVersion ?? s.methodologyVersion,
-      relationship: item.relationship ?? normalizeRelationship(s.relationship),
-      reliability: item.reliability ?? s.reliability,
+      title: capStr(pick("title") || pick("name") || "Evidence", MAX_TITLE_LEN),
+      detail: capStr(pick("detail") || pick("evidence") || "", MAX_DETAIL_LEN),
+      source: capStr(pick("source"), MAX_META_LEN) || undefined,
+      observedAt: pick("observedAt") || pick("timestamp") || undefined,
+      freshness: pick("freshness"),
+      methodologyVersion:
+        capStr(pick("methodologyVersion"), MAX_META_LEN) || undefined,
+      relationship: normalizeRelationship(pick("relationship")),
+      reliability: pick("reliability"),
+      reasons: (Array.isArray(pick("reasons")) ? pick("reasons") : [])
+        .slice(0, MAX_REASONS_PER_ITEM)
+        .map((r) => capStr(r, MAX_REASON_LEN))
+        .filter(Boolean),
+      status: capStr(pick("status"), MAX_META_LEN) || undefined,
     };
   }
 
-  // Renders the optional trajectory line. Returns "" when no
-  // summary is supplied, so the caller can concatenate the result
-  // unconditionally.
+  // ── Optional lines ─────────────────────────────────────────
+  // Each renderer returns "" when no summary is supplied, so the
+  // caller can concatenate the result unconditionally.
+
   function renderTrajectoryLine(summary) {
     if (typeof summary !== "string" || !summary.trim()) return "";
-    return '<p class="small"><b>Trajectory:</b> ' + esc(summary) + "</p>";
-  }
-
-  // Renders the optional owner-association line. Same pattern as
-  // renderTrajectoryLine: the drawer receives an already-summarised
-  // string from the caller and does not read W.ownerAssociations.
-  function renderOwnerLine(summary) {
-    if (typeof summary !== "string" || !summary.trim()) return "";
-    return '<p class="small"><b>Owner:</b> ' + esc(summary) + "</p>";
-  }
-
-  // Renders the optional deployer line. Same pattern as the owner
-  // and trajectory lines. The drawer receives an already-summarised
-  // string from the caller and does not read W.deployerGraph.
-  //
-  // The absence of this line does not mean the deployer is safe;
-  // it means no deployer profile was available for this token.
-  function renderDeployerLine(summary) {
-    if (typeof summary !== "string" || !summary.trim()) return "";
-    return '<p class="small"><b>Deployer:</b> ' + esc(summary) + "</p>";
-  }
-
-  // Renders the optional Track Record line. Same contract as the
-  // trajectory, owner, and deployer lines: the drawer receives an
-  // already-summarised string from the caller and does not read
-  // W.trackRecord.
-  //
-  // The absence of this line does not mean this user has no history
-  // with this asset; it means no matching Track Record entries were
-  // found at the moment the drawer opened.
-  function renderTrackRecordLine(summary) {
-    if (typeof summary !== "string" || !summary.trim()) return "";
     return (
-      '<p class="small"><b>Your Track Record:</b> ' + esc(summary) + "</p>"
+      '<p class="small"><b>Trajectory:</b> ' +
+      esc(capStr(summary, MAX_DETAIL_LEN)) +
+      "</p>"
     );
   }
 
+  function renderOwnerLine(summary) {
+    if (typeof summary !== "string" || !summary.trim()) return "";
+    return (
+      '<p class="small"><b>Owner:</b> ' +
+      esc(capStr(summary, MAX_DETAIL_LEN)) +
+      "</p>"
+    );
+  }
+
+  function renderDeployerLine(summary) {
+    if (typeof summary !== "string" || !summary.trim()) return "";
+    return (
+      '<p class="small"><b>Deployer:</b> ' +
+      esc(capStr(summary, MAX_DETAIL_LEN)) +
+      "</p>"
+    );
+  }
+
+  function renderTrackRecordLine(summary) {
+    if (typeof summary !== "string" || !summary.trim()) return "";
+    return (
+      '<p class="small"><b>Your Track Record:</b> ' +
+      esc(capStr(summary, MAX_DETAIL_LEN)) +
+      "</p>"
+    );
+  }
+
+  // ── Top-level open ─────────────────────────────────────────
   function open(result) {
-    const r = result || {};
-    const b = bucket(r.domains);
+    const r = result && typeof result === "object" ? result : {};
 
-    // Optional. Absent when the token has no retained history,
-    // when the observations module is unavailable, or when the
-    // caller does not supply it. The drawer renders normally.
-    const trajectorySummary =
-      typeof r.trajectorySummary === "string" && r.trajectorySummary.trim()
-        ? r.trajectorySummary
-        : null;
+    let b;
+    try {
+      b = bucket(safeProp(r, "domains"));
+    } catch (e) {
+      console.warn("[EvidenceDrawer] bucket failed:", e && e.message);
+      b = { supporting: [], contradicting: [], unknowns: [] };
+    }
 
-    // Same shape as trajectorySummary: optional, absent when the
-    // token has no owner association this session, when the
-    // module is unavailable, or when the caller does not supply it.
-    const ownerSummary =
-      typeof r.ownerSummary === "string" && r.ownerSummary.trim()
-        ? r.ownerSummary
+    const readSummary = (key) => {
+      const v = safeProp(r, key);
+      return typeof v === "string" && v.trim()
+        ? capStr(v, MAX_DETAIL_LEN)
         : null;
+    };
 
-    // Same shape again: optional. Absent when no deployer profile
-    // is cached for the token.
-    const deployerSummary =
-      typeof r.deployerSummary === "string" && r.deployerSummary.trim()
-        ? r.deployerSummary
-        : null;
+    const trajectorySummary = readSummary("trajectorySummary");
+    const ownerSummary = readSummary("ownerSummary");
+    const deployerSummary = readSummary("deployerSummary");
+    const trackRecordSummary = readSummary("trackRecordSummary");
 
-    // Same shape again: optional. Absent when no Track Record entry
-    // matches this asset, or when the caller does not supply it.
-    const trackRecordSummary =
-      typeof r.trackRecordSummary === "string" && r.trackRecordSummary.trim()
-        ? r.trackRecordSummary
-        : null;
+    // Build each bucket with a try/catch per map step so one
+    // malformed entry cannot blank the entire section.
+    const safeArrayMap = (raw, mapper) => {
+      if (!Array.isArray(raw)) return [];
+      const out = [];
+      for (const item of raw.slice(0, MAX_ITEMS_PER_BUCKET)) {
+        try {
+          out.push(mapper(item));
+        } catch (e) {
+          console.warn("[EvidenceDrawer] item map failed:", e && e.message);
+        }
+      }
+      return out;
+    };
 
     const supporting = [
-      ...(r.bullishEvidence || []).map((e) =>
+      ...safeArrayMap(safeProp(r, "bullishEvidence"), (e) =>
         carryProvenance(
           {
-            title: e.title,
-            detail: e.evidence,
+            title: safeProp(e, "title"),
+            detail: safeProp(e, "evidence"),
             status: "supporting",
             relationship: "supporting",
           },
@@ -4066,31 +4201,39 @@ W.ui.evidenceDrawer = (() => {
     ];
 
     const contradicting = [
-      ...(r.bearishEvidence || []).map((e) =>
+      ...safeArrayMap(safeProp(r, "bearishEvidence"), (e) =>
         carryProvenance(
           {
-            title: e.title,
-            detail: e.evidence,
+            title: safeProp(e, "title"),
+            detail: safeProp(e, "evidence"),
             status: "contradicting",
             relationship: "contradicting",
           },
           e,
         ),
       ),
-      ...(r.contradictions || []).map((c) =>
-        carryProvenance({
-          title: c.bull + " vs " + c.bear,
-          detail: c.details,
+      ...safeArrayMap(safeProp(r, "contradictions"), (c) => {
+        const bull = capStr(safeProp(c, "bull"), MAX_TITLE_LEN);
+        const bear = capStr(safeProp(c, "bear"), MAX_TITLE_LEN);
+        return carryProvenance({
+          title: bull + " vs " + bear,
+          detail: safeProp(c, "details"),
           status: "contradicting",
           relationship: "contradicting",
-        }),
-      ),
+        });
+      }),
       ...b.contradicting,
     ];
 
+    const eqReasons = (() => {
+      const eq = safeProp(r, "evidenceQuality");
+      const reasons = safeProp(eq, "reasons");
+      return Array.isArray(reasons) ? reasons : [];
+    })();
+
     const unknowns = [
       ...b.unknowns,
-      ...((r.evidenceQuality && r.evidenceQuality.reasons) || []).map((x) =>
+      ...safeArrayMap(eqReasons, (x) =>
         carryProvenance({
           title: "Evidence gap",
           detail: x,
@@ -4100,15 +4243,25 @@ W.ui.evidenceDrawer = (() => {
     ];
 
     const meta = [
-      r.methodologyVersion ? "Methodology " + r.methodologyVersion : null,
-      r.evidenceVersion ? "Evidence " + r.evidenceVersion : null,
+      safeProp(r, "methodologyVersion")
+        ? "Methodology " +
+          capStr(safeProp(r, "methodologyVersion"), MAX_META_LEN)
+        : null,
+      safeProp(r, "evidenceVersion")
+        ? "Evidence " + capStr(safeProp(r, "evidenceVersion"), MAX_META_LEN)
+        : null,
     ]
       .filter(Boolean)
       .join(" · ");
 
+    const explanation = capStr(
+      safeProp(r, "explanation") || "Evidence behind the current scenario.",
+      MAX_DETAIL_LEN,
+    );
+
     const body =
       '<p class="small muted">' +
-      esc(r.explanation || "Evidence behind the current scenario.") +
+      esc(explanation) +
       "</p>" +
       (meta ? '<p class="small muted">' + esc(meta) + "</p>" : "") +
       renderTrajectoryLine(trajectorySummary) +
@@ -4124,22 +4277,39 @@ W.ui.evidenceDrawer = (() => {
       renderItems(unknowns, "No evidence gaps recorded.") +
       "</div>";
 
-    const m = W.ui.modal({
-      title: "Why this verdict?",
-      body,
-      footer: '<button class="btn ghost" data-a="close">Close</button>',
-    });
-    if (m.el) {
+    // The modal call is wrapped. If W.ui.modal is missing or throws,
+    // the drawer falls back to a plain-text notice rather than
+    // leaving the user with a blank screen and no explanation.
+    if (!W.ui || typeof W.ui.modal !== "function") {
+      console.warn("[EvidenceDrawer] W.ui.modal is unavailable.");
+      return null;
+    }
+
+    let m;
+    try {
+      m = W.ui.modal({
+        title: "Why this verdict?",
+        body,
+        footer: '<button class="btn ghost" data-a="close">Close</button>',
+      });
+    } catch (e) {
+      console.warn("[EvidenceDrawer] modal failed:", e && e.message);
+      return null;
+    }
+
+    if (m && m.el) {
       const btn = m.el.querySelector('[data-a="close"]');
       if (btn) btn.onclick = m.close;
     }
     return m;
   }
 
-  return {
+  // ── Public API ─────────────────────────────────────────────
+  return Object.freeze({
     open,
-    // Exposed for tests only.
-    _internal: {
+    version: MODULE_VERSION,
+    // Exposed for tests only. Frozen.
+    _internal: Object.freeze({
       bucket,
       renderItems,
       renderProvenance,
@@ -4149,11 +4319,26 @@ W.ui.evidenceDrawer = (() => {
       renderTrackRecordLine,
       carryProvenance,
       normalizeRelationship,
-    },
-  };
+      esc,
+      safeProp,
+      capStr,
+      isReservedKey,
+      constants: Object.freeze({
+        MAX_ITEMS_PER_BUCKET,
+        MAX_REASONS_PER_ITEM,
+        MAX_TITLE_LEN,
+        MAX_DETAIL_LEN,
+        MAX_REASON_LEN,
+        MAX_META_LEN,
+        MAX_DOMAINS,
+      }),
+    }),
+  });
 })();
 
-console.log("[EvidenceDrawer] Module loaded (CSP compliant).");
+console.log(
+  "[EvidenceDrawer] Module loaded (evidence-drawer-v2: correct escaper, capped strings, prototype-safe, robust against throwing getters).",
+);
 // ---- js/ui/intelligence-feed.js ----
 // ===============================================================
 //     Intelligence Feed — "What Matters Now"
@@ -28205,111 +28390,212 @@ W.tokenAnalysis = (() => {
 })();
 // ---- js/ui/evidence-drawer.js ----
 // ===============================================================
-//         Weaver Evidence Drawer
+//         Weaver Evidence Drawer 
 // ===============================================================
-// Modal listing supporting evidence, contradicting evidence, and
-// unknowns for a Weaver conclusion.
-//
-// Constitution §2.2 (Transparency): every score or verdict must
-// show its reasoning.
-// Constitution §2.7 (Evidence Provenance): sources and methodology
-// surfaced alongside conclusions.
-//
-// RELATIONSHIP POLICY:
-//   `relationship` describes how an item relates to the scenario
-//   being evaluated: supporting, contradicting, neutral, or unknown.
-//   It is NEVER inferred from `status`.
-//
-//   A domain with status "verified" has not necessarily supported
-//   the thesis — it means the data was successfully obtained.
-//   A domain with status "failed" has not necessarily contradicted
-//   the thesis — it means the data was not obtained.
-//
-//   When a domain does not declare its relationship, the drawer
-//   places it under "Unknowns". It is never silently upgraded to
-//   "supporting" or demoted to "contradicting".
-//
-// TRAJECTORY POLICY:
-//   The drawer receives an already-summarised trajectory string. It
-//   does not read W.observations or call summariseTrajectory(). The
-//   caller is responsible for both. When the summary is absent or
-//   empty, the trajectory line is omitted from the body.
-//
-// OWNER POLICY:
-//   Same contract as the trajectory line. The drawer receives an
-//   already-summarised owner string. It does not read
-//   W.ownerAssociations — the caller does.
-//
-// DEPLOYER POLICY:
-//   Same contract again. The drawer receives an already-summarised
-//   deployer string. It does not read W.deployerGraph — the caller
-//   does. The absence of the line does not mean the deployer is
-//   safe; it means no deployer profile was available for this token.
-//
-// TRACK RECORD POLICY:
-//   Same contract again. The drawer receives an already-summarised
-//   Track Record string from the caller and does not read
-//   W.trackRecord. Absence of the line does not mean the user has
-//   no history with this asset; it means no matching records were
-//   found at the moment the drawer opened.
-//
-// CSP Compliant: no style="" attributes. All user content passes
-// through W.fmt.escapeHTML before insertion.
-// ===============================================================
+
 
 window.W = window.W || {};
 W.ui = W.ui || {};
 
 W.ui.evidenceDrawer = (() => {
-  const esc = (s) =>
-    W.fmt?.escapeHTML ? W.fmt.escapeHTML(String(s ?? "")) : String(s ?? "");
+  const MODULE_VERSION = "evidence-drawer-v2";
 
-  const RELATIONSHIP_VALUES = new Set([
-    "supporting",
-    "contradicting",
-    "neutral",
-    "unknown",
-  ]);
+  // ── Caps ────────────────────────────────────────────────────
+  // Chosen so a single drawer open cannot allocate more than a few
+  // hundred KB of DOM. A legitimate evidence drawer stays well
+  // under these.
+  const MAX_ITEMS_PER_BUCKET = 200;
+  const MAX_REASONS_PER_ITEM = 30;
+  const MAX_TITLE_LEN = 200;
+  const MAX_DETAIL_LEN = 2000;
+  const MAX_REASON_LEN = 500;
+  const MAX_META_LEN = 200;
+  const MAX_DOMAINS = 500;
+
+  // ── Escaping ───────────────────────────────────────────────
+  // Safe in both text and quoted-attribute contexts. Handles
+  // Symbol, BigInt, null, undefined, and objects whose toString
+  // throws. Prefers W.fmt.escapeHTML when it exists and behaves
+  // like a string escaper; otherwise falls back to the local
+  // implementation.
+  function localEsc(v) {
+    if (v === null || v === undefined) return "";
+    let s;
+    try {
+      s = String(v);
+    } catch {
+      // Symbol, BigInt wrappers with a broken toString, proxies
+      // that trap access — return an empty string rather than
+      // letting the render crash.
+      return "";
+    }
+    if (!/[&<>"']/.test(s)) return s;
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  const esc =
+    W.fmt && typeof W.fmt.escapeHTML === "function"
+      ? function (v) {
+          // Prefer the canonical escaper, but fall back to localEsc
+          // if it throws. A hostile value should not be able to
+          // disable escaping by triggering a throw inside the
+          // shared helper.
+          try {
+            return String(W.fmt.escapeHTML(String(v ?? "")));
+          } catch {
+            return localEsc(v);
+          }
+        }
+      : localEsc;
+
+  // Safe property access. A getter that throws, a Proxy that traps
+  // `get`, or a missing property all produce undefined rather than
+  // an uncaught exception.
+  function safeProp(obj, key) {
+    if (!obj || typeof obj !== "object") return undefined;
+    try {
+      return obj[key];
+    } catch {
+      return undefined;
+    }
+  }
+
+  // String coercion with a length cap. Applied before any HTML
+  // wrapping, so the cap counts the visible characters, not the
+  // escaped entities.
+  function capStr(v, max) {
+    if (v === null || v === undefined) return "";
+    let s;
+    try {
+      s = String(v);
+    } catch {
+      return "";
+    }
+    if (s.length > max) return s.slice(0, max) + "…";
+    return s;
+  }
+
+  // ── Relationship normalisation ─────────────────────────────
+  const RELATIONSHIP_VALUES = Object.freeze({
+    supporting: "supporting",
+    contradicting: "contradicting",
+    neutral: "neutral",
+    unknown: "unknown",
+  });
 
   function normalizeRelationship(value) {
     if (typeof value !== "string") return "unknown";
     const v = value.trim().toLowerCase();
-    return RELATIONSHIP_VALUES.has(v) ? v : "unknown";
+    return RELATIONSHIP_VALUES[v] || "unknown";
   }
 
-  // ── Bucketing ───────────────────────────────────────────
+  // Prototype-pollution guard. A hostile domain name of
+  // "__proto__" or "constructor" is dropped at ingest.
+  const RESERVED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+  function isReservedKey(k) {
+    return RESERVED_KEYS.has(k);
+  }
+
+  // ── Bucketing ───────────────────────────────────────────────
   // Relationship drives the bucket. Status is preserved on the item
   // for display but does not determine where the item appears.
   //
-  // A domain declaring relationship: "neutral" is placed under
-  // Unknowns — the drawer has three sections and neutral evidence
-  // is neither for nor against the thesis. Callers that want a
-  // distinct "neutral" section can extend the return shape, but the
-  // current three-bucket contract is unchanged.
+  // "neutral" is explicitly mapped to Unknowns — the drawer has
+  // three sections and neutral evidence is neither for nor against
+  // the thesis.
+  //
+  // Item count is capped at MAX_ITEMS_PER_BUCKET. Overflow is
+  // reported as a single note in the bucket rather than being
+  // silently dropped.
   function bucket(domains) {
     const out = { supporting: [], contradicting: [], unknowns: [] };
-    if (!domains || typeof domains !== "object") return out;
-    Object.entries(domains).forEach(([name, d]) => {
-      const relationship = normalizeRelationship(d && d.relationship);
+    if (!domains || typeof domains !== "object" || Array.isArray(domains)) {
+      return out;
+    }
+
+    let inspected = 0;
+    const keys = (() => {
+      try {
+        return Object.keys(domains);
+      } catch {
+        return [];
+      }
+    })();
+
+    for (const name of keys) {
+      if (inspected++ >= MAX_DOMAINS) break;
+      if (isReservedKey(name)) continue;
+
+      const d = safeProp(domains, name);
+      if (!d || typeof d !== "object") {
+        // A non-object domain value is recorded as unknown rather
+        // than dropped — the reader sees that something existed
+        // there but could not be interpreted.
+        out.unknowns.push({
+          name: capStr(name, MAX_TITLE_LEN),
+          status: "unknown",
+          source: undefined,
+          observedAt: undefined,
+          freshness: undefined,
+          methodologyVersion: undefined,
+          relationship: "unknown",
+          reliability: undefined,
+          reasons: [],
+        });
+        continue;
+      }
+
+      const relationship = normalizeRelationship(safeProp(d, "relationship"));
+      const rawReasons = safeProp(d, "reasons");
+      const reasons = Array.isArray(rawReasons)
+        ? rawReasons
+            .slice(0, MAX_REASONS_PER_ITEM)
+            .map((r) => capStr(r, MAX_REASON_LEN))
+            .filter(Boolean)
+        : [];
+
       const e = {
-        name,
-        status: (d && d.status) || "unknown",
-        source: d && d.source,
-        observedAt: d && (d.observedAt || d.asOf),
-        freshness: d && d.freshness,
-        methodologyVersion: d && d.methodologyVersion,
+        name: capStr(name, MAX_TITLE_LEN),
+        status: capStr(safeProp(d, "status") || "unknown", MAX_META_LEN),
+        source: capStr(safeProp(d, "source"), MAX_META_LEN) || undefined,
+        observedAt: safeProp(d, "observedAt") || safeProp(d, "asOf"),
+        freshness: safeProp(d, "freshness"),
+        methodologyVersion:
+          capStr(safeProp(d, "methodologyVersion"), MAX_META_LEN) || undefined,
         relationship,
-        reliability: d && d.reliability,
-        reasons: Array.isArray(d && d.reasons) ? d.reasons : [],
+        reliability: safeProp(d, "reliability"),
+        reasons,
       };
+
       if (relationship === "supporting") out.supporting.push(e);
       else if (relationship === "contradicting") out.contradicting.push(e);
       else out.unknowns.push(e);
-    });
+    }
+
+    // Enforce the per-bucket cap after sorting. Overflow produces a
+    // synthetic note rather than dropping the excess silently.
+    for (const k of Object.keys(out)) {
+      if (out[k].length > MAX_ITEMS_PER_BUCKET) {
+        const overflow = out[k].length - MAX_ITEMS_PER_BUCKET;
+        out[k] = out[k].slice(0, MAX_ITEMS_PER_BUCKET);
+        out[k].push({
+          name: `+${overflow} more not shown`,
+          status: "overflow",
+          relationship: "unknown",
+          reasons: [],
+        });
+      }
+    }
+
     return out;
   }
 
-  // ── Provenance rendering ────────────────────────────────
+  // ── Provenance rendering ────────────────────────────────────
   // Every field renders. Missing values become the literal string
   // "unknown" — they are never omitted, because an omitted field
   // reads as "not applicable" rather than "not known".
@@ -28317,7 +28603,7 @@ W.ui.evidenceDrawer = (() => {
     const v =
       rawValue === null || rawValue === undefined || rawValue === ""
         ? "unknown"
-        : String(rawValue);
+        : capStr(rawValue, MAX_META_LEN);
     return label + ": " + v;
   }
 
@@ -28327,6 +28613,9 @@ W.ui.evidenceDrawer = (() => {
 
   function formatDate(value) {
     if (!value) return null;
+    // Guard the type check before constructing a Date. Symbol and
+    // BigInt cannot be passed to new Date() without throwing.
+    if (typeof value !== "string" && typeof value !== "number") return null;
     try {
       const d = new Date(value);
       if (!Number.isFinite(d.getTime())) return null;
@@ -28349,22 +28638,34 @@ W.ui.evidenceDrawer = (() => {
   }
 
   function renderItems(items, empty) {
-    if (!items.length) return '<p class="muted small">' + esc(empty) + "</p>";
+    if (!Array.isArray(items) || !items.length) {
+      return '<p class="muted small">' + esc(empty) + "</p>";
+    }
     return (
       '<ul class="tx-list">' +
       items
         .map((it) => {
-          const title = esc(it.title || it.name || "Evidence");
-          const meta = esc(it.status || "");
-          const detail = it.detail || it.evidence;
-          const reasons = (it.reasons || [])
-            .map((r) => '<p class="muted small mt-4">• ' + esc(r) + "</p>")
+          if (!it || typeof it !== "object") return "";
+          const title = capStr(
+            it.title || it.name || "Evidence",
+            MAX_TITLE_LEN,
+          );
+          const meta = capStr(it.status || "", MAX_META_LEN);
+          const detail = capStr(it.detail || it.evidence || "", MAX_DETAIL_LEN);
+          const reasons = (Array.isArray(it.reasons) ? it.reasons : [])
+            .slice(0, MAX_REASONS_PER_ITEM)
+            .map(
+              (r) =>
+                '<p class="muted small mt-4">• ' +
+                esc(capStr(r, MAX_REASON_LEN)) +
+                "</p>",
+            )
             .join("");
           return (
             '<li><div class="flex-between"><b>' +
-            title +
+            esc(title) +
             '</b><span class="muted small">' +
-            meta +
+            esc(meta) +
             "</span></div>" +
             renderProvenance(it) +
             (detail
@@ -28386,101 +28687,120 @@ W.ui.evidenceDrawer = (() => {
   // relationship is NOT defaulted to "supporting" here — a caller
   // that produced bullish evidence has already declared that
   // relationship upstream, and this carry function preserves it.
+  //
+  // Reads go through safeProp; a source with a throwing getter
+  // yields undefined rather than crashing.
   function carryProvenance(item, source) {
-    const s = source || {};
+    const s = source && typeof source === "object" ? source : {};
+    const i = item && typeof item === "object" ? item : {};
+    const pick = (key) => {
+      const iv = safeProp(i, key);
+      if (iv !== undefined) return iv;
+      return safeProp(s, key);
+    };
     return {
-      ...item,
-      source: item.source ?? s.source,
-      observedAt: item.observedAt ?? s.observedAt ?? s.timestamp,
-      freshness: item.freshness ?? s.freshness,
-      methodologyVersion: item.methodologyVersion ?? s.methodologyVersion,
-      relationship: item.relationship ?? normalizeRelationship(s.relationship),
-      reliability: item.reliability ?? s.reliability,
+      title: capStr(pick("title") || pick("name") || "Evidence", MAX_TITLE_LEN),
+      detail: capStr(pick("detail") || pick("evidence") || "", MAX_DETAIL_LEN),
+      source: capStr(pick("source"), MAX_META_LEN) || undefined,
+      observedAt: pick("observedAt") || pick("timestamp") || undefined,
+      freshness: pick("freshness"),
+      methodologyVersion:
+        capStr(pick("methodologyVersion"), MAX_META_LEN) || undefined,
+      relationship: normalizeRelationship(pick("relationship")),
+      reliability: pick("reliability"),
+      reasons: (Array.isArray(pick("reasons")) ? pick("reasons") : [])
+        .slice(0, MAX_REASONS_PER_ITEM)
+        .map((r) => capStr(r, MAX_REASON_LEN))
+        .filter(Boolean),
+      status: capStr(pick("status"), MAX_META_LEN) || undefined,
     };
   }
 
-  // Renders the optional trajectory line. Returns "" when no
-  // summary is supplied, so the caller can concatenate the result
-  // unconditionally.
+  // ── Optional lines ─────────────────────────────────────────
+  // Each renderer returns "" when no summary is supplied, so the
+  // caller can concatenate the result unconditionally.
+
   function renderTrajectoryLine(summary) {
     if (typeof summary !== "string" || !summary.trim()) return "";
-    return '<p class="small"><b>Trajectory:</b> ' + esc(summary) + "</p>";
-  }
-
-  // Renders the optional owner-association line. Same pattern as
-  // renderTrajectoryLine: the drawer receives an already-summarised
-  // string from the caller and does not read W.ownerAssociations.
-  function renderOwnerLine(summary) {
-    if (typeof summary !== "string" || !summary.trim()) return "";
-    return '<p class="small"><b>Owner:</b> ' + esc(summary) + "</p>";
-  }
-
-  // Renders the optional deployer line. Same pattern as the owner
-  // and trajectory lines. The drawer receives an already-summarised
-  // string from the caller and does not read W.deployerGraph.
-  //
-  // The absence of this line does not mean the deployer is safe;
-  // it means no deployer profile was available for this token.
-  function renderDeployerLine(summary) {
-    if (typeof summary !== "string" || !summary.trim()) return "";
-    return '<p class="small"><b>Deployer:</b> ' + esc(summary) + "</p>";
-  }
-
-  // Renders the optional Track Record line. Same contract as the
-  // trajectory, owner, and deployer lines: the drawer receives an
-  // already-summarised string from the caller and does not read
-  // W.trackRecord.
-  //
-  // The absence of this line does not mean this user has no history
-  // with this asset; it means no matching Track Record entries were
-  // found at the moment the drawer opened.
-  function renderTrackRecordLine(summary) {
-    if (typeof summary !== "string" || !summary.trim()) return "";
     return (
-      '<p class="small"><b>Your Track Record:</b> ' + esc(summary) + "</p>"
+      '<p class="small"><b>Trajectory:</b> ' +
+      esc(capStr(summary, MAX_DETAIL_LEN)) +
+      "</p>"
     );
   }
 
+  function renderOwnerLine(summary) {
+    if (typeof summary !== "string" || !summary.trim()) return "";
+    return (
+      '<p class="small"><b>Owner:</b> ' +
+      esc(capStr(summary, MAX_DETAIL_LEN)) +
+      "</p>"
+    );
+  }
+
+  function renderDeployerLine(summary) {
+    if (typeof summary !== "string" || !summary.trim()) return "";
+    return (
+      '<p class="small"><b>Deployer:</b> ' +
+      esc(capStr(summary, MAX_DETAIL_LEN)) +
+      "</p>"
+    );
+  }
+
+  function renderTrackRecordLine(summary) {
+    if (typeof summary !== "string" || !summary.trim()) return "";
+    return (
+      '<p class="small"><b>Your Track Record:</b> ' +
+      esc(capStr(summary, MAX_DETAIL_LEN)) +
+      "</p>"
+    );
+  }
+
+  // ── Top-level open ─────────────────────────────────────────
   function open(result) {
-    const r = result || {};
-    const b = bucket(r.domains);
+    const r = result && typeof result === "object" ? result : {};
 
-    // Optional. Absent when the token has no retained history,
-    // when the observations module is unavailable, or when the
-    // caller does not supply it. The drawer renders normally.
-    const trajectorySummary =
-      typeof r.trajectorySummary === "string" && r.trajectorySummary.trim()
-        ? r.trajectorySummary
-        : null;
+    let b;
+    try {
+      b = bucket(safeProp(r, "domains"));
+    } catch (e) {
+      console.warn("[EvidenceDrawer] bucket failed:", e && e.message);
+      b = { supporting: [], contradicting: [], unknowns: [] };
+    }
 
-    // Same shape as trajectorySummary: optional, absent when the
-    // token has no owner association this session, when the
-    // module is unavailable, or when the caller does not supply it.
-    const ownerSummary =
-      typeof r.ownerSummary === "string" && r.ownerSummary.trim()
-        ? r.ownerSummary
+    const readSummary = (key) => {
+      const v = safeProp(r, key);
+      return typeof v === "string" && v.trim()
+        ? capStr(v, MAX_DETAIL_LEN)
         : null;
+    };
 
-    // Same shape again: optional. Absent when no deployer profile
-    // is cached for the token.
-    const deployerSummary =
-      typeof r.deployerSummary === "string" && r.deployerSummary.trim()
-        ? r.deployerSummary
-        : null;
+    const trajectorySummary = readSummary("trajectorySummary");
+    const ownerSummary = readSummary("ownerSummary");
+    const deployerSummary = readSummary("deployerSummary");
+    const trackRecordSummary = readSummary("trackRecordSummary");
 
-    // Same shape again: optional. Absent when no Track Record entry
-    // matches this asset, or when the caller does not supply it.
-    const trackRecordSummary =
-      typeof r.trackRecordSummary === "string" && r.trackRecordSummary.trim()
-        ? r.trackRecordSummary
-        : null;
+    // Build each bucket with a try/catch per map step so one
+    // malformed entry cannot blank the entire section.
+    const safeArrayMap = (raw, mapper) => {
+      if (!Array.isArray(raw)) return [];
+      const out = [];
+      for (const item of raw.slice(0, MAX_ITEMS_PER_BUCKET)) {
+        try {
+          out.push(mapper(item));
+        } catch (e) {
+          console.warn("[EvidenceDrawer] item map failed:", e && e.message);
+        }
+      }
+      return out;
+    };
 
     const supporting = [
-      ...(r.bullishEvidence || []).map((e) =>
+      ...safeArrayMap(safeProp(r, "bullishEvidence"), (e) =>
         carryProvenance(
           {
-            title: e.title,
-            detail: e.evidence,
+            title: safeProp(e, "title"),
+            detail: safeProp(e, "evidence"),
             status: "supporting",
             relationship: "supporting",
           },
@@ -28491,31 +28811,39 @@ W.ui.evidenceDrawer = (() => {
     ];
 
     const contradicting = [
-      ...(r.bearishEvidence || []).map((e) =>
+      ...safeArrayMap(safeProp(r, "bearishEvidence"), (e) =>
         carryProvenance(
           {
-            title: e.title,
-            detail: e.evidence,
+            title: safeProp(e, "title"),
+            detail: safeProp(e, "evidence"),
             status: "contradicting",
             relationship: "contradicting",
           },
           e,
         ),
       ),
-      ...(r.contradictions || []).map((c) =>
-        carryProvenance({
-          title: c.bull + " vs " + c.bear,
-          detail: c.details,
+      ...safeArrayMap(safeProp(r, "contradictions"), (c) => {
+        const bull = capStr(safeProp(c, "bull"), MAX_TITLE_LEN);
+        const bear = capStr(safeProp(c, "bear"), MAX_TITLE_LEN);
+        return carryProvenance({
+          title: bull + " vs " + bear,
+          detail: safeProp(c, "details"),
           status: "contradicting",
           relationship: "contradicting",
-        }),
-      ),
+        });
+      }),
       ...b.contradicting,
     ];
 
+    const eqReasons = (() => {
+      const eq = safeProp(r, "evidenceQuality");
+      const reasons = safeProp(eq, "reasons");
+      return Array.isArray(reasons) ? reasons : [];
+    })();
+
     const unknowns = [
       ...b.unknowns,
-      ...((r.evidenceQuality && r.evidenceQuality.reasons) || []).map((x) =>
+      ...safeArrayMap(eqReasons, (x) =>
         carryProvenance({
           title: "Evidence gap",
           detail: x,
@@ -28525,15 +28853,25 @@ W.ui.evidenceDrawer = (() => {
     ];
 
     const meta = [
-      r.methodologyVersion ? "Methodology " + r.methodologyVersion : null,
-      r.evidenceVersion ? "Evidence " + r.evidenceVersion : null,
+      safeProp(r, "methodologyVersion")
+        ? "Methodology " +
+          capStr(safeProp(r, "methodologyVersion"), MAX_META_LEN)
+        : null,
+      safeProp(r, "evidenceVersion")
+        ? "Evidence " + capStr(safeProp(r, "evidenceVersion"), MAX_META_LEN)
+        : null,
     ]
       .filter(Boolean)
       .join(" · ");
 
+    const explanation = capStr(
+      safeProp(r, "explanation") || "Evidence behind the current scenario.",
+      MAX_DETAIL_LEN,
+    );
+
     const body =
       '<p class="small muted">' +
-      esc(r.explanation || "Evidence behind the current scenario.") +
+      esc(explanation) +
       "</p>" +
       (meta ? '<p class="small muted">' + esc(meta) + "</p>" : "") +
       renderTrajectoryLine(trajectorySummary) +
@@ -28549,22 +28887,39 @@ W.ui.evidenceDrawer = (() => {
       renderItems(unknowns, "No evidence gaps recorded.") +
       "</div>";
 
-    const m = W.ui.modal({
-      title: "Why this verdict?",
-      body,
-      footer: '<button class="btn ghost" data-a="close">Close</button>',
-    });
-    if (m.el) {
+    // The modal call is wrapped. If W.ui.modal is missing or throws,
+    // the drawer falls back to a plain-text notice rather than
+    // leaving the user with a blank screen and no explanation.
+    if (!W.ui || typeof W.ui.modal !== "function") {
+      console.warn("[EvidenceDrawer] W.ui.modal is unavailable.");
+      return null;
+    }
+
+    let m;
+    try {
+      m = W.ui.modal({
+        title: "Why this verdict?",
+        body,
+        footer: '<button class="btn ghost" data-a="close">Close</button>',
+      });
+    } catch (e) {
+      console.warn("[EvidenceDrawer] modal failed:", e && e.message);
+      return null;
+    }
+
+    if (m && m.el) {
       const btn = m.el.querySelector('[data-a="close"]');
       if (btn) btn.onclick = m.close;
     }
     return m;
   }
 
-  return {
+  // ── Public API ─────────────────────────────────────────────
+  return Object.freeze({
     open,
-    // Exposed for tests only.
-    _internal: {
+    version: MODULE_VERSION,
+    // Exposed for tests only. Frozen.
+    _internal: Object.freeze({
       bucket,
       renderItems,
       renderProvenance,
@@ -28574,11 +28929,26 @@ W.ui.evidenceDrawer = (() => {
       renderTrackRecordLine,
       carryProvenance,
       normalizeRelationship,
-    },
-  };
+      esc,
+      safeProp,
+      capStr,
+      isReservedKey,
+      constants: Object.freeze({
+        MAX_ITEMS_PER_BUCKET,
+        MAX_REASONS_PER_ITEM,
+        MAX_TITLE_LEN,
+        MAX_DETAIL_LEN,
+        MAX_REASON_LEN,
+        MAX_META_LEN,
+        MAX_DOMAINS,
+      }),
+    }),
+  });
 })();
 
-console.log("[EvidenceDrawer] Module loaded (CSP compliant).");
+console.log(
+  "[EvidenceDrawer] Module loaded (evidence-drawer-v2: correct escaper, capped strings, prototype-safe, robust against throwing getters).",
+);
 // ---- js/app.js ----
 // ===============================================================
 //         Weaver Core Application
