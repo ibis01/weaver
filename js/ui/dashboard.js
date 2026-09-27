@@ -1,33 +1,11 @@
 // ===============================================================
-//                Weaver Dashboard (Command Center v3.3)
-// ===============================================================
-// CSP Compliant: ZERO inline style="..." attributes.
-// Constitution Compliant:
-//   §2.7 No fabricated data — unknown prices/costs render as "—".
-//        v3.1 removed two fabricated fields:
-//          - Top Tokens confidence column, which rendered
-//            "100 - i*6" (a positional index) as a measured score.
-//          - BTC Dominance sparkline, which drew the same hardcoded
-//            SVG path on every load regardless of the data.
-//        v3.2 removed the blank grey avatar placeholders (CoinLore
-//        returns no image field for these pairs) in favour of letter
-//        monograms on deterministic colour slots, and added a column
-//        header row above the Top Tokens list.
-//        v3.3 applied the same avatar treatment to Portfolio Holdings
-//        and turned the passive "—" cost-basis indicator into an
-//        actionable "Set cost basis" label.
-//   §3.4 Graceful Degradation — failed price fetches fall back to a
-//        labeled last-known-good cache ("·stale"), never to $0.00.
-//   §3.6 Cache before repeated API calls.
-//   §6.3 Missing data must reduce confidence, never become zero.
-//   §6.4 Auditable — delta snapshots skipped while any asset unpriced.
-//   §5.3 Calm visual language — no emojis, reduced motion, tokenized colors.
+//                Weaver Dashboard 
 // ===============================================================
 
 window.W = window.W || {};
 
 W.dashboard = (() => {
-  const MODULE_VERSION = "dashboard-v3.3";
+  const MODULE_VERSION = "dashboard-v3.4";
   const MARKET_ROWS_DEFAULT = 10;
   let marketRowsExpanded = false;
 
@@ -170,18 +148,18 @@ W.dashboard = (() => {
           .join(",")}"></canvas>`
       : '<span class="text-muted small-text">—</span>';
 
-  // ── Letter avatars ──────────────────────────────────────────
+  // ── Logo or letter avatar ───────────────────────────────────
   //
-  // CoinLore does not return an image field, so the previous version
-  // rendered every token and holding as a blank dark dot (or, for
-  // holdings, a broken <img> placeholder). Instead we draw a
-  // three-letter monogram on a background colour derived
-  // deterministically from the symbol. Same symbol always maps to
-  // the same slot, so the colour functions as a visual identifier
-  // without needing image assets, external requests, or inline
-  // style attributes. The palette lives in style.css section 25
-  // (.token-avatar-slot-0 through .token-avatar-slot-9) and is
-  // selected here by class name only.
+  // CoinLore, CoinBase, and CoinPaprika all return image: "" — none
+  // of them publish logo URLs. W.api maintains a static LOGO_MAP for
+  // the twenty-six tokens the app displays most often; the letter
+  // avatar covers every other token and acts as a runtime fallback
+  // if the CDN image fails to load.
+  //
+  // The avatar is deterministic: a symbol always maps to the same
+  // colour slot (hash of the symbol modulo ten). The palette lives
+  // in style.css section 25 (.token-avatar-slot-0 through
+  // .token-avatar-slot-9). No inline style attributes.
   function avatarSlot(sym) {
     let hash = 0;
     for (let i = 0; i < sym.length; i++) {
@@ -190,16 +168,69 @@ W.dashboard = (() => {
     return Math.abs(hash) % 10;
   }
 
+  // Restrict image URLs to the CoinGecko CDN. A hostile value from
+  // any provider cannot inject a javascript: or data: URL into an
+  // img src through this helper.
+  function safeImageUrl(u) {
+    if (typeof u !== "string" || !u) return null;
+    try {
+      const parsed = new URL(u);
+      if (parsed.protocol !== "https:") return null;
+      if (!parsed.hostname.endsWith("coingecko.com")) return null;
+      return parsed.toString();
+    } catch {
+      return null;
+    }
+  }
+
   // ── Shared avatar markup ────────────────────────────────────
-  // Both the Top Tokens table and the Portfolio Holdings table use
-  // this. Accepts an optional extraClass so the holdings variant can
-  // inherit the .coin-img sizing reset when needed.
-  function avatarMarkup(symbol, extraClass) {
+  // Prefers a real logo when the provider supplied one. Falls back
+  // to the letter monogram when the map has no entry for this
+  // symbol, when the URL fails validation, or when the image fails
+  // to load at runtime (wireAvatarFallbacks handles the last case).
+  function avatarMarkup(symbol, imageUrl, extraClass) {
     const sym = String(symbol || "?").toUpperCase();
     const slot = avatarSlot(sym);
     const initials = sym.slice(0, 3);
     const cls = extraClass ? ` ${extraClass}` : "";
-    return `<span class="token-avatar token-avatar-slot-${slot}${cls}" aria-hidden="true"><span class="token-avatar-text">${esc(initials)}</span></span>`;
+
+    const safe = safeImageUrl(imageUrl);
+    if (!safe) {
+      return `<span class="token-avatar token-avatar-slot-${slot}${cls}" aria-hidden="true"><span class="token-avatar-text">${esc(initials)}</span></span>`;
+    }
+
+    return `<img class="token-avatar-img${cls}" src="${esc(safe)}" alt="" loading="lazy" decoding="async" width="32" height="32" data-fallback-symbol="${esc(sym)}">`;
+  }
+
+  // ── Runtime fallback for failed images ─────────────────────
+  // The <img> above carries data-fallback-symbol. This pass runs
+  // after a table renders and swaps any image that failed to load
+  // with the equivalent letter avatar. Uses
+  // addEventListener('error') rather than an inline onerror=
+  // attribute so the strict CSP remains unaffected.
+  function wireAvatarFallbacks(root) {
+    if (!root || typeof root.querySelectorAll !== "function") return;
+    root.querySelectorAll("img[data-fallback-symbol]").forEach((img) => {
+      const swap = () => {
+        const sym = img.dataset.fallbackSymbol || "?";
+        const slot = avatarSlot(sym);
+        const span = document.createElement("span");
+        span.className = `token-avatar token-avatar-slot-${slot}`;
+        span.setAttribute("aria-hidden", "true");
+        const inner = document.createElement("span");
+        inner.className = "token-avatar-text";
+        inner.textContent = sym.slice(0, 3);
+        span.appendChild(inner);
+        if (img.parentNode) img.parentNode.replaceChild(span, img);
+      };
+      // The browser may have already fired error before this pass
+      // ran. complete && naturalWidth === 0 identifies that case.
+      if (img.complete && img.naturalWidth === 0) {
+        swap();
+      } else {
+        img.addEventListener("error", swap, { once: true });
+      }
+    });
   }
 
   // ── Top-tokens row ──────────────────────────────────────────
@@ -245,7 +276,7 @@ W.dashboard = (() => {
       <button type="button" class="token-row" data-coin="${esc(id)}">
         <span class="token-rank">${esc(i + 1)}</span>
         <span class="token-ident">
-          ${avatarMarkup(symbol)}
+          ${avatarMarkup(symbol, c.image)}
           <span class="token-ident-text">
             <span class="token-symbol">${esc(symbol)}</span>
             <span class="token-name">${esc(name)}</span>
@@ -379,17 +410,14 @@ W.dashboard = (() => {
 
   // ── Holdings table ──────────────────────────────────────────
   //
-  // Uses the same letter avatars as Top Tokens. W.api.markets()
-  // returns image: "" because CoinLore does not publish image URLs,
-  // and wallet-synced holdings never carry one. The previous
-  // version rendered <img src=""> which every browser paints as a
-  // broken-image placeholder. v3.3 replaces that with the shared
-  // avatarMarkup helper.
+  // Uses the same logo-or-avatar treatment as Top Tokens. The
+  // previous version rendered <img src=""> (broken placeholder)
+  // when no image was available. v3.3 replaced that with the shared
+  // avatarMarkup helper; v3.4 extends it to prefer real logos.
   //
-  // Two smaller changes: the 24h cell now carries up/down colour,
-  // and the P/L cell shows "Set cost basis" rather than a passive
-  // "—" when the cost basis is genuinely unknown. Both were
-  // previously correct but visually misleading.
+  // Two smaller changes from v3.2: the 24h cell now carries
+  // up/down colour, and the P/L cell shows "Set cost basis" rather
+  // than a passive "—" when the cost basis is genuinely unknown.
   const holdingsTable = (rows) => `
     <div class="table-wrap"><table><thead><tr><th>Asset</th><th>Price</th><th>24h</th><th>Qty</th><th>Value</th><th>P/L</th><th></th></tr></thead><tbody>
       ${rows
@@ -405,7 +433,7 @@ W.dashboard = (() => {
               : `<span class="text-muted small-text cost-basis-hint" title="Click the pencil to enter the total amount paid">Set cost basis</span>`;
           return `<tr>
         <td class="coin-cell">
-          ${avatarMarkup(sym, "coin-img")}
+          ${avatarMarkup(sym, r.image, "coin-img")}
           <div><b>${esc(r.name)}</b><br><span class="text-muted small-text">${esc(sym)}</span></div>
         </td>
         <td class="num">${r.price !== null ? W.fmt.price(r.price) + (r.priceStale ? ' <span class="text-muted small-text">·stale</span>' : "") : '<span class="text-muted">—</span>'}</td>
@@ -1424,6 +1452,7 @@ W.dashboard = (() => {
       });
     });
     drawTokens();
+    wireAvatarFallbacks(view);
 
     // Fear & Greed + BTC dominance
     const fgEl = view.querySelector("#d-fg");
@@ -1496,6 +1525,7 @@ W.dashboard = (() => {
       } else {
         port.innerHTML = holdingsTable(rows);
         wireRows(port, rows);
+        wireAvatarFallbacks(port);
       }
     }
 
@@ -1600,6 +1630,7 @@ W.dashboard = (() => {
         if (body) {
           body.innerHTML = holdingsTable(rows);
           wireRows(body, rows);
+          wireAvatarFallbacks(body);
         }
       });
     }
@@ -1615,5 +1646,5 @@ W.dashboard = (() => {
 })();
 
 console.log(
-  "[Dashboard] Module loaded (Command Center v3.3: letter avatars in holdings, 24h colour, actionable cost-basis hint).",
+  "[Dashboard] Module loaded (Command Center v3.4: real token logos with letter-avatar fallback).",
 );

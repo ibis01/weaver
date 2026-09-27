@@ -3199,3 +3199,20 @@ code { overflow-wrap: anywhere; }
   }
   .token-avatar { width: 28px; height: 28px; font-size: 9px; }
 }
+/* Real token logos. Same dimensions as the letter avatar so they
+   align identically in the row grid. The background makes the
+   circle visible even for tokens whose logo is a dark image on a
+   transparent background. */
+.token-avatar-img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: block;
+  background: rgba(255, 255, 255, 0.04);
+  object-fit: contain;
+}
+.coin-cell .token-avatar-img {
+  width: 32px;
+  height: 32px;
+}

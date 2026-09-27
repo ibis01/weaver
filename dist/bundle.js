@@ -2059,35 +2059,13 @@ W.ui.formatDataAge = formatAge;
 console.log("[DataStatus] Freshness UI loaded.");
 // ---- js/ui/dashboard.js ----
 // ===============================================================
-//                Weaver Dashboard (Command Center v3.3)
-// ===============================================================
-// CSP Compliant: ZERO inline style="..." attributes.
-// Constitution Compliant:
-//   §2.7 No fabricated data — unknown prices/costs render as "—".
-//        v3.1 removed two fabricated fields:
-//          - Top Tokens confidence column, which rendered
-//            "100 - i*6" (a positional index) as a measured score.
-//          - BTC Dominance sparkline, which drew the same hardcoded
-//            SVG path on every load regardless of the data.
-//        v3.2 removed the blank grey avatar placeholders (CoinLore
-//        returns no image field for these pairs) in favour of letter
-//        monograms on deterministic colour slots, and added a column
-//        header row above the Top Tokens list.
-//        v3.3 applied the same avatar treatment to Portfolio Holdings
-//        and turned the passive "—" cost-basis indicator into an
-//        actionable "Set cost basis" label.
-//   §3.4 Graceful Degradation — failed price fetches fall back to a
-//        labeled last-known-good cache ("·stale"), never to $0.00.
-//   §3.6 Cache before repeated API calls.
-//   §6.3 Missing data must reduce confidence, never become zero.
-//   §6.4 Auditable — delta snapshots skipped while any asset unpriced.
-//   §5.3 Calm visual language — no emojis, reduced motion, tokenized colors.
+//                Weaver Dashboard 
 // ===============================================================
 
 window.W = window.W || {};
 
 W.dashboard = (() => {
-  const MODULE_VERSION = "dashboard-v3.3";
+  const MODULE_VERSION = "dashboard-v3.4";
   const MARKET_ROWS_DEFAULT = 10;
   let marketRowsExpanded = false;
 
@@ -2230,18 +2208,18 @@ W.dashboard = (() => {
           .join(",")}"></canvas>`
       : '<span class="text-muted small-text">—</span>';
 
-  // ── Letter avatars ──────────────────────────────────────────
+  // ── Logo or letter avatar ───────────────────────────────────
   //
-  // CoinLore does not return an image field, so the previous version
-  // rendered every token and holding as a blank dark dot (or, for
-  // holdings, a broken <img> placeholder). Instead we draw a
-  // three-letter monogram on a background colour derived
-  // deterministically from the symbol. Same symbol always maps to
-  // the same slot, so the colour functions as a visual identifier
-  // without needing image assets, external requests, or inline
-  // style attributes. The palette lives in style.css section 25
-  // (.token-avatar-slot-0 through .token-avatar-slot-9) and is
-  // selected here by class name only.
+  // CoinLore, CoinBase, and CoinPaprika all return image: "" — none
+  // of them publish logo URLs. W.api maintains a static LOGO_MAP for
+  // the twenty-six tokens the app displays most often; the letter
+  // avatar covers every other token and acts as a runtime fallback
+  // if the CDN image fails to load.
+  //
+  // The avatar is deterministic: a symbol always maps to the same
+  // colour slot (hash of the symbol modulo ten). The palette lives
+  // in style.css section 25 (.token-avatar-slot-0 through
+  // .token-avatar-slot-9). No inline style attributes.
   function avatarSlot(sym) {
     let hash = 0;
     for (let i = 0; i < sym.length; i++) {
@@ -2250,16 +2228,69 @@ W.dashboard = (() => {
     return Math.abs(hash) % 10;
   }
 
+  // Restrict image URLs to the CoinGecko CDN. A hostile value from
+  // any provider cannot inject a javascript: or data: URL into an
+  // img src through this helper.
+  function safeImageUrl(u) {
+    if (typeof u !== "string" || !u) return null;
+    try {
+      const parsed = new URL(u);
+      if (parsed.protocol !== "https:") return null;
+      if (!parsed.hostname.endsWith("coingecko.com")) return null;
+      return parsed.toString();
+    } catch {
+      return null;
+    }
+  }
+
   // ── Shared avatar markup ────────────────────────────────────
-  // Both the Top Tokens table and the Portfolio Holdings table use
-  // this. Accepts an optional extraClass so the holdings variant can
-  // inherit the .coin-img sizing reset when needed.
-  function avatarMarkup(symbol, extraClass) {
+  // Prefers a real logo when the provider supplied one. Falls back
+  // to the letter monogram when the map has no entry for this
+  // symbol, when the URL fails validation, or when the image fails
+  // to load at runtime (wireAvatarFallbacks handles the last case).
+  function avatarMarkup(symbol, imageUrl, extraClass) {
     const sym = String(symbol || "?").toUpperCase();
     const slot = avatarSlot(sym);
     const initials = sym.slice(0, 3);
     const cls = extraClass ? ` ${extraClass}` : "";
-    return `<span class="token-avatar token-avatar-slot-${slot}${cls}" aria-hidden="true"><span class="token-avatar-text">${esc(initials)}</span></span>`;
+
+    const safe = safeImageUrl(imageUrl);
+    if (!safe) {
+      return `<span class="token-avatar token-avatar-slot-${slot}${cls}" aria-hidden="true"><span class="token-avatar-text">${esc(initials)}</span></span>`;
+    }
+
+    return `<img class="token-avatar-img${cls}" src="${esc(safe)}" alt="" loading="lazy" decoding="async" width="32" height="32" data-fallback-symbol="${esc(sym)}">`;
+  }
+
+  // ── Runtime fallback for failed images ─────────────────────
+  // The <img> above carries data-fallback-symbol. This pass runs
+  // after a table renders and swaps any image that failed to load
+  // with the equivalent letter avatar. Uses
+  // addEventListener('error') rather than an inline onerror=
+  // attribute so the strict CSP remains unaffected.
+  function wireAvatarFallbacks(root) {
+    if (!root || typeof root.querySelectorAll !== "function") return;
+    root.querySelectorAll("img[data-fallback-symbol]").forEach((img) => {
+      const swap = () => {
+        const sym = img.dataset.fallbackSymbol || "?";
+        const slot = avatarSlot(sym);
+        const span = document.createElement("span");
+        span.className = `token-avatar token-avatar-slot-${slot}`;
+        span.setAttribute("aria-hidden", "true");
+        const inner = document.createElement("span");
+        inner.className = "token-avatar-text";
+        inner.textContent = sym.slice(0, 3);
+        span.appendChild(inner);
+        if (img.parentNode) img.parentNode.replaceChild(span, img);
+      };
+      // The browser may have already fired error before this pass
+      // ran. complete && naturalWidth === 0 identifies that case.
+      if (img.complete && img.naturalWidth === 0) {
+        swap();
+      } else {
+        img.addEventListener("error", swap, { once: true });
+      }
+    });
   }
 
   // ── Top-tokens row ──────────────────────────────────────────
@@ -2305,7 +2336,7 @@ W.dashboard = (() => {
       <button type="button" class="token-row" data-coin="${esc(id)}">
         <span class="token-rank">${esc(i + 1)}</span>
         <span class="token-ident">
-          ${avatarMarkup(symbol)}
+          ${avatarMarkup(symbol, c.image)}
           <span class="token-ident-text">
             <span class="token-symbol">${esc(symbol)}</span>
             <span class="token-name">${esc(name)}</span>
@@ -2439,17 +2470,14 @@ W.dashboard = (() => {
 
   // ── Holdings table ──────────────────────────────────────────
   //
-  // Uses the same letter avatars as Top Tokens. W.api.markets()
-  // returns image: "" because CoinLore does not publish image URLs,
-  // and wallet-synced holdings never carry one. The previous
-  // version rendered <img src=""> which every browser paints as a
-  // broken-image placeholder. v3.3 replaces that with the shared
-  // avatarMarkup helper.
+  // Uses the same logo-or-avatar treatment as Top Tokens. The
+  // previous version rendered <img src=""> (broken placeholder)
+  // when no image was available. v3.3 replaced that with the shared
+  // avatarMarkup helper; v3.4 extends it to prefer real logos.
   //
-  // Two smaller changes: the 24h cell now carries up/down colour,
-  // and the P/L cell shows "Set cost basis" rather than a passive
-  // "—" when the cost basis is genuinely unknown. Both were
-  // previously correct but visually misleading.
+  // Two smaller changes from v3.2: the 24h cell now carries
+  // up/down colour, and the P/L cell shows "Set cost basis" rather
+  // than a passive "—" when the cost basis is genuinely unknown.
   const holdingsTable = (rows) => `
     <div class="table-wrap"><table><thead><tr><th>Asset</th><th>Price</th><th>24h</th><th>Qty</th><th>Value</th><th>P/L</th><th></th></tr></thead><tbody>
       ${rows
@@ -2465,7 +2493,7 @@ W.dashboard = (() => {
               : `<span class="text-muted small-text cost-basis-hint" title="Click the pencil to enter the total amount paid">Set cost basis</span>`;
           return `<tr>
         <td class="coin-cell">
-          ${avatarMarkup(sym, "coin-img")}
+          ${avatarMarkup(sym, r.image, "coin-img")}
           <div><b>${esc(r.name)}</b><br><span class="text-muted small-text">${esc(sym)}</span></div>
         </td>
         <td class="num">${r.price !== null ? W.fmt.price(r.price) + (r.priceStale ? ' <span class="text-muted small-text">·stale</span>' : "") : '<span class="text-muted">—</span>'}</td>
@@ -3484,6 +3512,7 @@ W.dashboard = (() => {
       });
     });
     drawTokens();
+    wireAvatarFallbacks(view);
 
     // Fear & Greed + BTC dominance
     const fgEl = view.querySelector("#d-fg");
@@ -3556,6 +3585,7 @@ W.dashboard = (() => {
       } else {
         port.innerHTML = holdingsTable(rows);
         wireRows(port, rows);
+        wireAvatarFallbacks(port);
       }
     }
 
@@ -3660,6 +3690,7 @@ W.dashboard = (() => {
         if (body) {
           body.innerHTML = holdingsTable(rows);
           wireRows(body, rows);
+          wireAvatarFallbacks(body);
         }
       });
     }
@@ -3675,7 +3706,7 @@ W.dashboard = (() => {
 })();
 
 console.log(
-  "[Dashboard] Module loaded (Command Center v3.3: letter avatars in holdings, 24h colour, actionable cost-basis hint).",
+  "[Dashboard] Module loaded (Command Center v3.4: real token logos with letter-avatar fallback).",
 );
 // ---- js/ui/skeleton.js ----
 // ===============================================================
@@ -4850,48 +4881,7 @@ W.requestGuard = (() => {
 console.log("[RequestGuard] Rate limiting and circuit breakers loaded.");
 // ---- js/api/prices.js ----
 // ===============================================================
-//                  Market Data API (Constitutionally Compliant)
-// ===============================================================
-// §2.7 No Fabricated Data: never returns $0.00 for missing prices.
-//      Missing values are `null` throughout, and `null` propagates
-//      honestly to the UI as "—" or "unavailable".
-// §3.4 Graceful Degradation:
-//      CoinLore → CoinBase → CoinPaprika → stale cache. Every
-//      provider's `global()` output is normalized to a single
-//      canonical shape before leaving this module.
-// §3.6 Caching:
-//      Bounded LRU per localStorage key, plus in-memory dedup of
-//      concurrent in-flight requests.
-// §3.7 Deterministic:
-//      All numeric parsing goes through a single null-preserving
-//      coerce helper. No `|| 0` that silently collapses "absent"
-//      into "zero".
-//
-// v5 changelog:
-//   - `_normalizeGlobal()` — single shape-normalizer used by every
-//     provider's global(). Fixes the SchemaValidationError:
-//     "coingecko global: data must be an object" that fired when
-//     CoinLore returned an array or CoinPaprika returned a flat
-//     object instead of the wrapped { data: {...} } shape.
-//   - `W.api.global()` never throws. On total provider failure it
-//     returns the canonical shape with explicit nulls, so a
-//     downstream schema validator gets a well-typed object instead
-//     of catching an exception and storing a `{ error: ... }`
-//     payload that then fails schema validation.
-//   - Bounded caches: every localStorage key gets an LRU with a
-//     hard cap on entry count and total byte size.
-//   - In-flight deduplication: N concurrent calls to the same URL
-//     share one network request.
-//   - Circuit-breaker jitter: the recovery delay is randomized
-//     +/- 20% to prevent thundering-herd behavior across browser
-//     tabs.
-//   - `sym-map` is capped at 500 entries to prevent unbounded
-//     localStorage growth.
-//   - `_coerceNumber()` replaces `parseFloat(...) || 0` everywhere.
-//     `parseFloat("0") || 0` was correct; `parseFloat("") || 0`
-//     silently fabricated a zero for missing data.
-//   - URL builders use URLSearchParams for query construction
-//     rather than string concatenation.
+//                  Market Data API 
 // ===============================================================
 
 window.W = window.W || {};
@@ -4901,15 +4891,12 @@ W.api = (() => {
   const COINLORE_API = "https://api.coinlore.net/api";
   const COINBASE_API = "https://api.coinbase.com/v2";
 
-  const CACHE_TTL = 60000; // 1 min for live prices
-  const LONG_CACHE_TTL = 1800000; // 30 min for chart/coin/global
-  const TICKERS_TTL = 120000; // 2 min for /tickers snapshots
+  const CACHE_TTL = 60000;
+  const LONG_CACHE_TTL = 1800000;
+  const TICKERS_TTL = 120000;
 
-  // Bounded caches: hard caps on entry count and total bytes per
-  // localStorage key. Prevents unbounded growth that would eventually
-  // overflow the ~5 MB localStorage quota.
   const CACHE_MAX_ENTRIES = 200;
-  const CACHE_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+  const CACHE_MAX_BYTES = 2 * 1024 * 1024;
   const SYM_MAP_MAX = 500;
 
   const PROXIES = [
@@ -4918,6 +4905,65 @@ W.api = (() => {
       encodeURIComponent(u),
     (u) => u,
   ];
+
+  // ── Token logo URLs ─────────────────────────────────────────
+  // None of the three market-data providers return image URLs, so
+  // the dashboard has been rendering letter avatars since v3.2.
+  // This static map covers the tokens the app displays most often.
+  //
+  // CoinGecko's CDN serves these images without authentication and
+  // without meaningful rate limits. It is independent of the
+  // CoinGecko price API that was removed from the app for other
+  // reasons. Adding a token here is a one-line edit.
+  //
+  // Keys are the internal IDs used throughout the app
+  // (ID_TO_SYMBOL). Tokens absent from this map fall through to the
+  // letter avatar in the UI.
+  const LOGO_MAP = Object.freeze({
+    bitcoin: "https://assets.coingecko.com/coins/images/1/small/bitcoin.png",
+    ethereum:
+      "https://assets.coingecko.com/coins/images/279/small/ethereum.png",
+    tether: "https://assets.coingecko.com/coins/images/325/small/Tether.png",
+    "usd-coin": "https://assets.coingecko.com/coins/images/6319/small/usdc.png",
+    binancecoin:
+      "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png",
+    solana: "https://assets.coingecko.com/coins/images/4128/small/solana.png",
+    ripple:
+      "https://assets.coingecko.com/coins/images/44/small/xrp-symbol-white-128.png",
+    cardano: "https://assets.coingecko.com/coins/images/975/small/cardano.png",
+    dogecoin: "https://assets.coingecko.com/coins/images/5/small/dogecoin.png",
+    "shiba-inu":
+      "https://assets.coingecko.com/coins/images/11939/small/shiba.png",
+    litecoin: "https://assets.coingecko.com/coins/images/2/small/litecoin.png",
+    "bitcoin-cash":
+      "https://assets.coingecko.com/coins/images/780/small/bitcoin-cash-circle.png",
+    tron: "https://assets.coingecko.com/coins/images/1094/small/tron-logo.png",
+    stellar:
+      "https://assets.coingecko.com/coins/images/100/small/Stellar_symbol_black_RGB.png",
+    uniswap:
+      "https://assets.coingecko.com/coins/images/12504/small/uniswap-uni.png",
+    aave: "https://assets.coingecko.com/coins/images/12645/small/AAVE.png",
+    dai: "https://assets.coingecko.com/coins/images/9956/small/Badge_Dai.png",
+    polkadot:
+      "https://assets.coingecko.com/coins/images/12171/small/polkadot.png",
+    matic: "https://assets.coingecko.com/coins/images/4713/small/polygon.png",
+    "avalanche-2":
+      "https://assets.coingecko.com/coins/images/12559/small/Avalanche_Circle_RedWhite_Trans.png",
+    arbitrum: "https://assets.coingecko.com/coins/images/16547/small/arb.jpg",
+    optimism:
+      "https://assets.coingecko.com/coins/images/25244/small/Optimism.png",
+    cosmos:
+      "https://assets.coingecko.com/coins/images/1481/small/cosmos_hub.png",
+    near: "https://assets.coingecko.com/coins/images/10365/small/near.jpg",
+    filecoin:
+      "https://assets.coingecko.com/coins/images/12817/small/filecoin.png",
+    aptos:
+      "https://assets.coingecko.com/coins/images/26455/small/aptos_round.png",
+  });
+
+  function logoFor(id) {
+    return LOGO_MAP[id] || "";
+  }
 
   // ── ID tables ────────────────────────────────────────
   const ID_TO_SYMBOL = Object.freeze({
@@ -5010,9 +5056,6 @@ W.api = (() => {
   });
 
   // ── Null-preserving numeric coercion ─────────────────
-  // `parseFloat(x) || 0` silently turns "" and null into 0, which
-  // fabricates a value for missing data (§2.7). This helper returns
-  // a finite number or null, and never invents a zero.
   function _coerceNumber(v) {
     if (v === null || v === undefined || v === "") return null;
     const n = typeof v === "number" ? v : parseFloat(v);
@@ -5020,41 +5063,12 @@ W.api = (() => {
   }
 
   // ── Global-response normalizer ───────────────────────
-  // Accepts any shape from any provider and returns the canonical
-  // CoinGecko-shaped response the schema validator expects:
-  //
-  //   {
-  //     data: {
-  //       active_cryptocurrencies:  number|null,
-  //       markets:                 number|null,
-  //       total_market_cap:        { usd: number|null },
-  //       total_volume:            { usd: number|null },
-  //       market_cap_percentage:   { btc: number|null },
-  //       market_cap_change_percentage_24h_usd: number,
-  //       updated_at:              number
-  //     }
-  //   }
-  //
-  // Recognized provider shapes:
-  //   CoinLore:     [ { total_mcap, total_volume, btc_d, mcap_change,
-  //                     coins, exchanges, ... } ]  (array-wrapped)
-  //   CoinPaprika:  { market_cap_usd, volume_24h_usd,
-  //                   bitcoin_dominance_percentage,
-  //                   market_cap_change_24h,
-  //                   cryptocurrencies, active_market_pairs, ... }
-  //   Already-canonical: { data: { ... } }
-  //
-  // Any other shape yields a canonical response with nulls. The
-  // caller never sees a non-object `data`.
   function _normalizeGlobal(raw) {
     const now = Date.now();
 
-    // Unwrap a top-level array (CoinLore).
     let src = raw;
     if (Array.isArray(src)) src = src[0] || {};
 
-    // Unwrap { data: ... } if present (already-normalized or
-    // CoinGecko-shaped).
     if (
       src &&
       typeof src === "object" &&
@@ -5065,7 +5079,6 @@ W.api = (() => {
     }
     if (!src || typeof src !== "object") src = {};
 
-    // Each field tries every known provider key in priority order.
     const pickFirst = (...vals) => {
       for (const v of vals) {
         const n = _coerceNumber(v);
@@ -5126,19 +5139,11 @@ W.api = (() => {
     };
   }
 
-  // The one field where the schema requires a number rather than a
-  // nullable number. Explicitly 0 only when we genuinely have no
-  // signal — this is a semantic "no change measured" rather than a
-  // fabricated price.
   function mcap24hOrZero(v) {
     return Number.isFinite(v) ? v : 0;
   }
 
   // ── Provider circuit breaker ─────────────────────────
-  // When a provider returns HTTP 402 (CoinPaprika's quota-exhausted
-  // signal), mark it blocked for 1 hour. Adds +/- 20% jitter to the
-  // recovery delay so multiple browser tabs don't all retry at the
-  // same instant.
   const providerBlockedUntil = Object.create(null);
   function isProviderBlocked(name) {
     return (
@@ -5151,9 +5156,6 @@ W.api = (() => {
   }
 
   // ── In-flight request deduplication ──────────────────
-  // N concurrent calls to the same URL share one network request.
-  // This is the difference between "opening the Dashboard fires 4
-  // parallel price fetches" and "fires 1".
   const inflight = new Map();
   function _dedupeRequest(key, fn) {
     if (inflight.has(key)) return inflight.get(key);
@@ -5199,9 +5201,6 @@ W.api = (() => {
   }
 
   // ── Bounded LRU cache ────────────────────────────────
-  // Each key maps to { timestamp, value, size }. On write we evict
-  // the oldest entries until we're within both caps (count and
-  // bytes). Keeps localStorage from silently filling up.
   const _cacheIndex = Object.create(null);
 
   function _loadIndex() {
@@ -5212,16 +5211,12 @@ W.api = (() => {
       if (parsed && typeof parsed === "object") {
         for (const k of Object.keys(parsed)) _cacheIndex[k] = parsed[k];
       }
-    } catch {
-      /* corrupted index — start fresh */
-    }
+    } catch {}
   }
   function _saveIndex() {
     try {
       localStorage.setItem("api_cache_index", JSON.stringify(_cacheIndex));
-    } catch {
-      /* non-fatal */
-    }
+    } catch {}
   }
   _loadIndex();
 
@@ -5239,7 +5234,6 @@ W.api = (() => {
       return;
     }
 
-    // Oldest first
     entries.sort((a, b) => a.at - b.at);
     let i = 0;
     while (
@@ -5249,9 +5243,7 @@ W.api = (() => {
       const victim = entries[i++];
       try {
         localStorage.removeItem(getCacheKey(victim.key));
-      } catch {
-        /* ignore */
-      }
+      } catch {}
       delete _cacheIndex[victim.key];
       totalBytes -= victim.size;
     }
@@ -5260,7 +5252,7 @@ W.api = (() => {
 
   function getCached(url, ttl = CACHE_TTL) {
     try {
-      const key = url; // full URL is the index key
+      const key = url;
       const raw = localStorage.getItem(getCacheKey(url));
       if (!raw) return null;
       const data = JSON.parse(raw);
@@ -5269,7 +5261,6 @@ W.api = (() => {
         delete _cacheIndex[key];
         return null;
       }
-      // Touch the LRU timestamp
       if (_cacheIndex[key]) _cacheIndex[key].at = Date.now();
       return data.value;
     } catch {
@@ -5297,11 +5288,7 @@ W.api = (() => {
         });
         W.store.set("last_known_prices", priceCache);
       }
-    } catch {
-      // localStorage can overflow on large responses. Silently skip
-      // caching in that case — the in-memory response is still
-      // returned to the caller.
-    }
+    } catch {}
   }
 
   function isCircuitOpen() {
@@ -5310,7 +5297,6 @@ W.api = (() => {
   function recordFailure() {
     circuitBreaker.failures++;
     if (circuitBreaker.failures >= 5) {
-      // Jittered so multiple tabs don't reset at the same instant.
       const base = 90000;
       const jitter = base * (0.8 + Math.random() * 0.4);
       circuitBreaker.until = Date.now() + jitter;
@@ -5404,17 +5390,13 @@ W.api = (() => {
       });
       const keys = Object.keys(map);
       if (keys.length > SYM_MAP_MAX) {
-        // Keep the most recent N — insertion order is preserved by
-        // V8 for string keys.
         const trimmed = {};
         for (const k of keys.slice(-SYM_MAP_MAX)) trimmed[k] = map[k];
         W.store.set("sym-map", trimmed);
       } else {
         W.store.set("sym-map", map);
       }
-    } catch {
-      /* non-fatal */
-    }
+    } catch {}
   }
   function getSymbol(id) {
     try {
@@ -5448,7 +5430,7 @@ W.api = (() => {
             id,
             symbol: String(t.symbol).toLowerCase(),
             name: t.name,
-            image: "",
+            image: logoFor(id),
             current_price: price,
             market_cap: _coerceNumber(t.market_cap_usd),
             total_volume: _coerceNumber(t.volume24),
@@ -5477,11 +5459,12 @@ W.api = (() => {
         .map((t) => {
           const price = _coerceNumber(t.price_usd);
           if (price === null) return null;
+          const id = SYMBOL_TO_ID[String(t.symbol).toUpperCase()] || t.nameid;
           return {
-            id: SYMBOL_TO_ID[String(t.symbol).toUpperCase()] || t.nameid,
+            id,
             symbol: String(t.symbol).toLowerCase(),
             name: t.name,
-            image: "",
+            image: logoFor(id),
             current_price: price,
             market_cap: _coerceNumber(t.market_cap_usd),
             total_volume: _coerceNumber(t.volume24),
@@ -5529,7 +5512,7 @@ W.api = (() => {
               id,
               symbol: ID_TO_SYMBOL[id].toLowerCase(),
               name: id,
-              image: "",
+              image: logoFor(id),
               current_price: price,
               market_cap: null,
               total_volume: null,
@@ -5549,9 +5532,6 @@ W.api = (() => {
       return clean;
     },
     top: () => Promise.reject(new Error("Coinbase: no top-list endpoint")),
-    // Coinbase has no global endpoint. Throwing lets the failover
-    // chain move on; the caller (W.api.global) never sees a
-    // half-shaped response.
     global: () => Promise.reject(new Error("Coinbase: no global endpoint")),
     chart: () => Promise.reject(new Error("Coinbase: chart not wired")),
     ohlcv: () => Promise.reject(new Error("Coinbase: OHLCV not wired")),
@@ -5586,7 +5566,7 @@ W.api = (() => {
             id,
             symbol: String(t.symbol).toLowerCase(),
             name: t.name,
-            image: "",
+            image: logoFor(id),
             current_price: price,
             market_cap: _coerceNumber(q.market_cap),
             total_volume: _coerceNumber(q.volume_24h),
@@ -5623,7 +5603,7 @@ W.api = (() => {
             id,
             symbol: String(t.symbol).toLowerCase(),
             name: t.name,
-            image: "",
+            image: logoFor(id),
             current_price: price,
             market_cap: _coerceNumber(q.market_cap),
             total_volume: _coerceNumber(q.volume_24h),
@@ -5849,20 +5829,9 @@ W.api = (() => {
     top: (limit = 100) =>
       limit <= 50 ? getTopCached(limit) : withFailover("top", limit),
 
-    // ── global() — NEVER throws ──────────────────────
-    // The schema validator runs on the result of this call. If we
-    // let an exception escape (all providers blocked, network down),
-    // the caller catches it and typically stores `{ error: ... }`,
-    // which then fails schema validation with
-    // "coingecko global: data must be an object" — masking the real
-    // cause. Returning a canonical shape with nulls is honest
-    // (§2.7: null means "unknown", not "zero") and keeps the schema
-    // contract satisfied regardless of provider state.
     global: async () => {
       try {
         const result = await withFailover("global");
-        // Belt-and-braces: normalize again at the boundary in case a
-        // future provider bypasses its own normalizer.
         return _normalizeGlobal(result);
       } catch (e) {
         console.warn(
@@ -5889,7 +5858,6 @@ W.api = (() => {
     getSymbol,
     learnSymbols,
 
-    // Exposed for tests and diagnostics.
     _normalizeGlobal,
 
     get source() {
@@ -5899,7 +5867,7 @@ W.api = (() => {
 })();
 
 console.log(
-  "[Prices] Module loaded (CoinLore → CoinBase → CoinPaprika → Cache; global() normalized and non-throwing; bounded caches; inflight dedup).",
+  "[Prices] Module loaded (CoinLore → CoinBase → CoinPaprika → Cache; logos for 26 tokens; global() normalized and non-throwing).",
 );
 // ---- js/api/snapshot.js ----
 // js/api/snapshot.js – Fallback Snapshot Cache

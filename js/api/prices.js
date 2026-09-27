@@ -1,46 +1,5 @@
 // ===============================================================
-//                  Market Data API (Constitutionally Compliant)
-// ===============================================================
-// §2.7 No Fabricated Data: never returns $0.00 for missing prices.
-//      Missing values are `null` throughout, and `null` propagates
-//      honestly to the UI as "—" or "unavailable".
-// §3.4 Graceful Degradation:
-//      CoinLore → CoinBase → CoinPaprika → stale cache. Every
-//      provider's `global()` output is normalized to a single
-//      canonical shape before leaving this module.
-// §3.6 Caching:
-//      Bounded LRU per localStorage key, plus in-memory dedup of
-//      concurrent in-flight requests.
-// §3.7 Deterministic:
-//      All numeric parsing goes through a single null-preserving
-//      coerce helper. No `|| 0` that silently collapses "absent"
-//      into "zero".
-//
-// v5 changelog:
-//   - `_normalizeGlobal()` — single shape-normalizer used by every
-//     provider's global(). Fixes the SchemaValidationError:
-//     "coingecko global: data must be an object" that fired when
-//     CoinLore returned an array or CoinPaprika returned a flat
-//     object instead of the wrapped { data: {...} } shape.
-//   - `W.api.global()` never throws. On total provider failure it
-//     returns the canonical shape with explicit nulls, so a
-//     downstream schema validator gets a well-typed object instead
-//     of catching an exception and storing a `{ error: ... }`
-//     payload that then fails schema validation.
-//   - Bounded caches: every localStorage key gets an LRU with a
-//     hard cap on entry count and total byte size.
-//   - In-flight deduplication: N concurrent calls to the same URL
-//     share one network request.
-//   - Circuit-breaker jitter: the recovery delay is randomized
-//     +/- 20% to prevent thundering-herd behavior across browser
-//     tabs.
-//   - `sym-map` is capped at 500 entries to prevent unbounded
-//     localStorage growth.
-//   - `_coerceNumber()` replaces `parseFloat(...) || 0` everywhere.
-//     `parseFloat("0") || 0` was correct; `parseFloat("") || 0`
-//     silently fabricated a zero for missing data.
-//   - URL builders use URLSearchParams for query construction
-//     rather than string concatenation.
+//                  Market Data API 
 // ===============================================================
 
 window.W = window.W || {};
@@ -50,15 +9,12 @@ W.api = (() => {
   const COINLORE_API = "https://api.coinlore.net/api";
   const COINBASE_API = "https://api.coinbase.com/v2";
 
-  const CACHE_TTL = 60000; // 1 min for live prices
-  const LONG_CACHE_TTL = 1800000; // 30 min for chart/coin/global
-  const TICKERS_TTL = 120000; // 2 min for /tickers snapshots
+  const CACHE_TTL = 60000;
+  const LONG_CACHE_TTL = 1800000;
+  const TICKERS_TTL = 120000;
 
-  // Bounded caches: hard caps on entry count and total bytes per
-  // localStorage key. Prevents unbounded growth that would eventually
-  // overflow the ~5 MB localStorage quota.
   const CACHE_MAX_ENTRIES = 200;
-  const CACHE_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+  const CACHE_MAX_BYTES = 2 * 1024 * 1024;
   const SYM_MAP_MAX = 500;
 
   const PROXIES = [
@@ -67,6 +23,65 @@ W.api = (() => {
       encodeURIComponent(u),
     (u) => u,
   ];
+
+  // ── Token logo URLs ─────────────────────────────────────────
+  // None of the three market-data providers return image URLs, so
+  // the dashboard has been rendering letter avatars since v3.2.
+  // This static map covers the tokens the app displays most often.
+  //
+  // CoinGecko's CDN serves these images without authentication and
+  // without meaningful rate limits. It is independent of the
+  // CoinGecko price API that was removed from the app for other
+  // reasons. Adding a token here is a one-line edit.
+  //
+  // Keys are the internal IDs used throughout the app
+  // (ID_TO_SYMBOL). Tokens absent from this map fall through to the
+  // letter avatar in the UI.
+  const LOGO_MAP = Object.freeze({
+    bitcoin: "https://assets.coingecko.com/coins/images/1/small/bitcoin.png",
+    ethereum:
+      "https://assets.coingecko.com/coins/images/279/small/ethereum.png",
+    tether: "https://assets.coingecko.com/coins/images/325/small/Tether.png",
+    "usd-coin": "https://assets.coingecko.com/coins/images/6319/small/usdc.png",
+    binancecoin:
+      "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png",
+    solana: "https://assets.coingecko.com/coins/images/4128/small/solana.png",
+    ripple:
+      "https://assets.coingecko.com/coins/images/44/small/xrp-symbol-white-128.png",
+    cardano: "https://assets.coingecko.com/coins/images/975/small/cardano.png",
+    dogecoin: "https://assets.coingecko.com/coins/images/5/small/dogecoin.png",
+    "shiba-inu":
+      "https://assets.coingecko.com/coins/images/11939/small/shiba.png",
+    litecoin: "https://assets.coingecko.com/coins/images/2/small/litecoin.png",
+    "bitcoin-cash":
+      "https://assets.coingecko.com/coins/images/780/small/bitcoin-cash-circle.png",
+    tron: "https://assets.coingecko.com/coins/images/1094/small/tron-logo.png",
+    stellar:
+      "https://assets.coingecko.com/coins/images/100/small/Stellar_symbol_black_RGB.png",
+    uniswap:
+      "https://assets.coingecko.com/coins/images/12504/small/uniswap-uni.png",
+    aave: "https://assets.coingecko.com/coins/images/12645/small/AAVE.png",
+    dai: "https://assets.coingecko.com/coins/images/9956/small/Badge_Dai.png",
+    polkadot:
+      "https://assets.coingecko.com/coins/images/12171/small/polkadot.png",
+    matic: "https://assets.coingecko.com/coins/images/4713/small/polygon.png",
+    "avalanche-2":
+      "https://assets.coingecko.com/coins/images/12559/small/Avalanche_Circle_RedWhite_Trans.png",
+    arbitrum: "https://assets.coingecko.com/coins/images/16547/small/arb.jpg",
+    optimism:
+      "https://assets.coingecko.com/coins/images/25244/small/Optimism.png",
+    cosmos:
+      "https://assets.coingecko.com/coins/images/1481/small/cosmos_hub.png",
+    near: "https://assets.coingecko.com/coins/images/10365/small/near.jpg",
+    filecoin:
+      "https://assets.coingecko.com/coins/images/12817/small/filecoin.png",
+    aptos:
+      "https://assets.coingecko.com/coins/images/26455/small/aptos_round.png",
+  });
+
+  function logoFor(id) {
+    return LOGO_MAP[id] || "";
+  }
 
   // ── ID tables ────────────────────────────────────────
   const ID_TO_SYMBOL = Object.freeze({
@@ -159,9 +174,6 @@ W.api = (() => {
   });
 
   // ── Null-preserving numeric coercion ─────────────────
-  // `parseFloat(x) || 0` silently turns "" and null into 0, which
-  // fabricates a value for missing data (§2.7). This helper returns
-  // a finite number or null, and never invents a zero.
   function _coerceNumber(v) {
     if (v === null || v === undefined || v === "") return null;
     const n = typeof v === "number" ? v : parseFloat(v);
@@ -169,41 +181,12 @@ W.api = (() => {
   }
 
   // ── Global-response normalizer ───────────────────────
-  // Accepts any shape from any provider and returns the canonical
-  // CoinGecko-shaped response the schema validator expects:
-  //
-  //   {
-  //     data: {
-  //       active_cryptocurrencies:  number|null,
-  //       markets:                 number|null,
-  //       total_market_cap:        { usd: number|null },
-  //       total_volume:            { usd: number|null },
-  //       market_cap_percentage:   { btc: number|null },
-  //       market_cap_change_percentage_24h_usd: number,
-  //       updated_at:              number
-  //     }
-  //   }
-  //
-  // Recognized provider shapes:
-  //   CoinLore:     [ { total_mcap, total_volume, btc_d, mcap_change,
-  //                     coins, exchanges, ... } ]  (array-wrapped)
-  //   CoinPaprika:  { market_cap_usd, volume_24h_usd,
-  //                   bitcoin_dominance_percentage,
-  //                   market_cap_change_24h,
-  //                   cryptocurrencies, active_market_pairs, ... }
-  //   Already-canonical: { data: { ... } }
-  //
-  // Any other shape yields a canonical response with nulls. The
-  // caller never sees a non-object `data`.
   function _normalizeGlobal(raw) {
     const now = Date.now();
 
-    // Unwrap a top-level array (CoinLore).
     let src = raw;
     if (Array.isArray(src)) src = src[0] || {};
 
-    // Unwrap { data: ... } if present (already-normalized or
-    // CoinGecko-shaped).
     if (
       src &&
       typeof src === "object" &&
@@ -214,7 +197,6 @@ W.api = (() => {
     }
     if (!src || typeof src !== "object") src = {};
 
-    // Each field tries every known provider key in priority order.
     const pickFirst = (...vals) => {
       for (const v of vals) {
         const n = _coerceNumber(v);
@@ -275,19 +257,11 @@ W.api = (() => {
     };
   }
 
-  // The one field where the schema requires a number rather than a
-  // nullable number. Explicitly 0 only when we genuinely have no
-  // signal — this is a semantic "no change measured" rather than a
-  // fabricated price.
   function mcap24hOrZero(v) {
     return Number.isFinite(v) ? v : 0;
   }
 
   // ── Provider circuit breaker ─────────────────────────
-  // When a provider returns HTTP 402 (CoinPaprika's quota-exhausted
-  // signal), mark it blocked for 1 hour. Adds +/- 20% jitter to the
-  // recovery delay so multiple browser tabs don't all retry at the
-  // same instant.
   const providerBlockedUntil = Object.create(null);
   function isProviderBlocked(name) {
     return (
@@ -300,9 +274,6 @@ W.api = (() => {
   }
 
   // ── In-flight request deduplication ──────────────────
-  // N concurrent calls to the same URL share one network request.
-  // This is the difference between "opening the Dashboard fires 4
-  // parallel price fetches" and "fires 1".
   const inflight = new Map();
   function _dedupeRequest(key, fn) {
     if (inflight.has(key)) return inflight.get(key);
@@ -348,9 +319,6 @@ W.api = (() => {
   }
 
   // ── Bounded LRU cache ────────────────────────────────
-  // Each key maps to { timestamp, value, size }. On write we evict
-  // the oldest entries until we're within both caps (count and
-  // bytes). Keeps localStorage from silently filling up.
   const _cacheIndex = Object.create(null);
 
   function _loadIndex() {
@@ -361,16 +329,12 @@ W.api = (() => {
       if (parsed && typeof parsed === "object") {
         for (const k of Object.keys(parsed)) _cacheIndex[k] = parsed[k];
       }
-    } catch {
-      /* corrupted index — start fresh */
-    }
+    } catch {}
   }
   function _saveIndex() {
     try {
       localStorage.setItem("api_cache_index", JSON.stringify(_cacheIndex));
-    } catch {
-      /* non-fatal */
-    }
+    } catch {}
   }
   _loadIndex();
 
@@ -388,7 +352,6 @@ W.api = (() => {
       return;
     }
 
-    // Oldest first
     entries.sort((a, b) => a.at - b.at);
     let i = 0;
     while (
@@ -398,9 +361,7 @@ W.api = (() => {
       const victim = entries[i++];
       try {
         localStorage.removeItem(getCacheKey(victim.key));
-      } catch {
-        /* ignore */
-      }
+      } catch {}
       delete _cacheIndex[victim.key];
       totalBytes -= victim.size;
     }
@@ -409,7 +370,7 @@ W.api = (() => {
 
   function getCached(url, ttl = CACHE_TTL) {
     try {
-      const key = url; // full URL is the index key
+      const key = url;
       const raw = localStorage.getItem(getCacheKey(url));
       if (!raw) return null;
       const data = JSON.parse(raw);
@@ -418,7 +379,6 @@ W.api = (() => {
         delete _cacheIndex[key];
         return null;
       }
-      // Touch the LRU timestamp
       if (_cacheIndex[key]) _cacheIndex[key].at = Date.now();
       return data.value;
     } catch {
@@ -446,11 +406,7 @@ W.api = (() => {
         });
         W.store.set("last_known_prices", priceCache);
       }
-    } catch {
-      // localStorage can overflow on large responses. Silently skip
-      // caching in that case — the in-memory response is still
-      // returned to the caller.
-    }
+    } catch {}
   }
 
   function isCircuitOpen() {
@@ -459,7 +415,6 @@ W.api = (() => {
   function recordFailure() {
     circuitBreaker.failures++;
     if (circuitBreaker.failures >= 5) {
-      // Jittered so multiple tabs don't reset at the same instant.
       const base = 90000;
       const jitter = base * (0.8 + Math.random() * 0.4);
       circuitBreaker.until = Date.now() + jitter;
@@ -553,17 +508,13 @@ W.api = (() => {
       });
       const keys = Object.keys(map);
       if (keys.length > SYM_MAP_MAX) {
-        // Keep the most recent N — insertion order is preserved by
-        // V8 for string keys.
         const trimmed = {};
         for (const k of keys.slice(-SYM_MAP_MAX)) trimmed[k] = map[k];
         W.store.set("sym-map", trimmed);
       } else {
         W.store.set("sym-map", map);
       }
-    } catch {
-      /* non-fatal */
-    }
+    } catch {}
   }
   function getSymbol(id) {
     try {
@@ -597,7 +548,7 @@ W.api = (() => {
             id,
             symbol: String(t.symbol).toLowerCase(),
             name: t.name,
-            image: "",
+            image: logoFor(id),
             current_price: price,
             market_cap: _coerceNumber(t.market_cap_usd),
             total_volume: _coerceNumber(t.volume24),
@@ -626,11 +577,12 @@ W.api = (() => {
         .map((t) => {
           const price = _coerceNumber(t.price_usd);
           if (price === null) return null;
+          const id = SYMBOL_TO_ID[String(t.symbol).toUpperCase()] || t.nameid;
           return {
-            id: SYMBOL_TO_ID[String(t.symbol).toUpperCase()] || t.nameid,
+            id,
             symbol: String(t.symbol).toLowerCase(),
             name: t.name,
-            image: "",
+            image: logoFor(id),
             current_price: price,
             market_cap: _coerceNumber(t.market_cap_usd),
             total_volume: _coerceNumber(t.volume24),
@@ -678,7 +630,7 @@ W.api = (() => {
               id,
               symbol: ID_TO_SYMBOL[id].toLowerCase(),
               name: id,
-              image: "",
+              image: logoFor(id),
               current_price: price,
               market_cap: null,
               total_volume: null,
@@ -698,9 +650,6 @@ W.api = (() => {
       return clean;
     },
     top: () => Promise.reject(new Error("Coinbase: no top-list endpoint")),
-    // Coinbase has no global endpoint. Throwing lets the failover
-    // chain move on; the caller (W.api.global) never sees a
-    // half-shaped response.
     global: () => Promise.reject(new Error("Coinbase: no global endpoint")),
     chart: () => Promise.reject(new Error("Coinbase: chart not wired")),
     ohlcv: () => Promise.reject(new Error("Coinbase: OHLCV not wired")),
@@ -735,7 +684,7 @@ W.api = (() => {
             id,
             symbol: String(t.symbol).toLowerCase(),
             name: t.name,
-            image: "",
+            image: logoFor(id),
             current_price: price,
             market_cap: _coerceNumber(q.market_cap),
             total_volume: _coerceNumber(q.volume_24h),
@@ -772,7 +721,7 @@ W.api = (() => {
             id,
             symbol: String(t.symbol).toLowerCase(),
             name: t.name,
-            image: "",
+            image: logoFor(id),
             current_price: price,
             market_cap: _coerceNumber(q.market_cap),
             total_volume: _coerceNumber(q.volume_24h),
@@ -998,20 +947,9 @@ W.api = (() => {
     top: (limit = 100) =>
       limit <= 50 ? getTopCached(limit) : withFailover("top", limit),
 
-    // ── global() — NEVER throws ──────────────────────
-    // The schema validator runs on the result of this call. If we
-    // let an exception escape (all providers blocked, network down),
-    // the caller catches it and typically stores `{ error: ... }`,
-    // which then fails schema validation with
-    // "coingecko global: data must be an object" — masking the real
-    // cause. Returning a canonical shape with nulls is honest
-    // (§2.7: null means "unknown", not "zero") and keeps the schema
-    // contract satisfied regardless of provider state.
     global: async () => {
       try {
         const result = await withFailover("global");
-        // Belt-and-braces: normalize again at the boundary in case a
-        // future provider bypasses its own normalizer.
         return _normalizeGlobal(result);
       } catch (e) {
         console.warn(
@@ -1038,7 +976,6 @@ W.api = (() => {
     getSymbol,
     learnSymbols,
 
-    // Exposed for tests and diagnostics.
     _normalizeGlobal,
 
     get source() {
@@ -1048,5 +985,5 @@ W.api = (() => {
 })();
 
 console.log(
-  "[Prices] Module loaded (CoinLore → CoinBase → CoinPaprika → Cache; global() normalized and non-throwing; bounded caches; inflight dedup).",
+  "[Prices] Module loaded (CoinLore → CoinBase → CoinPaprika → Cache; logos for 26 tokens; global() normalized and non-throwing).",
 );
