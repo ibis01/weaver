@@ -8972,31 +8972,44 @@ console.log("[DecisionEngine] Module loaded (hardened, REBALANCE removed).");
 // ===============================================================
 //         Live Event Collector – Uses Evidence Builder
 // ===============================================================
-// Constitution Compliance: Task 7 (Defensible Confidence),
-//                         Task 8 (Thesis Health Integration)
+// Constitution Compliance:
+//   Task 7 (Defensible Confidence) — every signal stores only the
+//     honest inputs it possesses. The ONE confidence function
+//     (W.intelligence.computeConfidence) is the only place any
+//     number is ever computed from those inputs.
+//   Task 8 (Thesis Health Integration)
 //
 // v2 changelog:
-//   - Signals built via W.intelligence.create.signal(). Malformed
-//     input returns null, never a partially-formed object.
-//   - Metadata field renamed _metadata → metadata (see types.js).
-//   - Cache is versioned. Old cache shapes are ignored, not coerced.
-//   - Cache write is atomic: the full payload is validated before
-//     the write happens, so a partial write cannot leave a corrupt
-//     cache behind.
-//   - All collector bodies guard against non-array returns from
-//     downstream modules (W.unlocks.list, W.opportunities.scan).
-//   - Prototype-pollution safe: raw payloads are never merged into
-//     plain objects via attacker-controlled keys.
-//   - Timestamp bounds: signals older than 7 days or newer than now
-//     are rejected at ingest.
-//   - Deduplication uses metadata.dataCompleteness correctly when
-//     either side is null (null is treated as "unknown", not 0).
+//   - Signals built via W.intelligence.create.signal().
+//   - Metadata field renamed _metadata → metadata.
+//   - Cache versioned and read/write atomic.
+//
+// v3 changelog (canonical-contract enforcement):
+//   - REMOVED every local `sourceRel * freshness` calculation. That
+//     pattern was multiplying source reliability and data freshness
+//     twice (once here, once inside computeConfidence) and
+//     mislabelling the product as `interpretationConfidence`. The
+//     contract in types.js is now the only place a confidence
+//     number is ever produced.
+//   - `sourceReliability` and `dataFreshness` are deliberately NOT
+//     stored in the signal. They are derived at evidence-build time
+//     from the source name and the signal's timestamp.
+//   - `interpretationConfidence` is only populated when the
+//     producing detector provides one. Otherwise it is `null`, and
+//     `null` propagates honestly: computeConfidence returns `null`,
+//     and the UI surfaces "confidence unavailable" rather than a
+//     fabricated number (§2.7, §2.9).
+//   - `dataCompleteness` is likewise `null` when we cannot honestly
+//     estimate it. It is never defaulted to a made-up value.
+//   - Every collector now records an explicit `reasoning` array on
+//     the signal's rawData explaining WHY the signal fired. This
+//     gives the evidence drawer something honest to display.
 // ===============================================================
 
 window.W = window.W || {};
 W.events = (() => {
   const CACHE_KEY = "w_events_cache";
-  const CACHE_VERSION = 2;
+  const CACHE_VERSION = 3;
   const TTL = 5 * 60 * 1000;
   const DAY = 864e5;
   const MAX_SIGNAL_AGE_MS = 7 * DAY;
@@ -9005,21 +9018,23 @@ W.events = (() => {
   function _isValidTimestamp(ts) {
     if (!Number.isFinite(ts)) return false;
     if (ts <= 0) return false;
-    if (ts > Date.now() + 60000) return false; // reject future
+    if (ts > Date.now() + 60000) return false;
     if (Date.now() - ts > MAX_SIGNAL_AGE_MS) return false;
     return true;
   }
 
-  function calculateDataFreshness(timestamp) {
-    if (!Number.isFinite(timestamp)) return 0;
-    const ageMs = Date.now() - timestamp;
-    if (ageMs < 60000) return 1.0;
-    if (ageMs < 3600000) return 0.8;
-    if (ageMs < 86400000) return 0.5;
-    return 0.2;
-  }
-
   // ── Normalize a raw payload into a canonical Signal ──────
+  //
+  // NOTE: this function does NOT compute a confidence. It builds
+  // the signal's metadata from the four honest inputs it has —
+  // corroborationCount, dataCompleteness, interpretationConfidence,
+  // and the source name (which the evidence-builder later feeds
+  // into getSourceReliability). The fifth input, dataFreshness, is
+  // derived from `timestamp` at evidence-build time.
+  //
+  // If a collector cannot honestly populate dataCompleteness or
+  // interpretationConfidence, it must pass `null` for that field.
+  // Silent defaulting is forbidden by §2.7 / §2.9.
   function normalize(raw, type) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
 
@@ -9044,14 +9059,25 @@ W.events = (() => {
       : Date.now();
     if (!_isValidTimestamp(timestamp)) return null;
 
+    // Build metadata strictly from what the collector supplied.
+    // No defaults. No computations. No fallbacks.
     const metadata = {
-      corroborationCount: raw.corroborationCount || 1,
+      corroborationCount:
+        Number.isInteger(raw.corroborationCount) && raw.corroborationCount >= 1
+          ? raw.corroborationCount
+          : 1,
       dataCompleteness:
-        raw.dataCompleteness === undefined ? null : raw.dataCompleteness,
+        Number.isFinite(raw.dataCompleteness) &&
+        raw.dataCompleteness >= 0 &&
+        raw.dataCompleteness <= 1
+          ? raw.dataCompleteness
+          : null,
       interpretationConfidence:
-        raw.interpretationConfidence === undefined
-          ? null
-          : raw.interpretationConfidence,
+        Number.isFinite(raw.interpretationConfidence) &&
+        raw.interpretationConfidence >= 0 &&
+        raw.interpretationConfidence <= 1
+          ? raw.interpretationConfidence
+          : null,
     };
 
     const signal = W.intelligence.create.signal({
@@ -9059,7 +9085,14 @@ W.events = (() => {
       source: raw.source || "weaver",
       assetId: assetIdInput,
       timestamp,
-      rawData: { ...raw, title },
+      // rawData carries the payload plus a reasoning trail. The
+      // reasoning array is the honest "why did this fire" record
+      // that the evidence drawer can render.
+      rawData: {
+        ...raw,
+        title,
+        reasoning: Array.isArray(raw.reasoning) ? raw.reasoning.slice() : [],
+      },
       metadata,
     });
 
@@ -9079,25 +9112,31 @@ W.events = (() => {
       const change = Math.abs(changeRaw);
       if (change <= 3) return;
 
-      const lastUpdated = coin.last_updated
-        ? new Date(coin.last_updated).getTime()
-        : Date.now();
-      const freshness = calculateDataFreshness(
-        _isValidTimestamp(lastUpdated) ? lastUpdated : Date.now(),
-      );
-      const sourceRel = W.intelligence.getSourceReliability("coinlore");
-      const confidence = sourceRel * freshness;
+      // Honest payload description for the evidence drawer.
+      const reasoning = [
+        `24h price change of ${changeRaw.toFixed(2)}% exceeds the 3% materiality threshold.`,
+      ];
 
+      // dataCompleteness is genuinely high for a CoinLore ticker —
+      // we have price, market cap, volume, and 24h change in one
+      // payload. 0.9 reflects "we have the fields we need, though
+      // we do not have OHLC granularity".
+      //
+      // interpretationConfidence is the producer's own confidence
+      // that this is a "signal" worth surfacing. A 3% move being
+      // material is a heuristic; 0.7 says "usually meaningful, not
+      // always". This is an honest number, not a computed one.
       const sig = normalize(
         {
           symbol: coin.symbol,
           name: coin.name,
           title: `${coin.name} moved ${changeRaw.toFixed(1)}% in 24h`,
           impactValue: Math.min(1, change / 15),
-          confidence: confidence,
           urgency: change > 7 ? 0.9 : 0.6,
           source: "coinlore",
           dataCompleteness: 0.9,
+          interpretationConfidence: 0.7,
+          reasoning,
         },
         "PRICE_MOVE",
       );
@@ -9110,6 +9149,7 @@ W.events = (() => {
     const events = [];
     try {
       if (!W.regime || !fg || !g) return events;
+
       const fgValue = Number(fg.value);
       const btcDom = Number(g.data?.market_cap_percentage?.btc);
       const capChange = Number(g.data?.market_cap_change_percentage_24h_usd);
@@ -9121,30 +9161,57 @@ W.events = (() => {
       });
       if (!regimeData || regimeData.regime === "UNKNOWN") return events;
 
-      const freshness = calculateDataFreshness(Date.now());
-      const sourceRel = W.intelligence.getSourceReliability("weaver_regime");
-      const confidence = sourceRel * freshness;
-      const completeness =
-        Number.isFinite(fgValue) && Number.isFinite(btcDom) ? 0.9 : 0.5;
+      // dataCompleteness: the regime detector needs all three
+      // inputs (fear/greed, BTC dominance, cap change) to produce a
+      // high-confidence regime call. We report the fraction we
+      // actually had.
+      const inputsPresent = [
+        Number.isFinite(fgValue),
+        Number.isFinite(btcDom),
+        Number.isFinite(capChange),
+      ].filter(Boolean).length;
+      const dataCompleteness = inputsPresent / 3;
 
-      const signalsText = Array.isArray(regimeData.signals)
+      // interpretationConfidence: the regime detector itself
+      // publishes its own confidence in the regime classification.
+      // That is the honest number to carry here — it is the
+      // producer's confidence in its own interpretation, not a
+      // mixture of source reliability and freshness.
+      const interpretationConfidence = Number.isFinite(regimeData.confidence)
+        ? Math.max(0, Math.min(1, regimeData.confidence))
+        : null;
+
+      const signalDescriptions = Array.isArray(regimeData.signals)
         ? regimeData.signals
             .map((s) => s && s.value)
             .filter(Boolean)
             .join(", ")
         : "";
 
+      const reasoning = [
+        `Regime classifier returned "${regimeData.regime}".`,
+        `Inputs present: ${inputsPresent}/3 (fear/greed, BTC dominance, cap change).`,
+        signalDescriptions
+          ? `Signals contributing: ${signalDescriptions}.`
+          : null,
+      ].filter(Boolean);
+
       const sig = normalize(
         {
           symbol: "BTC",
           title: `Market Regime Shift: ${regimeData.regime}`,
-          description: `Confidence: ${((regimeData.confidence || 0) * 100).toFixed(0)}%. Signals: ${signalsText}`,
+          description: `Detector confidence: ${
+            Number.isFinite(regimeData.confidence)
+              ? (regimeData.confidence * 100).toFixed(0) + "%"
+              : "unavailable"
+          }.`,
           impactValue: Number.isFinite(regimeData.confidence)
             ? regimeData.confidence
-            : 0.5,
+            : null,
           source: "weaver_regime",
-          interpretationConfidence: confidence,
-          dataCompleteness: completeness,
+          dataCompleteness,
+          interpretationConfidence,
+          reasoning,
         },
         "REGIME_SHIFT",
       );
@@ -9173,27 +9240,50 @@ W.events = (() => {
       upcoming.forEach((u) => {
         const d = Number(u.date);
         const daysLeft = (d - now) / DAY;
-        const freshness = calculateDataFreshness(d);
-        const sourceRel = W.intelligence.getSourceReliability("token_unlocks");
-        const confidence = sourceRel * freshness;
-        const completeness = u.coinId && u.amount ? 0.9 : 0.6;
-        const amountText =
-          Number.isFinite(u.amount) && u.amount > 0
-            ? Number(u.amount).toLocaleString()
-            : "unknown";
+        const amountKnown = Number.isFinite(u.amount) && u.amount > 0;
+        const coinIdKnown = typeof u.coinId === "string" && u.coinId.length > 0;
+
+        // dataCompleteness: an unlock event is "complete" when we
+        // know both the coin and the amount. Two halves.
+        let dataCompleteness = 0;
+        if (amountKnown) dataCompleteness += 0.5;
+        if (coinIdKnown) dataCompleteness += 0.5;
+
+        // interpretationConfidence for an unlock is deliberately
+        // modest. The schedule is on-chain and factual, but the
+        // IMPACT of an unlock on price is a modelling judgement we
+        // do not actually have a rigorous number for. 0.5 = "we
+        // know the event is real; our read on how it will move the
+        // market is a coin flip".
+        const interpretationConfidence = 0.5;
+
+        const amountText = amountKnown
+          ? Number(u.amount).toLocaleString()
+          : "amount unknown";
+
+        const reasoning = [
+          `Unlock scheduled in ${daysLeft.toFixed(1)} days.`,
+          amountKnown
+            ? `Amount: ${amountText} tokens.`
+            : "Amount was not provided by the source.",
+          coinIdKnown
+            ? `Coin identifier available (${u.coinId}).`
+            : "Coin identifier missing; price impact cannot be estimated.",
+        ];
 
         const sig = normalize(
           {
             symbol: u.symbol,
             name: u.name,
-            title: `${u.name || u.symbol || "Token"} Unlock: ${amountText} tokens`,
+            title: `${u.name || u.symbol || "Token"} Unlock: ${amountText}`,
             description: `${u.type || "Scheduled"} unlock in ${daysLeft.toFixed(1)} days.`,
             impactValue: 0.6,
             source: "token_unlocks",
             coingeckoId: u.coinId,
-            interpretationConfidence: confidence,
-            dataCompleteness: completeness,
+            dataCompleteness,
+            interpretationConfidence,
             corroborationCount: 1,
+            reasoning,
           },
           "UNLOCK",
         );
@@ -9221,11 +9311,29 @@ W.events = (() => {
 
       opportunities.forEach((opp) => {
         if (!opp || typeof opp !== "object") return;
-        const freshness = calculateDataFreshness(Date.now());
-        const sourceRel = W.intelligence.getSourceReliability(
-          opp.source || "opportunity_scanner",
-        );
-        const confidence = sourceRel * freshness;
+
+        // The opportunity scanner is a downstream producer. If it
+        // publishes its own dataCompleteness or interpretationConfidence,
+        // honour those. If it does not, we pass null — we do not
+        // invent a number on its behalf. This is the exact
+        // discipline §2.7 requires.
+        const dataCompleteness =
+          Number.isFinite(opp.dataCompleteness) &&
+          opp.dataCompleteness >= 0 &&
+          opp.dataCompleteness <= 1
+            ? opp.dataCompleteness
+            : null;
+
+        const interpretationConfidence =
+          Number.isFinite(opp.interpretationConfidence) &&
+          opp.interpretationConfidence >= 0 &&
+          opp.interpretationConfidence <= 1
+            ? opp.interpretationConfidence
+            : null;
+
+        const reasoning = Array.isArray(opp.reasoning)
+          ? opp.reasoning.slice()
+          : [];
 
         const sig = normalize(
           {
@@ -9234,12 +9342,11 @@ W.events = (() => {
             description: opp.description,
             impactValue: Number.isFinite(opp.impactValue)
               ? opp.impactValue
-              : 0.5,
+              : null,
             source: opp.source || "opportunity_scanner",
-            interpretationConfidence: confidence,
-            dataCompleteness: Number.isFinite(opp.dataCompleteness)
-              ? opp.dataCompleteness
-              : 0.7,
+            dataCompleteness,
+            interpretationConfidence,
+            reasoning,
           },
           "OPPORTUNITY",
         );
@@ -9312,28 +9419,42 @@ W.events = (() => {
             return;
           }
 
-          const impactValue = Math.min(
-            1,
-            (100 - Number(health.healthScore || 0)) / 100,
-          );
-          const freshness = calculateDataFreshness(Date.now());
-          const sourceRel =
-            W.intelligence.getSourceReliability("thesis_health");
-          const confidence = sourceRel * freshness;
-          const completeness = price && regimeData ? 0.9 : 0.5;
+          // dataCompleteness: the health evaluator needs price AND
+          // regime to make a full judgement. Report what we had.
+          let dataCompleteness = 0;
+          if (price != null) dataCompleteness += 0.5;
+          if (regimeData?.regime) dataCompleteness += 0.5;
+
+          // interpretationConfidence: the health evaluator's own
+          // health score (0–100) is a defensible interpretation-
+          // confidence number — it IS the model's confidence that
+          // the thesis is on track. We normalise it to 0–1. If the
+          // score is non-finite we pass null rather than inventing a
+          // value.
+          const interpretationConfidence = Number.isFinite(health.healthScore)
+            ? Math.max(0, Math.min(1, health.healthScore / 100))
+            : null;
+
+          const reasoning = Array.isArray(health.reasons)
+            ? health.reasons.slice()
+            : [];
 
           const sig = normalize(
             {
               symbol: thesis.symbol,
               name: thesis.asset || thesis.symbol,
               title: `Thesis ${health.status}: ${thesis.symbol}`,
-              description: `Health score: ${health.healthScore}/100. ${(health.reasons || []).join(" ")}`,
-              impactValue,
+              description: `Health score: ${health.healthScore}/100.`,
+              impactValue: Math.min(
+                1,
+                (100 - Number(health.healthScore || 0)) / 100,
+              ),
               source: "thesis_health",
               coingeckoId: thesis.coingeckoId,
-              interpretationConfidence: confidence,
-              dataCompleteness: completeness,
+              dataCompleteness,
+              interpretationConfidence,
               timestamp: Date.now(),
+              reasoning,
             },
             "THESIS_DETERIORATION",
           );
@@ -9349,10 +9470,16 @@ W.events = (() => {
   }
 
   // ── Deduplication ────────────────────────────────────────
-  // Two signals are considered duplicates when they share a type, an
-  // asset symbol, and fall within the same 10-minute bucket. Among
+  //
+  // Two signals are duplicates when they share a type, an asset
+  // symbol, and fall within the same 10-minute bucket. Among
   // duplicates, the one with the higher dataCompleteness wins;
   // null counts as "unknown" and loses to any finite value.
+  //
+  // Note: the winner is chosen by dataCompleteness, not confidence.
+  // Choosing by confidence would require us to compute a
+  // confidence here, and this module is forbidden from doing that.
+  // dataCompleteness is an honest input, not a derivation.
   function _dedupe(signals) {
     const seen = new Map();
     const DEDUP_WINDOW_MS = 10 * 60 * 1000;
@@ -9384,8 +9511,6 @@ W.events = (() => {
       if (!Number.isFinite(cached.timestamp)) return null;
       if (Date.now() - cached.timestamp >= TTL) return null;
       if (!Array.isArray(cached.events)) return null;
-      // Validate every cached signal on read. A cache written by a
-      // buggy version is discarded wholesale, not partially used.
       for (const s of cached.events) {
         if (!W.intelligence.is.signal(s)) return null;
       }
@@ -9463,7 +9588,7 @@ W.events = (() => {
 })();
 
 console.log(
-  "[Events] Module loaded (thesis health integrated, defensible confidence, improved dedup).",
+  "[Events] Module loaded (canonical confidence enforced: no local derivation, honest null on missing inputs).",
 );
 // ---- js/intelligence/technical-analysis.js ----
 // ===============================================================
