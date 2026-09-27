@@ -1,7 +1,7 @@
 // ===============================================================
 //                  Market Data API (Constitutionally Compliant)
 // ===============================================================
-// §3.4 Graceful Degradation: CoinGecko → CoinCap → Cache
+// §3.4 Graceful Degradation: CoinGecko → CoinPaprika → CoinCap → Cache
 // §3.6 Caching: Edge cache (Worker) + Local cache (last_known_prices)
 // §2.7 No Fabricated Data: Never returns $0.00 for missing prices.
 // ===============================================================
@@ -9,22 +9,19 @@
 window.W = window.W || {};
 
 W.api = (() => {
-  // ── Constants ─────────────────────────────────────────
   const CG_API = "https://api.coingecko.com/api/v3";
+  const COINPAPRIKA_API = "https://api.coinpaprika.com/v1";
   const COINCAP_API = "https://api.coincap.io/v2";
   const CACHE_TTL = 60000; // 1 minute
   const LONG_CACHE_TTL = 300000; // 5 minutes
 
-  // ── Request routes ───────────────────────────────────────
-  // Tries Worker proxy first (for edge cache + CORS), then direct fetch.
   const PROXIES = [
     (u) =>
       "https://weaver-proxy.ibis01-weaver.workers.dev/proxy?url=" +
       encodeURIComponent(u),
-    (u) => u, // Direct fetch (allowed by CSP for coingecko, coincap, dexscreener)
+    (u) => u, // Direct fetch (allowed by CSP)
   ];
 
-  // ── State ─────────────────────────────────────────────
   let source = "coingecko";
   let circuitBreaker = { failures: 0, until: 0 };
 
@@ -49,7 +46,8 @@ W.api = (() => {
     if (url.includes("/coins/") && !url.includes("/coins/markets"))
       return "coin";
     if (url.includes("alternative.me/fng")) return "fear-greed";
-    if (url.includes("coincap.io")) return "markets";
+    if (url.includes("coinpaprika.com") || url.includes("coincap.io"))
+      return "markets";
     return "external-data";
   }
 
@@ -62,7 +60,6 @@ W.api = (() => {
   function getCurrency() {
     return W.currency ? W.currency() : "usd";
   }
-
   function getCacheKey(url) {
     return "api_cache:" + url;
   }
@@ -88,7 +85,6 @@ W.api = (() => {
         getCacheKey(url),
         JSON.stringify({ timestamp: Date.now(), value }),
       );
-      // Also update the shared last_known_prices cache for dashboard/walletsync
       if (Array.isArray(value)) {
         const priceCache = W.store.get("last_known_prices", {});
         value.forEach((coin) => {
@@ -128,11 +124,11 @@ W.api = (() => {
       });
       return cached;
     }
-    if (isCircuitOpen()) {
+    if (isCircuitOpen())
       throw new Error(
         "Network is temporarily unavailable. Please try again later.",
       );
-    }
+
     for (const proxy of PROXIES) {
       const proxyUrl = proxy(url);
       const controller = new AbortController();
@@ -164,8 +160,8 @@ W.api = (() => {
         return data;
       } catch (e) {
         clearTimeout(timer);
-        // Added HTTP 403 to catch network-level firewall blocks
-        if (/HTTP 429|HTTP 401|HTTP 403/.test(e.message)) {
+        // Explicitly catch 530 (Origin DNS Error) alongside 429/401/403
+        if (/HTTP 429|HTTP 401|HTTP 403|HTTP 530/.test(e.message)) {
           const stale = getCached(url, 86400000);
           if (stale !== null) {
             source = "cache (stale, rate limited)";
@@ -175,12 +171,12 @@ W.api = (() => {
               staleAfter: 3600000,
             });
             console.warn(
-              `[Prices] Rate limited/auth/blocked — serving stale cache for ${resourceForUrl(url)}`,
+              `[Prices] Rate limited/blocked (530/429/401/403) — serving stale cache for ${resourceForUrl(url)}`,
             );
             return stale;
           }
           console.warn(
-            `[Prices] Rate limited (429/401/403) and no cache — ${resourceForUrl(url)} unavailable`,
+            `[Prices] Rate limited or blocked (${e.message}) — ${resourceForUrl(url)} unavailable`,
           );
           throw new Error(
             "Rate limited or blocked by market data provider. Try again in 60 seconds.",
@@ -246,39 +242,90 @@ W.api = (() => {
       fetchWithProxy(`${CG_API}/search/trending`, CACHE_TTL).then((d) => d),
   };
 
-  // ── CoinCap API (Free, No Auth, CSP-Compliant Fallback) ──
-  // Used when CoinGecko fails (429/401/403). CoinCap uses lowercase IDs
-  // (e.g., "bitcoin", "ethereum") matching CoinGecko, making it a seamless
-  // drop-in replacement for core pricing without sparklines.
-  // §3.4 Graceful Degradation: We lose sparklines, but keep core pricing.
-  const coincap = {
+  // ── CoinPaprika API (Primary Fallback) ──
+  // Added because CoinCap is currently returning 530 Origin DNS errors at the Cloudflare level.
+  const coinpaprika = {
     markets: (ids) => {
-      const url = `${COINCAP_API}/assets?ids=${ids.join(",")}`;
+      const url = `${COINPAPRIKA_API}/tickers?quotes=usd`;
       return fetchWithProxy(url, CACHE_TTL).then((d) => {
-        source = "coincap";
-        const rows = (d.data || []).map((asset) => ({
-          id: asset.id,
-          symbol: asset.symbol.toLowerCase(),
-          name: asset.name,
-          image: "", // CoinCap doesn't provide images in this endpoint
-          current_price: parseFloat(asset.priceUsd),
-          market_cap: parseFloat(asset.marketCapUsd),
-          total_volume: parseFloat(asset.volumeUsd24Hr),
-          price_change_percentage_24h_in_currency: parseFloat(
-            asset.changePercent24Hr,
-          ),
-          price_change_percentage_7d_in_currency: null,
-          price_change_percentage_30d_in_currency: null,
-          sparkline_in_7d: null,
-          market_cap_rank: parseInt(asset.rank, 10),
-        }));
+        source = "coinpaprika";
+        const rows = (d || [])
+          .filter((coin) => ids.includes(coin.id))
+          .map((coin) => ({
+            id: coin.id,
+            symbol: coin.symbol.toLowerCase(),
+            name: coin.name,
+            image: "",
+            current_price: coin.quotes.USD.price,
+            market_cap: coin.quotes.USD.market_cap,
+            total_volume: coin.quotes.USD.volume_24h,
+            price_change_percentage_24h_in_currency:
+              coin.quotes.USD.percent_change_24h,
+            price_change_percentage_7d_in_currency:
+              coin.quotes.USD.percent_change_7d,
+            price_change_percentage_30d_in_currency:
+              coin.quotes.USD.percent_change_30d,
+            sparkline_in_7d: null,
+            market_cap_rank: coin.rank,
+          }));
         learnSymbols(rows);
         return rows;
       });
     },
     top: (limit) => {
-      const url = `${COINCAP_API}/assets?limit=${limit}`;
+      const url = `${COINPAPRIKA_API}/tickers?limit=${limit}&quotes=usd`;
       return fetchWithProxy(url, CACHE_TTL).then((d) => {
+        source = "coinpaprika";
+        const rows = (d || []).map((coin) => ({
+          id: coin.id,
+          symbol: coin.symbol.toLowerCase(),
+          name: coin.name,
+          image: "",
+          current_price: coin.quotes.USD.price,
+          market_cap: coin.quotes.USD.market_cap,
+          total_volume: coin.quotes.USD.volume_24h,
+          price_change_percentage_24h_in_currency:
+            coin.quotes.USD.percent_change_24h,
+          price_change_percentage_7d_in_currency:
+            coin.quotes.USD.percent_change_7d,
+          price_change_percentage_30d_in_currency:
+            coin.quotes.USD.percent_change_30d,
+          sparkline_in_7d: null,
+          market_cap_rank: coin.rank,
+        }));
+        learnSymbols(rows);
+        return rows;
+      });
+    },
+    global: () =>
+      Promise.reject(
+        new Error("CoinPaprika does not provide global market data"),
+      ),
+    search: () =>
+      Promise.reject(
+        new Error("CoinPaprika does not provide search via this endpoint"),
+      ),
+    coin: () =>
+      Promise.reject(
+        new Error(
+          "CoinPaprika does not provide detailed coin data via this endpoint",
+        ),
+      ),
+    trending: () =>
+      Promise.reject(new Error("CoinPaprika does not provide trending data")),
+    chart: () =>
+      Promise.reject(
+        new Error("CoinPaprika does not provide chart data via this endpoint"),
+      ),
+  };
+
+  // ── CoinCap API (Secondary Fallback) ──
+  const coincap = {
+    markets: (ids) =>
+      fetchWithProxy(
+        `${COINCAP_API}/assets?ids=${ids.join(",")}`,
+        CACHE_TTL,
+      ).then((d) => {
         source = "coincap";
         const rows = (d.data || []).map((asset) => ({
           id: asset.id,
@@ -298,8 +345,31 @@ W.api = (() => {
         }));
         learnSymbols(rows);
         return rows;
-      });
-    },
+      }),
+    top: (limit) =>
+      fetchWithProxy(`${COINCAP_API}/assets?limit=${limit}`, CACHE_TTL).then(
+        (d) => {
+          source = "coincap";
+          const rows = (d.data || []).map((asset) => ({
+            id: asset.id,
+            symbol: asset.symbol.toLowerCase(),
+            name: asset.name,
+            image: "",
+            current_price: parseFloat(asset.priceUsd),
+            market_cap: parseFloat(asset.marketCapUsd),
+            total_volume: parseFloat(asset.volumeUsd24Hr),
+            price_change_percentage_24h_in_currency: parseFloat(
+              asset.changePercent24Hr,
+            ),
+            price_change_percentage_7d_in_currency: null,
+            price_change_percentage_30d_in_currency: null,
+            sparkline_in_7d: null,
+            market_cap_rank: parseInt(asset.rank, 10),
+          }));
+          learnSymbols(rows);
+          return rows;
+        },
+      ),
     global: () =>
       Promise.reject(new Error("CoinCap does not provide global market data")),
     search: () => Promise.reject(new Error("CoinCap does not provide search")),
@@ -313,7 +383,6 @@ W.api = (() => {
       ),
   };
 
-  // ── OHLCV via CoinGecko ────────────────────────────────
   function ohlcvViaCoinGecko(id, interval, limit) {
     const days =
       interval === "1d"
@@ -321,9 +390,7 @@ W.api = (() => {
         : interval === "4h"
           ? Math.max(1, Math.min(90, Math.ceil(limit / 6)))
           : Math.max(1, Math.min(30, Math.ceil(limit / 24)));
-    const url =
-      `${CG_API}/coins/${id}/ohlc` +
-      `?vs_currency=${getCurrency()}&days=${days}`;
+    const url = `${CG_API}/coins/${id}/ohlc?vs_currency=${getCurrency()}&days=${days}`;
     return fetchWithProxy(url, LONG_CACHE_TTL).then((d) => {
       const arr = Array.isArray(d) ? d : [];
       return arr.slice(-limit).map((k) => ({
@@ -339,11 +406,16 @@ W.api = (() => {
   }
 
   // ── API with smart failover ────────────────────────────
-  // Order: CoinGecko (rich data) → CoinCap (reliable fallback) → Cache
   async function withFailover(method, ...args) {
-    const order = ["coingecko", "coincap"];
+    // Order: CoinGecko → CoinPaprika → CoinCap → Cache
+    const order = ["coingecko", "coinpaprika", "coincap"];
     for (const providerName of order) {
-      const provider = providerName === "coingecko" ? coingecko : coincap;
+      const provider =
+        providerName === "coingecko"
+          ? coingecko
+          : providerName === "coinpaprika"
+            ? coinpaprika
+            : coincap;
       if (!provider[method]) continue;
       try {
         const result = await provider[method](...args);
@@ -383,8 +455,10 @@ W.api = (() => {
   return {
     markets: (ids) => {
       if (!ids || !ids.length) return Promise.resolve([]);
-      const idArray = typeof ids === "string" ? ids.split(",") : ids;
-      return withFailover("markets", idArray);
+      return withFailover(
+        "markets",
+        typeof ids === "string" ? ids.split(",") : ids,
+      );
     },
     chart: (id, days = 30) => withFailover("chart", id, days),
     ohlcv: (id, interval = "1h", limit = 500) =>
@@ -415,4 +489,6 @@ W.api = (() => {
   };
 })();
 
-console.log("[Prices] Module loaded (CoinGecko → CoinCap → Cache failover).");
+console.log(
+  "[Prices] Module loaded (CoinGecko → CoinPaprika → CoinCap → Cache failover).",
+);
