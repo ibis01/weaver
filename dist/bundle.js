@@ -4340,62 +4340,142 @@ console.log(
   "[EvidenceDrawer] Module loaded (evidence-drawer-v2: correct escaper, capped strings, prototype-safe, robust against throwing getters).",
 );
 // ---- js/ui/intelligence-feed.js ----
-// ===============================================================
-//     Intelligence Feed — "What Matters Now"
-//     Constitution §2.2: Transparency Over Hype
-//     Constitution §2.4: Never Financial Advice (no directive labels)
-//     Constitution §4.3: No FOMO Design
-//     Constitution §2.9: No False Precision
-// ===============================================================
-// Renders DecisionPriority[] from the Unified Decision Engine.
-// CSP-safe: zero inline styles. Accessible: keyboard navigable.
+// ===============================================================      
+// //     Intelligence Feed — "What Matters Now" 
 // ===============================================================
 
 window.W = window.W || {};
 
 W.intelligenceFeed = (() => {
-  // §2.4 / §4.3: Constitutional action labels.
-  // "EXECUTE_TRADE" is NEVER shown to the user.
-  var ACTION_LABELS = {
-    MONITOR: "Monitor",
-    REVIEW_THESIS: "Review Thesis",
-    REBALANCE: "Review Allocation",
-    EXECUTE_TRADE: "Review Position",
-    LOG_DECISION: "Log Decision",
-  };
+  const MODULE_VERSION = "intelligence-feed-v2";
 
-  var ACTION_CLASSES = {
-    MONITOR: "priority-monitor",
-    REVIEW_THESIS: "priority-review",
-    REBALANCE: "priority-review",
-    EXECUTE_TRADE: "priority-risk",
-    LOG_DECISION: "priority-log",
-  };
+  // ── Caps ────────────────────────────────────────────────────
+  const MAX_DECISIONS = 100;
+  const MAX_REASONING_ITEMS = 20;
+  const MAX_TITLE_LEN = 400;
+  const MAX_REASON_LEN = 300;
+  const MAX_SIGNAL_LEN = 80;
+
+  // ── Escaping ───────────────────────────────────────────────
+  // Local implementation first, then prefer W.fmt.escapeHTML if it
+  // exists and behaves. Cannot throw.
+  function localEsc(v) {
+    if (v === null || v === undefined) return "";
+    let s;
+    try {
+      s = String(v);
+    } catch {
+      return "";
+    }
+    if (!/[&<>"']/.test(s)) return s;
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  const esc =
+    W.fmt && typeof W.fmt.escapeHTML === "function"
+      ? function (v) {
+          try {
+            return String(W.fmt.escapeHTML(String(v ?? "")));
+          } catch {
+            return localEsc(v);
+          }
+        }
+      : localEsc;
+
+  function capStr(v, max) {
+    if (v === null || v === undefined) return "";
+    let s;
+    try {
+      s = String(v);
+    } catch {
+      return "";
+    }
+    if (s.length > max) return s.slice(0, max) + "…";
+    return s;
+  }
+
+  function safeProp(obj, key) {
+    if (!obj || typeof obj !== "object") return undefined;
+    try {
+      return obj[key];
+    } catch {
+      return undefined;
+    }
+  }
+
+  // ── Constitutional action labels ───────────────────────────
+  // §2.4 / §4.3: "EXECUTE_TRADE" is NEVER shown to the user.
+  //
+  // Null-prototype objects so a lookup for "__proto__" or
+  // "constructor" cannot reach Object.prototype.
+  const ACTION_LABELS = (() => {
+    const o = Object.create(null);
+    o.MONITOR = "Monitor";
+    o.REVIEW_THESIS = "Review Thesis";
+    o.REBALANCE = "Review Allocation";
+    o.EXECUTE_TRADE = "Review Position";
+    o.LOG_DECISION = "Log Decision";
+    o.REVIEW = "Review";
+    o.ACT = "Review";
+    o.EXIT = "Review";
+    o.IGNORE = "Ignore";
+    return Object.freeze(o);
+  })();
+
+  const ACTION_CLASSES = (() => {
+    const o = Object.create(null);
+    o.MONITOR = "priority-monitor";
+    o.REVIEW_THESIS = "priority-review";
+    o.REBALANCE = "priority-review";
+    o.EXECUTE_TRADE = "priority-risk";
+    o.LOG_DECISION = "priority-log";
+    o.REVIEW = "priority-review";
+    o.ACT = "priority-review";
+    o.EXIT = "priority-risk";
+    o.IGNORE = "priority-monitor";
+    return Object.freeze(o);
+  })();
+
+  function lookup(map, key, fallback) {
+    if (typeof key !== "string") return fallback;
+    if (!Object.prototype.hasOwnProperty.call(map, key)) return fallback;
+    return map[key];
+  }
+
+  // ── Confidence helpers ─────────────────────────────────────
+  function isValidConfidence(c) {
+    return typeof c === "number" && Number.isFinite(c);
+  }
 
   function confidenceBucket(confidence) {
-    if (confidence == null || isNaN(confidence)) return null;
-    var pct = Math.max(0, Math.min(100, Math.round(confidence * 100)));
+    if (!isValidConfidence(confidence)) return null;
+    const pct = Math.max(0, Math.min(100, Math.round(confidence * 100)));
     return Math.round(pct / 10) * 10;
   }
 
   function confidenceColor(confidence) {
-    if (confidence == null || isNaN(confidence)) return "muted";
+    if (!isValidConfidence(confidence)) return "muted";
     if (confidence >= 0.7) return "up";
     if (confidence >= 0.4) return "warn";
     return "down";
   }
 
   function renderConfidenceBar(confidence) {
-    if (confidence == null || isNaN(confidence)) {
+    if (!isValidConfidence(confidence)) {
       return (
         '<div class="feed-confidence">' +
         '<span class="feed-confidence-label">Evidence strength unavailable</span>' +
         "</div>"
       );
     }
-    var bucket = confidenceBucket(confidence);
-    var color = confidenceColor(confidence);
-    var pct = Math.round(confidence * 100);
+    const bucket = confidenceBucket(confidence);
+    const color = confidenceColor(confidence);
+    const pct = Math.round(confidence * 100);
     return (
       '<div class="feed-confidence">' +
       '<span class="feed-confidence-label">Evidence</span>' +
@@ -4413,56 +4493,62 @@ W.intelligenceFeed = (() => {
     );
   }
 
+  // ── Item rendering ─────────────────────────────────────────
   function renderItem(decision, index) {
-    var action = decision.recommendedAction || "MONITOR";
-    var actionLabel = W.fmt.escapeHTML(ACTION_LABELS[action] || action);
-    var actionClass = ACTION_CLASSES[action] || "priority-monitor";
-    var title = W.fmt.escapeHTML(
+    if (!decision || typeof decision !== "object") return "";
+
+    const actionRaw =
+      typeof decision.recommendedAction === "string"
+        ? decision.recommendedAction
+        : "MONITOR";
+    const actionLabelRaw = lookup(ACTION_LABELS, actionRaw, "Monitor");
+    const actionClass = lookup(ACTION_CLASSES, actionRaw, "priority-monitor");
+
+    const title = capStr(
       decision.explanation || decision._signalTitle || "Signal detected",
+      MAX_TITLE_LEN,
     );
-    var asset = W.fmt.escapeHTML(decision._assetSymbol || "");
-    var signalType = W.fmt.escapeHTML(decision._signalType || "");
+    const asset = capStr(decision._assetSymbol || "", MAX_SIGNAL_LEN);
+    const signalType = capStr(decision._signalType || "", MAX_SIGNAL_LEN);
 
-    var reasoningHTML = "";
-    if (
-      decision.assessment &&
-      decision.assessment.reasoning &&
-      decision.assessment.reasoning.length
-    ) {
-      reasoningHTML =
-        '<div class="feed-reasoning">' +
-        decision.assessment.reasoning
-          .map(function (r) {
-            return W.fmt.escapeHTML(r);
-          })
-          .join(" · ") +
-        "</div>";
-    }
+    const assessment =
+      decision.assessment && typeof decision.assessment === "object"
+        ? decision.assessment
+        : null;
 
-    var confidence = decision.assessment
-      ? decision.assessment.confidence
-      : null;
+    const rawReasoning = assessment ? safeProp(assessment, "reasoning") : null;
+    const reasoningList = Array.isArray(rawReasoning)
+      ? rawReasoning.slice(0, MAX_REASONING_ITEMS)
+      : [];
+
+    const reasoningHTML = reasoningList.length
+      ? '<div class="feed-reasoning">' +
+        reasoningList.map((r) => esc(capStr(r, MAX_REASON_LEN))).join(" · ") +
+        "</div>"
+      : "";
+
+    const confidence = assessment ? safeProp(assessment, "confidence") : null;
 
     return (
       '<div class="feed-item" data-index="' +
       index +
       '" tabindex="0" role="button" ' +
       'aria-label="View evidence for ' +
-      (asset || "signal") +
+      esc(asset || "signal") +
       '">' +
       '<div class="feed-item-header">' +
       '<span class="feed-item-title">' +
-      (asset ? asset + " · " : "") +
-      title +
+      (asset ? esc(asset) + " · " : "") +
+      esc(title) +
       "</span>" +
       '<span class="priority-badge ' +
       actionClass +
       '">' +
-      actionLabel +
+      esc(actionLabelRaw) +
       "</span>" +
       "</div>" +
       (signalType
-        ? '<div class="small-text text-muted">' + signalType + "</div>"
+        ? '<div class="small-text text-muted">' + esc(signalType) + "</div>"
         : "") +
       reasoningHTML +
       renderConfidenceBar(confidence) +
@@ -4470,67 +4556,138 @@ W.intelligenceFeed = (() => {
     );
   }
 
-  function render(container, decisions) {
-    if (!container) return;
-
-    if (!decisions || !decisions.length) {
-      container.innerHTML =
-        '<div class="card">' +
-        '<p class="text-muted small">' +
-        "No actionable intelligence at this time. " +
-        "Weaver will surface signals here when evidence warrants your attention." +
-        "</p>" +
-        "</div>";
-      return;
-    }
-
-    var html = "";
-    for (var i = 0; i < decisions.length; i++) {
-      html += renderItem(decisions[i], i);
-    }
-    container.innerHTML = html;
-
-    // Wire click + keyboard handlers → Evidence Drawer (§5.2)
-    container.querySelectorAll(".feed-item").forEach(function (item) {
-      var handler = function () {
-        var idx = parseInt(item.dataset.index, 10);
-        var d = decisions[idx];
-        if (!d || !W.ui.evidenceDrawer) return;
-
-        W.ui.evidenceDrawer.open({
-          title: d._assetSymbol || "Signal Details",
-          subtitle: d._signalType || "",
-          verdict: {
-            score: d.score != null ? Math.round(d.score * 100) : null,
-            confidence: d.assessment ? d.assessment.confidence : null,
-            classification:
-              ACTION_LABELS[d.recommendedAction] || "Unclassified",
-            evidenceQuality:
-              d.eligibility === "ELIGIBLE" ? "SUFFICIENT" : "INSUFFICIENT",
-          },
-          reasoning: d.assessment ? d.assessment.reasoning : [],
-          risks: [],
-          evidence: null,
-          sources: [],
-          methodology: d.methodologyVersion || "decision-engine-v1",
-          timestamp: Date.now(),
-        });
-      };
-
-      item.addEventListener("click", handler);
-      item.addEventListener("keydown", function (e) {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          handler();
-        }
+  // ── Drawer wiring ──────────────────────────────────────────
+  function openEvidenceDrawer(d, decisions) {
+    if (!W.ui || typeof W.ui.evidenceDrawer?.open !== "function") return;
+    try {
+      W.ui.evidenceDrawer.open({
+        title: d._assetSymbol || "Signal Details",
+        subtitle: d._signalType || "",
+        verdict: {
+          score:
+            typeof d.score === "number" && Number.isFinite(d.score)
+              ? Math.round(d.score * 100)
+              : null,
+          confidence:
+            d.assessment && typeof d.assessment === "object"
+              ? d.assessment.confidence
+              : null,
+          classification: lookup(
+            ACTION_LABELS,
+            d.recommendedAction,
+            "Unclassified",
+          ),
+          evidenceQuality:
+            d.eligibility === "ELIGIBLE" ? "SUFFICIENT" : "INSUFFICIENT",
+        },
+        reasoning: Array.isArray(d.assessment?.reasoning)
+          ? d.assessment.reasoning
+          : [],
+        risks: [],
+        evidence: null,
+        sources: [],
+        methodology: d.methodologyVersion || "decision-engine-v1",
+        timestamp: Date.now(),
       });
-    });
+    } catch (e) {
+      console.warn("[IntelligenceFeed] drawer open failed:", e && e.message);
+    }
   }
 
-  return { render: render };
+  // ── Public render ──────────────────────────────────────────
+  function render(container, decisions) {
+    if (!container || typeof container !== "object") return;
+
+    try {
+      const list = Array.isArray(decisions)
+        ? decisions.slice(0, MAX_DECISIONS)
+        : [];
+
+      if (!list.length) {
+        container.innerHTML =
+          '<div class="card">' +
+          '<p class="text-muted small">' +
+          "No actionable intelligence at this time. " +
+          "Weaver will surface signals here when evidence warrants your attention." +
+          "</p>" +
+          "</div>";
+        return;
+      }
+
+      let html = "";
+      for (let i = 0; i < list.length; i++) {
+        try {
+          html += renderItem(list[i], i);
+        } catch (e) {
+          console.warn(
+            "[IntelligenceFeed] item render failed at index " + i + ":",
+            e && e.message,
+          );
+        }
+      }
+      container.innerHTML = html;
+
+      container.querySelectorAll(".feed-item").forEach(function (item) {
+        const handler = function () {
+          const idx = parseInt(item.dataset.index, 10);
+          if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
+          const d = list[idx];
+          if (!d) return;
+          openEvidenceDrawer(d, list);
+        };
+
+        item.addEventListener("click", handler);
+        item.addEventListener("keydown", function (e) {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            handler();
+          }
+        });
+      });
+    } catch (e) {
+      console.warn("[IntelligenceFeed] render failed:", e && e.message);
+      try {
+        container.innerHTML =
+          '<div class="card">' +
+          '<p class="text-muted small">' +
+          "Intelligence feed could not be rendered." +
+          "</p>" +
+          "</div>";
+      } catch {
+        /* container itself is unusable; nothing else to do */
+      }
+    }
+  }
+
+  return Object.freeze({
+    render,
+    version: MODULE_VERSION,
+    _internal: Object.freeze({
+      esc,
+      localEsc,
+      capStr,
+      safeProp,
+      lookup,
+      confidenceBucket,
+      confidenceColor,
+      renderConfidenceBar,
+      renderItem,
+      ACTION_LABELS,
+      ACTION_CLASSES,
+      constants: Object.freeze({
+        MAX_DECISIONS,
+        MAX_REASONING_ITEMS,
+        MAX_TITLE_LEN,
+        MAX_REASON_LEN,
+        MAX_SIGNAL_LEN,
+      }),
+    }),
+  });
 })();
 
-console.log("[IntelligenceFeed] Module loaded.");
+console.log(
+  "[IntelligenceFeed] Module loaded (intelligence-feed-v2: safe escaper, prototype-safe maps, capped strings).",
+);
 // ---- js/api/schemas.js ----
 // ===============================================================
 // Runtime API schemas and freshness metadata
@@ -28951,23 +29108,49 @@ console.log(
 );
 // ---- js/app.js ----
 // ===============================================================
-//         Weaver Core Application
+//         Weaver Core Application 
 // ===============================================================
-// Purpose: Handle routing, navigation rendering, and app initialization.
-// Security Fix: Removed plaintext Telegram save handler (P0 Task 1).
-//
-// Router notes:
-//   - The view is cleared BEFORE dispatch, so a failed or empty
-//     render cannot leave stale content from the previous route.
-//   - Handlers are dispatched via safeRender(), which resolves the
-//     module method lazily (at call time, not at module-load time)
-//     and surfaces failures instead of firing false "not loaded"
-//     toasts when a render returns a falsy value.
-// ===============================================================
+
 
 window.W = window.W || {};
 
 (function () {
+  const MODULE_VERSION = "app-v2";
+
+  // ── Local escaping ─────────────────────────────────────────
+  // Independent of W.fmt so a partial load cannot leave the router
+  // interpolating unescaped strings. Safe in both text and attribute
+  // contexts.
+  function localEsc(v) {
+    if (v === null || v === undefined) return "";
+    let s;
+    try {
+      s = String(v);
+    } catch {
+      return "";
+    }
+    if (!/[&<>"']/.test(s)) return s;
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  const esc =
+    W.fmt && typeof W.fmt.escapeHTML === "function"
+      ? function (v) {
+          try {
+            return String(W.fmt.escapeHTML(String(v ?? "")));
+          } catch {
+            return localEsc(v);
+          }
+        }
+      : localEsc;
+
+  const MAX_HASH_LEN = 512;
+
   const NAV_GROUPS = [
     {
       label: "OVERVIEW",
@@ -29066,30 +29249,32 @@ window.W = window.W || {};
     },
   ];
 
-  // Flat list of every navigable item across all groups. Used by
-  // route() to resolve the page-title label from the active nav id.
   const ALL_NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
 
   // Bumped on every route() call. safeRender() reads it to detect
   // that a newer navigation happened while an async render was still
   // in flight, so a stale render cannot overwrite the current view.
-  // Declared at IIFE scope; both route() and safeRender() reference it.
   let routeGeneration = 0;
 
   // ── Shared route dispatcher ────────────────────────────────
-  // Resolves the module method at dispatch time (not at script-load
-  // time, which matters because modules load in order). Catches
-  // failures and renders an honest error card instead of silently
-  // leaving the view empty or firing a false "not loaded" toast.
   async function safeRender(view, name, getMethod) {
     const generation = routeGeneration;
     if (view.dataset.route !== name) return;
-    const method = getMethod();
+
+    let method;
+    try {
+      method = getMethod();
+    } catch (e) {
+      console.warn(`[Router] ${name} dispatch failed:`, e && e.message);
+      method = null;
+    }
+
     if (typeof method !== "function") {
       W.ui?.toast?.(`${name} module not loaded`, "warn");
-      view.innerHTML = `<div class="card"><p class="muted">${name} module not available.</p></div>`;
+      view.innerHTML = `<div class="card"><p class="muted">${esc(name)} module not available.</p></div>`;
       return;
     }
+
     try {
       if (generation !== routeGeneration || view.dataset.route !== name) return;
       await method(view);
@@ -29097,7 +29282,7 @@ window.W = window.W || {};
     } catch (e) {
       if (generation !== routeGeneration || view.dataset.route !== name) return;
       console.warn(`[Router] ${name} render failed:`, e);
-      view.innerHTML = `<div class="card"><p class="muted">Failed to load ${name}: ${W.fmt?.escapeHTML?.(e.message) || "unknown error"}</p></div>`;
+      view.innerHTML = `<div class="card"><p class="muted">Failed to load ${esc(name)}: ${esc(e && e.message)}</p></div>`;
     }
   }
 
@@ -29139,10 +29324,19 @@ window.W = window.W || {};
         const param = getPageParam();
         return (view) => W.tokenAnalysis.render(view, param || undefined);
       }),
+    coin: (v) =>
+      safeRender(v, "coin", () => {
+        if (typeof W.explorer?.renderCoin !== "function") return null;
+        const param = getPageParam();
+        if (!param) return null;
+        return (view) => W.explorer.renderCoin(view, param);
+      }),
   };
 
   function getCurrentPage() {
-    return location.hash.slice(2).split("/")[0] || "dashboard";
+    const raw = location.hash.slice(2);
+    if (!raw) return "dashboard";
+    return raw.split("/")[0] || "dashboard";
   }
   function getPageParam() {
     const parts = location.hash.slice(2).split("/");
@@ -29155,123 +29349,172 @@ window.W = window.W || {};
   }
 
   function route() {
-    routeGeneration += 1;
-    const hash = location.hash.slice(2) || "dashboard";
-    const [page, param] = hash.split("/");
-    const activeId = page === "coin" ? "gems" : page;
-
-    document.querySelectorAll("#nav a").forEach((a) => {
-      a.classList.toggle("active", a.dataset.id === activeId);
-    });
-
-    const navItem = ALL_NAV_ITEMS.find((n) => n.id === activeId);
-    const titleEl = document.getElementById("page-title");
-    if (titleEl) titleEl.textContent = navItem ? navItem.label : "Weaver";
-
-    const view = document.getElementById("view");
-    if (!view) {
-      console.warn("[App] View element not found");
-      return;
-    }
-
-    // Clear previous route's DOM before dispatch. Without this, a
-    // failed or empty render leaves the previous route's content on
-    // screen (e.g. clicking News showed stale Sync content).
-    view.innerHTML = "";
-    view.dataset.route = page;
-
     try {
-      if (page === "coin" && param) {
-        if (W.explorer?.renderCoin) W.explorer.renderCoin(view, param);
-        else
-          view.innerHTML =
-            '<p class="muted">Explorer module not available.</p>';
+      routeGeneration += 1;
+
+      // Cap the hash before parsing. A pathological fragment should
+      // not flow into dataset attributes or route lookups.
+      if (location.hash.length > MAX_HASH_LEN) {
+        location.hash = "#/dashboard";
+        return;
+      }
+
+      const hash = location.hash.slice(2) || "dashboard";
+      const [pageRaw, param] = hash.split("/");
+      const page =
+        typeof pageRaw === "string" && pageRaw.length <= 128
+          ? pageRaw
+          : "dashboard";
+      const activeId = page === "coin" ? "gems" : page;
+
+      document.querySelectorAll("#nav a").forEach((a) => {
+        a.classList.toggle("active", a.dataset.id === activeId);
+      });
+
+      const navItem = ALL_NAV_ITEMS.find((n) => n.id === activeId);
+      const titleEl = document.getElementById("page-title");
+      if (titleEl) titleEl.textContent = navItem ? navItem.label : "Weaver";
+
+      const view = document.getElementById("view");
+      if (!view) {
+        console.warn("[App] View element not found");
+        return;
+      }
+
+      // Clear previous route's DOM before dispatch. Without this, a
+      // failed or empty render leaves the previous route's content on
+      // screen (e.g. clicking News showed stale Sync content).
+      view.innerHTML = "";
+      view.dataset.route = page;
+
+      if (page === "coin" && !param) {
+        view.innerHTML =
+          '<div class="card"><h3>404</h3><p class="muted">Coin not specified.</p></div>';
       } else if (routes[page]) {
         routes[page](view);
       } else {
         view.innerHTML =
           '<div class="card"><h3>404</h3><p class="muted">Page not found.</p></div>';
       }
+
+      const updated = document.getElementById("last-updated");
+      if (updated)
+        updated.textContent = `updated ${new Date().toLocaleTimeString()} · via ${W.api?.source || "…"}`;
+
+      try {
+        if (W.alerts?.check) W.alerts.check();
+      } catch (e) {
+        console.warn("[App] alerts check failed:", e && e.message);
+      }
     } catch (e) {
       console.error("[App] Route error:", e);
-      view.innerHTML = `<div class="card"><h3>⚠️ Something went wrong</h3><p class="muted">${W.fmt?.escapeHTML?.(e.message) || e.message}</p><p class="muted small">Check the console (F12) for details.</p></div>`;
+      const view = document.getElementById("view");
+      if (view) {
+        view.innerHTML = `<div class="card"><h3>⚠️ Something went wrong</h3><p class="muted">${esc(e && e.message)}</p><p class="muted small">Check the console (F12) for details.</p></div>`;
+      }
     }
-
-    const updated = document.getElementById("last-updated");
-    if (updated)
-      updated.textContent = `updated ${new Date().toLocaleTimeString()} · via ${W.api?.source || "…"}`;
-    if (W.alerts?.check) W.alerts.check();
   }
 
   function updateStreak() {
-    const today = new Date().toDateString();
-    const streak = W.store?.get?.("streak", null);
-    if (!streak || streak.last !== today) {
-      const yesterday = new Date(Date.now() - 864e5).toDateString();
-      const count = streak && streak.last === yesterday ? streak.count + 1 : 1;
-      W.store?.set?.("streak", { last: today, count });
+    try {
+      const today = new Date().toDateString();
+      const raw = W.store?.get?.("streak", null);
+      const streak =
+        raw && typeof raw === "object" && !Array.isArray(raw) ? raw : null;
+      const last =
+        streak && typeof streak.last === "string" ? streak.last : null;
+      const countRaw = streak ? streak.count : 0;
+      const count = Number.isFinite(countRaw) && countRaw >= 0 ? countRaw : 0;
+
+      if (last !== today) {
+        const yesterday = new Date(Date.now() - 864e5).toDateString();
+        const nextCount = last === yesterday ? count + 1 : 1;
+        W.store?.set?.("streak", { last: today, count: nextCount });
+      }
+    } catch (e) {
+      console.warn("[App] updateStreak failed:", e && e.message);
     }
   }
 
   let refreshLoop = null;
   function startLoop() {
-    clearInterval(refreshLoop);
-    const settings = W.store?.get?.("settings", {});
-    const seconds = settings?.refresh ?? 60;
-    if (seconds > 0) {
-      refreshLoop = setInterval(() => {
-        const current = getCurrentPage();
-        if (
-          !document.querySelector("#modal-root .modal") &&
-          ["dashboard", "watchlist", "market", "alerts"].includes(current)
-        ) {
-          route();
-        }
-      }, seconds * 1000);
+    try {
+      clearInterval(refreshLoop);
+      const settingsRaw = W.store?.get?.("settings", {});
+      const settings =
+        settingsRaw && typeof settingsRaw === "object" ? settingsRaw : {};
+      const seconds = Number.isFinite(settings.refresh)
+        ? Math.max(0, Math.floor(settings.refresh))
+        : 60;
+
+      if (seconds > 0) {
+        refreshLoop = setInterval(() => {
+          const current = getCurrentPage();
+          if (
+            !document.querySelector("#modal-root .modal") &&
+            ["dashboard", "watchlist", "market", "alerts"].includes(current)
+          ) {
+            route();
+          }
+        }, seconds * 1000);
+      }
+    } catch (e) {
+      console.warn("[App] startLoop failed:", e && e.message);
     }
   }
 
   W.applySettings = function () {
-    const cur = W.currency?.() || "usd";
-    const el = document.getElementById("currency");
-    if (el) el.value = cur;
-    startLoop();
+    try {
+      const cur = W.currency();
+      const el = document.getElementById("currency");
+      if (el) el.value = cur;
+      startLoop();
+    } catch (e) {
+      console.warn("[App] applySettings failed:", e && e.message);
+    }
   };
 
   W.currency = function () {
-    return W.store?.get?.("settings", {})?.currency || "usd";
+    try {
+      const raw = W.store?.get?.("settings", {});
+      const settings =
+        raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+      const cur = settings.currency;
+      return typeof cur === "string" && cur ? cur : "usd";
+    } catch {
+      return "usd";
+    }
   };
+
   W.refresh = function () {
     route();
   };
 
-  function init() {
-    console.log("[App] Initializing Weaver...");
-
-    const navEl = document.getElementById("nav");
-    if (navEl) {
-      navEl.innerHTML = NAV_GROUPS.map((group) => {
-        const groupHtml = `<div class="nav-group-label">${group.label}</div>`;
-        const itemsHtml = group.items
-          .map(
-            (n) => `
-          <a href="${n.route}" data-id="${n.id}">
-            <span class="nav-ico">${n.icon}</span>
-            <span>${n.label}</span>
+  function buildSidebarHTML() {
+    return NAV_GROUPS.map((group) => {
+      const groupHtml = `<div class="nav-group-label">${esc(group.label)}</div>`;
+      const itemsHtml = group.items
+        .map(
+          (n) => `
+          <a href="${esc(n.route)}" data-id="${esc(n.id)}">
+            <span class="nav-ico">${esc(n.icon)}</span>
+            <span>${esc(n.label)}</span>
             ${n.id === "alerts" ? '<span class="nav-badge" id="alert-badge"></span>' : ""}
           </a>
         `,
-          )
-          .join("");
-        return groupHtml + itemsHtml;
-      }).join("");
-    }
+        )
+        .join("");
+      return groupHtml + itemsHtml;
+    }).join("");
+  }
 
-    // ── Mobile navigation drawer ────────────────────────────
-    // At ≤860px, .sidebar becomes an off-canvas drawer toggled by
-    // the ☰ button in the topbar. Desktop is unaffected: the
-    // hamburger is display:none and the sidebar keeps its 240px
-    // sticky layout.
+  function initSidebar() {
+    const navEl = document.getElementById("nav");
+    if (navEl) navEl.innerHTML = buildSidebarHTML();
+    return navEl;
+  }
+
+  function initMobileDrawer() {
     const hamburger = document.getElementById("btn-hamburger");
     const backdrop = document.getElementById("sidebar-backdrop");
     const sidebarEl = document.querySelector(".sidebar");
@@ -29299,6 +29542,7 @@ window.W = window.W || {};
 
     if (backdrop) backdrop.addEventListener("click", closeDrawer);
 
+    const navEl = document.getElementById("nav");
     if (navEl) {
       navEl.querySelectorAll("a").forEach((a) => {
         a.addEventListener("click", closeDrawer);
@@ -29308,31 +29552,33 @@ window.W = window.W || {};
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") closeDrawer();
     });
+  }
 
+  function initCurrency() {
     const curEl = document.getElementById("currency");
-    if (curEl) {
-      const currencies = [
-        "usd",
-        "ngn",
-        "eur",
-        "gbp",
-        "inr",
-        "jpy",
-        "aud",
-        "cad",
-      ];
-      curEl.innerHTML = currencies
-        .map((c) => `<option value="${c}">${c.toUpperCase()}</option>`)
-        .join("");
-      curEl.value = W.currency();
-      curEl.onchange = () => {
-        const settings = W.store?.get?.("settings", {}) || {};
+    if (!curEl) return;
+    const currencies = ["usd", "ngn", "eur", "gbp", "inr", "jpy", "aud", "cad"];
+    curEl.innerHTML = currencies
+      .map((c) => `<option value="${esc(c)}">${esc(c.toUpperCase())}</option>`)
+      .join("");
+    curEl.value = W.currency();
+    curEl.onchange = () => {
+      try {
+        const raw = W.store?.get?.("settings", {});
+        const settings =
+          raw && typeof raw === "object" && !Array.isArray(raw)
+            ? { ...raw }
+            : {};
         settings.currency = curEl.value;
         W.store?.set?.("settings", settings);
         route();
-      };
-    }
+      } catch (e) {
+        console.warn("[App] currency change failed:", e && e.message);
+      }
+    };
+  }
 
+  function initToolbarButtons() {
     const refreshBtn = document.getElementById("btn-refresh");
     if (refreshBtn) refreshBtn.onclick = route;
 
@@ -29346,64 +29592,154 @@ window.W = window.W || {};
         else W.ui?.toast?.("Sync module not available", "warn");
       };
     }
+  }
 
+  function initUnhandledRejectionHandler() {
     window.addEventListener("unhandledrejection", (e) => {
-      console.warn("[App] Unhandled rejection:", e.reason);
-      const msg = e.reason?.message || "Request failed";
-      const view = document.getElementById("view");
-      const spinner = view?.querySelector(".spinner");
-      if (spinner) {
-        spinner.outerHTML = `<p class="muted small mt">⚠️ ${W.fmt?.escapeHTML?.(msg) || msg} — some live data is unavailable (showing cache where possible). Try ⟳ or another network.</p>`;
+      console.warn("[App] Unhandled rejection:", e && e.reason);
+      try {
+        const reason = e && e.reason;
+        const msg =
+          reason && typeof reason.message === "string"
+            ? reason.message
+            : "Request failed";
+        const view = document.getElementById("view");
+        const spinner = view && view.querySelector(".spinner");
+        if (spinner) {
+          spinner.outerHTML = `<p class="muted small mt">⚠️ ${esc(msg)} — some live data is unavailable (showing cache where possible). Try ⟳ or another network.</p>`;
+        }
+      } catch (err) {
+        console.warn(
+          "[App] unhandledrejection handler failed:",
+          err && err.message,
+        );
       }
     });
+  }
 
-    if (W.achievements?.check) W.achievements.check();
-    updateStreak();
-    if (W.sync?.boot) W.sync.boot();
-
-    window.addEventListener("hashchange", route);
-    route();
-    startLoop();
-
-    setInterval(() => {
-      if (W.alerts?.check) W.alerts.check();
-    }, 60000);
-
-    // ── Toast click handler for Telegram test ────────────
+  // ── Telegram test button ───────────────────────────────────
+  // Delegated listener. The Telegram module's override contract
+  // expects `{ token, chatId, allowDisabled, rateLimitMs }`. The
+  // previous version passed `{ on, token, chat }`, which the module
+  // silently dropped.
+  function initTelegramTestButton() {
     document.addEventListener("click", (e) => {
       const target = e.target;
-      const id = target?.id;
+      if (!target || target.id !== "set-tgtest") return;
 
-      if (id === "set-tgtest") {
+      try {
+        const tokenEl = document.querySelector("#set-tgtoken");
+        const chatEl = document.querySelector("#set-tgchat");
         const token =
-          document.querySelector("#set-tgtoken")?.value?.trim?.() || "";
-        const chat =
-          document.querySelector("#set-tgchat")?.value?.trim?.() || "";
-        if (!token || !chat) {
+          tokenEl && typeof tokenEl.value === "string"
+            ? tokenEl.value.trim()
+            : "";
+        const chatId =
+          chatEl && typeof chatEl.value === "string" ? chatEl.value.trim() : "";
+
+        if (!token || !chatId) {
           W.ui?.toast?.("Enter token and Chat ID first", "warn");
           return;
         }
-        if (!W.tg) {
+        if (!W.tg || typeof W.tg.send !== "function") {
           W.ui?.toast?.("Telegram module not loaded", "warn");
           return;
         }
-        W.tg
-          .send(`✅ Weaver connected! Alerts will arrive here.`, {
-            on: true,
+
+        Promise.resolve(
+          W.tg.send("✅ Weaver connected! Alerts will arrive here.", {
             token,
-            chat,
-          })
+            chatId,
+            allowDisabled: true,
+            rateLimitMs: 0,
+          }),
+        )
           .then((ok) => {
             W.ui?.toast?.(
               ok ? "Test sent 📨" : "Failed — check token/Chat ID",
               ok ? "ok" : "warn",
             );
+          })
+          .catch((err) => {
+            W.ui?.toast?.(
+              "Telegram test failed: " +
+                (err && err.message ? err.message : "unknown"),
+              "warn",
+            );
           });
+      } catch (err) {
+        console.warn("[App] Telegram test wiring failed:", err && err.message);
       }
-
-      // SECURITY FIX: Removed plaintext `if (id === "set-save")` handler.
-      // Credential saving is now exclusively handled by the secure vault in `W.misc.renderSettings`.
     });
+  }
+
+  function init() {
+    console.log("[App] Initializing Weaver...");
+
+    const steps = [
+      ["sidebar", initSidebar],
+      ["mobileDrawer", initMobileDrawer],
+      ["currency", initCurrency],
+      ["toolbar", initToolbarButtons],
+      ["unhandledRejection", initUnhandledRejectionHandler],
+      ["telegramTest", initTelegramTestButton],
+    ];
+
+    for (const [name, fn] of steps) {
+      try {
+        fn();
+      } catch (e) {
+        console.warn(`[App] init step "${name}" failed:`, e && e.message);
+      }
+    }
+
+    try {
+      if (W.achievements?.check) W.achievements.check();
+    } catch (e) {
+      console.warn("[App] achievements check failed:", e && e.message);
+    }
+
+    try {
+      updateStreak();
+    } catch (e) {
+      console.warn("[App] updateStreak failed:", e && e.message);
+    }
+
+    try {
+      if (W.sync?.boot) W.sync.boot();
+    } catch (e) {
+      console.warn("[App] sync boot failed:", e && e.message);
+    }
+
+    try {
+      window.addEventListener("hashchange", route);
+    } catch (e) {
+      console.warn("[App] hashchange listener failed:", e && e.message);
+    }
+
+    try {
+      route();
+    } catch (e) {
+      console.warn("[App] initial route failed:", e && e.message);
+    }
+
+    try {
+      startLoop();
+    } catch (e) {
+      console.warn("[App] startLoop failed:", e && e.message);
+    }
+
+    try {
+      setInterval(() => {
+        try {
+          if (W.alerts?.check) W.alerts.check();
+        } catch (e) {
+          console.warn("[App] alerts interval failed:", e && e.message);
+        }
+      }, 60000);
+    } catch (e) {
+      console.warn("[App] alerts interval wiring failed:", e && e.message);
+    }
 
     console.log("[App] ✅ Weaver initialized.");
   }
