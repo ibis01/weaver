@@ -19,6 +19,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      # ── Root Application Tests ──────────────────────────────
       - name: Install root dependencies
         run: npm ci
 
@@ -34,6 +35,7 @@ jobs:
       - name: Run root security tests
         run: npm run test:security
 
+      # ── Cloudflare Worker Tests ─────────────────────────────
       - name: Install Worker dependencies
         working-directory: ./cf-worker
         run: npm ci
