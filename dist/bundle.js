@@ -2059,33 +2059,28 @@ W.ui.formatDataAge = formatAge;
 console.log("[DataStatus] Freshness UI loaded.");
 // ---- js/ui/dashboard.js ----
 // ===============================================================
-//                Weaver Dashboard (Command Center v3)
+//                Weaver Dashboard (Command Center v3.1)
 // ===============================================================
 // CSP Compliant: ZERO inline style="..." attributes.
 // Constitution Compliant:
 //   §2.7 No fabricated data — unknown prices/costs render as "—".
+//        v3.1 removed two fabricated fields:
+//          - Top Tokens confidence column, which rendered
+//            "100 - i*6" (a positional index) as a measured score.
+//          - BTC Dominance sparkline, which drew the same hardcoded
+//            SVG path on every load regardless of the data.
 //   §3.4 Graceful Degradation — failed price fetches fall back to a
 //        labeled last-known-good cache ("·stale"), never to $0.00.
 //   §3.6 Cache before repeated API calls.
 //   §6.3 Missing data must reduce confidence, never become zero.
 //   §6.4 Auditable — delta snapshots skipped while any asset unpriced.
 //   §5.3 Calm visual language — no emojis, reduced motion, tokenized colors.
-//
-// v3 changelog:
-//   - Rebuilt to the Command Center layout:
-//       Row 1: 4 KPI cards
-//       Row 2: performance chart | allocation donut | recent signals
-//       Row 3: top tokens | fear & greed + BTC dominance
-//       Row 4: why/evidence preview | quick actions
-//       Row 5: key insights
-//   - Every helper from the previous version preserved.
-//   - Only the render() function's HTML structure changed.
 // ===============================================================
 
 window.W = window.W || {};
 
 W.dashboard = (() => {
-  const MODULE_VERSION = "dashboard-v3";
+  const MODULE_VERSION = "dashboard-v3.1";
   const MARKET_ROWS_DEFAULT = 10;
   let marketRowsExpanded = false;
 
@@ -2102,7 +2097,7 @@ W.dashboard = (() => {
     table: (n) => Array(n).fill('<div class="spinner"></div>').join(""),
   };
 
-  // ── Money / escaping helpers ─────────────────────────────────
+  // ── Escaping helper ─────────────────────────────────────────
   const esc =
     (W.fmt && W.fmt.escapeHTML) ||
     function (v) {
@@ -2127,16 +2122,7 @@ W.dashboard = (() => {
     return `<span class="${cls}">${isUp ? "+" : "-"}${W.fmt.money(Math.abs(n))}</span>`;
   };
 
-  const relTime = (ts) => {
-    if (!Number.isFinite(ts)) return "—";
-    const d = Date.now() - ts;
-    if (d < 60000) return "just now";
-    if (d < 3600000) return Math.floor(d / 60000) + "m ago";
-    if (d < 86400000) return Math.floor(d / 3600000) + "h ago";
-    return Math.floor(d / 86400000) + "d ago";
-  };
-
-  // ── Tape (market strip) — kept from v2 ───────────────────────
+  // ── Tape (market strip) ─────────────────────────────────────
   const tapeHTML = (coins) => {
     if (!coins || !Array.isArray(coins) || !coins.length) {
       return '<div class="tape-wrap"><div class="tape"><span class="tape-item text-muted">Loading market data…</span></div></div>';
@@ -2168,7 +2154,7 @@ W.dashboard = (() => {
     return `<div class="tape-wrap"><div class="tape">${tapeItems + tapeItems}</div></div>`;
   };
 
-  // ── Chart.js color helper ────────────────────────────────────
+  // ── Chart colors ────────────────────────────────────────────
   const CHART_COLORS = [
     "#10b981",
     "#6366f1",
@@ -2191,7 +2177,7 @@ W.dashboard = (() => {
     }
   }
 
-  // ── Sparkline (canvas-based, from v2) ────────────────────────
+  // ── Sparkline (canvas) — used only where real series data exists ──
   function drawSpark(c) {
     const vals = (c.dataset.spark || "")
       .split(",")
@@ -2237,7 +2223,15 @@ W.dashboard = (() => {
           .join(",")}"></canvas>`
       : '<span class="text-muted small-text">—</span>';
 
-  // ── Top-tokens row (Command Center grid) ────────────────────
+  // ── Top-tokens row ──────────────────────────────────────────
+  //
+  // Five columns: rank, identity, price, 24h change, market cap.
+  //
+  // The previous version rendered a sixth column labelled
+  // "Confidence" whose value was computed as `100 - i * 6` — a
+  // positional index with no connection to any measurement. That
+  // was fabricated data on live market prices, and the most
+  // dangerous kind because it looked plausible. Removed in v3.1.
   const tokenRow = (c, i) => {
     if (!c || typeof c !== "object") return "";
     const id = c.id || "unknown";
@@ -2255,7 +2249,7 @@ W.dashboard = (() => {
     const changeCls = p24 === null ? "" : p24 >= 0 ? "up" : "down";
     const priceText =
       price === null
-        ? '<span class="text-muted">—</span>'
+        ? "—"
         : price >= 1
           ? "$" + price.toFixed(2)
           : "$" + price.toFixed(6);
@@ -2267,11 +2261,6 @@ W.dashboard = (() => {
           (mcap >= 1e9
             ? (mcap / 1e9).toFixed(2) + "B"
             : (mcap / 1e6).toFixed(2) + "M");
-
-    // Display-only confidence bucket. Positional — first row has
-    // higher visual confidence than the tenth.
-    const conf = Math.max(0, Math.min(100, 100 - i * 6));
-    const bucket = Math.round(conf / 10) * 10;
 
     return `
       <button type="button" class="token-row" data-coin="${esc(id)}">
@@ -2286,12 +2275,6 @@ W.dashboard = (() => {
         <span class="token-price">${esc(priceText)}</span>
         <span class="token-change ${changeCls}">${esc(changeText)}</span>
         <span class="token-mcap">${esc(mcapText)}</span>
-        <span class="token-confidence">
-          <span class="token-confidence-pct">${bucket}%</span>
-          <span class="token-confidence-bar">
-            <span class="token-confidence-fill" style="--conf:${bucket}%"></span>
-          </span>
-        </span>
       </button>
     `;
   };
@@ -2415,7 +2398,7 @@ W.dashboard = (() => {
     return { rows, totals };
   }
 
-  // ── Holdings table: honest cells + basis button for wallets ──
+  // ── Holdings table ──────────────────────────────────────────
   const holdingsTable = (rows) => `
     <div class="table-wrap"><table><thead><tr><th>Asset</th><th>Price</th><th>24h</th><th>Qty</th><th>Value</th><th>P/L</th><th></th></tr></thead><tbody>
       ${rows
@@ -2457,7 +2440,7 @@ W.dashboard = (() => {
     });
   }
 
-  // ── Manual Cost Basis Modal (wallet holdings) ────────────────
+  // ── Manual Cost Basis Modal (wallet holdings) ───────────────
   function basisModal(r) {
     const existing = r.manualCostBasis;
     const m = W.ui.modal({
@@ -2540,7 +2523,7 @@ W.dashboard = (() => {
     };
   }
 
-  // ── Performance chart (Chart.js) ─────────────────────────────
+  // ── Chart lifecycle ────────────────────────────────────────
   function destroyCharts(view) {
     if (!view) return;
     for (const k of ["_dashboardPerfChart", "_dashboardDonut"]) {
@@ -2629,7 +2612,6 @@ W.dashboard = (() => {
       return;
     }
 
-    const colorPrimary = cssVar("--brand", "#6366f1");
     const isUp = series[series.length - 1].y >= series[0].y;
     const colorLine = isUp
       ? cssVar("--up", "#10b981")
@@ -2703,7 +2685,7 @@ W.dashboard = (() => {
     });
   }
 
-  // ── Allocation donut ─────────────────────────────────────────
+  // ── Allocation donut ───────────────────────────────────────
   const ALLOCATION_TOP_N = 5;
 
   function buildAllocation(rows, totals) {
@@ -2759,13 +2741,18 @@ W.dashboard = (() => {
         .map(
           (s) => `
             <div class="dash-legend-row">
-              <span class="dash-legend-dot" style="background:${esc(s.color)}"></span>
+              <span class="dash-legend-dot" data-color="${esc(s.color)}"></span>
               <span class="dash-legend-label">${esc(s.symbol)}</span>
               <span class="dash-legend-pct">${s.pct.toFixed(1)}%</span>
             </div>
           `,
         )
         .join("");
+      // Colour assigned via CSSOM, not an inline style attribute.
+      legend.querySelectorAll(".dash-legend-dot").forEach((el) => {
+        const c = el.dataset.color;
+        if (c) el.style.background = c;
+      });
     }
 
     if (typeof Chart !== "function") return;
@@ -2798,7 +2785,7 @@ W.dashboard = (() => {
     });
   }
 
-  // ── Fear & Greed gauge (inline SVG) ──────────────────────────
+  // ── Fear & Greed gauge ─────────────────────────────────────
   function renderFearGreed(fg) {
     const value = Number(fg?.value);
     if (!Number.isFinite(value)) {
@@ -2837,7 +2824,12 @@ W.dashboard = (() => {
     `;
   }
 
-  // ── BTC dominance card ───────────────────────────────────────
+  // ── BTC dominance card ────────────────────────────────────
+  //
+  // Removed in v3.1: the SVG sparkline. It was a hardcoded path
+  // drawn identically on every page load — a §2.7 fabrication. The
+  // current data layer has no historical dominance series. If one is
+  // added later, a real sparkline can be restored here.
   function renderDominance(g) {
     const dom = Number(g?.data?.market_cap_percentage?.btc);
     const change = Number(g?.data?.market_cap_change_percentage_24h_usd);
@@ -2853,16 +2845,11 @@ W.dashboard = (() => {
       <div class="dash-card-title">BTC Dominance</div>
       <div class="dom-value">${esc(domText)}</div>
       <div class="dom-delta ${changeCls}">${esc(changeText)} (24h)</div>
-      <svg class="dom-spark" viewBox="0 0 200 50" preserveAspectRatio="none" aria-hidden="true">
-        <path d="M 0 30 Q 30 26 60 28 T 120 22 T 180 20 T 200 18 L 200 50 L 0 50 Z"
-              fill="rgba(16,185,129,0.1)" />
-        <path d="M 0 30 Q 30 26 60 28 T 120 22 T 180 20 T 200 18"
-              fill="none" stroke="#10b981" stroke-width="1.5" />
-      </svg>
+      <p class="muted small-text mt-8">Share of total crypto market cap held by BTC.</p>
     `;
   }
 
-  // ── Recent signals list (from decision engine) ───────────────
+  // ── Recent signals list ───────────────────────────────────
   function renderSignals(decisions) {
     if (!Array.isArray(decisions) || !decisions.length) {
       return `<p class="muted small p-16">No recent signals.</p>`;
@@ -2884,8 +2871,6 @@ W.dashboard = (() => {
         const confText = conf === null ? "—" : `${Math.round(conf * 100)}%`;
         const confClass = conf === null ? "muted" : conf >= 0.6 ? "up" : "warn";
 
-        // Direction heuristic: THESIS_DETERIORATION is bearish, most
-        // others are neutral/bullish.
         const type = d._signalType || "";
         const isDown =
           type === "THESIS_DETERIORATION" || type === "SECURITY_RISK";
@@ -2910,7 +2895,7 @@ W.dashboard = (() => {
       .join("")}</div>`;
   }
 
-  // ── Evidence preview (Why?/Evidence card) ────────────────────
+  // ── Evidence preview ──────────────────────────────────────
   function renderEvidencePreview(decisions) {
     if (!Array.isArray(decisions) || !decisions.length) {
       return `<p class="muted small p-16">No evidence available.</p>`;
@@ -2949,7 +2934,7 @@ W.dashboard = (() => {
       .join("")}</div>`;
   }
 
-  // ── Quick actions ────────────────────────────────────────────
+  // ── Quick actions ─────────────────────────────────────────
   function renderQuickActions() {
     const actions = [
       { icon: "+", label: "Add Token", route: "/portfolio" },
@@ -2969,11 +2954,10 @@ W.dashboard = (() => {
       .join("")}</div>`;
   }
 
-  // ── Key insights ─────────────────────────────────────────────
+  // ── Key insights ──────────────────────────────────────────
   function renderInsights(decisions, fg, rows, totals) {
     const insights = [];
 
-    // Insight 1: strongest signal
     const strongest = Array.isArray(decisions)
       ? decisions.find(
           (d) => d.assessment && Number.isFinite(d.assessment.confidence),
@@ -2992,7 +2976,6 @@ W.dashboard = (() => {
       });
     }
 
-    // Insight 2: fear & greed
     if (fg && Number.isFinite(Number(fg.value))) {
       const v = Number(fg.value);
       const interpretation =
@@ -3010,7 +2993,6 @@ W.dashboard = (() => {
       });
     }
 
-    // Insight 3: portfolio concentration
     if (Array.isArray(rows) && rows.length && totals && totals.value > 0) {
       const top = rows
         .filter((r) => r.value !== null && r.value > 0)
@@ -3052,12 +3034,10 @@ W.dashboard = (() => {
       .join("");
   }
 
-  // ── KPI strip ────────────────────────────────────────────────
+  // ── KPI strip ─────────────────────────────────────────────
   function renderKpiStrip(decisions, totals) {
-    // Active Signals: count of decisions
     const signalCount = Array.isArray(decisions) ? decisions.length : 0;
 
-    // Signal distribution by confidence band
     let high = 0,
       mid = 0,
       low = 0;
@@ -3071,7 +3051,6 @@ W.dashboard = (() => {
       }
     }
 
-    // Aggregate confidence across priced decisions
     let aggConf = null;
     if (Array.isArray(decisions)) {
       const priced = decisions
@@ -3095,7 +3074,6 @@ W.dashboard = (() => {
     const pnlDeltaCls =
       allTimePnl === null ? "muted" : allTimePnl >= 0 ? "up" : "down";
 
-    const dayDisplay = dayPnl !== null ? signedMoney(dayPnl) : "—";
     const dayDelta = dayPct !== null ? W.fmt.pct(dayPct) : "—";
     const dayDeltaCls = dayPnl === null ? "muted" : dayPnl >= 0 ? "up" : "down";
 
@@ -3140,7 +3118,7 @@ W.dashboard = (() => {
     `;
   }
 
-  // ── Main render ──────────────────────────────────────────────
+  // ── Main render ───────────────────────────────────────────
   async function render(view) {
     if (!view) return;
     destroyCharts(view);
@@ -3261,7 +3239,7 @@ W.dashboard = (() => {
       </div>
     `;
 
-    // Wire static interactions immediately.
+    // Static interactions
     view.querySelectorAll("[data-route]").forEach((el) => {
       el.addEventListener("click", () => {
         const route = el.dataset.route;
@@ -3290,7 +3268,6 @@ W.dashboard = (() => {
         else W.ui.toast("Wallet sync module not available", "warn");
       };
 
-    // Range buttons
     const perfRangeEl = view.querySelector("#d-perf-range");
     if (perfRangeEl) {
       perfRangeEl.querySelectorAll("[data-range]").forEach((b) => {
@@ -3338,15 +3315,15 @@ W.dashboard = (() => {
         ? decisionsR.value
         : [];
 
-    // ── Render KPI strip ────────────────────────────────────
+    // KPI strip
     const kpiEl = view.querySelector("#d-kpi");
     if (kpiEl) kpiEl.innerHTML = renderKpiStrip(decisions, totals);
 
-    // ── Render allocation donut ─────────────────────────────
+    // Allocation donut
     const alloc = buildAllocation(rows, totals);
     drawAllocationDonut(view, alloc);
 
-    // ── Render recent signals ───────────────────────────────
+    // Recent signals
     const signalsEl = view.querySelector("#d-signals");
     if (signalsEl) {
       signalsEl.innerHTML = renderSignals(decisions);
@@ -3363,12 +3340,12 @@ W.dashboard = (() => {
       });
     }
 
-    // ── Tape ────────────────────────────────────────────────
+    // Tape
     const tapeEl = view.querySelector("#d-tape");
     if (tapeEl)
       tapeEl.innerHTML = TOP.length ? tapeHTML(TOP.slice(0, 20)) : tapeHTML([]);
 
-    // ── Top tokens table (with tabs) ────────────────────────
+    // Top tokens table
     let tab = "top";
     const drawTokens = () => {
       let list = TOP;
@@ -3412,8 +3389,8 @@ W.dashboard = (() => {
       if (moreEl) {
         if (fullCount > MARKET_ROWS_DEFAULT) {
           moreEl.innerHTML = marketRowsExpanded
-            ? `<button type="button" class="btn tiny mt-8" id="d-market-toggle">Show fewer</button>`
-            : `<button type="button" class="btn tiny mt-8" id="d-market-toggle">Show all ${fullCount} tokens</button>`;
+            ? `<button type="button" class="btn tiny mt-8" id="d-market-toggle">Show top ${MARKET_ROWS_DEFAULT}</button>`
+            : `<button type="button" class="btn tiny mt-8" id="d-market-toggle">Show all ${fullCount}</button>`;
           const tg = moreEl.querySelector("#d-market-toggle");
           if (tg)
             tg.addEventListener("click", () => {
@@ -3438,7 +3415,7 @@ W.dashboard = (() => {
     });
     drawTokens();
 
-    // ── Fear & Greed + BTC dominance ────────────────────────
+    // Fear & Greed + BTC dominance
     const fgEl = view.querySelector("#d-fg");
     if (fgEl) fgEl.innerHTML = renderFearGreed(fg);
 
@@ -3448,7 +3425,7 @@ W.dashboard = (() => {
         ? renderDominance({ data: g })
         : `<div class="dash-card-title">BTC Dominance</div><div class="dom-value">—</div><div class="dom-delta muted">Source unavailable</div>`;
 
-    // ── Evidence preview ────────────────────────────────────
+    // Evidence preview
     const evEl = view.querySelector("#d-evidence");
     if (evEl) {
       evEl.innerHTML = renderEvidencePreview(decisions);
@@ -3465,7 +3442,7 @@ W.dashboard = (() => {
       });
     }
 
-    // ── Quick actions ───────────────────────────────────────
+    // Quick actions
     const qaEl = view.querySelector("#d-actions");
     if (qaEl) {
       qaEl.innerHTML = renderQuickActions();
@@ -3477,7 +3454,7 @@ W.dashboard = (() => {
       });
     }
 
-    // ── Key insights ────────────────────────────────────────
+    // Key insights
     const insEl = view.querySelector("#d-insights");
     if (insEl) {
       insEl.innerHTML = renderInsights(decisions, fg, rows, totals);
@@ -3500,7 +3477,7 @@ W.dashboard = (() => {
       });
     }
 
-    // ── Portfolio holdings table ────────────────────────────
+    // Portfolio holdings
     const port = view.querySelector("#d-port");
     if (port) {
       if (!rows.length) {
@@ -3512,7 +3489,7 @@ W.dashboard = (() => {
       }
     }
 
-    // ── Intelligence Feed ("What Matters Now") ──────────────
+    // Intelligence feed
     const rankerContainer = view.querySelector("#what-matters-now-container");
     if (rankerContainer) {
       if (W.intelligenceFeed && decisions.length) {
@@ -3530,7 +3507,7 @@ W.dashboard = (() => {
       }
     }
 
-    // ── Discoveries + portfolio deltas ──────────────────────
+    // Discoveries + portfolio deltas
     const changedContainer = view.querySelector("#what-changed-container");
     if (changedContainer) {
       const gemTheses = (W.theses?.all?.() || [])
@@ -3628,7 +3605,7 @@ W.dashboard = (() => {
 })();
 
 console.log(
-  "[Dashboard] Module loaded (Command Center v3, honest data semantics, stale-price cache, UI-002 compliant).",
+  "[Dashboard] Module loaded (Command Center v3.1: no fabricated confidence or dominance sparkline).",
 );
 // ---- js/ui/skeleton.js ----
 // ===============================================================
