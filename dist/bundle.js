@@ -15487,9 +15487,9 @@ W.gems = (() => {
   const DEXSCREENER_API = "https://api.dexscreener.com";
   const PROXIES = [(u) => u];
 
-  // Only chains with a working Token Shield verification path.
+  // Chains with a working Token Shield verification path.
   // Constitution §3.3: DISCOVERABLE_CHAINS ⊆ VERIFIED_CHAINS.
-  const CHAINS = {
+  const CHAINS = Object.freeze({
     solana: "🟣",
     ethereum: "🔷",
     base: "🔵",
@@ -15497,7 +15497,7 @@ W.gems = (() => {
     arbitrum: "🔺",
     polygon: "🟪",
     avalanche: "❄️",
-  };
+  });
 
   const SCORE_VERSION = "gem-v1";
 
@@ -15505,9 +15505,7 @@ W.gems = (() => {
   const MAX_FRESH_SHIELD_PER_SCAN = 12;
   const SHIELD_CONCURRENCY = 4;
 
-  // Per-scan bounds on fresh deployer requests. Deployer fetches
-  // are heavier than Shield checks (they may issue a Bitquery
-  // GraphQL query) so both the cap and concurrency are lower.
+  // Per-scan bounds on fresh deployer requests.
   const MAX_FRESH_DEPLOYER_PER_SCAN = 6;
   const DEPLOYER_CONCURRENCY = 3;
 
@@ -15516,29 +15514,79 @@ W.gems = (() => {
   // this is deleted on read and re-fetched on the next scan.
   const SHIELD_CACHE_TTL = 300000; // 5 minutes
 
-  // ── Helpers ────────────────────────────────────────────
-  function escapeHTML(str) {
-    if (!str) return "";
-    const div = document.createElement("div");
-    div.textContent = str;
-    return div.innerHTML;
+  // Response size cap on DEX Screener fetches. A well-behaved response
+  // is under 500 KB; anything larger is treated as hostile or corrupt.
+  const MAX_RESPONSE_BYTES = 2 * 1024 * 1024; // 2 MB
+
+  // Network timeout per fetch. Long enough for slow mobile, short
+  // enough that a hanging request does not stall the scan.
+  const FETCH_TIMEOUT_MS = 9000;
+
+  // ── Escaping ──────────────────────────────────────────
+  // String-based, escapes & < > " ' so the result is safe in both
+  // text and double- or single-quoted attribute contexts. The prior
+  // div.textContent → div.innerHTML trick did NOT escape quotes,
+  // which made every data-addr="${...}" / href="${...}" an
+  // attribute-breakout XSS vector for any upstream value containing
+  // a double quote. Fast-path for strings avoids the DOM element
+  // allocation per call (was called hundreds of times per scan).
+  function esc(v) {
+    if (v === null || v === undefined) return "";
+    const s = String(v);
+    if (!/[&<>"']/.test(s)) return s; // fast path
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
+  // ── Safe external URL ─────────────────────────────────
+  // Only returns a string that is a parseable https: URL. Anything
+  // else — javascript:, data:, vbscript:, malformed — returns null.
+  // Callers must fall back to a safe default when this returns null.
+  function safeExternalUrl(u) {
+    if (typeof u !== "string" || !u) return null;
+    try {
+      const parsed = new URL(u);
+      if (parsed.protocol !== "https:") return null;
+      return parsed.toString();
+    } catch {
+      return null;
+    }
+  }
+
+  // ── Prototype-safe map factory ────────────────────────
+  // Object.create(null) has no prototype chain, so a key of
+  // "__proto__" or "constructor" is a plain string key rather than
+  // a prototype mutation. Used for every internal cache.
+  function newMap() {
+    return Object.create(null);
+  }
+
+  // ── Chain / format helpers ────────────────────────────
   function chainTag(chain) {
-    return `<span class="tag rank">${CHAINS[chain] || "⛓️"} ${chain}</span>`;
+    const emoji = CHAINS[chain] || "⛓️";
+    return `<span class="tag rank">${emoji} ${esc(chain)}</span>`;
   }
 
   function kfmt(n) {
-    if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
-    if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
-    if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
-    return (n || 0).toFixed(0);
+    const v = Number(n);
+    if (!Number.isFinite(v)) return "0";
+    const abs = Math.abs(v);
+    if (abs >= 1e9) return (v / 1e9).toFixed(1) + "B";
+    if (abs >= 1e6) return (v / 1e6).toFixed(1) + "M";
+    if (abs >= 1e3) return (v / 1e3).toFixed(1) + "K";
+    return v.toFixed(0);
   }
 
   function ageText(hours) {
-    if (hours < 1) return "<1h";
-    if (hours < 48) return Math.round(hours) + "h";
-    return Math.round(hours / 24) + "d";
+    const h = Number(hours);
+    if (!Number.isFinite(h) || h < 0) return "—";
+    if (h < 1) return "<1h";
+    if (h < 48) return Math.round(h) + "h";
+    return Math.round(h / 24) + "d";
   }
 
   function pctBucket(n) {
@@ -15550,24 +15598,15 @@ W.gems = (() => {
   // EVM addresses are case-insensitive hex; Solana addresses are
   // case-sensitive base58. Prefix with the chain key so the same
   // 0x... address on Ethereum and Base cannot collide.
-  //
-  // Chains with different address-normalization rules MUST be handled
-  // explicitly here rather than falling through to the EVM/Solana
-  // branches.
   function shieldCacheKey(address, chainKey) {
     if (typeof address !== "string" || !address.trim()) return null;
     if (typeof chainKey !== "string" || !chainKey) return null;
+    if (!CHAINS[chainKey]) return null; // reject unknown chains
     const normalized = chainKey === "solana" ? address : address.toLowerCase();
     return chainKey + ":" + normalized;
   }
 
   // ── Shield eligibility ─────────────────────────────────
-  // A candidate is Shield-eligible only when:
-  //   1. baseToken.address is a non-empty string,
-  //   2. its chain is in Gem Agent's CHAINS,
-  //   3. that chain is also in W.shield.CHAINS.
-  // Address-format validation is deferred to W.shield.check() —
-  // the authority for what constitutes a valid address per chain.
   function isShieldEligible(gem) {
     const addr =
       gem && gem.pair && gem.pair.baseToken ? gem.pair.baseToken.address : null;
@@ -15581,11 +15620,7 @@ W.gems = (() => {
   }
 
   // ── High-risk predicate ────────────────────────────────
-  // W.shield.isHighRisk() is the single authority. Gem Agent must not
-  // duplicate the threshold, because a second source of truth is the
-  // exact failure mode the P0 was fixing. If Shield is unavailable,
-  // the answer is "not identified as high risk" — matching Shield's
-  // own default for missing data. Unknown ≠ high risk, unknown ≠ safe.
+  // W.shield.isHighRisk() is the single authority.
   function isHighRisk(shield) {
     if (!shield) return false;
     return (
@@ -15596,11 +15631,6 @@ W.gems = (() => {
   }
 
   // ── Market structure (observation only) ───────────────
-  // Produces an observation from the Shield assessment. Does NOT
-  // classify or filter — Shield's isHighRisk() remains the single
-  // authority for risk decisions. Degrades gracefully when
-  // W.marketStructure is not loaded (test environments, load-order
-  // issues): the observation is null and the renderer omits the row.
   function buildObservation(shield, pair) {
     if (!shield || !pair) return null;
     if (!W.marketStructure || typeof W.marketStructure.observe !== "function") {
@@ -15609,7 +15639,6 @@ W.gems = (() => {
     try {
       return W.marketStructure.observe(shield, pair);
     } catch (e) {
-      // Observation is best-effort evidence, never a hard dependency.
       console.warn(
         "[Gems] Market structure observation failed:",
         e && e.message,
@@ -15618,12 +15647,6 @@ W.gems = (() => {
     }
   }
 
-  // Renders the observation as an HTML row, or "" when there is
-  // nothing meaningful to show. "unknown" values are hidden rather
-  // than displayed as noise — but the absence of a row does NOT mean
-  // the token is safe; it means the observation layer had no
-  // measured values. Consumers must not read the absence of this
-  // row as a positive signal.
   function marketStructureLine(observation) {
     if (!observation) return "";
     const c = observation.concentration;
@@ -15636,13 +15659,10 @@ W.gems = (() => {
       parts.push(`LP: ${l.status}`);
     }
     if (!parts.length) return "";
-    return `<div class="kv-row"><span class="muted">Structure</span><span>${escapeHTML(parts.join(" · "))}</span></div>`;
+    return `<div class="kv-row"><span class="muted">Structure</span><span>${esc(parts.join(" · "))}</span></div>`;
   }
 
-  // ── Trajectory (Step 3 of trajectory design) ──────────
-  // Reads the current trajectory for a token from the observations
-  // module. Returns null when the module is missing, no history
-  // exists, or the read fails. Never throws.
+  // ── Trajectory ────────────────────────────────────────
   function fetchTrajectory(chainKey, address) {
     if (!W.observations || typeof W.observations.trajectory !== "function") {
       return null;
@@ -15655,11 +15675,6 @@ W.gems = (() => {
     }
   }
 
-  // Renders a trajectory as an HTML row, or "" when there is
-  // nothing to show (no trajectory, no available deltas, or the
-  // market-structure module is not loaded). The absence of this
-  // row does NOT mean the token is safe or stable; it means no
-  // delta could be computed from the retained history.
   function trajectoryLine(trajectory) {
     if (!trajectory) return "";
     if (
@@ -15676,13 +15691,10 @@ W.gems = (() => {
       return "";
     }
     if (!summary) return "";
-    return `<div class="kv-row"><span class="muted">Trajectory</span><span>${escapeHTML(summary)}</span></div>`;
+    return `<div class="kv-row"><span class="muted">Trajectory</span><span>${esc(summary)}</span></div>`;
   }
 
-  // ── Owner line (Step 4 of owner-associations design) ──
-  // Renders the owner-association summary as an HTML row, or "" when
-  // there is nothing to show. The summary comes from the module; this
-  // helper only wraps it in markup and escapes it.
+  // ── Owner line ────────────────────────────────────────
   function ownerLine(observation) {
     if (!observation) return "";
     if (
@@ -15699,19 +15711,10 @@ W.gems = (() => {
       return "";
     }
     if (!summary) return "";
-    return `<div class="kv-row"><span class="muted">Owner</span><span>${escapeHTML(summary)}</span></div>`;
+    return `<div class="kv-row"><span class="muted">Owner</span><span>${esc(summary)}</span></div>`;
   }
 
-  // ── Deployer line (Step 5 of deployer-graph design) ────
-  // Renders the deployer-graph summary as an HTML row, or "" when
-  // there is nothing to show. The summary comes from the module;
-  // this helper only wraps it in markup and escapes it.
-  //
-  // The absence of this row does not mean the deployer is safe;
-  // it means no deployer profile is cached for this token. That
-  // can be because the token is on Solana, because GoPlus did not
-  // report a creator address, because the fetch failed, or
-  // because the fetched profile qualified zero tokens.
+  // ── Deployer line ─────────────────────────────────────
   function deployerLine(observation) {
     if (!observation) return "";
     if (!W.deployerGraph || typeof W.deployerGraph.summarise !== "function") {
@@ -15725,23 +15728,10 @@ W.gems = (() => {
       return "";
     }
     if (!summary) return "";
-    return `<div class="kv-row"><span class="muted">Deployer</span><span>${escapeHTML(summary)}</span></div>`;
+    return `<div class="kv-row"><span class="muted">Deployer</span><span>${esc(summary)}</span></div>`;
   }
 
-  // ── Observation recording (Step 2 of trajectory design) ──
-  // Persists a market-structure observation for a single candidate
-  // when the cached Shield assessment is usable. Returns true on
-  // success, false otherwise. Never throws.
-  //
-  // Guards:
-  //   - W.observations must be loaded (Step 1 module)
-  //   - gem must carry a pair with a baseToken address
-  //   - a cached Shield assessment must exist for the token
-  //   - the assessment must not be an error/noData/unsupported state
-  //   - the observation must not carry source "unavailable"
-  //     (Solana — the GoPlus Solana endpoint does not return
-  //     holder distribution, so recording would only produce
-  //     all-null entries that cannot yield trajectory deltas)
+  // ── Observation recording ─────────────────────────────
   function recordObservation(gem) {
     if (!W.observations || typeof W.observations.record !== "function") {
       return false;
@@ -15770,23 +15760,7 @@ W.gems = (() => {
     }
   }
 
-  // ── Owner associations (Step 3 of owner-associations design) ──
-  // Records the GoPlus-reported owner address for a candidate, so
-  // the session can track whether the same address appears as owner
-  // on multiple tokens. Mirrors the guard shape of
-  // recordObservation() above: skip on missing module, missing
-  // inputs, or unusable shield state; wrap the module call in
-  // try/catch; never throw.
-  //
-  // The module itself checks assessment.owner and normalizes the
-  // address. This helper's only extra concern is skipping the four
-  // shield states that carry no measurement (error, noData,
-  // unsupported) so the module is not entered for them.
-  //
-  // Solana assessments are not special-cased here. The module
-  // rejects them because owner.address is null for Solana; the
-  // helper passes the assessment through and lets the module
-  // return null.
+  // ── Owner associations ────────────────────────────────
   function observeOwner(gem) {
     if (
       !W.ownerAssociations ||
@@ -15819,17 +15793,7 @@ W.gems = (() => {
     }
   }
 
-  // ── Deployer associations (Step 5 of deployer-graph design) ──
-  // Async. Reads the cached Shield assessment for the token, then
-  // delegates to W.deployerGraph.observe(). The module itself
-  // performs the cache check, the Bitquery fetch on cache miss,
-  // and the qualification step.
-  //
-  // Mirrors the guard shape of observeOwner() and adds the async
-  // hop. Never throws — every failure path returns null.
-  //
-  // This helper is called only from enrichDeployerResults(); the
-  // per-scan fresh cap is enforced there, not here.
+  // ── Deployer associations ─────────────────────────────
   async function observeDeployer(gem) {
     if (!W.deployerGraph || typeof W.deployerGraph.observe !== "function") {
       return null;
@@ -15846,10 +15810,6 @@ W.gems = (() => {
     if (!shield) return null;
     if (shield.error || shield.noData || shield.unsupported) return null;
 
-    // Solana assessments and any EVM assessment without a GoPlus
-    // creator address cannot produce a deployer profile. Skipping
-    // here avoids the unnecessary await and keeps the per-scan cap
-    // honest even if the caller did not pre-filter.
     const creator = shield.creator;
     if (!creator || typeof creator !== "object") return null;
     if (typeof creator.address !== "string" || !creator.address.trim()) {
@@ -15870,15 +15830,6 @@ W.gems = (() => {
   }
 
   // ── Bounded-concurrency deployer enrichment ──────────
-  // Callers pass only *uncached* eligible candidates. The pool is
-  // capped at DEPLOYER_CONCURRENCY simultaneous requests and the
-  // caller has already limited the queue to
-  // MAX_FRESH_DEPLOYER_PER_SCAN entries.
-  //
-  // Unlike enrichShieldResults(), this pool is awaited by scan().
-  // Deployer fetches are heavier and the render path needs the
-  // cache populated to show the row. The cap and concurrency
-  // bounds keep the wait under two batches in the worst case.
   async function enrichDeployerResults(
     candidates,
     concurrency = DEPLOYER_CONCURRENCY,
@@ -15896,8 +15847,6 @@ W.gems = (() => {
             try {
               await observeDeployer(gem);
             } catch (e) {
-              // observeDeployer already swallows errors; this is
-              // belt-and-braces.
               console.warn(
                 "[Gems] Deployer enrichment failed:",
                 e && e.message,
@@ -15911,16 +15860,46 @@ W.gems = (() => {
   }
 
   // ── API call with proxy fallback ──────────────────────
+  // Hardened: validates the URL, sets credentials: "omit" so no
+  // ambient cookie is ever sent to a third party, caps the response
+  // size, and parses JSON explicitly rather than through resp.json()
+  // so we can check the raw size before parsing.
   async function fetchDexScreener(url) {
+    if (
+      typeof url !== "string" ||
+      !url.startsWith("https://api.dexscreener.com/")
+    ) {
+      throw new Error("Invalid DEX Screener URL");
+    }
     let lastErr;
     for (const proxy of PROXIES) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 9000);
+      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
       try {
-        const resp = await fetch(proxy(url), { signal: controller.signal });
+        const resp = await fetch(proxy(url), {
+          signal: controller.signal,
+          credentials: "omit",
+          mode: "cors",
+          headers: { Accept: "application/json" },
+        });
         clearTimeout(timeout);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        return await resp.json();
+
+        // Guard against an oversized body via Content-Length when
+        // present, and again against the decoded text when not.
+        const cl = resp.headers.get("content-length");
+        if (cl && Number(cl) > MAX_RESPONSE_BYTES) {
+          throw new Error("Response too large");
+        }
+        const text = await resp.text();
+        if (text.length > MAX_RESPONSE_BYTES) {
+          throw new Error("Response too large");
+        }
+        try {
+          return JSON.parse(text);
+        } catch {
+          throw new Error("Invalid JSON response");
+        }
       } catch (e) {
         lastErr = e;
         clearTimeout(timeout);
@@ -15930,6 +15909,12 @@ W.gems = (() => {
   }
 
   // ── Scoring Algorithm ──────────────────────────────────
+  // `|| 0` on every numeric field is deliberate here: score() is a
+  // heuristic for surfacing candidates, not a data-fidelity claim.
+  // A pair missing its liquidity field is treated as "zero
+  // liquidity" for scoring purposes (which correctly produces a
+  // low score), not as "unknown" (§2.7 concerns the prices and
+  // values the UI displays, not the ranking heuristic).
   function score(pair) {
     const liq = (pair.liquidity && pair.liquidity.usd) || 0;
     const vol = (pair.volume && pair.volume.h24) || 0;
@@ -15937,9 +15922,9 @@ W.gems = (() => {
       ? (Date.now() - pair.pairCreatedAt) / 36e5
       : 0;
     const c = pair.priceChange || {};
-    const h1 = c.h1 || 0,
-      h6 = c.h6 || 0,
-      h24 = c.h24 || 0;
+    const h1 = Number(c.h1) || 0,
+      h6 = Number(c.h6) || 0,
+      h24 = Number(c.h24) || 0;
 
     let s = 0;
     const reasons = [];
@@ -16017,20 +16002,21 @@ W.gems = (() => {
   }
 
   // ── Scan state ────────────────────────────────────────
-  let auto = false,
-    timer = null;
+  let auto = false;
+  let timer = null;
 
-  // `seen` tracks notification dedup across scans. Chain-aware: the
-  // same 0x... address on Ethereum and Base are two distinct candidates
-  // and must not collapse into one notification. Keyed with the same
-  // normalization as shieldCacheKey so the two caches stay in lockstep.
-  let seen = {};
+  // Guards against overlapping scans. A user who clicks "Scan now"
+  // twice in quick succession (or an auto-timer firing while a
+  // manual scan is in progress) would otherwise launch two full
+  // pipelines in parallel: duplicate network requests, duplicate
+  // notifications, duplicate auto-theses.
+  let _scanInFlight = false;
 
-  // `shieldCache` stores { assessment, observedAt } per chain-aware key.
-  // Entries expire after SHIELD_CACHE_TTL. Do not read this map
-  // directly — use getCachedShield() / setCachedShield() so the TTL is
-  // always enforced.
-  let shieldCache = {};
+  // Prototype-safe maps. `seen` and `shieldCache` are keyed by
+  // values that come from upstream data — a hostile pair with
+  // address "__proto__" must not mutate Object.prototype.
+  let seen = newMap();
+  let shieldCache = newMap();
 
   function getCachedShield(key) {
     const entry = shieldCache[key];
@@ -16039,10 +16025,6 @@ W.gems = (() => {
       delete shieldCache[key];
       return null;
     }
-    // The assessment may be a successful result, an error result, an
-    // unsupported-chain result, or a noData result. All four are valid
-    // cached states with the same TTL. Callers must not treat the
-    // presence of a cached value as proof of a successful check.
     return entry.assessment;
   }
 
@@ -16057,7 +16039,6 @@ W.gems = (() => {
     }
     const cached = getCachedShield(key);
     if (cached) {
-      // Keep evidence registry warm for downstream consumers.
       W.shield?.rememberEvidence?.(
         { ...identity, address: addr, chain: chainKey },
         cached,
@@ -16088,8 +16069,6 @@ W.gems = (() => {
   }
 
   // ── Bounded-concurrency Shield enrichment ─────────────
-  // Callers pass only *uncached* candidates. Cache hits never consume a
-  // fresh-request slot. One failing worker does not abort the others.
   async function enrichShieldResults(
     candidates,
     concurrency = SHIELD_CONCURRENCY,
@@ -16110,7 +16089,6 @@ W.gems = (() => {
                 name: gem.pair.baseToken.name,
               });
             } catch (e) {
-              // checkShield already swallows errors; this is belt-and-braces.
               console.warn("[Gems] Shield enrichment failed:", e && e.message);
             }
           }
@@ -16120,13 +16098,22 @@ W.gems = (() => {
     await Promise.all(workers);
   }
 
+  // ── Shield summary ────────────────────────────────────
+  // Every field is optional; every field must be checked before
+  // stringifying. The prior version printed "undefined/100" when
+  // riskScore was absent and "undefined" when scoreVersion was
+  // absent. Now: missing values are shown as "—" or omitted.
   function shieldSummary(s) {
     if (!s) return "🛡️ Shield: not checked";
     if (s.unsupported) return "🛡️ Shield: not available for this chain";
     if (s.error) return "🛡️ Shield: check failed — verify manually";
     if (s.noData) return "🛡️ Shield: no security data found";
     const level = s.riskLevel && s.riskLevel[0] ? s.riskLevel[0] : "—";
-    return `🛡️ Shield: ${level} (${s.riskScore}/100 identified-risk score, ${s.scoreVersion})`;
+    const score = Number.isFinite(s.riskScore) ? s.riskScore : "—";
+    const version = typeof s.scoreVersion === "string" ? s.scoreVersion : null;
+    return version
+      ? `🛡️ Shield: ${level} (${score}/100 identified-risk score, ${version})`
+      : `🛡️ Shield: ${level} (${score}/100 identified-risk score)`;
   }
 
   function autoCreateThesis(gem, addr, shield) {
@@ -16151,9 +16138,28 @@ W.gems = (() => {
     });
   }
 
+  // ── Scan ──────────────────────────────────────────────
+  // Public entry point. Guards against concurrent scans and against
+  // a detached view (user navigated away mid-scan). The heavy lifting
+  // is inside the try block so the flag is always cleared.
   async function scan(view) {
+    if (_scanInFlight) {
+      W.ui?.toast?.("Scan already in progress", "info", 2000);
+      return;
+    }
+    if (!view || !view.isConnected) return;
     const body = view.querySelector("#g-body");
     if (!body) return;
+
+    _scanInFlight = true;
+    try {
+      await _scanImpl(view, body);
+    } finally {
+      _scanInFlight = false;
+    }
+  }
+
+  async function _scanImpl(view, body) {
     body.innerHTML = W.ui.spinner();
 
     try {
@@ -16162,37 +16168,53 @@ W.gems = (() => {
         fetchDexScreener(DEXSCREENER_API + "/token-profiles/latest/v1"),
       ]);
 
-      const map = new Map();
-      if (boosts.status === "fulfilled" && boosts.value) {
-        boosts.value.forEach((b) =>
-          map.set(b.tokenAddress, b.totalBoosts || 1),
-        );
+      // View may have detached during the fetch.
+      if (!view.isConnected) return;
+
+      const map = newMap();
+      if (boosts.status === "fulfilled" && Array.isArray(boosts.value)) {
+        boosts.value.forEach((b) => {
+          if (b && typeof b.tokenAddress === "string") {
+            map[b.tokenAddress] = Number(b.totalBoosts) || 1;
+          }
+        });
       }
-      if (profiles.status === "fulfilled" && profiles.value) {
+      if (profiles.status === "fulfilled" && Array.isArray(profiles.value)) {
         profiles.value.forEach((p) => {
-          if (!map.has(p.tokenAddress)) map.set(p.tokenAddress, 0);
+          if (
+            p &&
+            typeof p.tokenAddress === "string" &&
+            !(p.tokenAddress in map)
+          ) {
+            map[p.tokenAddress] = 0;
+          }
         });
       }
 
-      const addresses = [...map.keys()].slice(0, 30);
+      const addresses = Object.keys(map).slice(0, 30);
       if (!addresses.length) throw new Error("No candidates");
 
       const pairsResp = await fetchDexScreener(
         DEXSCREENER_API + "/latest/dex/tokens/" + addresses.join(","),
       );
+      if (!view.isConnected) return;
+
       const pairs = Array.isArray(pairsResp)
         ? pairsResp
         : pairsResp && Array.isArray(pairsResp.pairs)
           ? pairsResp.pairs
           : [];
-      const byToken = {};
+
+      const byToken = newMap();
       pairs.forEach((p) => {
-        const a = p.baseToken?.address;
-        if (!a) return;
+        if (!p || typeof p !== "object") return;
+        const a = p.baseToken && p.baseToken.address;
+        if (typeof a !== "string") return;
         if (!CHAINS[p.chainId]) return;
+        const existing = byToken[a];
         if (
-          !byToken[a] ||
-          (p.liquidity?.usd || 0) > (byToken[a].liquidity?.usd || 0)
+          !existing ||
+          (p.liquidity?.usd || 0) > (existing.liquidity?.usd || 0)
         ) {
           byToken[a] = p;
         }
@@ -16208,10 +16230,7 @@ W.gems = (() => {
         .sort((a, b) => b.analysis.score - a.analysis.score)
         .slice(0, 24);
 
-      // ── Shield enrichment — MUST run before hideRisk filtering ──
-      // Reuse cached results; issue at most MAX_FRESH_SHIELD_PER_SCAN
-      // fresh checks for the highest-scoring uncached eligible
-      // candidates, with bounded concurrency.
+      // ── Shield enrichment ───────────────────────────────
       const eligible = results.filter(isShieldEligible);
       const uncached = [];
       for (const g of eligible) {
@@ -16222,54 +16241,16 @@ W.gems = (() => {
       }
       if (uncached.length) {
         await enrichShieldResults(uncached, SHIELD_CONCURRENCY);
+        if (!view.isConnected) return;
       }
 
       // ── Record observations ─────────────────────────────
-      // Persist a market-structure observation (trajectory history)
-      // and an owner observation (session owner map) for every
-      // candidate with a usable cached Shield assessment, regardless
-      // of whether it survives the chain and hide-risk filters below.
-      // Both observation layers must reflect what this scan saw, not
-      // what the user is currently looking at.
-      //
-      // MAX_FRESH_SHIELD_PER_SCAN bounds network requests; it does
-      // not bound observation recording. Cached assessments are
-      // recorded too — the observation captures what Weaver knew at
-      // scan time, not when GoPlus originally fetched the data.
-      //
-      // Solana assessments are skipped inside both helpers: the
-      // GoPlus Solana endpoint returns neither holder distribution
-      // nor an owner address, so recording would only produce
-      // all-null entries with no derivable signal.
       for (const g of results) {
         recordObservation(g);
         observeOwner(g);
       }
 
-      // ── Deployer enrichment (bounded, cache-first) ──────
-      // Deployer fetches are async and heavier than Shield checks,
-      // so this pass is bounded on two axes:
-      //   - MAX_FRESH_DEPLOYER_PER_SCAN caps the number of fresh
-      //     Bitquery queries per scan (cached profiles don't count).
-      //   - DEPLOYER_CONCURRENCY caps the simultaneous requests.
-      //
-      // Cache hits are found via get(), which never issues a
-      // network call. Only uncached eligible candidates enter the
-      // pool. The pool is awaited before filtering so the render
-      // path sees the cache populated on the first scan rather
-      // than on the second.
-      //
-      // Failure isolation matches the other observation layers:
-      // a deployer fetch that fails, times out, or is not
-      // configured simply leaves the cache empty and the row is
-      // omitted from the card.
-      //
-      // The pre-filter additionally requires a GoPlus creator
-      // address on the cached Shield assessment. Solana
-      // assessments always have creator.address === null; some
-      // EVM assessments do too. Those candidates would only
-      // produce a null result downstream, so they must not
-      // consume a slot from the per-scan cap.
+      // ── Deployer enrichment ─────────────────────────────
       if (W.deployerGraph && typeof W.deployerGraph.get === "function") {
         const deployerUncached = [];
         for (const g of results) {
@@ -16294,39 +16275,39 @@ W.gems = (() => {
         }
         if (deployerUncached.length) {
           await enrichDeployerResults(deployerUncached, DEPLOYER_CONCURRENCY);
+          if (!view.isConnected) return;
         }
       }
 
-      // ── Apply filters (chain + hideRisk) on enriched data ──
+      // ── Apply filters ───────────────────────────────────
       const shown = results.filter((g) => {
         if (chainFilter && g.pair.chainId !== chainFilter) return false;
         if (!hideRisk) return true;
         const key = shieldCacheKey(g.pair.baseToken.address, g.pair.chainId);
         const sc = key ? getCachedShield(key) : null;
-        if (!sc) return true; // unknown ≠ safe, but also not high-risk
+        if (!sc) return true;
         return !isHighRisk(sc);
       });
 
-      // ── Notifications / theses (post-enrichment, cache-only) ──
-      // `seen` is chain-aware. Telegram notify key uses the same
-      // chain-aware identity, otherwise Telegram's own dedup would
-      // suppress the second chain's alert.
+      // ── Notifications / theses ──────────────────────────
       for (const g of results) {
         const addr = g.pair.baseToken.address;
         const chainKey = g.pair.chainId;
         const cacheKey = shieldCacheKey(addr, chainKey);
         if (g.analysis.score >= 70 && cacheKey && !seen[cacheKey]) {
           const shield = getCachedShield(cacheKey) || null;
+          const symbolRaw = g.pair.baseToken.symbol;
+          const symbolSafe = esc(symbolRaw);
           const reasonLines = (g.analysis.reasons || [])
             .slice(0, 4)
             .map((r) => "• " + r)
             .join("\n");
           const msg =
-            `🤖 <b>Gem detected:</b> ${g.pair.baseToken.symbol} on ${chainKey} — score ${g.analysis.score} (${g.analysis.scoreVersion})\n` +
+            `🤖 <b>Gem detected:</b> ${symbolSafe} on ${esc(chainKey)} — score ${g.analysis.score} (${esc(g.analysis.scoreVersion)})\n` +
             (reasonLines ? reasonLines + "\n" : "") +
             shieldSummary(shield);
           W.ui.toast(
-            `Gem detected: ${g.pair.baseToken.symbol} — score ${g.analysis.score}`,
+            `Gem detected: ${symbolSafe} — score ${g.analysis.score}`,
             "ok",
             6000,
           );
@@ -16335,19 +16316,13 @@ W.gems = (() => {
           if (W.trackRecord) {
             const priceAtCapture = parseFloat(g.pair.priceUsd);
             W.trackRecord.createFromGemAlert({
-              symbol: g.pair.baseToken.symbol,
+              symbol: symbolRaw,
               chainId: chainKey,
               contractAddress: addr,
               priceAtCapture: Number.isFinite(priceAtCapture)
                 ? priceAtCapture
                 : null,
               scenario: "Bullish scenario",
-              // The Gem pipeline computes a composite evaluation score,
-              // not a calibrated confidence. Track Record's `confidence`
-              // field is semantically distinct — passing the score here
-              // would store a value that score() never produced as one.
-              // Until the Gem pipeline has a real confidence, the
-              // honest value is null.
               confidence: null,
               reasons: g.analysis.reasons,
               methodologyVersion: g.analysis.scoreVersion,
@@ -16357,104 +16332,21 @@ W.gems = (() => {
         if (cacheKey) seen[cacheKey] = 1;
       }
 
-      view.querySelector("#g-stats").innerHTML = `
-        <div class="card stat"><div class="stat-label">Candidates scanned</div><div class="stat-big">${addresses.length}</div></div>
-        <div class="card stat"><div class="stat-label">Chains covered</div><div class="stat-big">${new Set(results.map((g) => g.pair.chainId)).size}</div></div>
-        <div class="card stat"><div class="stat-label">Gems ≥ ${minScore}</div><div class="stat-big">${results.length}${shown.length < results.length ? " (showing " + shown.length + ")" : ""}</div></div>
-      `;
+      // ── Render ──────────────────────────────────────────
+      if (!view.isConnected) return;
+
+      const statsEl = view.querySelector("#g-stats");
+      if (statsEl) {
+        statsEl.innerHTML = `
+          <div class="card stat"><div class="stat-label">Candidates scanned</div><div class="stat-big">${esc(addresses.length)}</div></div>
+          <div class="card stat"><div class="stat-label">Chains covered</div><div class="stat-big">${esc(new Set(results.map((g) => g.pair.chainId)).size)}</div></div>
+          <div class="card stat"><div class="stat-label">Gems ≥ ${esc(minScore)}</div><div class="stat-big">${esc(results.length)}${shown.length < results.length ? " (showing " + esc(shown.length) + ")" : ""}</div></div>
+        `;
+      }
 
       if (shown.length) {
         body.innerHTML = `<div class="grid-2">${shown
-          .map((g) => {
-            const p = g.pair,
-              a = g.analysis,
-              t = p.baseToken;
-            const addr = t.address;
-            const key = shieldCacheKey(addr, p.chainId);
-            const shield = key ? getCachedShield(key) : null;
-            const shieldSection = shield
-              ? `<div class="kv-row"><span class="muted">Security</span><span>${escapeHTML(shieldSummary(shield))}</span></div>`
-              : `<button class="btn tiny mt" data-shield-check data-addr="${escapeHTML(addr)}" data-symbol="${escapeHTML(t.symbol)}" data-chain="${escapeHTML(p.chainId)}">🛡️ Verify Security</button>`;
-
-            // Market structure observation. Derived from the cached
-            // shield assessment and the DexScreener pair — no new
-            // network call. Renders as an additional row when there is
-            // something measured; omitted when both concentration and
-            // LP status are unknown.
-            const observation = buildObservation(shield, p);
-            const structureSection = marketStructureLine(observation);
-
-            // Trajectory. Reads persisted history for the token and
-            // computes deltas for the standard intervals. Renders as
-            // a second row when at least one delta is available.
-            const trajectory = fetchTrajectory(p.chainId, addr);
-            const trajectorySection = trajectoryLine(trajectory);
-
-            // Owner. Reads the session-scoped owner association for
-            // this token (populated by observeOwner() during the
-            // scan). Renders as a third row when the same owner
-            // address has been observed on other tokens this session.
-            //
-            // This uses the read-only get() accessor, not observe().
-            // observe() writes to the session map — it advances
-            // observedAt, lastObservedAt, and riskScore. Rendering
-            // a card must not mutate observation state. The
-            // recording phase (observeOwner in the scan loop) is
-            // the only writer.
-            const ownerObservation = W.ownerAssociations
-              ? W.ownerAssociations.get(p.chainId, addr)
-              : null;
-            const ownerSection = ownerLine(ownerObservation);
-
-            // Deployer. Reads the cached deployer profile for this
-            // token (populated by observeDeployer() during the
-            // scan). Renders as a fourth row when Bitquery returned
-            // a profile that qualified the current token.
-            //
-            // Same read/write boundary as the Owner row: get(), not
-            // observe(). Rendering must not issue a network request
-            // or mutate the cache.
-            const deployerObservation = W.deployerGraph
-              ? W.deployerGraph.get(p.chainId, addr)
-              : null;
-            const deployerSection = deployerLine(deployerObservation);
-
-            return `
-            <div class="card" data-gem-card="${escapeHTML(addr)}">
-              <div class="watch-head">
-                <div>
-                  <b>${escapeHTML(t.symbol)}</b> <span class="muted small">${escapeHTML(t.name)}</span><br>
-                  ${chainTag(p.chainId)} <span class="muted small">age ${ageText(a.ageH)}</span>
-                </div>
-                <div class="text-right">
-                  <span class="tag tag-lg ${a.verdict[1]}">${a.verdict[0]}</span>
-                  <div class="alt-num text-3xl">${a.score}</div>
-                  <div class="muted text-2xs">${a.scoreVersion}</div>
-                </div>
-              </div>
-              <div class="meter-bar"><div class="meter-fill meter-fill-${pctBucket(a.score)}"></div></div>
-              <div class="kv-row"><span class="muted">Price</span><span>$${p.priceUsd}</span></div>
-              <div class="kv-row"><span class="muted">Liquidity / 24h Vol</span><span>$${kfmt(a.liq)} / $${kfmt(a.vol)}</span></div>
-              <div class="kv-row"><span class="muted">1h / 6h / 24h</span><span>${W.fmt.pct(a.h1)} ${W.fmt.pct(a.h6)} ${W.fmt.pct(a.h24)}</span></div>
-              <div class="shield-slot">${shieldSection}</div>
-              ${structureSection}
-              ${trajectorySection}
-              ${ownerSection}
-              ${deployerSection}
-              <p class="small muted mt-8"><b>Why it appeared:</b> ${escapeHTML(a.reasons[0] || "Insufficient evidence to summarize.")}</p>
-              ${
-                a.reasons.length > 1
-                  ? `<ul class="tx-list">${a.reasons
-                      .slice(1, 4)
-                      .map((r) => `<li>${escapeHTML(r)}</li>`)
-                      .join("")}</ul>`
-                  : ""
-              }
-              <a class="btn tiny mt" href="#/token/${encodeURIComponent(t.symbol)}">📈 Analyze ${escapeHTML(t.symbol)}</a>
-              <a class="btn tiny mt" target="_blank" href="${p.url || "https://dexscreener.com/" + p.chainId + "/" + p.pairAddress}">📊 Open in DEX Screener ↗</a>
-            </div>
-          `;
-          })
+          .map((g) => _renderGemCard(g))
           .join("")}</div>`;
 
         body.querySelectorAll("[data-shield-check]").forEach((btn) => {
@@ -16468,7 +16360,7 @@ W.gems = (() => {
             );
             const slot = btn.closest(".shield-slot");
             if (slot) {
-              slot.innerHTML = `<div class="kv-row"><span class="muted">Security</span><span>${escapeHTML(shieldSummary(shield))}</span></div>`;
+              slot.innerHTML = `<div class="kv-row"><span class="muted">Security</span><span>${esc(shieldSummary(shield))}</span></div>`;
             }
           };
         });
@@ -16480,12 +16372,95 @@ W.gems = (() => {
         );
       }
     } catch (e) {
-      body.innerHTML = `<p class="muted">Gem scan failed: ${escapeHTML(e.message)} — DEX Screener unreachable on this network (try ⟳ or another network).</p>`;
+      if (!view.isConnected) return;
+      body.innerHTML = `<p class="muted">Gem scan failed: ${esc(e.message)} — DEX Screener unreachable on this network (try ⟳ or another network).</p>`;
     }
+  }
+
+  // ── Card renderer ─────────────────────────────────────
+  // Extracted so the scan body stays readable. Every interpolated
+  // value is passed through esc(); the external URL is validated
+  // through safeExternalUrl() before being used in an href.
+  function _renderGemCard(g) {
+    const p = g.pair;
+    const a = g.analysis;
+    const t = p.baseToken || {};
+    const addr = t.address;
+    const key = shieldCacheKey(addr, p.chainId);
+    const shield = key ? getCachedShield(key) : null;
+    const shieldSection = shield
+      ? `<div class="kv-row"><span class="muted">Security</span><span>${esc(shieldSummary(shield))}</span></div>`
+      : `<button class="btn tiny mt" data-shield-check data-addr="${esc(addr)}" data-symbol="${esc(t.symbol)}" data-chain="${esc(p.chainId)}">🛡️ Verify Security</button>`;
+
+    const observation = buildObservation(shield, p);
+    const structureSection = marketStructureLine(observation);
+
+    const trajectory = fetchTrajectory(p.chainId, addr);
+    const trajectorySection = trajectoryLine(trajectory);
+
+    const ownerObservation = W.ownerAssociations
+      ? W.ownerAssociations.get(p.chainId, addr)
+      : null;
+    const ownerSection = ownerLine(ownerObservation);
+
+    const deployerObservation = W.deployerGraph
+      ? W.deployerGraph.get(p.chainId, addr)
+      : null;
+    const deployerSection = deployerLine(deployerObservation);
+
+    // External link — validate before embedding. Fall back to the
+    // constructed DexScreener URL only if it also validates.
+    const fallbackUrl =
+      "https://dexscreener.com/" +
+      encodeURIComponent(p.chainId || "") +
+      "/" +
+      encodeURIComponent(p.pairAddress || "");
+    const externalUrl =
+      safeExternalUrl(p.url) || safeExternalUrl(fallbackUrl) || "#";
+
+    const reasons = Array.isArray(a.reasons) ? a.reasons : [];
+    const firstReason = reasons[0] || "Insufficient evidence to summarize.";
+
+    return `
+      <div class="card" data-gem-card="${esc(addr)}">
+        <div class="watch-head">
+          <div>
+            <b>${esc(t.symbol)}</b> <span class="muted small">${esc(t.name)}</span><br>
+            ${chainTag(p.chainId)} <span class="muted small">age ${esc(ageText(a.ageH))}</span>
+          </div>
+          <div class="text-right">
+            <span class="tag tag-lg ${esc(a.verdict[1])}">${esc(a.verdict[0])}</span>
+            <div class="alt-num text-3xl">${esc(a.score)}</div>
+            <div class="muted text-2xs">${esc(a.scoreVersion)}</div>
+          </div>
+        </div>
+        <div class="meter-bar"><div class="meter-fill meter-fill-${pctBucket(a.score)}"></div></div>
+        <div class="kv-row"><span class="muted">Price</span><span>$${esc(p.priceUsd)}</span></div>
+        <div class="kv-row"><span class="muted">Liquidity / 24h Vol</span><span>$${esc(kfmt(a.liq))} / $${esc(kfmt(a.vol))}</span></div>
+        <div class="kv-row"><span class="muted">1h / 6h / 24h</span><span>${esc(W.fmt.pct(a.h1))} ${esc(W.fmt.pct(a.h6))} ${esc(W.fmt.pct(a.h24))}</span></div>
+        <div class="shield-slot">${shieldSection}</div>
+        ${structureSection}
+        ${trajectorySection}
+        ${ownerSection}
+        ${deployerSection}
+        <p class="small muted mt-8"><b>Why it appeared:</b> ${esc(firstReason)}</p>
+        ${
+          reasons.length > 1
+            ? `<ul class="tx-list">${reasons
+                .slice(1, 4)
+                .map((r) => `<li>${esc(r)}</li>`)
+                .join("")}</ul>`
+            : ""
+        }
+        <a class="btn tiny mt" href="#/token/${encodeURIComponent(t.symbol || "")}">📈 Analyze ${esc(t.symbol)}</a>
+        <a class="btn tiny mt" target="_blank" rel="noopener noreferrer" href="${esc(externalUrl)}">📊 Open in DEX Screener ↗</a>
+      </div>
+    `;
   }
 
   // ── Render ─────────────────────────────────────────────
   async function render(view) {
+    if (!view) return;
     const chainList = Object.keys(CHAINS).join(", ");
     view.innerHTML = `
       <div class="card">
@@ -16504,7 +16479,7 @@ W.gems = (() => {
               <select id="g-chain" class="w-auto">
                 <option value="">All</option>
                 ${Object.keys(CHAINS)
-                  .map((c) => `<option value="${c}">${c}</option>`)
+                  .map((c) => `<option value="${esc(c)}">${esc(c)}</option>`)
                   .join("")}
               </select>
             </label>
@@ -16519,7 +16494,7 @@ W.gems = (() => {
             <button class="btn primary" id="g-go">▶ Scan now</button>
           </div>
         </div>
-        <p class="muted small">The agent crawls DEX Screener's latest boosted & newly-profiled tokens on chains with Token Shield verification (<b>${escapeHTML(chainList)}</b>), pulls their pairs and scores potential: liquidity sweet-spot, volume÷liquidity, momentum, age & early buying pressure. Memecoins can go to zero — not financial advice.</p>
+        <p class="muted small">The agent crawls DEX Screener's latest boosted & newly-profiled tokens on chains with Token Shield verification (<b>${esc(chainList)}</b>), pulls their pairs and scores potential: liquidity sweet-spot, volume÷liquidity, momentum, age & early buying pressure. Memecoins can go to zero — not financial advice.</p>
       </div>
       <div class="cards" id="g-stats"></div>
       <div id="g-body">${W.ui.spinner()}</div>
@@ -16532,13 +16507,44 @@ W.gems = (() => {
     view.querySelector("#g-auto").onchange = (e) => {
       auto = e.target.checked;
       clearInterval(timer);
-      if (auto) timer = setInterval(() => scan(view), 5 * 60 * 1000);
+      timer = null;
+      if (auto) {
+        timer = setInterval(
+          () => {
+            // Stop the timer if the user has navigated away. Without
+            // this check the interval would keep firing indefinitely
+            // against a detached view, issuing network requests on
+            // every tick with nowhere to render them.
+            if (!view.isConnected) {
+              clearInterval(timer);
+              timer = null;
+              auto = false;
+              return;
+            }
+            scan(view);
+          },
+          5 * 60 * 1000,
+        );
+      }
       W.ui.toast(
         auto ? "🤖 Agent armed — rescanning every 5 min" : "🤖 Agent paused",
         "info",
       );
     };
-    if (auto && !timer) timer = setInterval(() => scan(view), 5 * 60 * 1000);
+    if (auto && !timer) {
+      timer = setInterval(
+        () => {
+          if (!view.isConnected) {
+            clearInterval(timer);
+            timer = null;
+            auto = false;
+            return;
+          }
+          scan(view);
+        },
+        5 * 60 * 1000,
+      );
+    }
     await scan(view);
   }
 
@@ -16554,36 +16560,35 @@ W.gems = (() => {
       isShieldEligible,
       isHighRisk,
       enrichShieldResults,
-      // TTL-aware helpers — tests should use these, not the raw map.
       getCachedShield,
       setCachedShield,
-      // Market structure wiring — exposed for isolated tests.
       buildObservation,
       marketStructureLine,
       fetchTrajectory,
       trajectoryLine,
-      // Owner associations wiring — exposed for isolated tests.
       ownerLine,
-      // Deployer graph wiring — exposed for isolated tests.
       deployerLine,
-      // Observation recording — exposed for isolated tests.
       recordObservation,
       observeOwner,
       observeDeployer,
       enrichDeployerResults,
-      // Raw map for diagnostics only. Entries are {assessment, observedAt}.
       getShieldCache: () => shieldCache,
       resetShieldCache: () => {
-        shieldCache = {};
+        shieldCache = newMap();
       },
       resetSeen: () => {
-        seen = {};
+        seen = newMap();
       },
+      // Exposed for tests; not for production callers.
+      esc,
+      safeExternalUrl,
     },
   };
 })();
 
-console.log("[Gems] Module loaded.");
+console.log(
+  "[Gems] Module loaded (attr-safe escaping, URL validation, prototype-safe caches, scan concurrency guard).",
+);
 // ---- js/features/shield.js ----
 // ================================================================
 // Token Shield (Contract Security Auditor)
@@ -19851,7 +19856,7 @@ console.log(
 );
 // ---- js/features/smart.js ----
 // ================================================================
-// js/features/smart.js – Smart Money Tracker
+//Smart Money Tracker
 // ================================================================
 
 window.W = window.W || {};
@@ -22162,8 +22167,9 @@ if (typeof document !== "undefined") {
 console.log("[Sync] Module loaded (local encrypted backup).");
 // ---- js/features/telegram.js ----
 // ================================================================
-// js/features/telegram.js – Telegram Alert Integration
+//Telegram Alert Integration 
 // ================================================================
+
 
 window.W = window.W || {};
 
@@ -22171,198 +22177,577 @@ W.tg = (() => {
   // ── Constants ─────────────────────────────────────────
   const TELEGRAM_API_BASE = "https://api.telegram.org/bot";
   const MAX_MESSAGE_LENGTH = 4096;
-  const RATE_LIMIT_WINDOW = 5000; // 5 seconds between messages
+  const DEFAULT_RATE_LIMIT_WINDOW = 5000; // 5 s between messages
+  const FETCH_TIMEOUT_MS = 8000;
+  const MAX_RESPONSE_BYTES = 64 * 1024; // 64 KB
+  const NOTIFIED_MAX = 500; // LRU cap on dedup entries
+
+  // Input length caps. Enforced before any regex or string scan.
+  const TEXT_INPUT_MAX = 100_000; // ~100 KB
+  const TOKEN_INPUT_MAX = 100; // a valid token is <60 bytes
+  const CHAT_ID_INPUT_MAX = 64;
+  const KEY_INPUT_MAX = 256;
+
+  // Telegram rate-limit backoff.
+  const RETRY_AFTER_MAX_MS = 60_000; // never wait more than 60s
+
+  // Credential circuit breaker.
+  const AUTH_FAILURE_THRESHOLD = 3;
+  const AUTH_BLOCK_DURATION_MS = 60 * 60 * 1000; // 1 hour
+
+  // Token patterns.
+  //
+  // TOKEN_VALIDATOR is anchored: <digits>:<35 chars from base64url set>.
+  // The unanchored global pattern is used for redaction, so it is
+  // defined once here and reused.
+  const TOKEN_VALIDATOR = /^\d{6,20}:[A-Za-z0-9_-]{35}$/;
+  const TOKEN_PATTERN = /\d{6,20}:[A-Za-z0-9_-]{35}/g;
+  // URL-encoded form: colon replaced by %3A. An intermediary (or a
+  // future logging library that re-encodes URLs) could produce this.
+  const TOKEN_PATTERN_ENCODED = /\d{6,20}%3A[A-Za-z0-9_-]{35}/gi;
+
+  // Chat ID validation.
+  const CHAT_ID_NUMERIC = /^-?\d{1,20}$/;
+  const CHAT_ID_USERNAME = /^@[A-Za-z0-9_]{5,32}$/;
+
+  // Telegram parse modes. Callers that need MarkdownV2 should build
+  // their own escape and pass the mode explicitly.
+  const ALLOWED_PARSE_MODES = Object.freeze({
+    HTML: "HTML",
+    Markdown: "Markdown",
+    MarkdownV2: "MarkdownV2",
+  });
 
   // ── State ─────────────────────────────────────────────
   let lastSent = 0;
+  let rateLimitedUntil = 0;
+
+  // Dedup bookkeeping.
+  //
+  // A Map is used instead of a plain object + array because:
+  //   1. Map preserves insertion order, so the "oldest" cursor is
+  //      reliable without a parallel array.
+  //   2. Map keys are unique, so re-notifying a key after the
+  //      5-minute window refreshes its position rather than
+  //      duplicating it.
+  //   3. Map is not subject to prototype-pollution for key access,
+  //      so a hostile key of "__proto__" is a normal key.
+  const notified = new Map();
+
+  // Warn-once bookkeeping for reasons that would otherwise flood
+  // the console. Keys are hardcoded strings, not user input.
+  const warnedReasons = Object.create(null);
+
+  // Credential circuit breaker.
+  let consecutiveAuthFailures = 0;
+  let authBlockedUntil = 0;
+
+  // ── Redaction ─────────────────────────────────────────
+  // Every log line in this module runs through redact(). Telegram's
+  // API requires the bot token in the URL path, so any string that
+  // might contain that URL is a potential token leak.
+  function redact(s) {
+    if (s == null) return "";
+    let str = typeof s === "string" ? s : String(s);
+    // Order matters: strip the encoded form first so the encoded
+    // marker is not partially matched by the raw pattern.
+    str = str.replace(TOKEN_PATTERN_ENCODED, "[REDACTED:TOKEN]");
+    str = str.replace(TOKEN_PATTERN, "[REDACTED:TOKEN]");
+    return str;
+  }
+
+  // Wrapped console methods. Use these internally so redaction is
+  // never forgotten at a call site.
+  const log = {
+    warn: (msg) => console.warn(redact(msg)),
+    error: (msg) => console.error(redact(msg)),
+  };
+
+  function warnOnce(reason, message) {
+    if (warnedReasons[reason]) return;
+    warnedReasons[reason] = 1;
+    log.warn(message);
+  }
+
+  // ── HTML escaping ─────────────────────────────────────
+  // Telegram HTML parse mode supports a small tag set. Anything
+  // outside it — including a stray `<` from user content — is
+  // rejected. Callers that interpolate must escape first.
+  function escapeHtml(v) {
+    if (v == null) return "";
+    const s = String(v);
+    if (!/[&<>]/.test(s)) return s;
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // ── Message sanitisation ──────────────────────────────
+  // Strip C0 control characters (except \n and \t, both of which
+  // Telegram permits) and DEL/C1. A message containing a bare 0x01
+  // byte is rejected by Telegram's parser with an opaque 400.
+  function sanitizeText(text) {
+    if (typeof text !== "string") return "";
+    return text.replace(
+      /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g,
+      "",
+    );
+  }
+
+  // Truncate without splitting a surrogate pair or an HTML entity.
+  function safeTruncate(text, max) {
+    if (typeof text !== "string" || text.length <= max) return text;
+    let cut = max - 1;
+    const code = text.charCodeAt(cut - 1);
+    if (code >= 0xd800 && code <= 0xdbff) cut -= 1;
+    const tail = text.lastIndexOf("&", cut);
+    if (tail !== -1 && cut - tail <= 10) cut = tail;
+    return text.slice(0, cut) + "…";
+  }
 
   // ── Settings ──────────────────────────────────────────
-  // Credentials live only in W.secureSession's in-memory cache, populated
-  // by unlocking the encrypted settings (see js/features/misc.js Settings
-  // page). Weaver never writes the bot token to localStorage in plaintext —
-  // if the session is locked, Telegram sends are simply unavailable until
-  // the user unlocks their keys again.
   function getSettings() {
-    const tg = W.secureSession?.get("telegram");
-    if (!tg) {
+    let tg = null;
+    try {
+      tg = W.secureSession?.get?.("telegram");
+    } catch {
+      tg = null;
+    }
+    if (!tg || typeof tg !== "object" || Array.isArray(tg)) {
       return { enabled: false, token: "", chatId: "", locked: true };
     }
     return {
-      enabled: !!tg.on,
-      token: tg.token || "",
-      chatId: tg.chat || "",
+      enabled: tg.on === true,
+      token: typeof tg.token === "string" ? tg.token : "",
+      chatId: typeof tg.chat === "string" ? tg.chat : "",
       locked: false,
     };
   }
 
   // ── Validation ────────────────────────────────────────
+  // The length cap runs before the regex so a hostile 1 MB string
+  // never reaches the regular expression engine.
   function isValidToken(token) {
-    return /^\d+:[A-Za-z0-9_-]{35}$/.test(token);
+    if (typeof token !== "string") return false;
+    if (token.length === 0 || token.length > TOKEN_INPUT_MAX) return false;
+    return TOKEN_VALIDATOR.test(token);
   }
 
   function isValidChatId(chatId) {
-    // Can be numeric (user/group ID) or alphanumeric for channel username
-    return /^[0-9-]+$/.test(chatId) || /^@[A-Za-z0-9_]{5,32}$/.test(chatId);
+    if (typeof chatId !== "string") return false;
+    if (chatId.length === 0 || chatId.length > CHAT_ID_INPUT_MAX) return false;
+    return CHAT_ID_NUMERIC.test(chatId) || CHAT_ID_USERNAME.test(chatId);
   }
 
-  // ── Rate Limiting ──────────────────────────────────────
-  function canSend() {
+  // Overrides are read once and frozen so a hostile getter cannot
+  // change the object between validation and use.
+  function validateOverrides(overrides) {
+    if (
+      !overrides ||
+      typeof overrides !== "object" ||
+      Array.isArray(overrides)
+    ) {
+      return Object.freeze({});
+    }
+    const out = {};
+    if (typeof overrides.token === "string") {
+      out.token = overrides.token.slice(0, TOKEN_INPUT_MAX + 1);
+    }
+    if (typeof overrides.chatId === "string") {
+      out.chatId = overrides.chatId.slice(0, CHAT_ID_INPUT_MAX + 1);
+    }
+    if (typeof overrides.disableNotification === "boolean") {
+      out.disableNotification = overrides.disableNotification;
+    }
+    if (
+      typeof overrides.parseMode === "string" &&
+      Object.prototype.hasOwnProperty.call(
+        ALLOWED_PARSE_MODES,
+        overrides.parseMode,
+      )
+    ) {
+      out.parseMode = overrides.parseMode;
+    }
+    if (Number.isFinite(overrides.rateLimitMs) && overrides.rateLimitMs >= 0) {
+      out.rateLimitMs = overrides.rateLimitMs;
+    }
+    // The only way to send with draft credentials before they are
+    // persisted, or when the enabled flag is off. Named explicitly
+    // so a stray field cannot silently enable it.
+    if (overrides.allowDisabled === true) out.allowDisabled = true;
+    return Object.freeze(out);
+  }
+
+  // ── Rate limiting ─────────────────────────────────────
+  function canSend(rateLimitMs) {
     const now = Date.now();
-    if (now - lastSent < RATE_LIMIT_WINDOW) {
-      console.warn("[Telegram] Rate limit: too many messages.");
+
+    // Honour Telegram's own backoff first.
+    if (now < rateLimitedUntil) {
+      const wait = Math.ceil((rateLimitedUntil - now) / 1000);
+      log.warn(`[Telegram] Backing off — retry in ~${wait}s.`);
+      return false;
+    }
+
+    const window = Number.isFinite(rateLimitMs)
+      ? rateLimitMs
+      : DEFAULT_RATE_LIMIT_WINDOW;
+    if (window > 0 && now - lastSent < window) {
+      const wait = Math.ceil((window - (now - lastSent)) / 1000);
+      log.warn(`[Telegram] Rate limit: retry in ~${wait}s.`);
       return false;
     }
     lastSent = now;
     return true;
   }
 
-  // ── Send Message ──────────────────────────────────────
-  // overrides.token / overrides.chatId let a caller (e.g. a "test before
-  // saving" button) send with draft credentials that haven't been
-  // persisted yet, without ever writing them to disk first.
-  async function sendMessage(text, overrides = {}) {
-    const settings = getSettings();
-    const token = overrides.token || settings.token;
-    const chatId = overrides.chatId || settings.chatId;
-    const enabled = overrides.token ? true : settings.enabled;
+  // ── Credential circuit breaker ────────────────────────
+  function isAuthBlocked() {
+    return Date.now() < authBlockedUntil;
+  }
 
-    if (!enabled) {
-      console.warn(
-        settings.locked
-          ? "[Telegram] Keys are locked — unlock in Settings to send."
-          : "[Telegram] Not enabled.",
+  function recordAuthFailure() {
+    consecutiveAuthFailures++;
+    if (consecutiveAuthFailures >= AUTH_FAILURE_THRESHOLD) {
+      authBlockedUntil = Date.now() + AUTH_BLOCK_DURATION_MS;
+      consecutiveAuthFailures = 0;
+      warnOnce(
+        "auth-blocked",
+        "[Telegram] Repeated credential failures — sends paused for 1 hour. Verify the bot token and chat ID in Settings.",
       );
-      return false;
-    }
-    if (!token || !chatId) {
-      console.warn("[Telegram] Missing token or chat ID.");
-      return false;
-    }
-    if (!isValidToken(token)) {
-      console.warn("[Telegram] Invalid token format.");
-      return false;
-    }
-    if (!isValidChatId(chatId)) {
-      console.warn("[Telegram] Invalid chat ID format.");
-      return false;
-    }
-    if (!canSend()) return false;
-
-    // Truncate message if needed
-    let truncated = text;
-    if (text.length > MAX_MESSAGE_LENGTH) {
-      truncated = text.slice(0, MAX_MESSAGE_LENGTH - 3) + "…";
-    }
-
-    const url = `${TELEGRAM_API_BASE}${token}/sendMessage`;
-    const payload = {
-      chat_id: chatId,
-      text: truncated,
-      parse_mode: "HTML",
-      disable_web_page_preview: true,
-    };
-
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error("[Telegram] API error:", errorData);
-        return false;
-      }
-      const data = await response.json();
-      if (W.schemas) W.schemas.validate("telegram", data);
-      if (!data.ok) {
-        console.error("[Telegram] Error response:", data.description);
-        return false;
-      }
-      W.dataHealth?.mark("telegram", {
-        source: "telegram",
-        observedAt: Date.now(),
-        staleAfter: 60 * 60 * 1000,
-      });
-      return true;
-    } catch (e) {
-      console.error("[Telegram] Network error:", e.message);
-      return false;
     }
   }
 
-  // ── Notify (for alerts with deduplication) ────────────
-  const lastNotified = {};
+  function recordAuthSuccess() {
+    consecutiveAuthFailures = 0;
+    authBlockedUntil = 0;
+  }
 
-  function notify(key, text, options = {}) {
+  // ── Send message ──────────────────────────────────────
+  // Returns true on 2xx with ok:true from Telegram.
+  // Returns false on every other path.
+  async function sendMessage(text, overrides = {}) {
+    // ── Input validation ──────────────────────────────
+    if (typeof text !== "string" || text.length === 0) {
+      log.warn("[Telegram] Empty or non-string message rejected.");
+      return false;
+    }
+    if (text.length > TEXT_INPUT_MAX) {
+      log.warn(
+        `[Telegram] Message exceeds ${TEXT_INPUT_MAX} characters; refusing to process.`,
+      );
+      return false;
+    }
+
+    const safeOverrides = validateOverrides(overrides);
     const settings = getSettings();
-    if (!settings.enabled) return;
-    const now = Date.now();
-    // Deduplicate: if the same key was sent within 5 minutes, skip
-    if (lastNotified[key] && now - lastNotified[key] < 5 * 60 * 1000) {
-      console.log(
-        `[Telegram] Duplicate notification suppressed for key: ${key}`,
+
+    const token = safeOverrides.token || settings.token;
+    const chatId = safeOverrides.chatId || settings.chatId;
+    const enabled =
+      safeOverrides.allowDisabled === true ? true : settings.enabled;
+
+    if (!enabled) {
+      if (settings.locked) {
+        warnOnce(
+          "locked",
+          "[Telegram] Keys are locked — unlock in Settings to send.",
+        );
+      } else {
+        warnOnce("disabled", "[Telegram] Notifications are disabled.");
+      }
+      return false;
+    }
+
+    if (!token || !chatId) {
+      warnOnce("missing", "[Telegram] Missing token or chat ID.");
+      return false;
+    }
+    if (!isValidToken(token)) {
+      warnOnce("bad-token", "[Telegram] Invalid token format.");
+      return false;
+    }
+    if (!isValidChatId(chatId)) {
+      warnOnce("bad-chat", "[Telegram] Invalid chat ID format.");
+      return false;
+    }
+
+    // Credential circuit breaker. A bad token produces a 401 on
+    // every send attempt; rather than produce N failed network
+    // requests per alert burst, suspend for an hour after three.
+    if (isAuthBlocked()) {
+      warnOnce(
+        "auth-blocked-active",
+        "[Telegram] Sends paused after repeated credential failures. Check Settings.",
+      );
+      return false;
+    }
+
+    if (!canSend(safeOverrides.rateLimitMs)) return false;
+
+    // ── Payload assembly ──────────────────────────────
+    const cleanText = sanitizeText(text);
+    const truncated = safeTruncate(cleanText, MAX_MESSAGE_LENGTH);
+
+    const payload = {
+      chat_id: chatId,
+      text: truncated,
+      parse_mode: safeOverrides.parseMode || ALLOWED_PARSE_MODES.HTML,
+      disable_web_page_preview: true,
+    };
+    if (safeOverrides.disableNotification === true) {
+      payload.disable_notification = true;
+    }
+
+    // The token is required in the URL path. It is used in exactly
+    // one place — the fetch call below — and is never logged. If
+    // the URL ever escapes into a log line, redact() scrubs it.
+    const url = `${TELEGRAM_API_BASE}${token}/sendMessage`;
+
+    // ── Fetch ─────────────────────────────────────────
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+    let response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        signal: controller.signal,
+        credentials: "omit",
+        mode: "cors",
+        cache: "no-store",
+        referrerPolicy: "no-referrer",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      clearTimeout(timer);
+      const reason =
+        e && e.name === "AbortError" ? "request timed out" : redact(e?.message);
+      log.error(`[Telegram] Network error: ${reason}`);
+      return false;
+    }
+    clearTimeout(timer);
+
+    // ── Response body ─────────────────────────────────
+    let bodyText = "";
+    try {
+      const declared = Number(response.headers.get("content-length"));
+      if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) {
+        log.error("[Telegram] Response exceeded size cap (declared).");
+        return false;
+      }
+      bodyText = await response.text();
+      if (bodyText.length > MAX_RESPONSE_BYTES) {
+        log.error("[Telegram] Response exceeded size cap (actual).");
+        return false;
+      }
+    } catch {
+      log.error("[Telegram] Failed to read response body.");
+      return false;
+    }
+
+    let data = null;
+    try {
+      data = bodyText ? JSON.parse(bodyText) : null;
+    } catch {
+      log.error("[Telegram] Response was not valid JSON.");
+      return false;
+    }
+
+    // ── 429: honour Telegram's retry_after ────────────
+    if (response.status === 429) {
+      const retryAfter = Number(data?.parameters?.retry_after);
+      if (Number.isFinite(retryAfter) && retryAfter > 0) {
+        const ms = Math.min(
+          RETRY_AFTER_MAX_MS,
+          Math.max(1000, retryAfter * 1000),
+        );
+        rateLimitedUntil = Date.now() + ms;
+        log.warn(
+          `[Telegram] Telegram rate-limited us. Pausing for ${Math.ceil(ms / 1000)}s.`,
+        );
+      } else {
+        log.warn("[Telegram] HTTP 429 with no retry_after; backing off 30s.");
+        rateLimitedUntil = Date.now() + 30_000;
+      }
+      return false;
+    }
+
+    // ── 401: credential circuit breaker ──────────────
+    if (response.status === 401) {
+      recordAuthFailure();
+      log.error("[Telegram] HTTP 401 — invalid bot token.");
+      return false;
+    }
+
+    if (!response.ok) {
+      const desc =
+        typeof data?.description === "string"
+          ? data.description.slice(0, 200)
+          : "unknown error";
+      log.error(
+        `[Telegram] API error HTTP ${response.status}: ${redact(desc)}`,
+      );
+      return false;
+    }
+
+    if (!data || data.ok !== true) {
+      const desc =
+        typeof data?.description === "string"
+          ? data.description.slice(0, 200)
+          : "unknown error";
+      log.error(`[Telegram] Error response: ${redact(desc)}`);
+      return false;
+    }
+
+    // ── Success ───────────────────────────────────────
+    recordAuthSuccess();
+
+    // Schema validation is advisory. A mismatch does not mean the
+    // message was not delivered — it means the response shape has
+    // moved beyond the current schema. Log and continue.
+    if (W.schemas && typeof W.schemas.validate === "function") {
+      try {
+        W.schemas.validate("telegram", data);
+      } catch (e) {
+        log.warn(
+          `[Telegram] Schema validation advisory: ${redact(e?.message)}`,
+        );
+      }
+    }
+
+    W.dataHealth?.mark("telegram", {
+      source: "telegram",
+      observedAt: Date.now(),
+      staleAfter: 60 * 60 * 1000,
+    });
+    return true;
+  }
+
+  // ── Notify (deduplicated, fire-and-forget) ────────────
+  function notify(key, text, options = {}) {
+    // Key validation runs first so a bad key is diagnosed even when
+    // notifications are disabled.
+    if (typeof key !== "string" || key.length === 0) {
+      log.warn("[Telegram] notify() called with an empty or non-string key.");
+      return;
+    }
+    if (key.length > KEY_INPUT_MAX) {
+      log.warn(
+        `[Telegram] notify() key exceeds ${KEY_INPUT_MAX} characters; rejecting.`,
       );
       return;
     }
-    lastNotified[key] = now;
-    // Send asynchronously; don't block
-    sendMessage(text, options).then((ok) => {
-      if (!ok) {
-        console.warn(`[Telegram] Failed to send notification: ${key}`);
-      }
+    if (/[\u0000-\u001F\u007F]/.test(key)) {
+      log.warn(
+        "[Telegram] notify() key contains control characters; rejecting.",
+      );
+      return;
+    }
+
+    const settings = getSettings();
+    if (!settings.enabled) return;
+
+    const now = Date.now();
+    const last = notified.get(key);
+    if (last && now - last < 5 * 60 * 1000) {
+      // Suppression is expected behavior for a dedup map. Do not
+      // log per-call; a high-frequency caller would flood.
+      return;
+    }
+
+    // Refresh position: delete then re-insert moves the key to the
+    // end of the Map's insertion order, which is what the eviction
+    // loop below treats as "most recently used".
+    if (notified.has(key)) notified.delete(key);
+    notified.set(key, now);
+
+    // LRU eviction. A Map's iteration order is insertion order, so
+    // the first key produced by .keys() is the oldest.
+    while (notified.size > NOTIFIED_MAX) {
+      const oldestKey = notified.keys().next().value;
+      if (oldestKey === undefined) break;
+      notified.delete(oldestKey);
+    }
+
+    // Fire-and-forget. The promise is not awaited and is chained
+    // only to a logging catch — a failed send must not block the
+    // caller or surface as an unhandled rejection.
+    Promise.resolve(sendMessage(text, options)).catch((e) => {
+      log.warn(
+        `[Telegram] Notification failed for key "${key.slice(0, 32)}": ${redact(e?.message)}`,
+      );
     });
   }
 
   // ── Test connection ──────────────────────────────────
-  async function testConnection() {
-    const settings = getSettings();
-    if (!settings.enabled) {
-      return { success: false, error: "Telegram notifications are disabled." };
-    }
-    if (!settings.token || !settings.chatId) {
-      return { success: false, error: "Missing token or chat ID." };
-    }
+  // Uses allowDisabled so draft credentials can be verified before
+  // they are persisted, and skips the rate limit so a user
+  // correcting a typo does not have to wait 5 seconds.
+  async function testConnection(overrides = {}) {
+    const safeOverrides = validateOverrides(overrides);
+    const sendOverrides = Object.freeze({
+      ...safeOverrides,
+      allowDisabled: true,
+      rateLimitMs: 0,
+    });
+
     const ok = await sendMessage(
       "✅ Weaver connected! Telegram alerts are active.",
-      {
-        disable_notification: false,
-      },
+      sendOverrides,
     );
-    if (ok) {
-      return { success: true };
-    } else {
-      return {
-        success: false,
-        error: "Failed to send test message. Check token and chat ID.",
-      };
-    }
+    if (ok) return { success: true };
+    return {
+      success: false,
+      error: "Failed to send test message. Check token and chat ID.",
+    };
   }
 
-  // Note: Telegram token/chat ID are configured on the main Settings page
-  // (js/features/misc.js), which owns the encrypted_settings blob via
-  // W.secureSession. This module intentionally has no settings UI or
-  // save path of its own — a second, parallel place to edit the same
-  // credential is exactly how the old plaintext-storage bug happened.
+  // Note: Telegram token/chat ID are configured on the main Settings
+  // page (js/features/misc.js), which owns the encrypted_settings
+  // blob via W.secureSession. This module intentionally has no
+  // settings UI or save path of its own — a second, parallel place
+  // to edit the same credential is exactly how the old
+  // plaintext-storage bug happened.
 
-  // ── Public API ─────────────────────────────────────────
-  return {
-    // Core functions
+  // ── Public API ────────────────────────────────────────
+  return Object.freeze({
     send: sendMessage,
     notify,
     test: testConnection,
-
-    // Settings (read-only from this module's perspective)
     getSettings,
-
-    // Utility
     isEnabled: () => getSettings().enabled,
     isValidToken,
     isValidChatId,
-  };
+    escape: escapeHtml,
+
+    // Exposed for tests and diagnostics only.
+    _internal: Object.freeze({
+      redact,
+      sanitizeText,
+      safeTruncate,
+      escapeHtml,
+      validateOverrides,
+      ALLOWED_PARSE_MODES,
+      reset: () => {
+        notified.clear();
+        lastSent = 0;
+        rateLimitedUntil = 0;
+        consecutiveAuthFailures = 0;
+        authBlockedUntil = 0;
+        for (const k of Object.keys(warnedReasons)) delete warnedReasons[k];
+      },
+      getNotifiedCount: () => notified.size,
+      getNotifiedKeys: () => Array.from(notified.keys()),
+      getAuthFailureCount: () => consecutiveAuthFailures,
+      isAuthBlocked,
+      getRateLimitedUntil: () => rateLimitedUntil,
+    }),
+  });
 })();
 
-console.log("[Telegram] Module loaded.");
+console.log(
+  "[Telegram] Module loaded (telegram-v3: retry_after backoff, credential circuit breaker, Map-based LRU, input length caps).",
+);
 // ---- js/features/walletsync.js ----
 // ================================================================
 //  Secure Multi‑Chain Wallet Sync — FINAL (walletsync-v3.4)
