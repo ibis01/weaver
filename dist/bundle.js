@@ -4164,53 +4164,148 @@ console.log("[RequestGuard] Rate limiting and circuit breakers loaded.");
 // ===============================================================
 //                  Market Data API (Constitutionally Compliant)
 // ===============================================================
-// §3.4 Graceful Degradation: CoinGecko → CoinPaprika → CoinCap → Cache
+// §3.4 Graceful Degradation: CoinLore → Coinbase → CoinPaprika → Cache
 // §3.6 Caching: Edge cache (Worker) + Local cache (last_known_prices)
 // §2.7 No Fabricated Data: Never returns $0.00 for missing prices.
+//
+// Provider selection rationale:
+//   CoinLore  — keyless, ~15k coins, one batched request, works from
+//               Cloudflare egress. PRIMARY for markets/top/global.
+//   Coinbase  — keyless, spot price per pair. SECONDARY for the
+//               well-known coins it lists; used when CoinLore misses.
+//   CoinPaprika — keyless but IP-blocked at 60 req/hour from CF
+//               egress, and a 402 block lasts 1 hour. TERTIARY,
+//               and the only provider wired for chart/ohlcv/search/
+//               trending/coin-detail. Those are infrequent calls.
+//
+// Removed: CoinGecko, Binance, CoinCap — see cf-worker/index.js.
 // ===============================================================
 
 window.W = window.W || {};
 
 W.api = (() => {
-  const CG_API = "https://api.coingecko.com/api/v3";
   const COINPAPRIKA_API = "https://api.coinpaprika.com/v1";
-  const COINCAP_API = "https://api.coincap.io/v2";
+  const COINLORE_API = "https://api.coinlore.net/api";
+  const COINBASE_API = "https://api.coinbase.com/v2";
   const CACHE_TTL = 60000; // 1 minute
   const LONG_CACHE_TTL = 300000; // 5 minutes
+  const TICKERS_TTL = 120000; // 2 minutes for the shared /tickers snapshot
 
   const PROXIES = [
     (u) =>
       "https://weaver-proxy.ibis01-weaver.workers.dev/proxy?url=" +
       encodeURIComponent(u),
-    (u) => u, // Direct fetch (allowed by CSP)
+    (u) => u,
   ];
 
-  let source = "coingecko";
+  // ── ID tables ────────────────────────────────────────
+  const ID_TO_SYMBOL = {
+    bitcoin: "BTC",
+    ethereum: "ETH",
+    binancecoin: "BNB",
+    solana: "SOL",
+    "usd-coin": "USDC",
+    tether: "USDT",
+    dai: "DAI",
+    chainlink: "LINK",
+    ripple: "XRP",
+    cardano: "ADA",
+    dogecoin: "DOGE",
+    "shiba-inu": "SHIB",
+    litecoin: "LTC",
+    "bitcoin-cash": "BCH",
+    tron: "TRX",
+    stellar: "XLM",
+    uniswap: "UNI",
+    aave: "AAVE",
+    "avalanche-2": "AVAX",
+    polkadot: "DOT",
+    matic: "MATIC",
+    arbitrum: "ARB",
+    optimism: "OP",
+    cosmos: "ATOM",
+    near: "NEAR",
+    filecoin: "FIL",
+    aptos: "APT",
+  };
+
+  const SYMBOL_TO_ID = {};
+  for (const [id, sym] of Object.entries(ID_TO_SYMBOL)) SYMBOL_TO_ID[sym] = id;
+
+  const ID_TO_PAPRIKA = {
+    bitcoin: "btc-bitcoin",
+    ethereum: "eth-ethereum",
+    binancecoin: "bnb-binance-coin",
+    solana: "sol-solana",
+    "usd-coin": "usdc-usd-coin",
+    tether: "usdt-tether",
+    dai: "dai-dai",
+    chainlink: "link-chainlink",
+    ripple: "xrp-xrp",
+    cardano: "ada-cardano",
+    dogecoin: "doge-dogecoin",
+    "shiba-inu": "shib-shiba-inu",
+    litecoin: "ltc-litecoin",
+    "bitcoin-cash": "bch-bitcoin-cash",
+    tron: "trx-tron",
+    stellar: "xlm-stellar",
+    uniswap: "uni-uniswap",
+    aave: "aave-new",
+    "avalanche-2": "avax-avalanche",
+    polkadot: "dot-polkadot",
+    matic: "matic-polygon",
+    arbitrum: "arb-arbitrum",
+    optimism: "op-optimism",
+    cosmos: "atom-cosmos",
+    near: "near-near-protocol",
+    filecoin: "fil-filecoin",
+    aptos: "apt-aptos",
+  };
+
+  const COINBASE_PAIRS = {
+    bitcoin: "BTC-USD",
+    ethereum: "ETH-USD",
+    binancecoin: "BNB-USD",
+    solana: "SOL-USD",
+    "usd-coin": "USDC-USD",
+    dai: "DAI-USD",
+    chainlink: "LINK-USD",
+    ripple: "XRP-USD",
+    cardano: "ADA-USD",
+    dogecoin: "DOGE-USD",
+    litecoin: "LTC-USD",
+    "bitcoin-cash": "BCH-USD",
+    stellar: "XLM-USD",
+    uniswap: "UNI-USD",
+    aave: "AAVE-USD",
+    polkadot: "DOT-USD",
+    cosmos: "ATOM-USD",
+    filecoin: "FIL-USD",
+    "avalanche-2": "AVAX-USD",
+    matic: "MATIC-USD",
+  };
+
+  let source = "coinlore";
   let circuitBreaker = { failures: 0, until: 0 };
 
   function schemaForUrl(url) {
-    if (url.includes("/coins/markets")) return "markets";
-    if (url.includes("/market_chart")) return "chart";
-    if (url.includes("/search/trending")) return "trending";
-    if (url.includes("/search?")) return "search";
-    if (url.endsWith("/global")) return "global";
-    if (url.includes("/coins/") && !url.includes("/coins/markets"))
-      return "coin";
+    if (url.includes("coinpaprika.com")) return null;
+    if (url.includes("coinlore.net")) return null;
+    if (url.includes("coinbase.com")) return null;
     if (url.includes("alternative.me/fng")) return "fearGreed";
     return null;
   }
 
   function resourceForUrl(url) {
-    if (url.includes("/coins/markets")) return "markets";
-    if (url.includes("/market_chart")) return "chart";
-    if (url.includes("/search/trending")) return "trending";
-    if (url.includes("/search?")) return "search";
-    if (url.endsWith("/global")) return "global-market";
-    if (url.includes("/coins/") && !url.includes("/coins/markets"))
-      return "coin";
+    if (url.includes("coinpaprika.com") || url.includes("coinlore.net")) {
+      if (url.includes("/ohlcv/") || url.includes("/chart/")) return "chart";
+      if (url.includes("/global")) return "global-market";
+      if (url.includes("/search")) return "search";
+      if (url.includes("/tickers")) return "markets";
+      if (url.includes("/coins/")) return "coin";
+    }
+    if (url.includes("coinbase.com")) return "markets";
     if (url.includes("alternative.me/fng")) return "fear-greed";
-    if (url.includes("coinpaprika.com") || url.includes("coincap.io"))
-      return "markets";
     return "external-data";
   }
 
@@ -4221,7 +4316,7 @@ W.api = (() => {
   }
 
   function getCurrency() {
-    return W.currency ? W.currency() : "usd";
+    return "usd";
   }
   function getCacheKey(url) {
     return "api_cache:" + url;
@@ -4257,7 +4352,9 @@ W.api = (() => {
         });
         W.store.set("last_known_prices", priceCache);
       }
-    } catch {}
+    } catch {
+      // CoinPaprika /tickers can exceed localStorage quota; skip silently.
+    }
   }
 
   function isCircuitOpen() {
@@ -4323,24 +4420,20 @@ W.api = (() => {
         return data;
       } catch (e) {
         clearTimeout(timer);
-        // Explicitly catch 530 (Origin DNS Error) alongside 429/401/403
-        if (/HTTP 429|HTTP 401|HTTP 403|HTTP 530/.test(e.message)) {
+        if (/HTTP 429|HTTP 401|HTTP 402|HTTP 403|HTTP 530/.test(e.message)) {
           const stale = getCached(url, 86400000);
           if (stale !== null) {
-            source = "cache (stale, rate limited)";
+            source = "cache (stale, provider refused)";
             W.dataHealth?.mark(resourceForUrl(url), {
               source: "cache (stale)",
               observedAt: Date.now(),
               staleAfter: 3600000,
             });
             console.warn(
-              `[Prices] Rate limited/blocked (530/429/401/403) — serving stale cache for ${resourceForUrl(url)}`,
+              `[Prices] Provider refused (${e.message}) — serving stale cache for ${resourceForUrl(url)}`,
             );
             return stale;
           }
-          console.warn(
-            `[Prices] Rate limited or blocked (${e.message}) — ${resourceForUrl(url)} unavailable`,
-          );
           throw new Error(
             "Rate limited or blocked by market data provider. Try again in 60 seconds.",
           );
@@ -4364,232 +4457,340 @@ W.api = (() => {
     return (symMap()[id] || id).toUpperCase();
   }
 
-  // ── CoinGecko API ─────────────────────────────────────
-  const coingecko = {
-    markets: (ids) =>
-      fetchWithProxy(
-        `${CG_API}/coins/markets?vs_currency=${getCurrency()}&ids=${ids.join(",")}&price_change_percentage=24h,7d,30d&sparkline=true`,
-        CACHE_TTL,
-      ).then((d) => {
-        learnSymbols(d);
-        source = "coingecko";
-        return d;
-      }),
-    chart: (id, days) =>
-      fetchWithProxy(
-        `${CG_API}/coins/${id}/market_chart?vs_currency=${getCurrency()}&days=${days}`,
-        LONG_CACHE_TTL,
-      ).then((d) => d.prices || []),
-    top: (limit) =>
-      fetchWithProxy(
-        `${CG_API}/coins/markets?vs_currency=${getCurrency()}&order=market_cap_desc&per_page=${limit}&page=1&price_change_percentage=24h,7d,30d&sparkline=true`,
-        CACHE_TTL,
-      ).then((d) => {
-        learnSymbols(d);
-        source = "coingecko";
-        return d;
-      }),
-    global: () =>
-      fetchWithProxy(`${CG_API}/global`, LONG_CACHE_TTL).then((d) => d),
-    search: (query) =>
-      fetchWithProxy(
-        `${CG_API}/search?query=${encodeURIComponent(query)}`,
-        CACHE_TTL,
-      ).then((d) => d),
-    coin: (id) =>
-      fetchWithProxy(
-        `${CG_API}/coins/${id}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false`,
-        LONG_CACHE_TTL,
-      ).then((d) => d),
-    trending: () =>
-      fetchWithProxy(`${CG_API}/search/trending`, CACHE_TTL).then((d) => d),
-  };
-
-  // ── CoinPaprika API (Primary Fallback) ──
-  // Added because CoinCap is currently returning 530 Origin DNS errors at the Cloudflare level.
-  const coinpaprika = {
-    markets: (ids) => {
-      const url = `${COINPAPRIKA_API}/tickers?quotes=usd`;
-      return fetchWithProxy(url, CACHE_TTL).then((d) => {
-        source = "coinpaprika";
-        const rows = (d || [])
-          .filter((coin) => ids.includes(coin.id))
-          .map((coin) => ({
-            id: coin.id,
-            symbol: coin.symbol.toLowerCase(),
-            name: coin.name,
-            image: "",
-            current_price: coin.quotes.USD.price,
-            market_cap: coin.quotes.USD.market_cap,
-            total_volume: coin.quotes.USD.volume_24h,
-            price_change_percentage_24h_in_currency:
-              coin.quotes.USD.percent_change_24h,
-            price_change_percentage_7d_in_currency:
-              coin.quotes.USD.percent_change_7d,
-            price_change_percentage_30d_in_currency:
-              coin.quotes.USD.percent_change_30d,
-            sparkline_in_7d: null,
-            market_cap_rank: coin.rank,
-          }));
-        learnSymbols(rows);
-        return rows;
+  // ── CoinLore (PRIMARY) ──────────────────────────────
+  // One batched call to /tickers/ returns the top 100 by market cap,
+  // which is a superset of every ID in ID_TO_SYMBOL.
+  const coinlore = {
+    markets: async (ids) => {
+      const wanted = (ids || []).filter((id) => ID_TO_SYMBOL[id]);
+      if (!wanted.length) return [];
+      const url = `${COINLORE_API}/tickers/?start=0&limit=100`;
+      const data = await fetchWithProxy(url, CACHE_TTL, TICKERS_TTL);
+      const bySymbol = {};
+      (data.data || []).forEach((t) => {
+        if (t && t.symbol) bySymbol[String(t.symbol).toUpperCase()] = t;
       });
-    },
-    top: (limit) => {
-      const url = `${COINPAPRIKA_API}/tickers?limit=${limit}&quotes=usd`;
-      return fetchWithProxy(url, CACHE_TTL).then((d) => {
-        source = "coinpaprika";
-        const rows = (d || []).map((coin) => ({
-          id: coin.id,
-          symbol: coin.symbol.toLowerCase(),
-          name: coin.name,
-          image: "",
-          current_price: coin.quotes.USD.price,
-          market_cap: coin.quotes.USD.market_cap,
-          total_volume: coin.quotes.USD.volume_24h,
-          price_change_percentage_24h_in_currency:
-            coin.quotes.USD.percent_change_24h,
-          price_change_percentage_7d_in_currency:
-            coin.quotes.USD.percent_change_7d,
-          price_change_percentage_30d_in_currency:
-            coin.quotes.USD.percent_change_30d,
-          sparkline_in_7d: null,
-          market_cap_rank: coin.rank,
-        }));
-        learnSymbols(rows);
-        return rows;
-      });
-    },
-    global: () =>
-      Promise.reject(
-        new Error("CoinPaprika does not provide global market data"),
-      ),
-    search: () =>
-      Promise.reject(
-        new Error("CoinPaprika does not provide search via this endpoint"),
-      ),
-    coin: () =>
-      Promise.reject(
-        new Error(
-          "CoinPaprika does not provide detailed coin data via this endpoint",
-        ),
-      ),
-    trending: () =>
-      Promise.reject(new Error("CoinPaprika does not provide trending data")),
-    chart: () =>
-      Promise.reject(
-        new Error("CoinPaprika does not provide chart data via this endpoint"),
-      ),
-  };
-
-  // ── CoinCap API (Secondary Fallback) ──
-  const coincap = {
-    markets: (ids) =>
-      fetchWithProxy(
-        `${COINCAP_API}/assets?ids=${ids.join(",")}`,
-        CACHE_TTL,
-      ).then((d) => {
-        source = "coincap";
-        const rows = (d.data || []).map((asset) => ({
-          id: asset.id,
-          symbol: asset.symbol.toLowerCase(),
-          name: asset.name,
-          image: "",
-          current_price: parseFloat(asset.priceUsd),
-          market_cap: parseFloat(asset.marketCapUsd),
-          total_volume: parseFloat(asset.volumeUsd24Hr),
-          price_change_percentage_24h_in_currency: parseFloat(
-            asset.changePercent24Hr,
-          ),
-          price_change_percentage_7d_in_currency: null,
-          price_change_percentage_30d_in_currency: null,
-          sparkline_in_7d: null,
-          market_cap_rank: parseInt(asset.rank, 10),
-        }));
-        learnSymbols(rows);
-        return rows;
-      }),
-    top: (limit) =>
-      fetchWithProxy(`${COINCAP_API}/assets?limit=${limit}`, CACHE_TTL).then(
-        (d) => {
-          source = "coincap";
-          const rows = (d.data || []).map((asset) => ({
-            id: asset.id,
-            symbol: asset.symbol.toLowerCase(),
-            name: asset.name,
+      const rows = wanted
+        .map((id) => {
+          const t = bySymbol[ID_TO_SYMBOL[id]];
+          if (!t) return null;
+          return {
+            id,
+            symbol: String(t.symbol).toLowerCase(),
+            name: t.name,
             image: "",
-            current_price: parseFloat(asset.priceUsd),
-            market_cap: parseFloat(asset.marketCapUsd),
-            total_volume: parseFloat(asset.volumeUsd24Hr),
+            current_price: parseFloat(t.price_usd),
+            market_cap: parseFloat(t.market_cap_usd),
+            total_volume: parseFloat(t.volume24) || null,
             price_change_percentage_24h_in_currency: parseFloat(
-              asset.changePercent24Hr,
+              t.percent_change_24h,
             ),
-            price_change_percentage_7d_in_currency: null,
+            price_change_percentage_7d_in_currency: parseFloat(
+              t.percent_change_7d,
+            ),
             price_change_percentage_30d_in_currency: null,
             sparkline_in_7d: null,
-            market_cap_rank: parseInt(asset.rank, 10),
-          }));
-          learnSymbols(rows);
-          return rows;
-        },
-      ),
+            market_cap_rank: parseInt(t.rank, 10) || null,
+          };
+        })
+        .filter(Boolean);
+      learnSymbols(rows);
+      return rows;
+    },
+    top: async (limit) => {
+      const url = `${COINLORE_API}/tickers/?start=0&limit=${Math.min(limit, 100)}`;
+      const data = await fetchWithProxy(url, CACHE_TTL, TICKERS_TTL);
+      return (data.data || []).map((t) => ({
+        id: SYMBOL_TO_ID[String(t.symbol).toUpperCase()] || t.nameid,
+        symbol: String(t.symbol).toLowerCase(),
+        name: t.name,
+        image: "",
+        current_price: parseFloat(t.price_usd),
+        market_cap: parseFloat(t.market_cap_usd),
+        total_volume: parseFloat(t.volume24) || null,
+        price_change_percentage_24h_in_currency: parseFloat(
+          t.percent_change_24h,
+        ),
+        price_change_percentage_7d_in_currency: parseFloat(t.percent_change_7d),
+        price_change_percentage_30d_in_currency: null,
+        sparkline_in_7d: null,
+        market_cap_rank: parseInt(t.rank, 10) || null,
+      }));
+    },
     global: () =>
-      Promise.reject(new Error("CoinCap does not provide global market data")),
-    search: () => Promise.reject(new Error("CoinCap does not provide search")),
-    coin: () =>
-      Promise.reject(new Error("CoinCap does not provide detailed coin data")),
-    trending: () =>
-      Promise.reject(new Error("CoinCap does not provide trending data")),
+      fetchWithProxy(`${COINLORE_API}/global/`, LONG_CACHE_TTL).then((d) => {
+        const g = Array.isArray(d) ? d[0] : d;
+        return {
+          data: {
+            total_market_cap: { usd: parseFloat(g.total_mcap) },
+            total_volume: { usd: parseFloat(g.total_volume) },
+            market_cap_percentage: { btc: parseFloat(g.btc_d) },
+            market_cap_change_percentage_24h_usd:
+              parseFloat(g.mcap_change) || 0,
+          },
+        };
+      }),
     chart: () =>
-      Promise.reject(
-        new Error("CoinCap does not provide chart data via this endpoint"),
-      ),
+      Promise.reject(new Error("CoinLore: chart endpoint not wired")),
+    ohlcv: () => Promise.reject(new Error("CoinLore: OHLCV not wired")),
+    search: () => Promise.reject(new Error("CoinLore: no search endpoint")),
+    coin: () => Promise.reject(new Error("CoinLore: no coin-detail endpoint")),
+    trending: () => Promise.reject(new Error("CoinLore: no trending endpoint")),
   };
 
-  function ohlcvViaCoinGecko(id, interval, limit) {
-    const days =
-      interval === "1d"
-        ? Math.max(1, Math.min(365, limit))
-        : interval === "4h"
-          ? Math.max(1, Math.min(90, Math.ceil(limit / 6)))
-          : Math.max(1, Math.min(30, Math.ceil(limit / 24)));
-    const url = `${CG_API}/coins/${id}/ohlc?vs_currency=${getCurrency()}&days=${days}`;
-    return fetchWithProxy(url, LONG_CACHE_TTL).then((d) => {
-      const arr = Array.isArray(d) ? d : [];
-      return arr.slice(-limit).map((k) => ({
-        timestamp: Number(k[0]),
-        open: Number(k[1]),
-        high: Number(k[2]),
-        low: Number(k[3]),
-        close: Number(k[4]),
-        volume: 0,
-        quoteVolume: 0,
-      }));
-    });
-  }
+  // ── Coinbase (SECONDARY) ────────────────────────────
+  // No batch endpoint, so one request per coin. Only used for IDs
+  // CoinLore didn't resolve (usually zero, since all our IDs sit in
+  // the top 100 by market cap).
+  const coinbase = {
+    markets: async (ids) => {
+      const wanted = (ids || []).filter((id) => COINBASE_PAIRS[id]);
+      if (!wanted.length) return [];
+      const rows = await Promise.all(
+        wanted.map(async (id) => {
+          try {
+            const url = `${COINBASE_API}/prices/${COINBASE_PAIRS[id]}/spot`;
+            const data = await fetchWithProxy(url, CACHE_TTL);
+            const price = parseFloat(data?.data?.amount);
+            if (!Number.isFinite(price)) return null;
+            return {
+              id,
+              symbol: ID_TO_SYMBOL[id].toLowerCase(),
+              name: id,
+              image: "",
+              current_price: price,
+              market_cap: null,
+              total_volume: null,
+              price_change_percentage_24h_in_currency: null,
+              price_change_percentage_7d_in_currency: null,
+              price_change_percentage_30d_in_currency: null,
+              sparkline_in_7d: null,
+              market_cap_rank: null,
+            };
+          } catch {
+            return null;
+          }
+        }),
+      );
+      const clean = rows.filter(Boolean);
+      learnSymbols(clean);
+      return clean;
+    },
+    top: () => Promise.reject(new Error("Coinbase: no top-list endpoint")),
+    global: () => Promise.reject(new Error("Coinbase: no global endpoint")),
+    chart: () => Promise.reject(new Error("Coinbase: chart not wired")),
+    ohlcv: () => Promise.reject(new Error("Coinbase: OHLCV not wired")),
+    search: () => Promise.reject(new Error("Coinbase: no search endpoint")),
+    coin: () => Promise.reject(new Error("Coinbase: no coin-detail endpoint")),
+    trending: () => Promise.reject(new Error("Coinbase: no trending endpoint")),
+  };
 
-  // ── API with smart failover ────────────────────────────
+  // ── CoinPaprika (TERTIARY + chart/search/trending) ──
+  // IP-blocked at 60 req/hour from Cloudflare egress, with a 1-hour
+  // block once tripped. Usable only for infrequent calls.
+  const coinpaprika = {
+    markets: async (ids) => {
+      const wanted = (ids || []).filter((id) => ID_TO_SYMBOL[id]);
+      if (!wanted.length) return [];
+      const url = `${COINPAPRIKA_API}/tickers?quotes=USD&limit=500`;
+      const data = await fetchWithProxy(url, CACHE_TTL, TICKERS_TTL);
+      const bySymbol = {};
+      (data || []).forEach((t) => {
+        if (t && t.symbol && t.quotes && t.quotes.USD) {
+          bySymbol[String(t.symbol).toUpperCase()] = t;
+        }
+      });
+      const rows = wanted
+        .map((id) => {
+          const t = bySymbol[ID_TO_SYMBOL[id]];
+          if (!t) return null;
+          const q = t.quotes.USD;
+          return {
+            id,
+            symbol: String(t.symbol).toLowerCase(),
+            name: t.name,
+            image: "",
+            current_price: q.price,
+            market_cap: q.market_cap,
+            total_volume: q.volume_24h,
+            price_change_percentage_24h_in_currency: q.percent_change_24h,
+            price_change_percentage_7d_in_currency: q.percent_change_7d,
+            price_change_percentage_30d_in_currency: q.percent_change_30d,
+            sparkline_in_7d: null,
+            market_cap_rank: t.rank,
+          };
+        })
+        .filter(Boolean);
+      learnSymbols(rows);
+      return rows;
+    },
+    top: async (limit) => {
+      const url = `${COINPAPRIKA_API}/tickers?quotes=USD&limit=${limit}`;
+      const data = await fetchWithProxy(url, CACHE_TTL, TICKERS_TTL);
+      return (data || []).map((t) => {
+        const q = t.quotes?.USD || {};
+        const id = SYMBOL_TO_ID[String(t.symbol).toUpperCase()] || t.id;
+        return {
+          id,
+          symbol: String(t.symbol).toLowerCase(),
+          name: t.name,
+          image: "",
+          current_price: q.price,
+          market_cap: q.market_cap,
+          total_volume: q.volume_24h,
+          price_change_percentage_24h_in_currency: q.percent_change_24h,
+          price_change_percentage_7d_in_currency: q.percent_change_7d,
+          price_change_percentage_30d_in_currency: q.percent_change_30d,
+          sparkline_in_7d: null,
+          market_cap_rank: t.rank,
+        };
+      });
+    },
+    chart: async (id, days = 30) => {
+      const pid = ID_TO_PAPRIKA[id];
+      if (!pid) throw new Error(`CoinPaprika: no slug for ${id}`);
+      const end = new Date();
+      const start = new Date(end.getTime() - days * 86400000);
+      const fmt = (d) => d.toISOString().slice(0, 10);
+      const url = `${COINPAPRIKA_API}/coins/${pid}/ohlcv/historical?start=${fmt(start)}&end=${fmt(end)}`;
+      const data = await fetchWithProxy(url, LONG_CACHE_TTL);
+      return (data || []).map((k) => [
+        new Date(k.time_open).getTime(),
+        Number(k.close),
+      ]);
+    },
+    ohlcv: async (id, _interval = "1h", limit = 500) => {
+      const pid = ID_TO_PAPRIKA[id];
+      if (!pid) throw new Error(`CoinPaprika: no slug for ${id}`);
+      const end = new Date();
+      const start = new Date(end.getTime() - Math.max(limit, 30) * 86400000);
+      const fmt = (d) => d.toISOString().slice(0, 10);
+      const url = `${COINPAPRIKA_API}/coins/${pid}/ohlcv/historical?start=${fmt(start)}&end=${fmt(end)}`;
+      const data = await fetchWithProxy(url, LONG_CACHE_TTL);
+      return (data || []).slice(-limit).map((k) => ({
+        timestamp: new Date(k.time_open).getTime(),
+        open: Number(k.open),
+        high: Number(k.high),
+        low: Number(k.low),
+        close: Number(k.close),
+        volume: Number(k.volume),
+        quoteVolume: Number(k.volume),
+      }));
+    },
+    global: () =>
+      fetchWithProxy(`${COINPAPRIKA_API}/global`, LONG_CACHE_TTL).then((d) => ({
+        data: {
+          total_market_cap: { usd: d.market_cap_usd },
+          total_volume: { usd: d.volume_24h_usd },
+          market_cap_percentage: { btc: d.bitcoin_dominance_percentage },
+          market_cap_change_percentage_24h_usd: d.market_cap_change_24h,
+        },
+      })),
+    search: (query) =>
+      fetchWithProxy(
+        `${COINPAPRIKA_API}/search?q=${encodeURIComponent(query)}&c=currencies&limit=10`,
+        CACHE_TTL,
+      ).then((d) => ({
+        coins: (d.currencies || []).map((c) => ({
+          id: SYMBOL_TO_ID[String(c.symbol).toUpperCase()] || c.id,
+          symbol: c.symbol,
+          name: c.name,
+          market_cap_rank: c.rank,
+        })),
+      })),
+    coin: (id) => {
+      const pid = ID_TO_PAPRIKA[id];
+      if (!pid)
+        return Promise.reject(new Error(`CoinPaprika: no slug for ${id}`));
+      return fetchWithProxy(`${COINPAPRIKA_API}/coins/${pid}`, LONG_CACHE_TTL);
+    },
+    trending: async () => {
+      const url = `${COINPAPRIKA_API}/tickers?quotes=USD&limit=250`;
+      const data = await fetchWithProxy(url, CACHE_TTL, TICKERS_TTL);
+      const sorted = (data || [])
+        .filter(
+          (t) =>
+            t.quotes?.USD && Number.isFinite(t.quotes.USD.percent_change_24h),
+        )
+        .sort(
+          (a, b) =>
+            Math.abs(b.quotes.USD.percent_change_24h) -
+            Math.abs(a.quotes.USD.percent_change_24h),
+        )
+        .slice(0, 10);
+      return {
+        coins: sorted.map((t) => {
+          const id = SYMBOL_TO_ID[String(t.symbol).toUpperCase()] || t.id;
+          return {
+            item: {
+              id,
+              symbol: String(t.symbol).toLowerCase(),
+              name: t.name,
+              market_cap_rank: t.rank,
+            },
+          };
+        }),
+      };
+    },
+  };
+
+  const providers = { coinlore, coinbase, coinpaprika };
+
+  // ── Failover ────────────────────────────────────────
+  // markets(): accumulate partial results across providers so an ID
+  // one provider misses is still priced by the next. All other
+  // methods: first success wins.
   async function withFailover(method, ...args) {
-    // Order: CoinGecko → CoinPaprika → CoinCap → Cache
-    const order = ["coingecko", "coinpaprika", "coincap"];
-    for (const providerName of order) {
-      const provider =
-        providerName === "coingecko"
-          ? coingecko
-          : providerName === "coinpaprika"
-            ? coinpaprika
-            : coincap;
-      if (!provider[method]) continue;
+    if (method === "markets") {
+      const ids = Array.isArray(args[0])
+        ? args[0]
+        : String(args[0] || "").split(",");
+      const result = {};
+      const missing = new Set(ids.filter(Boolean));
+      const order = ["coinlore", "coinbase", "coinpaprika"];
+      for (const name of order) {
+        if (!missing.size) break;
+        const provider = providers[name];
+        if (!provider?.markets) continue;
+        try {
+          const partial = await provider.markets([...missing]);
+          for (const row of partial || []) {
+            if (row?.id && !result[row.id]) {
+              result[row.id] = row;
+              missing.delete(row.id);
+            }
+          }
+          if (Object.keys(result).length) source = name;
+        } catch (e) {
+          console.warn(`[Prices] ${name}.markets failed:`, e.message);
+        }
+      }
+      if (!Object.keys(result).length) {
+        throw new Error("Market data temporarily unavailable.");
+      }
+      return Object.values(result);
+    }
+
+    // Single-shot methods. CoinLore first for top/global, CoinPaprika
+    // for chart/ohlcv/search/coin/trending (CoinLore doesn't offer them).
+    const order =
+      method === "top" || method === "global"
+        ? ["coinlore", "coinpaprika"]
+        : ["coinpaprika"];
+
+    for (const name of order) {
+      const provider = providers[name];
+      if (!provider?.[method]) continue;
       try {
         const result = await provider[method](...args);
-        source = providerName;
+        source = name;
         return result;
       } catch (e) {
-        console.warn(`[Prices] ${providerName}.${method} failed:`, e.message);
+        console.warn(`[Prices] ${name}.${method} failed:`, e.message);
       }
     }
     throw new Error(
-      `Market data temporarily unavailable. Using cached data if available.`,
+      "Market data temporarily unavailable. Using cached data if available.",
     );
   }
 
@@ -4625,14 +4826,9 @@ W.api = (() => {
     },
     chart: (id, days = 30) => withFailover("chart", id, days),
     ohlcv: (id, interval = "1h", limit = 500) =>
-      ohlcvViaCoinGecko(id, interval, limit).then((data) => {
-        source = "coingecko";
-        return data;
-      }),
-    top: (limit = 100) => {
-      if (limit <= 50) return getTopCached(limit);
-      return withFailover("top", limit);
-    },
+      withFailover("ohlcv", id, interval, limit),
+    top: (limit = 100) =>
+      limit <= 50 ? getTopCached(limit) : withFailover("top", limit),
     global: () => withFailover("global"),
     search: (query) => withFailover("search", query),
     coin: (id) => withFailover("coin", id),
@@ -4653,7 +4849,7 @@ W.api = (() => {
 })();
 
 console.log(
-  "[Prices] Module loaded (CoinGecko → CoinPaprika → CoinCap → Cache failover).",
+  "[Prices] Module loaded (CoinLore → Coinbase → CoinPaprika → Cache).",
 );
 // ---- js/api/snapshot.js ----
 // js/api/snapshot.js – Fallback Snapshot Cache
@@ -17892,6 +18088,15 @@ console.log("[Unlocks] Module loaded (honest data semantics).");
 // ================================================================
 //             Sector Rotation Heatmap
 // ================================================================
+//
+// Data source: sectors are composed client-side from W.api.top(100)
+// (CoinLore, already cached for 2 minutes). CoinGecko's
+// /coins/categories endpoint has been removed — the free tier blocks
+// Cloudflare egress with 402/429 and the keyed path 401s. There is
+// no keyless 1:1 replacement, but a static sector → symbol map over
+// the top-100 snapshot produces equivalent bubbles with zero extra
+// network cost.
+// ================================================================
 
 window.W = window.W || {};
 
@@ -17904,47 +18109,140 @@ W.sectors = (() => {
   let cw = 0,
     ch = 0;
 
+  // ── Sector composition ──────────────────────────────────
+  //
+  // Static sector → uppercase symbol map. Any symbol missing from
+  // the top-100 snapshot is silently skipped, so partial coverage is
+  // fine: sectors with at least one member present still render.
+  // Sector names must stay under 25 chars (render() filters longer).
+  const SECTOR_MAP = {
+    "L1 Blockchains": [
+      "BTC",
+      "ETH",
+      "BNB",
+      "SOL",
+      "ADA",
+      "AVAX",
+      "DOT",
+      "ATOM",
+      "NEAR",
+      "APT",
+      "TRX",
+      "XLM",
+      "TON",
+      "SUI",
+      "ICP",
+    ],
+    "L2 Scaling": ["MATIC", "ARB", "OP", "IMX", "STRK", "MNT", "METIS"],
+    "DeFi Lending": [
+      "AAVE",
+      "COMP",
+      "MKR",
+      "CRV",
+      "SNX",
+      "SUSHI",
+      "LDO",
+      "PENDLE",
+    ],
+    "DEX & AMM": ["UNI", "SUSHI", "CRV", "CAKE", "1INCH", "DYDX", "GMX"],
+    Stablecoins: [
+      "USDT",
+      "USDC",
+      "DAI",
+      "BUSD",
+      "TUSD",
+      "FDUSD",
+      "PYUSD",
+      "USDD",
+    ],
+    Memecoins: ["DOGE", "SHIB", "PEPE", "WIF", "BONK", "FLOKI", "MEME", "BOME"],
+    Oracles: ["LINK", "BAND", "API3", "TRB", "PYTH", "UMA"],
+    "Exchange Tokens": ["BNB", "OKB", "CRO", "KCS", "HT", "LEO"],
+    "AI & Compute": ["FET", "RNDR", "TAO", "AGIX", "OCEAN", "GRT", "AKT"],
+    "Gaming & Metaverse": ["SAND", "MANA", "AXS", "GALA", "IMX", "APE", "ENJ"],
+    Privacy: ["XMR", "ZEC", "DASH", "SCRT", "ARRR"],
+    "Real World Assets": ["ONDO", "POLYX", "PENDLE", "MKR", "CFG"],
+    Storage: ["FIL", "AR", "STORJ", "SC", "BLZ"],
+    Interoperability: ["DOT", "ATOM", "LINK", "AXL", "W"],
+    Payments: ["XRP", "XLM", "LTC", "BCH", "XNO", "DASH"],
+    "Layer 0 / Cosmos": ["ATOM", "OSMO", "TIA", "INJ", "SEI", "AKT"],
+  };
+
   // ── API Helpers ──────────────────────────────────────────
-  const PROX = [(u) => u];
+  let _cache = null;
+  let _cacheTime = 0;
+  const CACHE_TTL = 300000; // 5 minutes
 
   async function fetchCategories() {
-    const url =
-      "https://api.coingecko.com/api/v3/coins/categories?order=market_cap_desc";
-    let lastErr;
-    for (const wrap of PROX) {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 9000);
-      try {
-        const target = wrap(url);
-        const r = W.requestGuard
-          ? await W.requestGuard.fetch(
-              target,
-              { signal: ctrl.signal },
-              {
-                capacity: 8,
-                refillMs: 10000,
-                failureThreshold: 4,
-                cooldownMs: 30000,
-              },
-            )
-          : await fetch(target, { signal: ctrl.signal });
-        clearTimeout(t);
-        if (r.ok) {
-          const data = await r.json();
-          if (W.schemas) W.schemas.validate("categories", data);
-          W.dataHealth?.mark("categories", {
-            source: "coingecko",
-            observedAt: Date.now(),
-            staleAfter: 30 * 60 * 1000,
-          });
-          return data;
-        }
-      } catch (e) {
-        lastErr = e;
-        clearTimeout(t);
+    const now = Date.now();
+    if (_cache && now - _cacheTime < CACHE_TTL) return _cache;
+
+    // W.api.top() is served from CoinLore with its own 2-minute
+    // cache, so calling this on every render is cheap — but we still
+    // memoize the derived sector map for 5 minutes since sector
+    // composition changes far more slowly than prices.
+    const top = await W.api.top(100);
+    const bySymbol = {};
+    (top || []).forEach((c) => {
+      if (c && c.symbol) bySymbol[String(c.symbol).toUpperCase()] = c;
+    });
+
+    const out = [];
+    for (const [name, symbols] of Object.entries(SECTOR_MAP)) {
+      let marketCap = 0;
+      let volume = 0;
+      let weightedChange = 0;
+      const members = [];
+
+      for (const sym of symbols) {
+        const c = bySymbol[sym];
+        if (!c) continue;
+        const mcap = Number(c.market_cap) || 0;
+        const vol = Number(c.total_volume) || 0;
+        const chg = Number(c.price_change_percentage_24h_in_currency) || 0;
+        if (mcap <= 0) continue;
+        marketCap += mcap;
+        volume += vol;
+        // Market-cap weight the 24h change so a $0.001 memecoin
+        // doesn't dominate its sector's average.
+        weightedChange += chg * mcap;
+        members.push({ id: c.id, symbol: sym, market_cap: mcap });
       }
+
+      if (!members.length) continue;
+
+      out.push({
+        id: name
+          .toLowerCase()
+          .replace(/\s*&\s*/g, "-")
+          .replace(/\s+/g, "-"),
+        name,
+        market_cap: marketCap,
+        market_cap_change_24h: marketCap > 0 ? weightedChange / marketCap : 0,
+        volume_24h: volume,
+        top_3_coins_id: members
+          .slice()
+          .sort((a, b) => b.market_cap - a.market_cap)
+          .slice(0, 3)
+          .map((m) => m.id),
+        top_3_coins: [],
+        coin_count: members.length,
+        updated_at: new Date(now).toISOString(),
+      });
     }
-    throw lastErr || new Error("unreachable");
+
+    out.sort((a, b) => b.market_cap - a.market_cap);
+
+    _cache = out;
+    _cacheTime = now;
+
+    W.dataHealth?.mark("categories", {
+      source: "coinlore-derived",
+      observedAt: now,
+      staleAfter: CACHE_TTL,
+    });
+
+    return out;
   }
 
   // ── Canvas Helpers ──────────────────────────────────────
@@ -18119,22 +18417,13 @@ W.sectors = (() => {
 
     try {
       const cats = await fetchCategories();
-      const IGNORE = [
-        "cryptocurrency",
-        "layer-1",
-        "smart-contract-platform",
-        "us-treasury-backed",
-        "stablecoin-protocol",
-      ];
       const valid = cats
         .filter(
-          (c) =>
-            (c.market_cap || 0) > 50e6 &&
-            c.name &&
-            c.name.length < 25 &&
-            !IGNORE.includes(c.id),
+          (c) => (c.market_cap || 0) > 50e6 && c.name && c.name.length < 25,
         )
         .slice(0, 40);
+
+      if (!valid.length) throw new Error("no sectors with sufficient data");
 
       const maxMcap = Math.max(...valid.map((c) => c.market_cap));
       const maxVol = Math.max(...valid.map((c) => c.volume_24h));
@@ -18152,8 +18441,9 @@ W.sectors = (() => {
       drawFrame(view);
     } catch (e) {
       console.warn("[Sectors] Error:", e);
-      view.querySelector("#sector-canvas").outerHTML =
-        `<div class="empty"><div class="empty-icon">🌊</div><p>Sector map unreachable on this network</p></div>`;
+      const c = view.querySelector("#sector-canvas");
+      if (c)
+        c.outerHTML = `<div class="empty"><div class="empty-icon">🌊</div><p>Sector map unreachable on this network</p></div>`;
     }
   }
 
@@ -18161,7 +18451,7 @@ W.sectors = (() => {
   return { render };
 })();
 
-console.log("[Sectors] Module loaded.");
+console.log("[Sectors] Module loaded (CoinLore-derived sectors).");
 // ---- js/features/learn.js ----
 //  Comprehensive Crypto & Web3 Education
 

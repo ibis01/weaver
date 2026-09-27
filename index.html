@@ -6,10 +6,12 @@
   <title>Weaver — Crypto Portfolio &amp; Intelligence</title>
   <meta name="description" content="Evidence-driven crypto intelligence and safety platform.">
 
-  <!-- 
+  <!--
     CSP Hardening (§5.3 / Global Const. P0-2):
     - No 'unsafe-inline' for scripts or styles.
-    - connect-src includes all required API fallbacks (CoinGecko, CoinCap, Binance, RPCs).
+    - connect-src includes every API the app actually calls.
+      CoinGecko, Binance, and CoinCap have been removed — see
+      cf-worker/index.js for why.
     - object-src 'none' and base-uri 'self' prevent injection attacks.
   -->
   <meta
@@ -22,11 +24,10 @@
       img-src 'self' data: https:;
       connect-src 'self'
         http://localhost:3001
-        https://api.coingecko.com
-        https://api.coincap.io
+        https://api.coinlore.net
+        https://api.coinbase.com
         https://api.coinpaprika.com
         https://api.alternative.me
-        https://api.binance.com
         https://api.dexscreener.com
         https://api.gopluslabs.io
         https://eth.blockscout.com
@@ -62,9 +63,9 @@
       </div>
       <nav id="nav" aria-label="Main navigation"></nav>
     </aside>
-    
+
     <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
-    
+
     <main class="main">
       <div class="topbar">
         <h1 id="page-title" class="topbar-title">Dashboard</h1>
@@ -75,7 +76,7 @@
           <button class="icon-btn" id="btn-refresh" title="Refresh data" aria-label="Refresh data"></button>
         </div>
       </div>
-      
+
       <!-- Primary content container. Modules inject here. -->
       <div id="view" role="main"></div>
     </main>
@@ -87,7 +88,7 @@
 
   <!-- External dependencies (CSP allowed via script-src) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  
+
   <!-- Application bundle -->
   <script src="dist/bundle.min.js?v=20260935"></script>
 </body>

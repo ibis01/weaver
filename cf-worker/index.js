@@ -9,6 +9,18 @@
 //   POST /bitquery/deployer    body: { chain, deployerAddress }
 //   GET/POST /proxy?url=...    host-allowlisted market/news relay
 //
+// MARKET DATA AUTHENTICATION NOTE:
+//   CoinGecko, Binance, and CoinCap have all been removed.
+//     - CoinGecko: needs a key on datacenter egress; the keyed path
+//       returned 401, anonymous returned 429.
+//     - Binance:   blocks Cloudflare Worker IPs with HTTP 403
+//       (CloudFront "Request blocked" page).
+//     - CoinCap:   v2 API (api.coincap.io) is dead — DNS no longer
+//       resolves; the Worker reported 530 Origin DNS error.
+//   The client now sources prices from CoinPaprika (primary),
+//   CoinLore (secondary), and Coinbase (tertiary). None require a
+//   Worker-side secret.
+//
 // BITQUERY ROUTE — DESIGN NOTES:
 //   The client sends only { chain, deployerAddress }. It does NOT
 //   send a GraphQL query. The Worker constructs the query from a
@@ -43,19 +55,6 @@
 //   the Worker still works — it just uses the shared channel and is
 //   more likely to be rate-limited.
 //
-// COINGECKO AUTHENTICATION (§3.5 — optional, never required):
-//   CoinGecko aggressively rate-limits ANONYMOUS requests from
-//   datacenter egress IPs (Cloudflare's shared pool), which is why
-//   /proxy?url=...coingecko... returned 429 even when residential
-//   clients succeeded. Setting the free Demo plan key moves requests
-//   to a key-scoped quota:
-//       npx wrangler secret put COINGECKO_KEY
-//   When present, requests to api.coingecko.com carry the
-//   x-cg-demo-api-key header. Paid plans use pro-api.coingecko.com
-//   with COINGECKO_PRO_KEY / x-cg-pro-api-key. Without either secret
-//   the Worker still functions — it just remains in the anonymous
-//   pool and relies on the edge cache + client-side fallbacks.
-//
 // /proxy ROUTE — DESIGN NOTES:
 //   The market/news relay exists because some upstreams do not send
 //   CORS headers, so a browser cannot fetch them directly. Unlike
@@ -77,8 +76,8 @@
 //   PROXY_CACHE_FRESH_SECONDS (60). During upstream failures
 //   (429/5xx/timeout), a cached entry up to
 //   PROXY_CACHE_STALE_MAX_SECONDS (600) old is served instead of
-//   propagating the error, so a CoinGecko rate-limit storm degrades
-//   to a ≤10-minute-old price — never to a 1-day-old snapshot. The
+//   propagating the error, so a CoinPaprika hiccup degrades to a
+//   ≤10-minute-old price — never to a 1-day-old snapshot. The
 //   X-Weaver-Cache header reports HIT / MISS / REVALIDATED / STALE /
 //   NONE so clients and operators can see which path served a
 //   response. Failures are never cached.
@@ -96,33 +95,19 @@
 //
 // Deploy: see cf-worker/README.md in this folder.
 
-// Only these origins may call this worker from a browser. Add your
-// GitHub Pages URL and/or custom domain here before deploying.
-// Note: this is a CORS check, not authentication — see the security
-// note above. Requests with NO Origin header (curl, server-side
-// fetch, Wrangler tail, etc.) bypass this list by design; they are
-// not browser callers and cannot be gated by CORS.
 const ALLOWED_ORIGINS = [
   "https://ibis01.github.io",
   "http://localhost:3000",
   "http://localhost:5500",
   "http://127.0.0.1:5500",
-  // Add your production domain here, e.g. "https://weaver.yourdomain.com"
 ];
 
 const GOPLUS_EVM_BASE = "https://api.gopluslabs.io/api/v1/token_security";
 const GOPLUS_SOLANA_BASE =
   "https://api.gopluslabs.io/api/v1/solana/token_security";
 
-// Bitquery GraphQL endpoint. Verify the exact host against current
-// Bitquery documentation immediately before activation; the endpoint
-// has moved in the past.
 const BITQUERY_ENDPOINT = "https://streaming.bitquery.io/graphql";
 
-// EVM chain IDs Shield already supports client-side — kept in sync
-// with js/features/shield.js's CHAINS map. Rejecting anything not on
-// this list means the worker can never be pointed at an arbitrary
-// upstream, even if someone tampers with the request path.
 const ALLOWED_EVM_CHAIN_IDS = new Set([
   "1",
   "56",
@@ -137,18 +122,16 @@ const ALLOWED_EVM_CHAIN_IDS = new Set([
 ]);
 
 // Hosts the /proxy route may forward to. Mirrors the connect-src
-// hosts in index.html's CSP. Keep the two in sync: a host the client
-// is allowed to call but the Worker refuses (or vice versa) produces
-// a failure mode that is confusing to debug from the browser alone.
+// hosts in index.html's CSP. Keep the two in sync.
 //
-// Adding an entry here widens the relay surface. Only add hosts the
-// app actually calls. Never add a wildcard, a metadata endpoint
-// (169.254.169.254), or a host you do not control the purpose of.
+// Removed: api.coingecko.com, pro-api.coingecko.com (keyed path 401),
+//          api.binance.com (blocks CF egress with 403),
+//          api.coincap.io (v2 API is dead — DNS no longer resolves).
+// Added:   api.coinlore.net, api.coinbase.com.
 const ALLOWED_PROXY_HOSTS = new Set([
-  "api.coingecko.com",
-  "pro-api.coingecko.com", // paid tier; key injected as x-cg-pro-api-key
-  "api.binance.com",
-  "api.coincap.io",
+  "api.coinpaprika.com",
+  "api.coinlore.net",
+  "api.coinbase.com",
   "api.alternative.me",
   "api.dexscreener.com",
   "api.gopluslabs.io",
@@ -162,37 +145,12 @@ const ALLOWED_PROXY_HOSTS = new Set([
   "eth.blockscout.com",
   "mempool.space",
   "api.llama.fi",
-  "api.coinpaprika.com",
-  "api.coincap.io",
   // --- News RSS Feed Hosts ---
   "www.coindesk.com",
   "cointelegraph.com",
   "decrypt.co",
 ]);
 
-// Bitquery network names for the chains the deployer route supports.
-// This is deliberately narrower than ALLOWED_EVM_CHAIN_IDS — Bitquery
-// does not have equally good creation-call coverage on every chain,
-// AND the V2 streaming endpoint does not support every EVM chain.
-// Chains absent from this map are rejected before any upstream call.
-//
-// SUPPORTED ON V2 (streaming.bitquery.io):
-//   eth, bsc, base, arbitrum, optimism, matic — verified against
-//   Bitquery's "Bitquery in One Page" reference, which states V2
-//   covers "exactly these chains and no others":
-//   eth, bsc, base, arbitrum, optimism, matic, robinhood, arc,
-//   arc_testnet.
-//
-// EXPLICITLY NOT SUPPORTED ON V2:
-//   avalanche, fantom, cronos, gnosis — these are V1-only on
-//   Bitquery. Querying them on the V2 streaming endpoint produces
-//   an upstream error that surfaces as HTTP 502. Do not add them
-//   here without first confirming V2 support and, if supported,
-//   a live query. A 502 on a mapped chain is worse than a 400
-//   "unsupported chain" because it looks like a transient failure.
-//
-// If a chain is removed from this map, the route returns a clean
-// 400 with "Unsupported chain: <name>" before any network call.
 const CHAIN_TO_BITQUERY_NETWORK = {
   ethereum: "eth",
   bsc: "bsc",
@@ -202,25 +160,6 @@ const CHAIN_TO_BITQUERY_NETWORK = {
   optimism: "optimism",
 };
 
-// Fixed GraphQL query. The client never sees or supplies this. Only
-// the variables (network, address, limit) are per-request. A change
-// to the query is a code change here, reviewable in a diff, not a
-// runtime input.
-//
-// EVIDENCE SEMANTICS — do not remove Receipt.ContractAddress:
-//   Bitquery distinguishes two creation cases (see
-//   docs.bitquery.io/docs/blockchain/Ethereum/calls/contract-creation):
-//     - Top-level deployment: the deployed address is
-//       Receipt.ContractAddress.
-//     - Factory/internal deployment: the deployed address is
-//       Call.To on the create call.
-//   Requesting only Call.To would silently misclassify every
-//   top-level deployment. Requesting both lets the client apply
-//   an explicit extraction policy (see deployer-graph.js).
-//
-// dataset: realtime — see the header note. Do not switch this to
-// `combined` or `archive` without confirming the Bitquery plan covers
-// it, or every call will 502 with "access restricted".
 const DEPLOYER_QUERY = `query DeployerContracts(
   $network: evm_network!
   $address: String!
@@ -256,31 +195,16 @@ const DEPLOYER_QUERY_LIMIT = 50;
 const EVM_ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
 const FETCH_TIMEOUT_MS = 10000;
 
-// GoPlus returns HTTP 200 with { code: 4029 } when rate-limiting. We
-// must inspect the body, not just the status, and retry with backoff.
 const GOPLUS_RATE_LIMIT_CODE = 4029;
 const GOPLUS_MAX_ATTEMPTS = 3;
 const GOPLUS_BASE_DELAY_MS = 400;
 
-// ── Edge cache policy for the /proxy route (§3.4, §3.6) ─────────
-// FRESH: a cached response this old (seconds) is served as current.
-// STALE: during upstream failure, a cached response up to this old
-//        is served rather than propagating the error. Beyond it, the
-//        error passes through and the client's own degradation chain
-//        (last_known_prices → snapshot → honest "—") takes over.
 const PROXY_CACHE_FRESH_SECONDS = 60;
 const PROXY_CACHE_STALE_MAX_SECONDS = 600;
 
 // ----------------------------------------------------------------
 // CORS
 // ----------------------------------------------------------------
-//
-// The `Vary: Origin` header is set unconditionally so Cloudflare's
-// edge cache never serves a cached response to a different origin.
-//
-// `Access-Control-Allow-Origin` is only meaningful to a browser.
-// For non-browser callers (no Origin) we send "null" — no browser
-// will read it, and curl ignores it entirely.
 function corsHeaders(origin) {
   const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : "null";
   return {
@@ -303,7 +227,6 @@ function jsonResponse(obj, status, headers) {
 // Upstream relays
 // ----------------------------------------------------------------
 
-// Small helpers for the retry loop.
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -312,16 +235,10 @@ function jitter(ms) {
   return Math.floor(Math.random() * ms);
 }
 
-// One attempt at fetching a GoPlus URL. Returns { status, text } or
-// throws on network error/timeout.
 async function fetchGoPlusOnce(upstreamUrl, env) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-  // Attach the GoPlus API key when configured. Without it, the request
-  // still works but uses the shared public channel and is subject to
-  // the aggressive shared-IP rate limit. With it, the request uses a
-  // dedicated access token and a higher per-minute limit.
   const headers = { "User-Agent": "WeaverProxy/1.0" };
   if (env && typeof env.GOPLUS_KEY === "string" && env.GOPLUS_KEY) {
     headers.Authorization = `Bearer ${env.GOPLUS_KEY}`;
@@ -339,12 +256,6 @@ async function fetchGoPlusOnce(upstreamUrl, env) {
   }
 }
 
-// GET relay — GoPlus routes. Retries on rate-limit (code 4029) with
-// exponential backoff + jitter, then returns HTTP 429 if still limited.
-//
-// env is threaded through so fetchGoPlusOnce can attach the optional
-// GOPLUS_KEY. Passing env even when the key is absent is safe — the
-// helper treats a missing key as "unauthenticated request".
 async function relay(upstreamUrl, headers, env) {
   let lastPayload = null;
 
@@ -360,8 +271,6 @@ async function relay(upstreamUrl, headers, env) {
       );
     }
 
-    // Try to parse. Non-JSON means we can't inspect the code — pass it
-    // through verbatim and don't retry.
     let parsed = null;
     try {
       parsed = JSON.parse(result.text);
@@ -381,8 +290,6 @@ async function relay(upstreamUrl, headers, env) {
       });
     }
 
-    // Rate-limited. Remember the payload, and retry unless we're on
-    // the last attempt.
     lastPayload = parsed;
     if (attempt < GOPLUS_MAX_ATTEMPTS - 1) {
       const delay = GOPLUS_BASE_DELAY_MS * Math.pow(2, attempt) + jitter(250);
@@ -390,8 +297,6 @@ async function relay(upstreamUrl, headers, env) {
     }
   }
 
-  // All attempts rate-limited. Return an honest 429 so the client can
-  // surface a distinct "try again shortly" message.
   return jsonResponse(
     {
       code: GOPLUS_RATE_LIMIT_CODE,
@@ -405,16 +310,6 @@ async function relay(upstreamUrl, headers, env) {
   );
 }
 
-// POST relay for Bitquery. Constructs the outgoing request entirely
-// from Worker-controlled state:
-//   - the URL is the fixed endpoint
-//   - the method is POST
-//   - the Authorization header carries the Worker secret
-//   - the body is the constructed query + variables
-//
-// Client-supplied headers are NOT forwarded. A client that sends its
-// own Authorization header has no effect: only the Worker-constructed
-// header reaches the upstream.
 async function relayBitquery(env, network, address, headers) {
   if (!env || typeof env.BITQUERY_KEY !== "string" || !env.BITQUERY_KEY) {
     return jsonResponse(
@@ -426,11 +321,7 @@ async function relayBitquery(env, network, address, headers) {
 
   const body = JSON.stringify({
     query: DEPLOYER_QUERY,
-    variables: {
-      network,
-      address,
-      limit: DEPLOYER_QUERY_LIMIT,
-    },
+    variables: { network, address, limit: DEPLOYER_QUERY_LIMIT },
   });
 
   const controller = new AbortController();
@@ -445,7 +336,6 @@ async function relayBitquery(env, network, address, headers) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${env.BITQUERY_KEY}`,
         "User-Agent": "WeaverProxy/1.0",
-        // Deliberately no client headers — see the comment above.
       },
       body,
     });
@@ -460,8 +350,6 @@ async function relayBitquery(env, network, address, headers) {
   }
 
   if (!upstreamResp.ok) {
-    // The upstream body is not reflected — it may contain debug
-    // output and, in some failure modes, fragments of the request.
     return jsonResponse(
       { error: `Bitquery upstream returned HTTP ${upstreamResp.status}` },
       502,
@@ -480,10 +368,6 @@ async function relayBitquery(env, network, address, headers) {
     );
   }
 
-  // A GraphQL response can carry an `errors` array alongside (or
-  // instead of) `data`. A caller that received `{ data: null, errors:
-  // [...] }` and tried to build a deployer profile from it would
-  // produce an empty profile rather than an honest error. Reject.
   if (parsed && Array.isArray(parsed.errors) && parsed.errors.length > 0) {
     return jsonResponse(
       {
@@ -504,20 +388,7 @@ async function relayBitquery(env, network, address, headers) {
 }
 
 // Generic passthrough relay for /proxy?url=… — see header notes.
-//
-// The only client-controlled pieces are the target URL (host-checked
-// against ALLOWED_PROXY_HOSTS) and the optional POST body. Headers
-// are Worker-controlled: Accept plus, on POST, Content-Type, plus
-// Worker-owned API keys where configured. A client cannot smuggle
-// its own Authorization or Cookie through this route.
-//
-// EDGE CACHE (§3.4, §3.6):
-//   GET: serve fresh cache (≤60s) as HIT; on upstream success store
-//   and return as MISS/REVALIDATED; on upstream failure serve cache
-//   ≤600s old as STALE; otherwise pass the upstream error through.
-//   POST: never cached (request bodies make responses non-fungible).
-//   Failures are never written to the cache.
-async function relayAllowedProxy(request, url, headers, ctx, env) {
+async function relayAllowedProxy(request, url, headers, ctx) {
   const target = url.searchParams.get("url");
   if (!target) {
     return jsonResponse({ error: "Missing url param" }, 400, headers);
@@ -530,9 +401,6 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
     return jsonResponse({ error: "Invalid url" }, 400, headers);
   }
 
-  // HTTPS only. http:// would let a browser on an allowlisted origin
-  // pull plaintext from an upstream and have the Worker launder it
-  // into an https response — a downgrade the client never asked for.
   if (targetUrl.protocol !== "https:") {
     return jsonResponse({ error: "Only https is allowed" }, 400, headers);
   }
@@ -545,41 +413,14 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
     );
   }
 
-  // The URL is already known-safe: its hostname is on the allowlist,
-  // its scheme is https, and its structure parsed. No need to
-  // re-check for localhost/RFC1918 — those hostnames are not on the
-  // list, so they cannot reach this branch.
   const method = request.method === "POST" ? "POST" : "GET";
   const upstreamHeaders = {
     Accept: "application/json",
     "User-Agent": "WeaverProxy/1.0",
   };
 
-  // Optional CoinGecko key injection (§3.5: additive, never required).
-  // Anonymous datacenter-egress traffic is what CoinGecko throttles;
-  // a Demo key scopes the request to key quota instead of IP pool.
-  if (
-    targetUrl.hostname === "api.coingecko.com" &&
-    env &&
-    typeof env.COINGECKO_KEY === "string" &&
-    env.COINGECKO_KEY
-  ) {
-    upstreamHeaders["x-cg-demo-api-key"] = env.COINGECKO_KEY;
-  }
-  if (
-    targetUrl.hostname === "pro-api.coingecko.com" &&
-    env &&
-    typeof env.COINGECKO_PRO_KEY === "string" &&
-    env.COINGECKO_PRO_KEY
-  ) {
-    upstreamHeaders["x-cg-pro-api-key"] = env.COINGECKO_PRO_KEY;
-  }
-
   const init = { method, headers: upstreamHeaders };
   if (method === "POST") {
-    // Read as text so the body is forwarded verbatim regardless of
-    // what the caller sent. JSON is the only shape the app uses, and
-    // re-stringifying a parsed body risks reordering keys.
     init.body = await request.text();
     init.headers["Content-Type"] = "application/json";
   }
@@ -602,7 +443,6 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
       );
       cachedAge = (Date.now() - cachedAt) / 1000;
 
-      // Fresh cache: serve immediately, no upstream call at all.
       if (cachedAge <= PROXY_CACHE_FRESH_SECONDS) {
         const body = await cachedResponse.text();
         return new Response(body, {
@@ -760,55 +600,15 @@ async function handleDeployerRequest(request, env, headers) {
 // ----------------------------------------------------------------
 // Router
 // ----------------------------------------------------------------
-//
-// Order of checks (each returns early):
-//
-//   1. OPTIONS               → 204 preflight
-//   2. bad Origin            → 403
-//   3. /bitquery/deployer (non-POST) → 405
-//   4. /bitquery/deployer (POST)     → handleDeployerRequest
-//   5. /proxy (missing url)          → 400
-//   6. /proxy (host not allowed)     → 403
-//   7. /proxy (GET/POST)             → relayAllowedProxy (edge-cached)
-//   8. /goplus/* (non-GET)           → 405
-//   9. /goplus/* (GET, no contract_addresses) → 400
-//  10. /goplus/evm/:id (GET, has param)         → relay (4029 retry)
-//  11. /goplus/solana (GET, has param)          → relay (4029 retry)
-//  12. anything else                            → 404
-//
-// Route matching happens BEFORE the contract_addresses check so
-// that a request to an unknown path returns 404, not 400. The
-// contract_addresses requirement applies only to routes the Worker
-// actually serves.
 async function handleRequest(request, env, ctx) {
-  // Read Origin case-insensitively. Headers.get() is already
-  // case-insensitive, but we normalise to "" so the downstream logic
-  // only has to test one value.
   const originHeader = request.headers.get("Origin");
   const origin = originHeader || "";
   const headers = corsHeaders(origin);
 
-  // Preflight. Browsers send OPTIONS with an Origin; curl almost
-  // never does. We answer either way, but only advertise the
-  // requesting origin if it is on the allowlist.
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers });
   }
 
-  // Access-control gate.
-  //
-  // - No Origin header      -> non-browser caller (curl, server-side
-  //                            fetch, CI). CORS does not apply, so we
-  //                            let it through. The response carries
-  //                            `Access-Control-Allow-Origin: null`,
-  //                            which no browser will honour, so this
-  //                            cannot be abused by a webpage.
-  // - Origin not allowlisted -> browser caller from a hostile site.
-  //                            Reject with 403. The body is safe to
-  //                            return: it contains no secrets, and a
-  //                            browser on a disallowed origin can't
-  //                            read it anyway.
-  // - Origin allowlisted    -> proceed.
   if (originHeader !== null && !ALLOWED_ORIGINS.includes(origin)) {
     return jsonResponse({ error: "Origin not allowed" }, 403, headers);
   }
@@ -829,22 +629,14 @@ async function handleRequest(request, env, ctx) {
   }
 
   // ── Generic relay — /proxy?url=… host-allowlisted, cached. ───
-  //
-  // Only GET and POST are accepted; anything else (PUT, DELETE,
-  // PATCH, etc.) is rejected before touching the upstream.
   if (parts.length === 1 && parts[0] === "proxy") {
     if (request.method !== "GET" && request.method !== "POST") {
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
     }
-    return relayAllowedProxy(request, url, headers, ctx, env);
+    return relayAllowedProxy(request, url, headers, ctx);
   }
 
   // ── GoPlus routes — GET only, path-based. ────────────────────
-  //
-  // Path shape is evaluated first so that:
-  //   - non-GET methods on a valid GoPlus path return 405
-  //   - missing contract_addresses on a valid GoPlus path returns 400
-  //   - any other path (including /nope) falls through to 404
   const isGoplusEvm = parts[0] === "goplus" && parts[1] === "evm" && !!parts[2];
   const isGoplusSolana = parts[0] === "goplus" && parts[1] === "solana";
 
@@ -875,12 +667,10 @@ async function handleRequest(request, env, ctx) {
       return relay(upstream, headers, env);
     }
 
-    // isGoplusSolana
     const upstream = `${GOPLUS_SOLANA_BASE}?contract_addresses=${encodeURIComponent(contractAddresses)}`;
     return relay(upstream, headers, env);
   }
 
-  // ── Unknown path — 404, regardless of query params or method. ─
   return jsonResponse({ error: "Not found" }, 404, headers);
 }
 

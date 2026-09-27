@@ -1,6 +1,15 @@
 // ================================================================
 //             Sector Rotation Heatmap
 // ================================================================
+//
+// Data source: sectors are composed client-side from W.api.top(100)
+// (CoinLore, already cached for 2 minutes). CoinGecko's
+// /coins/categories endpoint has been removed — the free tier blocks
+// Cloudflare egress with 402/429 and the keyed path 401s. There is
+// no keyless 1:1 replacement, but a static sector → symbol map over
+// the top-100 snapshot produces equivalent bubbles with zero extra
+// network cost.
+// ================================================================
 
 window.W = window.W || {};
 
@@ -13,47 +22,140 @@ W.sectors = (() => {
   let cw = 0,
     ch = 0;
 
+  // ── Sector composition ──────────────────────────────────
+  //
+  // Static sector → uppercase symbol map. Any symbol missing from
+  // the top-100 snapshot is silently skipped, so partial coverage is
+  // fine: sectors with at least one member present still render.
+  // Sector names must stay under 25 chars (render() filters longer).
+  const SECTOR_MAP = {
+    "L1 Blockchains": [
+      "BTC",
+      "ETH",
+      "BNB",
+      "SOL",
+      "ADA",
+      "AVAX",
+      "DOT",
+      "ATOM",
+      "NEAR",
+      "APT",
+      "TRX",
+      "XLM",
+      "TON",
+      "SUI",
+      "ICP",
+    ],
+    "L2 Scaling": ["MATIC", "ARB", "OP", "IMX", "STRK", "MNT", "METIS"],
+    "DeFi Lending": [
+      "AAVE",
+      "COMP",
+      "MKR",
+      "CRV",
+      "SNX",
+      "SUSHI",
+      "LDO",
+      "PENDLE",
+    ],
+    "DEX & AMM": ["UNI", "SUSHI", "CRV", "CAKE", "1INCH", "DYDX", "GMX"],
+    Stablecoins: [
+      "USDT",
+      "USDC",
+      "DAI",
+      "BUSD",
+      "TUSD",
+      "FDUSD",
+      "PYUSD",
+      "USDD",
+    ],
+    Memecoins: ["DOGE", "SHIB", "PEPE", "WIF", "BONK", "FLOKI", "MEME", "BOME"],
+    Oracles: ["LINK", "BAND", "API3", "TRB", "PYTH", "UMA"],
+    "Exchange Tokens": ["BNB", "OKB", "CRO", "KCS", "HT", "LEO"],
+    "AI & Compute": ["FET", "RNDR", "TAO", "AGIX", "OCEAN", "GRT", "AKT"],
+    "Gaming & Metaverse": ["SAND", "MANA", "AXS", "GALA", "IMX", "APE", "ENJ"],
+    Privacy: ["XMR", "ZEC", "DASH", "SCRT", "ARRR"],
+    "Real World Assets": ["ONDO", "POLYX", "PENDLE", "MKR", "CFG"],
+    Storage: ["FIL", "AR", "STORJ", "SC", "BLZ"],
+    Interoperability: ["DOT", "ATOM", "LINK", "AXL", "W"],
+    Payments: ["XRP", "XLM", "LTC", "BCH", "XNO", "DASH"],
+    "Layer 0 / Cosmos": ["ATOM", "OSMO", "TIA", "INJ", "SEI", "AKT"],
+  };
+
   // ── API Helpers ──────────────────────────────────────────
-  const PROX = [(u) => u];
+  let _cache = null;
+  let _cacheTime = 0;
+  const CACHE_TTL = 300000; // 5 minutes
 
   async function fetchCategories() {
-    const url =
-      "https://api.coingecko.com/api/v3/coins/categories?order=market_cap_desc";
-    let lastErr;
-    for (const wrap of PROX) {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 9000);
-      try {
-        const target = wrap(url);
-        const r = W.requestGuard
-          ? await W.requestGuard.fetch(
-              target,
-              { signal: ctrl.signal },
-              {
-                capacity: 8,
-                refillMs: 10000,
-                failureThreshold: 4,
-                cooldownMs: 30000,
-              },
-            )
-          : await fetch(target, { signal: ctrl.signal });
-        clearTimeout(t);
-        if (r.ok) {
-          const data = await r.json();
-          if (W.schemas) W.schemas.validate("categories", data);
-          W.dataHealth?.mark("categories", {
-            source: "coingecko",
-            observedAt: Date.now(),
-            staleAfter: 30 * 60 * 1000,
-          });
-          return data;
-        }
-      } catch (e) {
-        lastErr = e;
-        clearTimeout(t);
+    const now = Date.now();
+    if (_cache && now - _cacheTime < CACHE_TTL) return _cache;
+
+    // W.api.top() is served from CoinLore with its own 2-minute
+    // cache, so calling this on every render is cheap — but we still
+    // memoize the derived sector map for 5 minutes since sector
+    // composition changes far more slowly than prices.
+    const top = await W.api.top(100);
+    const bySymbol = {};
+    (top || []).forEach((c) => {
+      if (c && c.symbol) bySymbol[String(c.symbol).toUpperCase()] = c;
+    });
+
+    const out = [];
+    for (const [name, symbols] of Object.entries(SECTOR_MAP)) {
+      let marketCap = 0;
+      let volume = 0;
+      let weightedChange = 0;
+      const members = [];
+
+      for (const sym of symbols) {
+        const c = bySymbol[sym];
+        if (!c) continue;
+        const mcap = Number(c.market_cap) || 0;
+        const vol = Number(c.total_volume) || 0;
+        const chg = Number(c.price_change_percentage_24h_in_currency) || 0;
+        if (mcap <= 0) continue;
+        marketCap += mcap;
+        volume += vol;
+        // Market-cap weight the 24h change so a $0.001 memecoin
+        // doesn't dominate its sector's average.
+        weightedChange += chg * mcap;
+        members.push({ id: c.id, symbol: sym, market_cap: mcap });
       }
+
+      if (!members.length) continue;
+
+      out.push({
+        id: name
+          .toLowerCase()
+          .replace(/\s*&\s*/g, "-")
+          .replace(/\s+/g, "-"),
+        name,
+        market_cap: marketCap,
+        market_cap_change_24h: marketCap > 0 ? weightedChange / marketCap : 0,
+        volume_24h: volume,
+        top_3_coins_id: members
+          .slice()
+          .sort((a, b) => b.market_cap - a.market_cap)
+          .slice(0, 3)
+          .map((m) => m.id),
+        top_3_coins: [],
+        coin_count: members.length,
+        updated_at: new Date(now).toISOString(),
+      });
     }
-    throw lastErr || new Error("unreachable");
+
+    out.sort((a, b) => b.market_cap - a.market_cap);
+
+    _cache = out;
+    _cacheTime = now;
+
+    W.dataHealth?.mark("categories", {
+      source: "coinlore-derived",
+      observedAt: now,
+      staleAfter: CACHE_TTL,
+    });
+
+    return out;
   }
 
   // ── Canvas Helpers ──────────────────────────────────────
@@ -228,22 +330,13 @@ W.sectors = (() => {
 
     try {
       const cats = await fetchCategories();
-      const IGNORE = [
-        "cryptocurrency",
-        "layer-1",
-        "smart-contract-platform",
-        "us-treasury-backed",
-        "stablecoin-protocol",
-      ];
       const valid = cats
         .filter(
-          (c) =>
-            (c.market_cap || 0) > 50e6 &&
-            c.name &&
-            c.name.length < 25 &&
-            !IGNORE.includes(c.id),
+          (c) => (c.market_cap || 0) > 50e6 && c.name && c.name.length < 25,
         )
         .slice(0, 40);
+
+      if (!valid.length) throw new Error("no sectors with sufficient data");
 
       const maxMcap = Math.max(...valid.map((c) => c.market_cap));
       const maxVol = Math.max(...valid.map((c) => c.volume_24h));
@@ -261,8 +354,9 @@ W.sectors = (() => {
       drawFrame(view);
     } catch (e) {
       console.warn("[Sectors] Error:", e);
-      view.querySelector("#sector-canvas").outerHTML =
-        `<div class="empty"><div class="empty-icon">🌊</div><p>Sector map unreachable on this network</p></div>`;
+      const c = view.querySelector("#sector-canvas");
+      if (c)
+        c.outerHTML = `<div class="empty"><div class="empty-icon">🌊</div><p>Sector map unreachable on this network</p></div>`;
     }
   }
 
@@ -270,4 +364,4 @@ W.sectors = (() => {
   return { render };
 })();
 
-console.log("[Sectors] Module loaded.");
+console.log("[Sectors] Module loaded (CoinLore-derived sectors).");
