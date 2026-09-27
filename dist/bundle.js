@@ -2069,6 +2069,7 @@ console.log("[DataStatus] Freshness UI loaded.");
 //   §3.6 Cache before repeated API calls.
 //   §6.3 Missing data must reduce confidence, never become zero.
 //   §6.4 Auditable — delta snapshots skipped while any asset unpriced.
+//   §5.3 Calm visual language — no emojis, reduced motion, tokenized colors.
 // ===============================================================
 
 window.W = window.W || {};
@@ -2105,7 +2106,7 @@ W.dashboard = (() => {
 
   const tapeHTML = (coins) => {
     if (!coins || !Array.isArray(coins) || !coins.length) {
-      return '<div class="tape-wrap"><div class="tape"><span class="tape-item text-muted">📊 Loading market data...</span></div></div>';
+      return '<div class="tape-wrap"><div class="tape"><span class="tape-item text-muted">Loading market data...</span></div></div>';
     }
     let tapeItems = "";
     let validCount = 0;
@@ -2130,7 +2131,7 @@ W.dashboard = (() => {
       if (validCount >= 20) break;
     }
     if (!tapeItems)
-      return '<div class="tape-wrap"><div class="tape"><span class="tape-item text-muted">📊 No market data available</span></div></div>';
+      return '<div class="tape-wrap"><div class="tape"><span class="tape-item text-muted">No market data available</span></div></div>';
     return `<div class="tape-wrap"><div class="tape">${tapeItems + tapeItems}</div></div>`;
   };
 
@@ -2146,8 +2147,20 @@ W.dashboard = (() => {
     const min = Math.min(...vals),
       max = Math.max(...vals),
       up = c.dataset.up === "1";
+
+    // Tokenized chart colors (§5.3)
+    const rootStyles = getComputedStyle(document.documentElement);
+    const colorUp =
+      rootStyles.getPropertyValue("--color-positive").trim() || "#10b981";
+    const colorDown =
+      rootStyles.getPropertyValue("--color-negative").trim() || "#ef4444";
+    const strokeColor = up ? colorUp : colorDown;
+    const fillColor = up
+      ? "rgba(16, 185, 129, 0.12)"
+      : "rgba(239, 68, 68, 0.12)";
+
     ctx.clearRect(0, 0, w, h);
-    ctx.strokeStyle = up ? "#10b981" : "#ef4444";
+    ctx.strokeStyle = strokeColor;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     vals.forEach((v, i) => {
@@ -2159,7 +2172,7 @@ W.dashboard = (() => {
     ctx.lineTo(w, h);
     ctx.lineTo(0, h);
     ctx.closePath();
-    ctx.fillStyle = up ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)";
+    ctx.fillStyle = fillColor;
     ctx.fill();
   }
 
@@ -2329,8 +2342,8 @@ W.dashboard = (() => {
         <td class="num">${r.pnl !== null ? signedMoney(r.pnl) + '<div class="small-text">' + W.fmt.pct(r.pnlPct) + "</div>" : '<span class="text-muted" title="Cost basis unknown">—</span>'}</td>
         <td class="row-actions">${
           r.wallet
-            ? `<span class="tag rank">👛 wallet</span> <button class="icon-btn" data-basis="${i}" title="Set cost basis">📝</button>`
-            : `<button class="icon-btn" data-edit="${W.fmt.escapeHTML(r.id)}">✏️</button><button class="icon-btn" data-del="${W.fmt.escapeHTML(r.id)}">🗑️</button>`
+            ? `<span class="tag rank">wallet</span> <button class="icon-btn" data-basis="${i}" title="Set cost basis">✎</button>`
+            : `<button class="icon-btn" data-edit="${W.fmt.escapeHTML(r.id)}" title="Edit">✎</button><button class="icon-btn" data-del="${W.fmt.escapeHTML(r.id)}" title="Remove">✕</button>`
         }</td>
       </tr>`,
         )
@@ -2437,7 +2450,7 @@ W.dashboard = (() => {
           date: Date.now(),
         });
       m.close();
-      W.ui.toast(existing ? "Holding updated" : "Holding added 🎉", "ok");
+      W.ui.toast(existing ? "Holding updated" : "Holding added", "ok");
       W.refresh();
     };
   }
@@ -2518,6 +2531,11 @@ W.dashboard = (() => {
       return;
     }
 
+    // Tokenized chart colors (§5.3)
+    const rootStyles = getComputedStyle(document.documentElement);
+    const colorPrimary =
+      rootStyles.getPropertyValue("--color-primary").trim() || "#6366f1";
+
     view._dashboardPerfChart = new Chart(canvas, {
       type: "line",
       data: {
@@ -2526,7 +2544,7 @@ W.dashboard = (() => {
           {
             label: "Portfolio value",
             data: series.map((p) => p.y),
-            borderColor: "#6366f1",
+            borderColor: colorPrimary,
             backgroundColor: (context) => {
               const ctx = context.chart.ctx;
               const gradient = ctx.createLinearGradient(0, 0, 0, 300);
@@ -2537,7 +2555,7 @@ W.dashboard = (() => {
             borderWidth: 2,
             pointRadius: 0,
             pointHoverRadius: 5,
-            pointHoverBackgroundColor: "#6366f1",
+            pointHoverBackgroundColor: colorPrimary,
             fill: true,
             tension: 0.3,
           },
@@ -2628,21 +2646,21 @@ W.dashboard = (() => {
       <div class="cards" id="d-stats">${skel.stats(3)}</div>
       <div class="cards" id="d-market-tiles">${skel.stats(3)}</div>
 
-      <div class="card mt-16">
+      <div class="card card-primary mt-16">
         <div class="flex-between mb-8">
-          <h3>💼 Your Portfolio</h3>
+          <h3>Portfolio</h3>
           <div class="qa">
-            <a href="#/token" class="btn tiny">🔍 Analyze</a>
+            <a href="#/token" class="btn tiny">Analyze</a>
             <button class="btn tiny" id="qa-add">+ Add Holding</button>
-            <button class="btn tiny" id="qa-sync" title="Manage synced wallets">👛 Sync Wallets</button>
+            <button class="btn tiny" id="qa-sync" title="Manage synced wallets">Wallets</button>
           </div>
         </div>
         <div id="d-port">${skel.card()}</div>
       </div>
 
-      <div class="card mt-16">
+      <div class="card card-secondary mt-16">
         <div class="flex-between mb-8">
-          <h3>📈 Portfolio Performance</h3>
+          <h3>Performance</h3>
           <div class="qa" id="d-perf-range">
             <button class="chip active" data-range="7">1W</button>
             <button class="chip" data-range="30">1M</button>
@@ -2655,27 +2673,27 @@ W.dashboard = (() => {
         <p class="muted small mt-8" id="d-perf-note"></p>
       </div>
 
-      <div class="card mt-16">
+      <div class="card card-secondary mt-16">
         <div class="flex-between mb-8">
-          <h3>🥧 Allocation</h3>
+          <h3>Allocation</h3>
           <span class="muted small" id="d-alloc-total"></span>
         </div>
         <div id="d-alloc-body">${skel.card()}</div>
       </div>
 
       <div class="grid-2 mt-16">
-        <div id="what-matters-now-container" class="intelligence-feed card">${skel.feed(3)}</div>
-        <div id="what-changed-container"><div class="card">${skel.card()}</div></div>
+        <div id="what-matters-now-container" class="intelligence-feed card card-tertiary">${skel.feed(3)}</div>
+        <div id="what-changed-container"><div class="card card-tertiary">${skel.card()}</div></div>
       </div>
 
-      <div class="card mt-16">
+      <div class="card card-tertiary mt-16">
         <div class="flex-between mb-8">
-          <h3>🌐 Market Context</h3>
+          <h3>Market Context</h3>
           <div class="qa">
-            <button class="chip active" data-tab="trending">🔥 Trending</button>
-            <button class="chip" data-tab="top">🏆 Top</button>
-            <button class="chip" data-tab="gain">📈 Gainers</button>
-            <button class="chip" data-tab="lose">📉 Losers</button>
+            <button class="chip active" data-tab="trending">Trending</button>
+            <button class="chip" data-tab="top">Top</button>
+            <button class="chip" data-tab="gain">Gainers</button>
+            <button class="chip" data-tab="lose">Losers</button>
           </div>
         </div>
         <div id="d-tape"></div>
@@ -2777,10 +2795,16 @@ W.dashboard = (() => {
             fg.value_classification || "Unclassified",
           )
         : statCard("Fear & Greed", "—", "Source unavailable");
+
+      // §2.7: Missing BTC dominance renders as "—", never "0.0%"
+      const btcDom = g?.market_cap_percentage?.btc;
+      const btcDomDisplay =
+        btcDom != null ? `${Number(btcDom).toFixed(1)}%` : "—";
+
       const btcTile = g
         ? statCard(
             "BTC Dominance",
-            `${Number(g.market_cap_percentage?.btc ?? 0).toFixed(1)}%`,
+            btcDomDisplay,
             g.market_cap_change_percentage_24h_usd != null
               ? W.fmt.pct(g.market_cap_change_percentage_24h_usd) +
                   " cap change 24h"
@@ -2946,8 +2970,8 @@ W.dashboard = (() => {
           : `<p class="muted small">Add holdings to your portfolio to start tracking value changes over time.</p>`;
 
       changedContainer.innerHTML = `
-        <div class="card">
-          <h3>🔍 Discoveries</h3>
+        <div class="card card-tertiary">
+          <h3>Discoveries</h3>
           <p class="muted small mb-8 mt-8">New intelligence</p>
           ${discoveriesHTML}
           <p class="muted small mb-8 mt-16">Portfolio changes</p>
@@ -2970,7 +2994,7 @@ W.dashboard = (() => {
 
   function renderPortfolio(view) {
     const has = W.portfolio ? W.portfolio.all().length > 0 : false;
-    view.innerHTML = `<div class="card"><div class="flex-between mb-8"><h3>💼 Holdings</h3><div class="qa"><button class="btn primary" id="p-add">+ Add Holding</button></div></div><div id="p-body">${has ? skel.card() : '<p class="text-muted">No holdings yet.</p>'}</div></div>`;
+    view.innerHTML = `<div class="card card-primary"><div class="flex-between mb-8"><h3>Holdings</h3><div class="qa"><button class="btn primary" id="p-add">+ Add Holding</button></div></div><div id="p-body">${has ? skel.card() : '<p class="text-muted">No holdings yet.</p>'}</div></div>`;
     view.querySelector("#p-add").onclick = () => holdingModal();
     if (has) {
       enrich().then(({ rows }) => {
@@ -2987,7 +3011,7 @@ W.dashboard = (() => {
 })();
 
 console.log(
-  "[Dashboard] Module loaded (Command Center UI, honest data semantics, stale-price cache).",
+  "[Dashboard] Module loaded (Command Center UI, honest data semantics, stale-price cache, UI-002 compliant).",
 );
 // ---- js/ui/skeleton.js ----
 // ===============================================================
