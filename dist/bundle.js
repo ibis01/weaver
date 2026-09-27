@@ -19795,7 +19795,7 @@ W.tg = (() => {
 console.log("[Telegram] Module loaded.");
 // ---- js/features/walletsync.js ----
 // ================================================================
-//  Secure Multi‑Chain Wallet Sync — FINAL (walletsync-v3.1)
+//  Secure Multi‑Chain Wallet Sync — FINAL (walletsync-v3.2)
 // ================================================================
 // Constitution compliance:
 //   §2.1  Non-custodial: read-only public balance queries. Never keys,
@@ -19823,12 +19823,20 @@ console.log("[Telegram] Module loaded.");
 //     to solana-rpc.publicnode.com, which is CORS-permissive and not
 //     subject to the same IP throttling.
 //   - PROXY_REQUIRED_DOMAINS updated to the two publicnode hosts.
+//
+// v3.2 changelog:
+//   - SOL: added multi-RPC failover. publicnode's Solana endpoint
+//     throttles hard from the shared Worker egress (HTTP 429 mid-sync).
+//     We now try official → LlamaRPC → publicnode in order and return
+//     the first success. The official endpoint is used first because
+//     it is the least loaded of the three for cheap read methods
+//     (getBalance / getTokenAccountsByOwner).
 // ================================================================
 
 window.W = window.W || {};
 
 W.walletSync = (() => {
-  const MODULE_VERSION = "walletsync-v3.1";
+  const MODULE_VERSION = "walletsync-v3.2";
   const STORAGE_KEY = "wallet_sync_data"; // encrypted wallet list
   const CACHE_KEY = "wallet_sync_cache"; // sanitized sync results
   const BASIS_KEY = "wallet_cost_basis"; // manual cost basis map
@@ -19842,9 +19850,13 @@ W.walletSync = (() => {
   // Domains that MUST go through the Worker proxy to bypass browser CORS.
   // publicnode RPCs are CORS-permissive but rate-limit per IP; routing
   // them through the Worker gives us the Worker's egress IP and lets
-  // the Worker's edge cache absorb bursts.
+  // the Worker's edge cache absorb bursts. The official Solana RPC and
+  // LlamaRPC are CORS-restricted from the browser and would fail
+  // without the proxy.
   const PROXY_REQUIRED_DOMAINS = [
     "bsc-rpc.publicnode.com",
+    "api.mainnet-beta.solana.com",
+    "solana.llamarpc.com",
     "solana-rpc.publicnode.com",
   ];
 
@@ -19882,23 +19894,45 @@ W.walletSync = (() => {
     return data;
   }
 
-  // Helper for Solana resilience: uses publicnode's Solana RPC via the
-  // Worker proxy. The official api.mainnet-beta.solana.com endpoint is
-  // CORS-restricted from the browser and rate-limits shared egress very
-  // aggressively, so it is deliberately not used here.
-  async function solanaRpcCall(rpcBody) {
-    const url = "https://solana-rpc.publicnode.com";
+  // ── Solana JSON-RPC with multi-endpoint failover ──────
+  //
+  // No single public Solana RPC is reliable from shared egress:
+  //   - api.mainnet-beta.solana.com — CORS-restricted (solved by the
+  //     Worker proxy) but occasionally rate-limits the shared pool.
+  //   - solana.llamarpc.com — usually fast, occasionally flaky.
+  //   - solana-rpc.publicnode.com — frequently returns HTTP 429.
+  //
+  // We try them in order and return the first success. The official
+  // endpoint is first because it handles cheap read methods best.
+  const SOLANA_RPCS = [
+    "https://api.mainnet-beta.solana.com",
+    "https://solana.llamarpc.com",
+    "https://solana-rpc.publicnode.com",
+  ];
 
-    const response = await fetchJSON(
-      url,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(rpcBody),
-      },
-      "jsonRpc",
-    );
-    return response;
+  async function solanaRpcCall(rpcBody) {
+    let lastErr = null;
+    for (const url of SOLANA_RPCS) {
+      try {
+        const response = await fetchJSON(
+          url,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(rpcBody),
+          },
+          "jsonRpc",
+        );
+        return response;
+      } catch (e) {
+        lastErr = e;
+        console.warn(
+          `[WalletSync] Solana RPC ${new URL(url).hostname} failed:`,
+          e.message,
+        );
+      }
+    }
+    throw lastErr || new Error("All Solana RPCs failed");
   }
 
   // ── Chain configurations ──────────────────────────────
@@ -20742,7 +20776,7 @@ W.walletSync = (() => {
 })();
 
 console.log(
-  "[WalletSync] Module loaded (walletsync-v3.1: publicnode RPCs for BSC + SOL, secure cache, honest valuation).",
+  "[WalletSync] Module loaded (walletsync-v3.2: Solana multi-RPC failover, publicnode BSC, secure cache, honest valuation).",
 );
 // ---- js/features/theses.js ----
 // ===============================================================
