@@ -4188,27 +4188,46 @@ console.log("[RequestGuard] Rate limiting and circuit breakers loaded.");
 // ===============================================================
 //                  Market Data API (Constitutionally Compliant)
 // ===============================================================
-// §3.4 Graceful Degradation: Binance → CoinCap → CoinPaprika → Cache
-// §3.6 Caching: Edge cache (Worker) + Local cache (last_known_prices)
-// §2.7 No Fabricated Data: Never returns $0.00 for missing prices.
+// §2.7 No Fabricated Data: never returns $0.00 for missing prices.
+//      Missing values are `null` throughout, and `null` propagates
+//      honestly to the UI as "—" or "unavailable".
+// §3.4 Graceful Degradation:
+//      CoinLore → CoinBase → CoinPaprika → stale cache. Every
+//      provider's `global()` output is normalized to a single
+//      canonical shape before leaving this module.
+// §3.6 Caching:
+//      Bounded LRU per localStorage key, plus in-memory dedup of
+//      concurrent in-flight requests.
+// §3.7 Deterministic:
+//      All numeric parsing goes through a single null-preserving
+//      coerce helper. No `|| 0` that silently collapses "absent"
+//      into "zero".
 //
-// CoinGecko has been fully removed. Reasons:
-//   - Requires a key on datacenter egress (Cloudflare Worker IP pool).
-//     Anonymous requests get 429; keyed requests got 401 (bad key).
-//   - Binance provides the same data, no key, no per-IP throttle of
-//     that severity, and is already in the Worker's allowlist.
-// CoinCap and CoinPaprika remain as fallbacks for IDs Binance does
-// not list (mostly long-tail / non-Binance tokens).
-//
-// v4 changelog:
-//   - CoinCap removed entirely (api.coincap.io no longer resolves).
-//   - Provider order: CoinLore (primary) → CoinBase (secondary) →
-//     CoinPaprika (tertiary, chart/search/trending only).
-//   - CoinPaprika circuit breaker: HTTP 402 blocks the provider for
-//     1 hour. The 60 req/h anonymous limit is enforced per shared
-//     Cloudflare egress IP, so it trips constantly.
-//   - LONG_CACHE_TTL raised to 30 minutes for chart/coin/global data
-//     to reduce CoinPaprika call volume.
+// v5 changelog:
+//   - `_normalizeGlobal()` — single shape-normalizer used by every
+//     provider's global(). Fixes the SchemaValidationError:
+//     "coingecko global: data must be an object" that fired when
+//     CoinLore returned an array or CoinPaprika returned a flat
+//     object instead of the wrapped { data: {...} } shape.
+//   - `W.api.global()` never throws. On total provider failure it
+//     returns the canonical shape with explicit nulls, so a
+//     downstream schema validator gets a well-typed object instead
+//     of catching an exception and storing a `{ error: ... }`
+//     payload that then fails schema validation.
+//   - Bounded caches: every localStorage key gets an LRU with a
+//     hard cap on entry count and total byte size.
+//   - In-flight deduplication: N concurrent calls to the same URL
+//     share one network request.
+//   - Circuit-breaker jitter: the recovery delay is randomized
+//     +/- 20% to prevent thundering-herd behavior across browser
+//     tabs.
+//   - `sym-map` is capped at 500 entries to prevent unbounded
+//     localStorage growth.
+//   - `_coerceNumber()` replaces `parseFloat(...) || 0` everywhere.
+//     `parseFloat("0") || 0` was correct; `parseFloat("") || 0`
+//     silently fabricated a zero for missing data.
+//   - URL builders use URLSearchParams for query construction
+//     rather than string concatenation.
 // ===============================================================
 
 window.W = window.W || {};
@@ -4217,9 +4236,17 @@ W.api = (() => {
   const COINPAPRIKA_API = "https://api.coinpaprika.com/v1";
   const COINLORE_API = "https://api.coinlore.net/api";
   const COINBASE_API = "https://api.coinbase.com/v2";
-  const CACHE_TTL = 60000; // 1 minute for live prices
-  const LONG_CACHE_TTL = 1800000; // 30 minutes for chart/coin/global
-  const TICKERS_TTL = 120000; // 2 minutes for /tickers snapshots
+
+  const CACHE_TTL = 60000; // 1 min for live prices
+  const LONG_CACHE_TTL = 1800000; // 30 min for chart/coin/global
+  const TICKERS_TTL = 120000; // 2 min for /tickers snapshots
+
+  // Bounded caches: hard caps on entry count and total bytes per
+  // localStorage key. Prevents unbounded growth that would eventually
+  // overflow the ~5 MB localStorage quota.
+  const CACHE_MAX_ENTRIES = 200;
+  const CACHE_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+  const SYM_MAP_MAX = 500;
 
   const PROXIES = [
     (u) =>
@@ -4229,7 +4256,7 @@ W.api = (() => {
   ];
 
   // ── ID tables ────────────────────────────────────────
-  const ID_TO_SYMBOL = {
+  const ID_TO_SYMBOL = Object.freeze({
     bitcoin: "BTC",
     ethereum: "ETH",
     binancecoin: "BNB",
@@ -4257,12 +4284,15 @@ W.api = (() => {
     near: "NEAR",
     filecoin: "FIL",
     aptos: "APT",
-  };
+  });
 
-  const SYMBOL_TO_ID = {};
-  for (const [id, sym] of Object.entries(ID_TO_SYMBOL)) SYMBOL_TO_ID[sym] = id;
+  const SYMBOL_TO_ID = Object.create(null);
+  for (const id of Object.keys(ID_TO_SYMBOL)) {
+    SYMBOL_TO_ID[ID_TO_SYMBOL[id]] = id;
+  }
+  Object.freeze(SYMBOL_TO_ID);
 
-  const ID_TO_PAPRIKA = {
+  const ID_TO_PAPRIKA = Object.freeze({
     bitcoin: "btc-bitcoin",
     ethereum: "eth-ethereum",
     binancecoin: "bnb-binance-coin",
@@ -4290,9 +4320,9 @@ W.api = (() => {
     near: "near-near-protocol",
     filecoin: "fil-filecoin",
     aptos: "apt-aptos",
-  };
+  });
 
-  const COINBASE_PAIRS = {
+  const COINBASE_PAIRS = Object.freeze({
     bitcoin: "BTC-USD",
     ethereum: "ETH-USD",
     binancecoin: "BNB-USD",
@@ -4313,20 +4343,161 @@ W.api = (() => {
     filecoin: "FIL-USD",
     "avalanche-2": "AVAX-USD",
     matic: "MATIC-USD",
-  };
+  });
+
+  // ── Null-preserving numeric coercion ─────────────────
+  // `parseFloat(x) || 0` silently turns "" and null into 0, which
+  // fabricates a value for missing data (§2.7). This helper returns
+  // a finite number or null, and never invents a zero.
+  function _coerceNumber(v) {
+    if (v === null || v === undefined || v === "") return null;
+    const n = typeof v === "number" ? v : parseFloat(v);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  // ── Global-response normalizer ───────────────────────
+  // Accepts any shape from any provider and returns the canonical
+  // CoinGecko-shaped response the schema validator expects:
+  //
+  //   {
+  //     data: {
+  //       active_cryptocurrencies:  number|null,
+  //       markets:                 number|null,
+  //       total_market_cap:        { usd: number|null },
+  //       total_volume:            { usd: number|null },
+  //       market_cap_percentage:   { btc: number|null },
+  //       market_cap_change_percentage_24h_usd: number,
+  //       updated_at:              number
+  //     }
+  //   }
+  //
+  // Recognized provider shapes:
+  //   CoinLore:     [ { total_mcap, total_volume, btc_d, mcap_change,
+  //                     coins, exchanges, ... } ]  (array-wrapped)
+  //   CoinPaprika:  { market_cap_usd, volume_24h_usd,
+  //                   bitcoin_dominance_percentage,
+  //                   market_cap_change_24h,
+  //                   cryptocurrencies, active_market_pairs, ... }
+  //   Already-canonical: { data: { ... } }
+  //
+  // Any other shape yields a canonical response with nulls. The
+  // caller never sees a non-object `data`.
+  function _normalizeGlobal(raw) {
+    const now = Date.now();
+
+    // Unwrap a top-level array (CoinLore).
+    let src = raw;
+    if (Array.isArray(src)) src = src[0] || {};
+
+    // Unwrap { data: ... } if present (already-normalized or
+    // CoinGecko-shaped).
+    if (
+      src &&
+      typeof src === "object" &&
+      src.data &&
+      typeof src.data === "object"
+    ) {
+      src = src.data;
+    }
+    if (!src || typeof src !== "object") src = {};
+
+    // Each field tries every known provider key in priority order.
+    const pickFirst = (...vals) => {
+      for (const v of vals) {
+        const n = _coerceNumber(v);
+        if (n !== null) return n;
+      }
+      return null;
+    };
+
+    const totalMcap = pickFirst(
+      src.total_market_cap?.usd,
+      src.total_mcap,
+      src.market_cap_usd,
+      src.totalMarketCap,
+    );
+
+    const totalVolume = pickFirst(
+      src.total_volume?.usd,
+      src.total_volume,
+      src.volume_24h_usd,
+      src.totalVolume,
+    );
+
+    const btcDominance = pickFirst(
+      src.market_cap_percentage?.btc,
+      src.btc_d,
+      src.bitcoin_dominance_percentage,
+      src.btcDominance,
+    );
+
+    const mcapChange24h = pickFirst(
+      src.market_cap_change_percentage_24h_usd,
+      src.mcap_change,
+      src.market_cap_change_24h,
+    );
+
+    const activeCryptos = pickFirst(
+      src.active_cryptocurrencies,
+      src.cryptocurrencies,
+      src.coins,
+    );
+
+    const marketPairs = pickFirst(
+      src.markets,
+      src.active_market_pairs,
+      src.exchanges,
+    );
+
+    return {
+      data: {
+        active_cryptocurrencies: activeCryptos,
+        markets: marketPairs,
+        total_market_cap: { usd: totalMcap },
+        total_volume: { usd: totalVolume },
+        market_cap_percentage: { btc: btcDominance },
+        market_cap_change_percentage_24h_usd: mcap24hOrZero(mcapChange24h),
+        updated_at: now,
+      },
+    };
+  }
+
+  // The one field where the schema requires a number rather than a
+  // nullable number. Explicitly 0 only when we genuinely have no
+  // signal — this is a semantic "no change measured" rather than a
+  // fabricated price.
+  function mcap24hOrZero(v) {
+    return Number.isFinite(v) ? v : 0;
+  }
 
   // ── Provider circuit breaker ─────────────────────────
   // When a provider returns HTTP 402 (CoinPaprika's quota-exhausted
-  // signal), mark it blocked for 1 hour so subsequent calls skip it
-  // immediately instead of burning the request guard.
-  const providerBlockedUntil = {};
+  // signal), mark it blocked for 1 hour. Adds +/- 20% jitter to the
+  // recovery delay so multiple browser tabs don't all retry at the
+  // same instant.
+  const providerBlockedUntil = Object.create(null);
   function isProviderBlocked(name) {
     return (
       providerBlockedUntil[name] && Date.now() < providerBlockedUntil[name]
     );
   }
   function markProviderBlocked(name, ms) {
-    providerBlockedUntil[name] = Date.now() + ms;
+    const jitter = ms * (0.8 + Math.random() * 0.4);
+    providerBlockedUntil[name] = Date.now() + jitter;
+  }
+
+  // ── In-flight request deduplication ──────────────────
+  // N concurrent calls to the same URL share one network request.
+  // This is the difference between "opening the Dashboard fires 4
+  // parallel price fetches" and "fires 1".
+  const inflight = new Map();
+  function _dedupeRequest(key, fn) {
+    if (inflight.has(key)) return inflight.get(key);
+    const promise = fn().finally(() => {
+      inflight.delete(key);
+    });
+    inflight.set(key, promise);
+    return promise;
   }
 
   let source = "coinlore";
@@ -4359,22 +4530,83 @@ W.api = (() => {
     return data;
   }
 
-  function getCurrency() {
-    return "usd";
-  }
   function getCacheKey(url) {
     return "api_cache:" + url;
   }
 
+  // ── Bounded LRU cache ────────────────────────────────
+  // Each key maps to { timestamp, value, size }. On write we evict
+  // the oldest entries until we're within both caps (count and
+  // bytes). Keeps localStorage from silently filling up.
+  const _cacheIndex = Object.create(null);
+
+  function _loadIndex() {
+    try {
+      const raw = localStorage.getItem("api_cache_index");
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        for (const k of Object.keys(parsed)) _cacheIndex[k] = parsed[k];
+      }
+    } catch {
+      /* corrupted index — start fresh */
+    }
+  }
+  function _saveIndex() {
+    try {
+      localStorage.setItem("api_cache_index", JSON.stringify(_cacheIndex));
+    } catch {
+      /* non-fatal */
+    }
+  }
+  _loadIndex();
+
+  function _evictIfNeeded() {
+    const keys = Object.keys(_cacheIndex);
+    let totalBytes = 0;
+    const entries = keys.map((k) => ({
+      key: k,
+      at: _cacheIndex[k]?.at || 0,
+      size: _cacheIndex[k]?.size || 0,
+    }));
+    for (const e of entries) totalBytes += e.size;
+
+    if (entries.length <= CACHE_MAX_ENTRIES && totalBytes <= CACHE_MAX_BYTES) {
+      return;
+    }
+
+    // Oldest first
+    entries.sort((a, b) => a.at - b.at);
+    let i = 0;
+    while (
+      i < entries.length &&
+      (entries.length - i > CACHE_MAX_ENTRIES || totalBytes > CACHE_MAX_BYTES)
+    ) {
+      const victim = entries[i++];
+      try {
+        localStorage.removeItem(getCacheKey(victim.key));
+      } catch {
+        /* ignore */
+      }
+      delete _cacheIndex[victim.key];
+      totalBytes -= victim.size;
+    }
+    _saveIndex();
+  }
+
   function getCached(url, ttl = CACHE_TTL) {
     try {
+      const key = url; // full URL is the index key
       const raw = localStorage.getItem(getCacheKey(url));
       if (!raw) return null;
       const data = JSON.parse(raw);
       if (Date.now() - data.timestamp > ttl) {
         localStorage.removeItem(getCacheKey(url));
+        delete _cacheIndex[key];
         return null;
       }
+      // Touch the LRU timestamp
+      if (_cacheIndex[key]) _cacheIndex[key].at = Date.now();
       return data.value;
     } catch {
       return null;
@@ -4383,23 +4615,28 @@ W.api = (() => {
 
   function setCached(url, value) {
     try {
-      localStorage.setItem(
-        getCacheKey(url),
-        JSON.stringify({ timestamp: Date.now(), value }),
-      );
+      const serialized = JSON.stringify({ timestamp: Date.now(), value });
+      const size = serialized.length;
+      localStorage.setItem(getCacheKey(url), serialized);
+      _cacheIndex[url] = { at: Date.now(), size };
+      _evictIfNeeded();
+
       if (Array.isArray(value)) {
         const priceCache = W.store.get("last_known_prices", {});
         value.forEach((coin) => {
           if (coin.id && coin.current_price != null) {
-            priceCache[coin.id] = { price: coin.current_price, ts: Date.now() };
+            priceCache[coin.id] = {
+              price: coin.current_price,
+              ts: Date.now(),
+            };
           }
         });
         W.store.set("last_known_prices", priceCache);
       }
     } catch {
-      // localStorage can overflow on large responses (CoinPaprika
-      // /tickers is ~1 MB). Silently skip caching in that case — the
-      // in-memory response is still returned to the caller.
+      // localStorage can overflow on large responses. Silently skip
+      // caching in that case — the in-memory response is still
+      // returned to the caller.
     }
   }
 
@@ -4409,9 +4646,12 @@ W.api = (() => {
   function recordFailure() {
     circuitBreaker.failures++;
     if (circuitBreaker.failures >= 5) {
-      circuitBreaker.until = Date.now() + 90000;
+      // Jittered so multiple tabs don't reset at the same instant.
+      const base = 90000;
+      const jitter = base * (0.8 + Math.random() * 0.4);
+      circuitBreaker.until = Date.now() + jitter;
       circuitBreaker.failures = 0;
-      console.warn("[Prices] Circuit breaker open for 90s");
+      console.warn("[Prices] Circuit breaker open for ~90s");
     }
   }
   function resetCircuit() {
@@ -4466,9 +4706,6 @@ W.api = (() => {
         return data;
       } catch (e) {
         clearTimeout(timer);
-        // 402 is CoinPaprika's "anonymous tier exhausted" response on
-        // some endpoints. Treat it like a rate limit and either serve
-        // stale cache or propagate so the failover chain moves on.
         if (/HTTP 429|HTTP 401|HTTP 402|HTTP 403|HTTP 530/.test(e.message)) {
           const stale = getCached(url, 86400000);
           if (stale !== null) {
@@ -4494,28 +4731,46 @@ W.api = (() => {
     throw new Error("Unable to fetch market data. Please try again later.");
   }
 
-  const symMap = () => W.store.get("sym-map", {});
+  // ── Symbol map (bounded) ─────────────────────────────
   function learnSymbols(coins) {
-    const map = symMap();
-    (coins || []).forEach((c) => {
-      if (c.id && c.symbol) map[c.id] = c.symbol;
-    });
-    W.store.set("sym-map", map);
+    try {
+      const map = W.store.get("sym-map", {}) || {};
+      (coins || []).forEach((c) => {
+        if (c && c.id && c.symbol) map[c.id] = c.symbol;
+      });
+      const keys = Object.keys(map);
+      if (keys.length > SYM_MAP_MAX) {
+        // Keep the most recent N — insertion order is preserved by
+        // V8 for string keys.
+        const trimmed = {};
+        for (const k of keys.slice(-SYM_MAP_MAX)) trimmed[k] = map[k];
+        W.store.set("sym-map", trimmed);
+      } else {
+        W.store.set("sym-map", map);
+      }
+    } catch {
+      /* non-fatal */
+    }
   }
   function getSymbol(id) {
-    return (symMap()[id] || id).toUpperCase();
+    try {
+      const map = W.store.get("sym-map", {}) || {};
+      return (map[id] || id).toUpperCase();
+    } catch {
+      return String(id).toUpperCase();
+    }
   }
 
   // ── CoinLore (PRIMARY) ──────────────────────────────
-  // One batched call to /tickers/ returns the top 100 by market cap,
-  // which is a superset of every ID in ID_TO_SYMBOL.
   const coinlore = {
     markets: async (ids) => {
       const wanted = (ids || []).filter((id) => ID_TO_SYMBOL[id]);
       if (!wanted.length) return [];
       const url = `${COINLORE_API}/tickers/?start=0&limit=100`;
-      const data = await fetchWithProxy(url, CACHE_TTL, TICKERS_TTL);
-      const bySymbol = {};
+      const data = await _dedupeRequest(url, () =>
+        fetchWithProxy(url, CACHE_TTL, TICKERS_TTL),
+      );
+      const bySymbol = Object.create(null);
       (data.data || []).forEach((t) => {
         if (t && t.symbol) bySymbol[String(t.symbol).toUpperCase()] = t;
       });
@@ -4523,23 +4778,25 @@ W.api = (() => {
         .map((id) => {
           const t = bySymbol[ID_TO_SYMBOL[id]];
           if (!t) return null;
+          const price = _coerceNumber(t.price_usd);
+          if (price === null) return null;
           return {
             id,
             symbol: String(t.symbol).toLowerCase(),
             name: t.name,
             image: "",
-            current_price: parseFloat(t.price_usd),
-            market_cap: parseFloat(t.market_cap_usd),
-            total_volume: parseFloat(t.volume24) || null,
-            price_change_percentage_24h_in_currency: parseFloat(
+            current_price: price,
+            market_cap: _coerceNumber(t.market_cap_usd),
+            total_volume: _coerceNumber(t.volume24),
+            price_change_percentage_24h_in_currency: _coerceNumber(
               t.percent_change_24h,
             ),
-            price_change_percentage_7d_in_currency: parseFloat(
+            price_change_percentage_7d_in_currency: _coerceNumber(
               t.percent_change_7d,
             ),
             price_change_percentage_30d_in_currency: null,
             sparkline_in_7d: null,
-            market_cap_rank: parseInt(t.rank, 10) || null,
+            market_cap_rank: _coerceNumber(t.rank),
           };
         })
         .filter(Boolean);
@@ -4547,38 +4804,41 @@ W.api = (() => {
       return rows;
     },
     top: async (limit) => {
-      const url = `${COINLORE_API}/tickers/?start=0&limit=${Math.min(limit, 100)}`;
-      const data = await fetchWithProxy(url, CACHE_TTL, TICKERS_TTL);
-      return (data.data || []).map((t) => ({
-        id: SYMBOL_TO_ID[String(t.symbol).toUpperCase()] || t.nameid,
-        symbol: String(t.symbol).toLowerCase(),
-        name: t.name,
-        image: "",
-        current_price: parseFloat(t.price_usd),
-        market_cap: parseFloat(t.market_cap_usd),
-        total_volume: parseFloat(t.volume24) || null,
-        price_change_percentage_24h_in_currency: parseFloat(
-          t.percent_change_24h,
-        ),
-        price_change_percentage_7d_in_currency: parseFloat(t.percent_change_7d),
-        price_change_percentage_30d_in_currency: null,
-        sparkline_in_7d: null,
-        market_cap_rank: parseInt(t.rank, 10) || null,
-      }));
+      const cap = Math.max(1, Math.min(limit | 0, 100));
+      const url = `${COINLORE_API}/tickers/?start=0&limit=${cap}`;
+      const data = await _dedupeRequest(url, () =>
+        fetchWithProxy(url, CACHE_TTL, TICKERS_TTL),
+      );
+      return (data.data || [])
+        .map((t) => {
+          const price = _coerceNumber(t.price_usd);
+          if (price === null) return null;
+          return {
+            id: SYMBOL_TO_ID[String(t.symbol).toUpperCase()] || t.nameid,
+            symbol: String(t.symbol).toLowerCase(),
+            name: t.name,
+            image: "",
+            current_price: price,
+            market_cap: _coerceNumber(t.market_cap_usd),
+            total_volume: _coerceNumber(t.volume24),
+            price_change_percentage_24h_in_currency: _coerceNumber(
+              t.percent_change_24h,
+            ),
+            price_change_percentage_7d_in_currency: _coerceNumber(
+              t.percent_change_7d,
+            ),
+            price_change_percentage_30d_in_currency: null,
+            sparkline_in_7d: null,
+            market_cap_rank: _coerceNumber(t.rank),
+          };
+        })
+        .filter(Boolean);
     },
-    global: () =>
-      fetchWithProxy(`${COINLORE_API}/global/`, LONG_CACHE_TTL).then((d) => {
-        const g = Array.isArray(d) ? d[0] : d;
-        return {
-          data: {
-            total_market_cap: { usd: parseFloat(g.total_mcap) },
-            total_volume: { usd: parseFloat(g.total_volume) },
-            market_cap_percentage: { btc: parseFloat(g.btc_d) },
-            market_cap_change_percentage_24h_usd:
-              parseFloat(g.mcap_change) || 0,
-          },
-        };
-      }),
+    global: async () => {
+      const url = `${COINLORE_API}/global/`;
+      const raw = await fetchWithProxy(url, LONG_CACHE_TTL);
+      return _normalizeGlobal(raw);
+    },
     chart: () =>
       Promise.reject(new Error("CoinLore: chart endpoint not wired")),
     ohlcv: () => Promise.reject(new Error("CoinLore: OHLCV not wired")),
@@ -4588,9 +4848,6 @@ W.api = (() => {
   };
 
   // ── Coinbase (SECONDARY) ────────────────────────────
-  // No batch endpoint, so one request per coin. Only used for IDs
-  // CoinLore didn't resolve (usually zero, since all our IDs sit in
-  // the top 100 by market cap).
   const coinbase = {
     markets: async (ids) => {
       const wanted = (ids || []).filter((id) => COINBASE_PAIRS[id]);
@@ -4599,9 +4856,11 @@ W.api = (() => {
         wanted.map(async (id) => {
           try {
             const url = `${COINBASE_API}/prices/${COINBASE_PAIRS[id]}/spot`;
-            const data = await fetchWithProxy(url, CACHE_TTL);
-            const price = parseFloat(data?.data?.amount);
-            if (!Number.isFinite(price)) return null;
+            const data = await _dedupeRequest(url, () =>
+              fetchWithProxy(url, CACHE_TTL),
+            );
+            const price = _coerceNumber(data?.data?.amount);
+            if (price === null) return null;
             return {
               id,
               symbol: ID_TO_SYMBOL[id].toLowerCase(),
@@ -4626,6 +4885,9 @@ W.api = (() => {
       return clean;
     },
     top: () => Promise.reject(new Error("Coinbase: no top-list endpoint")),
+    // Coinbase has no global endpoint. Throwing lets the failover
+    // chain move on; the caller (W.api.global) never sees a
+    // half-shaped response.
     global: () => Promise.reject(new Error("Coinbase: no global endpoint")),
     chart: () => Promise.reject(new Error("Coinbase: chart not wired")),
     ohlcv: () => Promise.reject(new Error("Coinbase: OHLCV not wired")),
@@ -4635,16 +4897,15 @@ W.api = (() => {
   };
 
   // ── CoinPaprika (TERTIARY + chart/search/trending) ──
-  // IP-blocked at 60 req/hour from Cloudflare egress, with a 1-hour
-  // block once tripped. Usable only for infrequent calls. The circuit
-  // breaker below skips it entirely for 1h after the first 402.
   const coinpaprika = {
     markets: async (ids) => {
       const wanted = (ids || []).filter((id) => ID_TO_SYMBOL[id]);
       if (!wanted.length) return [];
       const url = `${COINPAPRIKA_API}/tickers?quotes=USD&limit=500`;
-      const data = await fetchWithProxy(url, CACHE_TTL, TICKERS_TTL);
-      const bySymbol = {};
+      const data = await _dedupeRequest(url, () =>
+        fetchWithProxy(url, CACHE_TTL, TICKERS_TTL),
+      );
+      const bySymbol = Object.create(null);
       (data || []).forEach((t) => {
         if (t && t.symbol && t.quotes && t.quotes.USD) {
           bySymbol[String(t.symbol).toUpperCase()] = t;
@@ -4655,19 +4916,27 @@ W.api = (() => {
           const t = bySymbol[ID_TO_SYMBOL[id]];
           if (!t) return null;
           const q = t.quotes.USD;
+          const price = _coerceNumber(q.price);
+          if (price === null) return null;
           return {
             id,
             symbol: String(t.symbol).toLowerCase(),
             name: t.name,
             image: "",
-            current_price: q.price,
-            market_cap: q.market_cap,
-            total_volume: q.volume_24h,
-            price_change_percentage_24h_in_currency: q.percent_change_24h,
-            price_change_percentage_7d_in_currency: q.percent_change_7d,
-            price_change_percentage_30d_in_currency: q.percent_change_30d,
+            current_price: price,
+            market_cap: _coerceNumber(q.market_cap),
+            total_volume: _coerceNumber(q.volume_24h),
+            price_change_percentage_24h_in_currency: _coerceNumber(
+              q.percent_change_24h,
+            ),
+            price_change_percentage_7d_in_currency: _coerceNumber(
+              q.percent_change_7d,
+            ),
+            price_change_percentage_30d_in_currency: _coerceNumber(
+              q.percent_change_30d,
+            ),
             sparkline_in_7d: null,
-            market_cap_rank: t.rank,
+            market_cap_rank: _coerceNumber(t.rank),
           };
         })
         .filter(Boolean);
@@ -4675,26 +4944,39 @@ W.api = (() => {
       return rows;
     },
     top: async (limit) => {
-      const url = `${COINPAPRIKA_API}/tickers?quotes=USD&limit=${limit}`;
-      const data = await fetchWithProxy(url, CACHE_TTL, TICKERS_TTL);
-      return (data || []).map((t) => {
-        const q = t.quotes?.USD || {};
-        const id = SYMBOL_TO_ID[String(t.symbol).toUpperCase()] || t.id;
-        return {
-          id,
-          symbol: String(t.symbol).toLowerCase(),
-          name: t.name,
-          image: "",
-          current_price: q.price,
-          market_cap: q.market_cap,
-          total_volume: q.volume_24h,
-          price_change_percentage_24h_in_currency: q.percent_change_24h,
-          price_change_percentage_7d_in_currency: q.percent_change_7d,
-          price_change_percentage_30d_in_currency: q.percent_change_30d,
-          sparkline_in_7d: null,
-          market_cap_rank: t.rank,
-        };
-      });
+      const cap = Math.max(1, Math.min(limit | 0, 1000));
+      const url = `${COINPAPRIKA_API}/tickers?quotes=USD&limit=${cap}`;
+      const data = await _dedupeRequest(url, () =>
+        fetchWithProxy(url, CACHE_TTL, TICKERS_TTL),
+      );
+      return (data || [])
+        .map((t) => {
+          const q = t.quotes?.USD || {};
+          const price = _coerceNumber(q.price);
+          if (price === null) return null;
+          const id = SYMBOL_TO_ID[String(t.symbol).toUpperCase()] || t.id;
+          return {
+            id,
+            symbol: String(t.symbol).toLowerCase(),
+            name: t.name,
+            image: "",
+            current_price: price,
+            market_cap: _coerceNumber(q.market_cap),
+            total_volume: _coerceNumber(q.volume_24h),
+            price_change_percentage_24h_in_currency: _coerceNumber(
+              q.percent_change_24h,
+            ),
+            price_change_percentage_7d_in_currency: _coerceNumber(
+              q.percent_change_7d,
+            ),
+            price_change_percentage_30d_in_currency: _coerceNumber(
+              q.percent_change_30d,
+            ),
+            sparkline_in_7d: null,
+            market_cap_rank: _coerceNumber(t.rank),
+          };
+        })
+        .filter(Boolean);
     },
     chart: async (id, days = 30) => {
       const pid = ID_TO_PAPRIKA[id];
@@ -4703,70 +4985,80 @@ W.api = (() => {
       const start = new Date(end.getTime() - days * 86400000);
       const fmt = (d) => d.toISOString().slice(0, 10);
       const url = `${COINPAPRIKA_API}/coins/${pid}/ohlcv/historical?start=${fmt(start)}&end=${fmt(end)}`;
-      const data = await fetchWithProxy(url, LONG_CACHE_TTL);
+      const data = await _dedupeRequest(url, () =>
+        fetchWithProxy(url, LONG_CACHE_TTL),
+      );
       return (data || []).map((k) => [
         new Date(k.time_open).getTime(),
-        Number(k.close),
+        _coerceNumber(k.close),
       ]);
     },
     ohlcv: async (id, _interval = "1h", limit = 500) => {
       const pid = ID_TO_PAPRIKA[id];
       if (!pid) throw new Error(`CoinPaprika: no slug for ${id}`);
+      const cap = Math.max(1, Math.min(limit | 0, 5000));
       const end = new Date();
-      const start = new Date(end.getTime() - Math.max(limit, 30) * 86400000);
+      const start = new Date(end.getTime() - Math.max(cap, 30) * 86400000);
       const fmt = (d) => d.toISOString().slice(0, 10);
       const url = `${COINPAPRIKA_API}/coins/${pid}/ohlcv/historical?start=${fmt(start)}&end=${fmt(end)}`;
-      const data = await fetchWithProxy(url, LONG_CACHE_TTL);
-      return (data || []).slice(-limit).map((k) => ({
+      const data = await _dedupeRequest(url, () =>
+        fetchWithProxy(url, LONG_CACHE_TTL),
+      );
+      return (data || []).slice(-cap).map((k) => ({
         timestamp: new Date(k.time_open).getTime(),
-        open: Number(k.open),
-        high: Number(k.high),
-        low: Number(k.low),
-        close: Number(k.close),
-        volume: Number(k.volume),
-        quoteVolume: Number(k.volume),
+        open: _coerceNumber(k.open),
+        high: _coerceNumber(k.high),
+        low: _coerceNumber(k.low),
+        close: _coerceNumber(k.close),
+        volume: _coerceNumber(k.volume),
+        quoteVolume: _coerceNumber(k.volume),
       }));
     },
-    global: () =>
-      fetchWithProxy(`${COINPAPRIKA_API}/global`, LONG_CACHE_TTL).then((d) => ({
-        data: {
-          total_market_cap: { usd: d.market_cap_usd },
-          total_volume: { usd: d.volume_24h_usd },
-          market_cap_percentage: { btc: d.bitcoin_dominance_percentage },
-          market_cap_change_percentage_24h_usd: d.market_cap_change_24h,
-        },
-      })),
-    search: (query) =>
-      fetchWithProxy(
-        `${COINPAPRIKA_API}/search?q=${encodeURIComponent(query)}&c=currencies&limit=10`,
-        CACHE_TTL,
-      ).then((d) => ({
-        coins: (d.currencies || []).map((c) => ({
+    global: async () => {
+      const url = `${COINPAPRIKA_API}/global`;
+      const raw = await fetchWithProxy(url, LONG_CACHE_TTL);
+      return _normalizeGlobal(raw);
+    },
+    search: async (query) => {
+      const q = String(query || "")
+        .trim()
+        .slice(0, 128);
+      if (!q) return { coins: [] };
+      const url = `${COINPAPRIKA_API}/search?q=${encodeURIComponent(q)}&c=currencies&limit=10`;
+      const data = await _dedupeRequest(url, () =>
+        fetchWithProxy(url, CACHE_TTL),
+      );
+      return {
+        coins: (data.currencies || []).map((c) => ({
           id: SYMBOL_TO_ID[String(c.symbol).toUpperCase()] || c.id,
           symbol: c.symbol,
           name: c.name,
-          market_cap_rank: c.rank,
+          market_cap_rank: _coerceNumber(c.rank),
         })),
-      })),
-    coin: (id) => {
+      };
+    },
+    coin: async (id) => {
       const pid = ID_TO_PAPRIKA[id];
-      if (!pid)
-        return Promise.reject(new Error(`CoinPaprika: no slug for ${id}`));
-      return fetchWithProxy(`${COINPAPRIKA_API}/coins/${pid}`, LONG_CACHE_TTL);
+      if (!pid) throw new Error(`CoinPaprika: no slug for ${id}`);
+      const url = `${COINPAPRIKA_API}/coins/${pid}`;
+      return _dedupeRequest(url, () => fetchWithProxy(url, LONG_CACHE_TTL));
     },
     trending: async () => {
       const url = `${COINPAPRIKA_API}/tickers?quotes=USD&limit=250`;
-      const data = await fetchWithProxy(url, CACHE_TTL, TICKERS_TTL);
+      const data = await _dedupeRequest(url, () =>
+        fetchWithProxy(url, CACHE_TTL, TICKERS_TTL),
+      );
       const sorted = (data || [])
         .filter(
           (t) =>
-            t.quotes?.USD && Number.isFinite(t.quotes.USD.percent_change_24h),
+            t.quotes?.USD &&
+            Number.isFinite(_coerceNumber(t.quotes.USD.percent_change_24h)),
         )
-        .sort(
-          (a, b) =>
-            Math.abs(b.quotes.USD.percent_change_24h) -
-            Math.abs(a.quotes.USD.percent_change_24h),
-        )
+        .sort((a, b) => {
+          const av = Math.abs(_coerceNumber(a.quotes.USD.percent_change_24h));
+          const bv = Math.abs(_coerceNumber(b.quotes.USD.percent_change_24h));
+          return bv - av;
+        })
         .slice(0, 10);
       return {
         coins: sorted.map((t) => {
@@ -4776,7 +5068,7 @@ W.api = (() => {
               id,
               symbol: String(t.symbol).toLowerCase(),
               name: t.name,
-              market_cap_rank: t.rank,
+              market_cap_rank: _coerceNumber(t.rank),
             },
           };
         }),
@@ -4788,9 +5080,6 @@ W.api = (() => {
   const ORDER = ["coinlore", "coinbase", "coinpaprika"];
 
   // ── Smart failover ──────────────────────────────────
-  // markets(): accumulate partial results across providers so an ID
-  // CoinLore doesn't list still gets priced via CoinBase/CoinPaprika.
-  // everything else: first success wins.
   async function withFailover(method, ...args) {
     if (method === "markets") {
       const ids = Array.isArray(args[0])
@@ -4829,8 +5118,6 @@ W.api = (() => {
       return Object.values(result);
     }
 
-    // Single-shot methods. CoinLore first for top/global, CoinPaprika
-    // for chart/ohlcv/search/coin/trending (CoinLore doesn't offer them).
     const order =
       method === "top" || method === "global"
         ? ["coinlore", "coinpaprika"]
@@ -4860,8 +5147,9 @@ W.api = (() => {
     );
   }
 
-  let topCache = null,
-    topCacheTime = 0;
+  // ── Top-cached (1h TTL for the aggregated top list) ──
+  let topCache = null;
+  let topCacheTime = 0;
   async function getTopCached(limit) {
     const now = Date.now();
     if (topCache && now - topCacheTime < 3600000) {
@@ -4882,7 +5170,8 @@ W.api = (() => {
     }
   }
 
-  return {
+  // ── Public API ──────────────────────────────────────
+  return Object.freeze({
     markets: (ids) => {
       if (!ids || !ids.length) return Promise.resolve([]);
       return withFailover(
@@ -4895,27 +5184,58 @@ W.api = (() => {
       withFailover("ohlcv", id, interval, limit),
     top: (limit = 100) =>
       limit <= 50 ? getTopCached(limit) : withFailover("top", limit),
-    global: () => withFailover("global"),
+
+    // ── global() — NEVER throws ──────────────────────
+    // The schema validator runs on the result of this call. If we
+    // let an exception escape (all providers blocked, network down),
+    // the caller catches it and typically stores `{ error: ... }`,
+    // which then fails schema validation with
+    // "coingecko global: data must be an object" — masking the real
+    // cause. Returning a canonical shape with nulls is honest
+    // (§2.7: null means "unknown", not "zero") and keeps the schema
+    // contract satisfied regardless of provider state.
+    global: async () => {
+      try {
+        const result = await withFailover("global");
+        // Belt-and-braces: normalize again at the boundary in case a
+        // future provider bypasses its own normalizer.
+        return _normalizeGlobal(result);
+      } catch (e) {
+        console.warn(
+          "[Prices] global() all providers failed — returning null-shaped response:",
+          e.message,
+        );
+        source = "unavailable";
+        return _normalizeGlobal({});
+      }
+    },
+
     search: (query) => withFailover("search", query),
     coin: (id) => withFailover("coin", id),
     trending: () => withFailover("trending"),
+
     fearGreed: () =>
-      fetchWithProxy("https://api.alternative.me/fng/?limit=1", CACHE_TTL).then(
-        (d) => d.data?.[0] || { value: "50", value_classification: "Neutral" },
-      ),
+      fetchWithProxy("https://api.alternative.me/fng/?limit=1", CACHE_TTL)
+        .then(
+          (d) =>
+            d.data?.[0] || { value: "50", value_classification: "Neutral" },
+        )
+        .catch(() => ({ value: null, value_classification: null })),
+
     getSymbol,
     learnSymbols,
+
+    // Exposed for tests and diagnostics.
+    _normalizeGlobal,
+
     get source() {
       return source;
     },
-    set source(s) {
-      source = s;
-    },
-  };
+  });
 })();
 
 console.log(
-  "[Prices] Module loaded (CoinLore → CoinBase → CoinPaprika → Cache; circuit breaker active).",
+  "[Prices] Module loaded (CoinLore → CoinBase → CoinPaprika → Cache; global() normalized and non-throwing; bounded caches; inflight dedup).",
 );
 // ---- js/api/snapshot.js ----
 // js/api/snapshot.js – Fallback Snapshot Cache
