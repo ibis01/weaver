@@ -2,7 +2,9 @@
 const { defineConfig, devices } = require("@playwright/test");
 
 module.exports = defineConfig({
-  testDir: "./tests/e2e",
+  // E2E specs live under the same test/ tree as unit,
+  // integration, and security. See test/e2e/.
+  testDir: "./test/e2e",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

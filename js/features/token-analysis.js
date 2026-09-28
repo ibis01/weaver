@@ -1072,11 +1072,18 @@ W.tokenAnalysis = (() => {
               bearishEvidence: result.bearishEvidence,
               contradictions: result.contradictions,
               evidenceQuality: result.evidenceQuality,
+<<<<<<< HEAD
               provenance: result.unifiedVerdict?.provenance || [], // <-- ADDED THIS LINE
               trajectorySummary,
               ownerSummary,
               deployerSummary,
               trackRecordSummary,
+=======
+              provenance:
+                (result.unifiedVerdict &&
+                  result.unifiedVerdict.provenance) ||
+                [],
+>>>>>>> e4428b59af22f2d74380c3ee45aaa4ea13699a2a
             });
           }
         });

@@ -289,6 +289,7 @@ W.ui.evidenceDrawer = (() => {
     );
   }
 
+<<<<<<< HEAD
   // Carry provenance fields from a source evidence object onto the
   // drawer item, so renderItems() has all six fields regardless of
   // which layer produced the item.
@@ -366,6 +367,47 @@ W.ui.evidenceDrawer = (() => {
   }
 
   // ── Top-level open ─────────────────────────────────────────
+=======
+  function renderProvenance(records) {
+    if (!Array.isArray(records) || records.length === 0) {
+      return '<p class="muted small">No provenance records available.</p>';
+    }
+    return records
+      .map((p) => {
+        if (!p || typeof p !== "object") return "";
+        const rows = [];
+        if (p.type) rows.push("Type: " + esc(p.type));
+        if (p.source) rows.push("Source: " + esc(p.source));
+        if (p.chain) rows.push("Chain: " + esc(p.chain));
+        if (p.address)
+          rows.push(
+            "Address: " +
+              esc(
+                W.fmt && W.fmt.maskAddress
+                  ? W.fmt.maskAddress(p.address)
+                  : p.address,
+              ),
+          );
+        if (p.asOf) {
+          const d = new Date(p.asOf);
+          rows.push(
+            "As of: " + esc(isNaN(d.getTime()) ? String(p.asOf) : d.toISOString()),
+          );
+        }
+        if (!rows.length) return "";
+        return (
+          '<div class="kv-row"><span class="muted">' +
+          esc(p.type || "record") +
+          '</span><span class="small">' +
+          rows.join("<br>") +
+          "</span></div>"
+        );
+      })
+      .filter(Boolean)
+      .join("");
+  }
+
+>>>>>>> e4428b59af22f2d74380c3ee45aaa4ea13699a2a
   function open(result) {
     const r = result && typeof result === "object" ? result : {};
 
@@ -494,6 +536,8 @@ W.ui.evidenceDrawer = (() => {
       renderItems(contradicting, "None recorded.") +
       "<h4>❓ Unknowns</h4>" +
       renderItems(unknowns, "No evidence gaps recorded.") +
+      "<h4>📎 Evidence provenance</h4>" +
+      renderProvenance(r.provenance) +
       "</div>";
 
     // The modal call is wrapped. If W.ui.modal is missing or throws,

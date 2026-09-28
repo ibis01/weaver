@@ -1,13 +1,5 @@
-// tests/e2e/app.spec.js
-// =============================================================
 const { test, expect } = require("@playwright/test");
 
-// Anchored on the language browsers actually use in violation
-// messages. Chromium, Firefox, and WebKit all emit one of:
-//   "Refused to load ... because it violates the following
-//    Content Security Policy directive ..."
-//   "... violates the following Content Security Policy ..."
-// Neither phrase appears in informational "(CSP compliant)" logs.
 const CSP_VIOLATION_RE =
   /Refused to .+? because it violates|violates the following Content Security Policy/i;
 
@@ -26,14 +18,12 @@ test.describe("Weaver App Smoke Tests (Constitutional Compliance)", () => {
     await expect(title).toContainText("Dashboard", { timeout: 15000 });
   });
 
-  test("should not expose CSP violations during bootstrap", async ({
-    page,
-  }) => {
+  test("should not expose CSP violations during bootstrap", async ({ page }) => {
     const cspConsoleErrors = [];
 
-    // Primary source: securitypolicyviolation events. Registered
-    // before any page script runs so violations from the first load
-    // are captured. These events carry structured metadata.
+    // Register a securitypolicyviolation listener before any page
+    // script runs. This catches violations from the very first load,
+    // including ones that never surface as console errors.
     await page.addInitScript(() => {
       window.__CSP_VIOLATIONS__ = [];
       document.addEventListener("securitypolicyviolation", (e) => {
@@ -55,20 +45,22 @@ test.describe("Weaver App Smoke Tests (Constitutional Compliance)", () => {
     });
 
     page.on("pageerror", (err) => {
-      const text = err && err.message ? err.message : "";
-      if (CSP_VIOLATION_RE.test(text)) {
-        cspConsoleErrors.push(text);
+      if (CSP_VIOLATION_RE.test(err.message)) {
+        cspConsoleErrors.push(err.message);
       }
     });
 
     await page.goto("/");
 
-    // Readiness: the app shell is visible. No networkidle — the app
-    // polls for alerts, market data, and news, so the network never
-    // idles. Playwright explicitly discourages networkidle.
+    // Wait for the app shell to be visible. Do NOT use networkidle:
+    // the app polls for alerts, market data, and news, so the
+    // network never goes idle. Playwright marks networkidle as
+    // discouraged for exactly this reason.
     await expect(page.locator(".app")).toBeVisible({ timeout: 15000 });
 
-    // Settle window: give deferred work a chance to run.
+    // Give deferred work a window to run — dynamic imports, module
+    // bootstrap continuations, short setTimeout chains. Any CSP
+    // violation from that work fires inside this window.
     await page.waitForTimeout(1500);
 
     const browserViolations = await page.evaluate(
@@ -82,13 +74,6 @@ test.describe("Weaver App Smoke Tests (Constitutional Compliance)", () => {
           `  [${v.disposition}] ${v.violatedDirective} blocked ${v.blockedURI}` +
             (v.sourceFile ? ` at ${v.sourceFile}:${v.lineNumber}` : ""),
         );
-      }
-    }
-
-    if (cspConsoleErrors.length > 0) {
-      console.error("Console CSP violations detected:");
-      for (const line of cspConsoleErrors) {
-        console.error(`  ${line}`);
       }
     }
 
