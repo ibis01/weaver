@@ -3282,3 +3282,23 @@ code { overflow-wrap: anywhere; }
     min-width: 40px;
   }
 }
+/* ── Overflow containment ─────────────────────────────────
+   The .tape (market ticker) is intentionally wider than its
+   container: 20 items doubled for the seamless-loop effect,
+   clipped by .tape-wrap's overflow: hidden. On slow connections
+   the Google Font loads after the tape is populated, briefly
+   rendering wider fallback glyphs before the swap. During that
+   window document.documentElement.scrollWidth can exceed the
+   viewport.
+
+   These rules ensure the document itself never scrolls
+   horizontally, regardless of any single element's transient
+   width. Uses `clip` (not `hidden`) so position: sticky and
+   scroll-chaining behave normally in modern browsers, with a
+   `hidden` fallback for older ones. */
+html,
+body {
+  overflow-x: hidden;
+  overflow-x: clip;
+  max-width: 100vw;
+}

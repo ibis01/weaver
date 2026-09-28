@@ -64,16 +64,34 @@ test.describe("Responsive layout", () => {
       await expect(page.locator(".app")).toBeVisible({ timeout: 15000 });
       await page.waitForSelector("#view .card", { timeout: 20000 });
 
-      // Ensure the stylesheet has been parsed and applied before
-      // measuring. On CI the initial measurement can race the CSS
-      // parse; an unstyled layout reports the raw HTML width, which
-      // Ensure style.css has been applied before measuring. The
-      // measurement races the CSS parse on CI: the JS can render
-      // cards before the stylesheet has been applied, and the
-      // unstyled layout reports scrollWidth in the thousands for a
-      // 375px viewport. getComputedStyle is readable cross-origin,
-      // so no SecurityError. `.app` reports flex only when
-      // style.css has loaded; browser default for a div is block.
+      // ── Readiness ladder ─────────────────────────────────
+      // The measurement below is sensitive to three asynchronous
+      // conditions, each of which must be settled before
+      // documentElement.scrollWidth is meaningful:
+      //
+      //   1. style.css has been parsed and applied. `.app` is a
+      //      `display: block` div by browser default; only
+      //      style.css sets it to flex. If the computed style
+      //      says flex, the stylesheet is live.
+      //
+      //   2. Web fonts have loaded (or permanently fallen back).
+      //      Until this resolves, tape items render with the wider
+      //      system fallback. The tape is intentionally wider than
+      //      its container — 20 items doubled for the seamless-loop
+      //      effect — and relies on `.tape-wrap`'s overflow: hidden
+      //      to clip it. If the assertion fires between the tape
+      //      render and the font swap, scrollWidth reflects the
+      //      intrinsic tape width, not the clipped width.
+      //
+      //   3. The browser has completed a layout pass after (2).
+      //      document.fonts.ready resolves before the first layout
+      //      pass that consumes the new metrics.
+      //
+      // Each step is a quiescence wait, not a "wait for success".
+      // The assertions below run regardless of whether the
+      // conditions resolved favourably — a genuinely broken layout
+      // still fails the check.
+
       await page.waitForFunction(
         () => {
           const app = document.querySelector(".app");
@@ -83,10 +101,41 @@ test.describe("Responsive layout", () => {
         { timeout: 10000 },
       );
 
+      await page.evaluate(() => document.fonts.ready);
+      await page.waitForTimeout(150);
+
       const { scrollWidth, clientWidth } = await page.evaluate(() => ({
         scrollWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth,
       }));
+
+      // Diagnostic: when the assertion fails, name the widest
+      // element inside the viewport so the cause is visible in the
+      // CI log rather than inferrable from a number.
+      if (scrollWidth > clientWidth + 1) {
+        const worst = await page.evaluate(() => {
+          const vw = document.documentElement.clientWidth;
+          let widest = null;
+          document.querySelectorAll("*").forEach((el) => {
+            const r = el.getBoundingClientRect();
+            if (r.width > vw + 1) {
+              if (!widest || r.width > widest.width) {
+                widest = {
+                  tag: el.tagName.toLowerCase(),
+                  cls: (el.className && String(el.className)) || null,
+                  id: el.id || null,
+                  width: Math.round(r.width),
+                };
+              }
+            }
+          });
+          return widest;
+        });
+        console.log(
+          `[overflow] viewport ${vp.width}px, doc scrollWidth ${scrollWidth}px; widest overflowing element:`,
+          JSON.stringify(worst),
+        );
+      }
 
       // Allow 1px tolerance for sub-pixel rounding.
       expect(
