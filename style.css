@@ -606,7 +606,6 @@ code {
 }
 .toast.ok   { border-left-color: var(--up); }
 .toast.warn { border-left-color: var(--warn); }
-.toast.down { border-left-color: var(--down); }
 
 .picker { position: relative; }
 .picker-results {
