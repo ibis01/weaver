@@ -3216,3 +3216,70 @@ code { overflow-wrap: anywhere; }
   width: 32px;
   height: 32px;
 }
+/* ═══════════════════════════════════════════════════════════════
+   UI-002 acceptance fixes
+   ═══════════════════════════════════════════════════════════════
+   1. Hamburger must stay clickable when the sidebar is open.
+      On mobile the sidebar is `position: fixed; z-index: 100` and
+      overlays the hamburger. Raising the hamburger above the
+      sidebar keeps the toggle usable for closing the menu without
+      hunting for the backdrop. `position: relative` is required —
+      z-index has no effect on a statically-positioned element.
+
+   2. Touch-target floor at narrow widths.
+      The existing @media (pointer: coarse) rules are correct for
+      physical touchscreens but do not fire for narrow desktop
+      windows, split-screen tablets, or the Playwright mobile
+      viewport. Applying the same floor at (max-width: 860px)
+      keeps the layout accessible in every small-viewport case.
+      Placed at end-of-file so it wins on source order. */
+
+@media (max-width: 860px) {
+  .hamburger {
+    position: relative;
+    z-index: 101;
+  }
+  #nav a {
+    min-height: 44px;
+    padding: 11px 12px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   UI-002 acceptance — touch-target floor for small controls
+   ═══════════════════════════════════════════════════════════════
+   The earlier @media (pointer: coarse) block lifts chips, buttons,
+   and icon buttons to 44px, but pointer capability is unaffected
+   by viewport width. A narrow desktop window, a split-screen
+   tablet, and the Playwright mobile viewport all sit below the
+   860px breakpoint with pointer:fine, so the earlier block never
+   fires for them. This block applies the same floor when the
+   viewport is narrow, independent of pointer type. */
+
+@media (max-width: 860px) {
+  /* Chips, small buttons, tabs, and link-styled buttons inside the
+     view area. Scoped to #view so topbar and sidebar controls are
+     not double-handled by this rule. */
+  #view .chip,
+  #view .btn,
+  #view .btn.tiny,
+  #view button {
+    min-height: 40px;
+  }
+
+  /* The refresh button lives in the topbar, not #view. */
+  .topbar-actions .icon-btn {
+    min-height: 40px;
+    min-width: 40px;
+  }
+}
+
+/* UI-002 acceptance — bring short-label chips to 40px minimum
+   width. The height rule above brought them from 22px to 40px;
+   the width was still 33-37px for 2-3 character labels. Closing
+   that final gap keeps the target a clean 40x40. */
+@media (max-width: 860px) {
+  #view button {
+    min-width: 40px;
+  }
+}
