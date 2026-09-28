@@ -90,7 +90,11 @@
         CSSOM property assignment (el.style.x = "...", which is NOT
         blocked by CSP).
       connect-src 'self' + allowlist
-        Every API the app actually calls. Dead hosts removed.
+        Every API the app actually calls, plus every host the app
+        reaches via direct browser fetch (not through the Worker).
+        Dead hosts removed. api.binance.com is included because
+        Binance rejects Cloudflare Worker egress IPs — the direct
+        browser fetch is the only path that succeeds for OHLCV.
       form-action 'none'
         All forms are JS-handled; nothing should submit off-origin.
       frame-src 'none'
@@ -124,6 +128,7 @@
       img-src 'self' data: https:;
       connect-src 'self'
         http://localhost:3001
+        https://api.binance.com
         https://api.coinlore.net
         https://api.coinbase.com
         https://api.coinpaprika.com
@@ -158,6 +163,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="preconnect" href="https://weaver-proxy.ibis01-weaver.workers.dev" crossorigin>
+  <link rel="dns-prefetch" href="https://api.binance.com">
   <link rel="dns-prefetch" href="https://api.coinlore.net">
   <link rel="dns-prefetch" href="https://api.coinbase.com">
   <link rel="dns-prefetch" href="https://api.coinpaprika.com">
@@ -279,9 +285,9 @@
     ship a new bundle so returning users get the fresh copy instead
     of the one in their HTTP cache or service worker.
 
-    Current cache-buster: 20260935
+    Current cache-buster: 20260936
   -->
-  <script src="dist/bundle.min.js?v=20260935"></script>
+  <script src="dist/bundle.min.js?v=20260936"></script>
 
   <!--
     Failsafe. Loaded as a separate file, NOT bundled, so it can run

@@ -5254,18 +5254,6 @@ W.api = (() => {
   ];
 
   // ── Token logo URLs ─────────────────────────────────────────
-  // None of the three market-data providers return image URLs, so
-  // the dashboard has been rendering letter avatars since v3.2.
-  // This static map covers the tokens the app displays most often.
-  //
-  // CoinGecko's CDN serves these images without authentication and
-  // without meaningful rate limits. It is independent of the
-  // CoinGecko price API that was removed from the app for other
-  // reasons. Adding a token here is a one-line edit.
-  //
-  // Keys are the internal IDs used throughout the app
-  // (ID_TO_SYMBOL). Tokens absent from this map fall through to the
-  // letter avatar in the UI.
   const LOGO_MAP = Object.freeze({
     bitcoin: "https://assets.coingecko.com/coins/images/1/small/bitcoin.png",
     ethereum:
@@ -5408,9 +5396,13 @@ W.api = (() => {
   // valid pair (lowercase symbol, unknown id) is rejected and the
   // failover chain moves on to CoinPaprika.
   //
-  // Binance supports: 1s, 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h,
-  // 8h, 12h, 1d, 3d, 1w, 1M. The interval passthrough below covers
-  // the four timeframes the multi-timeframe analyser requests.
+  // NOTE: Binance is fetched DIRECTLY from the browser, never
+  // through the Worker. Binance rejects Cloudflare Worker egress
+  // IPs with 403. The browser's own IP is not affected, and
+  // Binance sends permissive CORS headers for its public endpoints.
+  // The direct path is PROXIES[1]; the Worker path (PROXIES[0])
+  // will 403 at the Worker's host allowlist, and fetchWithProxy
+  // falls through to the direct path.
   const BINANCE_EXCLUDED = new Set(["USDT"]);
   const BINANCE_INTERVAL_MAP = Object.freeze({
     "1m": "1m",
@@ -5430,9 +5422,7 @@ W.api = (() => {
   function binancePairFor(id) {
     if (!id) return null;
     const key = String(id).toLowerCase();
-    // Direct internal ID lookup: "bitcoin" → "BTC"
     let symbol = ID_TO_SYMBOL[key];
-    // Fallback: treat the input as a symbol, uppercase it: "btc" → "BTC"
     if (!symbol) symbol = key.toUpperCase();
     if (!symbol || !/^[A-Z0-9]{2,12}$/.test(symbol)) return null;
     if (BINANCE_EXCLUDED.has(symbol)) return null;
@@ -5702,6 +5692,22 @@ W.api = (() => {
     circuitBreaker.until = 0;
   }
 
+  // ── fetchWithProxy — proxy walk with refusal fallthrough ────
+  //
+  // Two proxies in the list:
+  //   [0] Worker relay (host-allowlisted on the Worker side)
+  //   [1] Direct browser fetch (no proxy)
+  //
+  // A refusal status (429/401/402/403/530) from one proxy is NOT
+  // terminal. The next proxy is tried. Only after all proxies have
+  // been tried does the function consult the stale cache and, if
+  // that too is empty, throw.
+  //
+  // This matters for Binance specifically: the Worker refuses
+  // api.binance.com at its host allowlist (403), while Binance
+  // itself would refuse a Worker-originated request (403). Neither
+  // is correct; the browser can reach Binance directly. The
+  // PROXIES[1] path is the one that succeeds.
   async function fetchWithProxy(url, timeout = 10000, ttl = CACHE_TTL) {
     const cached = getCached(url, ttl);
     if (cached !== null) {
@@ -5717,6 +5723,8 @@ W.api = (() => {
       throw new Error(
         "Network is temporarily unavailable. Please try again later.",
       );
+
+    let lastRefusal = null;
 
     for (const proxy of PROXIES) {
       const proxyUrl = proxy(url);
@@ -5749,27 +5757,39 @@ W.api = (() => {
         return data;
       } catch (e) {
         clearTimeout(timer);
-        if (/HTTP 429|HTTP 401|HTTP 402|HTTP 403|HTTP 530/.test(e.message)) {
-          const stale = getCached(url, 86400000);
-          if (stale !== null) {
-            source = "cache (stale, provider refused)";
-            W.dataHealth?.mark(resourceForUrl(url), {
-              source: "cache (stale)",
-              observedAt: Date.now(),
-              staleAfter: 3600000,
-            });
-            console.warn(
-              `[Prices] Provider refused (${e.message}) — serving stale cache for ${resourceForUrl(url)}`,
-            );
-            return stale;
-          }
-          throw new Error(
-            "Rate limited or blocked by market data provider. Try again in 60 seconds.",
+        const refused = /HTTP 429|HTTP 401|HTTP 402|HTTP 403|HTTP 530/.test(
+          e.message,
+        );
+        if (refused) {
+          lastRefusal = e;
+          console.warn(
+            `[Prices] Proxy refused ${resourceForUrl(url)} (${e.message}); trying next proxy`,
           );
+          continue;
         }
         console.warn(`[Prices] Proxy failed: ${e.message}`);
       }
     }
+
+    if (lastRefusal) {
+      const stale = getCached(url, 86400000);
+      if (stale !== null) {
+        source = "cache (stale, provider refused)";
+        W.dataHealth?.mark(resourceForUrl(url), {
+          source: "cache (stale)",
+          observedAt: Date.now(),
+          staleAfter: 3600000,
+        });
+        console.warn(
+          `[Prices] All proxies refused (${lastRefusal.message}) — serving stale cache for ${resourceForUrl(url)}`,
+        );
+        return stale;
+      }
+      throw new Error(
+        "Rate limited or blocked by market data provider. Try again in 60 seconds.",
+      );
+    }
+
     recordFailure();
     throw new Error("Unable to fetch market data. Please try again later.");
   }
@@ -5935,17 +5955,11 @@ W.api = (() => {
 
   // ── Binance (PRIMARY for OHLCV / chart) ─────────────
   //
-  // Binance is keyless, generous with rate limits (1,200 req/min),
-  // and serves the exact candle shape the technical-analysis engine
-  // consumes. It is the primary source for OHLCV and chart data
-  // because CoinPaprika — the only other real OHLCV provider —
-  // enforces a monthly call quota. When that quota is exhausted,
-  // every CoinPaprika request returns 402 and the technical-analysis
-  // pipeline goes dark. Binance does not have that failure mode.
-  //
-  // Binance has no search, coin-detail, or trending endpoint, so
-  // those methods reject and the failover chain continues to
-  // CoinPaprika for them.
+  // Fetched directly from the browser, never through the Worker.
+  // Binance rejects Cloudflare Worker egress IPs with 403 (see the
+  // Worker's header comment for the full history); the browser's
+  // own IP is unaffected, and Binance sends permissive CORS headers
+  // for /api/v3/klines.
   const binance = {
     markets: () => Promise.reject(new Error("Binance: markets not wired")),
     top: () => Promise.reject(new Error("Binance: no top-list endpoint")),
@@ -5959,10 +5973,7 @@ W.api = (() => {
         fetchWithProxy(url, LONG_CACHE_TTL),
       );
       if (!Array.isArray(data)) return [];
-      return data.map((k) => [
-        Number(k[0]),
-        _coerceNumber(k[4]), // close
-      ]);
+      return data.map((k) => [Number(k[0]), _coerceNumber(k[4])]);
     },
     ohlcv: async (id, interval = "1h", limit = 500) => {
       const pair = binancePairFor(id);
@@ -6170,12 +6181,6 @@ W.api = (() => {
   };
 
   const providers = { coinlore, coinbase, coinpaprika, binance };
-
-  // ORDER is used only by the markets fallback walk (below). The
-  // per-method orderings are declared inside withFailover, because
-  // different methods have different correct priorities: tickers go
-  // to CoinLore first, OHLCV goes to Binance first, search and coin
-  // detail have no alternative but CoinPaprika.
   const ORDER = ["coinlore", "coinbase", "coinpaprika"];
 
   // ── Smart failover ──────────────────────────────────
@@ -6217,11 +6222,6 @@ W.api = (() => {
       return Object.values(result);
     }
 
-    // Per-method priority. Different methods have different correct
-    // first choices: tickers go to CoinLore first (fastest, no key,
-    // wide coverage); OHLCV goes to Binance first (only real source
-    // that does not have a monthly quota); search and coin detail
-    // have no alternative but CoinPaprika.
     let order;
     if (method === "top" || method === "global") {
       order = ["coinlore", "coinpaprika"];
@@ -6328,7 +6328,6 @@ W.api = (() => {
       return source;
     },
 
-    // Test-only surface. Frozen. Not part of the production contract.
     _internal: Object.freeze({
       binancePairFor,
       binanceIntervalFor,
@@ -6339,7 +6338,7 @@ W.api = (() => {
 })();
 
 console.log(
-  "[Prices] Module loaded (Binance → CoinLore → CoinBase → CoinPaprika → Cache; OHLCV via Binance, tickers via CoinLore, search/detail via CoinPaprika; logos for 26 tokens).",
+  "[Prices] Module loaded (Binance (direct) → CoinLore → CoinBase → CoinPaprika → Cache; OHLCV via Binance direct, tickers via CoinLore, search/detail via CoinPaprika; logos for 26 tokens).",
 );
 // ---- js/api/snapshot.js ----
 // js/api/snapshot.js – Fallback Snapshot Cache
