@@ -63,7 +63,7 @@ There is a lightweight proxy backend for CORS-restricted API calls and a
 Cloudflare Worker for the GoPlus Solana endpoint.
 
 ```
-External APIs (CoinGecko, Binance, DEX Screener, GoPlus, …)
+External APIs (CoinLore, CoinPaprika, Coinbase, DEX Screener, GoPlus, …)
               │
               ▼
        Proxy layer (proxy-server.js, cf-worker/)
@@ -326,8 +326,16 @@ npx playwright test test/e2e/track-record.spec.js
 
 ### Current counts
 
-As of the latest commit, `npm run test:unit` reports over 400 passing
-tests. The number is not a target; it reflects the actual suite.
+| Suite | Command | Tests |
+| :--- | :--- | ---: |
+| Unit | `npm run test:unit` | 538 |
+| Integration | `npm run test:integration` | 16 |
+| Security | `npm run test:security` | 16 |
+| End-to-end | `npm run test:e2e` | 30 |
+
+The E2E suite lives at `test/e2e/` (five spec files):
+`app.spec.js`, `weaver.spec.js`, `schemas-freshness.spec.js`,
+`track-record.spec.js`, `dashboard-acceptance.spec.js`.
 
 ---
 
@@ -355,17 +363,25 @@ Pages can serve them directly. Any source change must be followed by
 
 ## Continuous integration
 
-Three workflows run on `main`:
+Workflows that run on `main`:
 
 | Workflow | Trigger | What it does |
 | :--- | :--- | :--- |
-| `ci.yml` | Push, PR | Unit → integration → security → E2E → build |
-| `data.yml` | Cron every 30 min | Fetches CoinGecko, CryptoCompare, and alternative.me snapshots into `data/`, validates the JSON schema, and commits if changed |
-| `performance.yml` | Manual, weekly | Runs the k6 benchmark against a deployed proxy URL |
+| `test-and-build.yml` | Push, PR | Build → verify bundle → verify no inline styles or handlers → unit → integration → security → Worker tests → Playwright E2E → upload report on failure |
+| `data.yml` | Cron every 30 min | Fetches CoinLore, CoinPaprika, and alternative.me snapshots into `data/`, validates the JSON schema, and commits if changed |
+| `pages-build-deployment` | Push to `main` | GitHub Pages build and deploy |
 
-The `ci.yml` workflow installs Playwright unconditionally and runs the E2E
-stage unconditionally. There is no detection check that could silently
-skip it.
+The `test-and-build.yml` workflow installs Playwright unconditionally and
+runs the E2E stage unconditionally. There is no detection check that
+could silently skip it.
+
+### Branch protection
+
+`main` requires the `test-and-build` status check to pass before merging.
+`strict: true` means the branch must also be up to date with `main`
+before a PR can merge. Direct pushes from an admin account bypass the
+check; the intent is that PRs are the normal path and CI gates the
+result.
 
 The `data.yml` job validates every response before committing: type
 checks on the top-level shape, minimum-length checks on arrays, and a
@@ -377,12 +393,19 @@ required-field check on each entry. Invalid responses are not committed.
 
 | Source | What | Where |
 | :--- | :--- | :--- |
-| CoinGecko | Prices, market caps, global stats | `js/api/prices.js`, `data/top.json`, `data/global.json` |
-| Binance | OHLCV klines for technical analysis | Proxy layer |
-| DEX Screener | New pairs, boosts, profiles, prices | `js/features/gems.js` |
-| GoPlus | Contract security, owner address (EVM and Solana) | `js/features/shield.js` |
-| alternative.me | Fear & Greed index | `data/fng.json` |
-| CryptoCompare | News headlines | `data/news.json` |
+| CoinLore | Primary market data — prices, market caps, global stats. Keyless. | `js/api/prices.js`, `data/top.json`, `data/global.json` |
+| CoinPaprika | Secondary market data. Keyless. | `js/api/prices.js` |
+| Coinbase | Fallback spot quotes for the top tickers when the primary chain is unavailable. | `js/api/prices.js` |
+| DEX Screener | New pairs, boosts, profiles, prices. | `js/features/gems.js` |
+| GoPlus | Contract security, owner address, creator address (EVM and Solana). | `js/features/shield.js` |
+| honeypot.is | Buy/sell simulation. External security adapter. | Gem Agent risk engine |
+| RugCheck | Solana contract risk. External security adapter. | Gem Agent risk engine |
+| alternative.me | Fear & Greed index. | `data/fng.json` |
+| CryptoCompare | News headlines. | `data/news.json` |
+
+CoinGecko appears in `js/api/prices.js` only as an image host
+(`assets.coingecko.com`) for token logos. The CoinGecko API is no longer
+called for market data.
 
 All external requests go through the proxy layer where CORS applies. The
 `RequestGuard` module (`js/api/request-guard.js`) enforces rate limits and
@@ -413,10 +436,11 @@ circuit breakers.
   a delta is only reported when it reflects the interval it names.
 - **Owner address is not a deployer.** The value comes from GoPlus's
   `owner_address` field, which is the current owner/admin authority, not
-  the contract creator. Weaver never claims to know who deployed a
-  token. On-chain deployment history is a separate, larger problem
-  (Deployer Graph Phase 2) that requires a provider audit and is not
-  implemented.
+  the contract creator. The `creator` block carries `creator_address`,
+  which is the deploying address, but Weaver does not claim to know who
+  deployed a token or who controls it. The Deployer Graph module records
+  deployer activity across tokens in a bounded client-side cache, but
+  does not verify identity beyond the address.
 - **No cross-chain identity clustering.** The same address on Ethereum
   and Base produces two separate associations. Cross-chain identity is
   Phase 3, which depends on Phase 2.
