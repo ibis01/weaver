@@ -67,6 +67,22 @@ test.describe("Responsive layout", () => {
       // Ensure the stylesheet has been parsed and applied before
       // measuring. On CI the initial measurement can race the CSS
       // parse; an unstyled layout reports the raw HTML width, which
+      // Ensure style.css has been applied before measuring. The
+      // measurement races the CSS parse on CI: the JS can render
+      // cards before the stylesheet has been applied, and the
+      // unstyled layout reports scrollWidth in the thousands for a
+      // 375px viewport. getComputedStyle is readable cross-origin,
+      // so no SecurityError. `.app` reports flex only when
+      // style.css has loaded; browser default for a div is block.
+      await page.waitForFunction(
+        () => {
+          const app = document.querySelector(".app");
+          if (!app) return false;
+          return getComputedStyle(app).display === "flex";
+        },
+        { timeout: 10000 },
+      );
+
       const { scrollWidth, clientWidth } = await page.evaluate(() => ({
         scrollWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth,
