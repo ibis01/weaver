@@ -5227,7 +5227,7 @@ W.requestGuard = (() => {
 console.log("[RequestGuard] Rate limiting and circuit breakers loaded.");
 // ---- js/api/prices.js ----
 // ===============================================================
-//                  Market Data API 
+//                  Market Data API
 // ===============================================================
 
 window.W = window.W || {};
@@ -5236,6 +5236,7 @@ W.api = (() => {
   const COINPAPRIKA_API = "https://api.coinpaprika.com/v1";
   const COINLORE_API = "https://api.coinlore.net/api";
   const COINBASE_API = "https://api.coinbase.com/v2";
+  const BINANCE_API = "https://api.binance.com/api/v3";
 
   const CACHE_TTL = 60000;
   const LONG_CACHE_TTL = 1800000;
@@ -5401,6 +5402,48 @@ W.api = (() => {
     matic: "MATIC-USD",
   });
 
+  // ── Binance pair mapping ────────────────────────────
+  // Binance serves spot pairs as SYMBOL+USDT. USDT itself has no
+  // USDTUSDT pair, so it is excluded. Anything not resolvable to a
+  // valid pair (lowercase symbol, unknown id) is rejected and the
+  // failover chain moves on to CoinPaprika.
+  //
+  // Binance supports: 1s, 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h,
+  // 8h, 12h, 1d, 3d, 1w, 1M. The interval passthrough below covers
+  // the four timeframes the multi-timeframe analyser requests.
+  const BINANCE_EXCLUDED = new Set(["USDT"]);
+  const BINANCE_INTERVAL_MAP = Object.freeze({
+    "1m": "1m",
+    "5m": "5m",
+    "15m": "15m",
+    "30m": "30m",
+    "1h": "1h",
+    "2h": "2h",
+    "4h": "4h",
+    "6h": "6h",
+    "12h": "12h",
+    "1d": "1d",
+    "3d": "3d",
+    "1w": "1w",
+  });
+
+  function binancePairFor(id) {
+    if (!id) return null;
+    const key = String(id).toLowerCase();
+    // Direct internal ID lookup: "bitcoin" → "BTC"
+    let symbol = ID_TO_SYMBOL[key];
+    // Fallback: treat the input as a symbol, uppercase it: "btc" → "BTC"
+    if (!symbol) symbol = key.toUpperCase();
+    if (!symbol || !/^[A-Z0-9]{2,12}$/.test(symbol)) return null;
+    if (BINANCE_EXCLUDED.has(symbol)) return null;
+    return symbol + "USDT";
+  }
+
+  function binanceIntervalFor(interval) {
+    if (!interval) return "1h";
+    return BINANCE_INTERVAL_MAP[String(interval)] || "1h";
+  }
+
   // ── Null-preserving numeric coercion ─────────────────
   function _coerceNumber(v) {
     if (v === null || v === undefined || v === "") return null;
@@ -5519,6 +5562,7 @@ W.api = (() => {
     if (url.includes("coinpaprika.com")) return null;
     if (url.includes("coinlore.net")) return null;
     if (url.includes("coinbase.com")) return null;
+    if (url.includes("binance.com")) return null;
     if (url.includes("alternative.me/fng")) return "fearGreed";
     return null;
   }
@@ -5530,6 +5574,9 @@ W.api = (() => {
       if (url.includes("/search")) return "search";
       if (url.includes("/tickers")) return "markets";
       if (url.includes("/coins/")) return "coin";
+    }
+    if (url.includes("binance.com")) {
+      if (url.includes("/klines")) return "chart";
     }
     if (url.includes("coinbase.com")) return "markets";
     if (url.includes("alternative.me/fng")) return "fear-greed";
@@ -5753,7 +5800,7 @@ W.api = (() => {
     }
   }
 
-  // ── CoinLore (PRIMARY) ──────────────────────────────
+  // ── CoinLore (PRIMARY for tickers) ──────────────────
   const coinlore = {
     markets: async (ids) => {
       const wanted = (ids || []).filter((id) => ID_TO_SYMBOL[id]);
@@ -5840,7 +5887,7 @@ W.api = (() => {
     trending: () => Promise.reject(new Error("CoinLore: no trending endpoint")),
   };
 
-  // ── Coinbase (SECONDARY) ────────────────────────────
+  // ── Coinbase (SECONDARY for tickers) ────────────────
   const coinbase = {
     markets: async (ids) => {
       const wanted = (ids || []).filter((id) => COINBASE_PAIRS[id]);
@@ -5886,7 +5933,63 @@ W.api = (() => {
     trending: () => Promise.reject(new Error("Coinbase: no trending endpoint")),
   };
 
-  // ── CoinPaprika (TERTIARY + chart/search/trending) ──
+  // ── Binance (PRIMARY for OHLCV / chart) ─────────────
+  //
+  // Binance is keyless, generous with rate limits (1,200 req/min),
+  // and serves the exact candle shape the technical-analysis engine
+  // consumes. It is the primary source for OHLCV and chart data
+  // because CoinPaprika — the only other real OHLCV provider —
+  // enforces a monthly call quota. When that quota is exhausted,
+  // every CoinPaprika request returns 402 and the technical-analysis
+  // pipeline goes dark. Binance does not have that failure mode.
+  //
+  // Binance has no search, coin-detail, or trending endpoint, so
+  // those methods reject and the failover chain continues to
+  // CoinPaprika for them.
+  const binance = {
+    markets: () => Promise.reject(new Error("Binance: markets not wired")),
+    top: () => Promise.reject(new Error("Binance: no top-list endpoint")),
+    global: () => Promise.reject(new Error("Binance: no global endpoint")),
+    chart: async (id, days = 30) => {
+      const pair = binancePairFor(id);
+      if (!pair) throw new Error(`Binance: no USDT pair for ${id}`);
+      const cap = Math.max(1, Math.min(days | 0, 1000));
+      const url = `${BINANCE_API}/klines?symbol=${pair}&interval=1d&limit=${cap}`;
+      const data = await _dedupeRequest(url, () =>
+        fetchWithProxy(url, LONG_CACHE_TTL),
+      );
+      if (!Array.isArray(data)) return [];
+      return data.map((k) => [
+        Number(k[0]),
+        _coerceNumber(k[4]), // close
+      ]);
+    },
+    ohlcv: async (id, interval = "1h", limit = 500) => {
+      const pair = binancePairFor(id);
+      if (!pair) throw new Error(`Binance: no USDT pair for ${id}`);
+      const cap = Math.max(1, Math.min(limit | 0, 1000));
+      const binanceInterval = binanceIntervalFor(interval);
+      const url = `${BINANCE_API}/klines?symbol=${pair}&interval=${binanceInterval}&limit=${cap}`;
+      const data = await _dedupeRequest(url, () =>
+        fetchWithProxy(url, LONG_CACHE_TTL),
+      );
+      if (!Array.isArray(data)) return [];
+      return data.map((k) => ({
+        timestamp: Number(k[0]),
+        open: _coerceNumber(k[1]),
+        high: _coerceNumber(k[2]),
+        low: _coerceNumber(k[3]),
+        close: _coerceNumber(k[4]),
+        volume: _coerceNumber(k[5]),
+        quoteVolume: _coerceNumber(k[7]),
+      }));
+    },
+    search: () => Promise.reject(new Error("Binance: no search endpoint")),
+    coin: () => Promise.reject(new Error("Binance: no coin-detail endpoint")),
+    trending: () => Promise.reject(new Error("Binance: no trending endpoint")),
+  };
+
+  // ── CoinPaprika (TERTIARY + search/coin/trending) ───
   const coinpaprika = {
     markets: async (ids) => {
       const wanted = (ids || []).filter((id) => ID_TO_SYMBOL[id]);
@@ -6066,7 +6169,13 @@ W.api = (() => {
     },
   };
 
-  const providers = { coinlore, coinbase, coinpaprika };
+  const providers = { coinlore, coinbase, coinpaprika, binance };
+
+  // ORDER is used only by the markets fallback walk (below). The
+  // per-method orderings are declared inside withFailover, because
+  // different methods have different correct priorities: tickers go
+  // to CoinLore first, OHLCV goes to Binance first, search and coin
+  // detail have no alternative but CoinPaprika.
   const ORDER = ["coinlore", "coinbase", "coinpaprika"];
 
   // ── Smart failover ──────────────────────────────────
@@ -6108,10 +6217,19 @@ W.api = (() => {
       return Object.values(result);
     }
 
-    const order =
-      method === "top" || method === "global"
-        ? ["coinlore", "coinpaprika"]
-        : ["coinpaprika"];
+    // Per-method priority. Different methods have different correct
+    // first choices: tickers go to CoinLore first (fastest, no key,
+    // wide coverage); OHLCV goes to Binance first (only real source
+    // that does not have a monthly quota); search and coin detail
+    // have no alternative but CoinPaprika.
+    let order;
+    if (method === "top" || method === "global") {
+      order = ["coinlore", "coinpaprika"];
+    } else if (method === "ohlcv" || method === "chart") {
+      order = ["binance", "coinpaprika"];
+    } else {
+      order = ["coinpaprika"];
+    }
 
     for (const name of order) {
       const provider = providers[name];
@@ -6209,11 +6327,19 @@ W.api = (() => {
     get source() {
       return source;
     },
+
+    // Test-only surface. Frozen. Not part of the production contract.
+    _internal: Object.freeze({
+      binancePairFor,
+      binanceIntervalFor,
+      BINANCE_EXCLUDED,
+      BINANCE_INTERVAL_MAP,
+    }),
   });
 })();
 
 console.log(
-  "[Prices] Module loaded (CoinLore → CoinBase → CoinPaprika → Cache; logos for 26 tokens; global() normalized and non-throwing).",
+  "[Prices] Module loaded (Binance → CoinLore → CoinBase → CoinPaprika → Cache; OHLCV via Binance, tickers via CoinLore, search/detail via CoinPaprika; logos for 26 tokens).",
 );
 // ---- js/api/snapshot.js ----
 // js/api/snapshot.js – Fallback Snapshot Cache
