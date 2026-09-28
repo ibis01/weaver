@@ -32043,11 +32043,6 @@ W.tokenAnalysis = (() => {
 
     if (!signals.length && !technical) {
       // ── Unavailable-data path ─────────────────────────────
-      // Every field the renderer reads must be present here.
-      // Scores are null, NOT 0 — unknown must never render as a
-      // measured value. Same principle as the Gem Agent Shield P0:
-      // unknown ≠ zero, and missing must never render as a broken
-      // string ("undefined", "N/A%").
       const unavailableQuality = {
         status: "UNAVAILABLE",
         reasons: [
@@ -32079,8 +32074,7 @@ W.tokenAnalysis = (() => {
         evidenceQuality: unavailableQuality,
         tradeLevels: null,
         unifiedVerdict: null,
-        // collectEvents did run and matched nothing — 0 is a fact here,
-        // not a fabrication.
+        evidenceDomains: {},
         signalsCount: 0,
         fundamentals,
         technical: null,
@@ -32223,6 +32217,7 @@ W.tokenAnalysis = (() => {
       riskScore,
     );
     const localEvidenceQuality = evidenceSufficiency(technical, fundamentals);
+
     let securityEvidence = null;
     try {
       if (W.shield && typeof W.shield.getEvidence === "function") {
@@ -32234,22 +32229,150 @@ W.tokenAnalysis = (() => {
     } catch (e) {
       console.warn("[TokenAnalysis] Shield evidence unavailable:", e.message);
     }
+
+    // ── Evidence domains ────────────────────────────────────
+    // Every domain that produced a measurable reading becomes a
+    // bucket candidate. The drawer's relationship field decides
+    // which bucket the domain appears in.
+    //
+    // Relationship is relative to the current scenario (the
+    // action): a bullish technical bias supports a BUY scenario
+    // and contradicts a SELL scenario. This is what a reader
+    // expects when they open "Why this verdict?" — evidence for
+    // or against the scenario on screen.
+    const scenarioAction = action.action; // "BUY" | "SELL" | "HOLD"
+
+    function relationshipFor(direction) {
+      // direction: "bullish" | "bearish" | "neutral"
+      if (scenarioAction === "HOLD") return "unknown";
+      if (direction === "neutral" || !direction) return "unknown";
+      const scenarioBullish = scenarioAction === "BUY";
+      const directionBullish = direction === "bullish";
+      return directionBullish === scenarioBullish
+        ? "supporting"
+        : "contradicting";
+    }
+
     const evidenceDomains = {
       ...(options.evidenceDomains || {}),
-      ...(securityEvidence
-        ? {
-            security: {
-              status: "verified",
-              score: Math.max(0, 100 - Number(securityEvidence.riskScore || 0)),
-              source: securityEvidence.source || "goplus",
-              asOf: new Date(securityEvidence.observedAt).toISOString(),
-              reasons: securityEvidence.risks?.length
-                ? securityEvidence.risks
-                : ["Token Shield verification completed."],
-            },
-          }
-        : {}),
     };
+
+    // Technical domain — populated whenever technical analysis
+    // returned a reading. Relationship derives from the technical
+    // bias relative to the scenario.
+    if (technical) {
+      const techDirection =
+        technical.bias === "bullish"
+          ? "bullish"
+          : technical.bias === "bearish"
+            ? "bearish"
+            : "neutral";
+      const techReasons = [
+        Number.isFinite(technical.rsi)
+          ? `RSI (14): ${technical.rsi} — ${technical.rsiBias || "no bias"}`
+          : null,
+        technical.trend ? `Trend: ${technical.trend}` : null,
+        Number.isFinite(technical.ema20) || Number.isFinite(technical.ema50)
+          ? `EMA 20 / EMA 50: ${technical.ema20 ?? "N/A"} / ${technical.ema50 ?? "N/A"}`
+          : null,
+        Number.isFinite(technical.macd)
+          ? `MACD: ${technical.macd >= 0 ? "positive" : "negative"} (${technical.macd})`
+          : null,
+        technical.structure?.label
+          ? `Market structure: ${technical.structure.label}`
+          : null,
+        technical.structure?.breakOfStructure
+          ? `Structure event: ${technical.structure.breakOfStructure}`
+          : null,
+        technical.structure?.choch?.direction
+          ? `CHOCH: ${technical.structure.choch.direction}`
+          : null,
+        technical.multiTimeframe
+          ? `MTF alignment: ${technical.multiTimeframe.timeframeAlignment}`
+          : null,
+        Number.isFinite(technical.relativeVolume)
+          ? `Relative volume: ${technical.relativeVolume}x`
+          : null,
+        technical.smc?.liquidity
+          ? `Liquidity: ${technical.smc.liquidity}`
+          : null,
+        Number.isFinite(technical.confidence)
+          ? `Technical confidence: ${technical.confidence}%`
+          : null,
+      ].filter(Boolean);
+
+      evidenceDomains.technical = {
+        status: "verified",
+        relationship: relationshipFor(techDirection),
+        source: technical.source || "ohlcv",
+        methodologyVersion: "technical-analysis",
+        reliability: Number.isFinite(technical.confidence)
+          ? Math.max(0, Math.min(1, technical.confidence / 100))
+          : undefined,
+        reasons: techReasons,
+      };
+    }
+
+    // Fundamental domain — populated whenever the fundamental
+    // report marked data available.
+    if (fundamentals?.available) {
+      const fundDirection =
+        fundamentals.bias === "supportive"
+          ? "bullish"
+          : fundamentals.bias === "cautionary"
+            ? "bearish"
+            : "neutral";
+      const fundReasons = [
+        `Score: ${fundamentals.score}/100 (${fundamentals.bias})`,
+        ...(Array.isArray(fundamentals.positives)
+          ? fundamentals.positives
+          : []),
+        ...(Array.isArray(fundamentals.negatives)
+          ? fundamentals.negatives
+          : []),
+        ...(Array.isArray(fundamentals.factors) ? fundamentals.factors : []),
+      ].filter(Boolean);
+
+      evidenceDomains.fundamentals = {
+        status: "verified",
+        relationship: relationshipFor(fundDirection),
+        source: "market-api",
+        methodologyVersion: "fundamental-heuristic",
+        reasons: fundReasons,
+      };
+    }
+
+    // Security domain — populated only when Shield has been run
+    // on this token during the current session.
+    if (securityEvidence) {
+      const secScore = Math.max(
+        0,
+        Math.min(100, 100 - Number(securityEvidence.riskScore || 0)),
+      );
+      const secDirection =
+        secScore >= 70 ? "bullish" : secScore <= 40 ? "bearish" : "neutral";
+      const secReasons = Array.isArray(securityEvidence.risks)
+        ? securityEvidence.risks.slice()
+        : [];
+      secReasons.unshift(`Risk score: ${secScore}/100 (safe = high)`);
+      if (secReasons.length === 1) {
+        secReasons.push("Token Shield verification completed.");
+      }
+
+      evidenceDomains.security = {
+        status: "verified",
+        relationship: relationshipFor(secDirection),
+        score: secScore,
+        source: securityEvidence.source || "goplus",
+        observedAt: securityEvidence.observedAt,
+        asOf: securityEvidence.observedAt
+          ? new Date(securityEvidence.observedAt).toISOString()
+          : undefined,
+        methodologyVersion: securityEvidence.scoreVersion,
+        reasons: secReasons,
+      };
+    }
+
     const verdictInput = {
       asset: asset.symbol,
       opportunityScore: Math.round(opportunityScore),
@@ -32310,6 +32433,7 @@ W.tokenAnalysis = (() => {
       scenario: scenarioLabel(action.action),
       tradeLevels: tradePlan,
       unifiedVerdict,
+      evidenceDomains,
       fundamentals,
       signalsCount: allEvidence.length,
       personalContext,
@@ -32358,18 +32482,11 @@ W.tokenAnalysis = (() => {
       const safeText = (s) => W.fmt.escapeHTML(String(s ?? ""));
 
       // ── Null-safe formatters ──────────────────────────────
-      // Unknown must never render as 0, "undefined", or "N/A%".
-      // Legacy: the early-return path once emitted these three
-      // artefacts simultaneously. Keep this contract even after
-      // the source of the bug is fixed, as defence in depth.
       const isNumber = (v) => Number.isFinite(v);
       const fmtScore = (v) => (isNumber(v) ? `${v}/100` : "—");
       const fmtPct = (v) => (isNumber(v) ? `${v}%` : "—");
       const fmtCount = (v) => (isNumber(v) ? String(v) : "—");
 
-      // Dynamic class names (CSP-safe — no inline style).
-      // Unknown scores use muted styling, never warn-orange, which
-      // would falsely read as "measured but low".
       const oppClass = isNumber(result.opportunityScore)
         ? result.opportunityScore > 60
           ? "text-up"
@@ -32598,7 +32715,6 @@ W.tokenAnalysis = (() => {
       `;
 
       // ── Event listeners (no inline onclick) ─────────────
-      // Security card — verify on demand via Token Shield
       const secBtn = view.querySelector("[data-action='verify-security']");
       const secSection = view.querySelector("#security-section");
       if (secBtn && secSection) {
@@ -32677,7 +32793,6 @@ W.tokenAnalysis = (() => {
           try {
             const tr = W.trackRecord;
             let record;
-            // Support either API name (createFromAnalysis is the canonical one)
             if (typeof tr.capture === "function") {
               record = tr.capture(result);
             } else if (typeof tr.createFromAnalysis === "function") {
@@ -32706,11 +32821,6 @@ W.tokenAnalysis = (() => {
       if (whyBtn) {
         whyBtn.addEventListener("click", () => {
           if (W.ui && W.ui.evidenceDrawer) {
-            // Read the trajectory from persisted history, if any.
-            // Optional — the token may never have been scanned by
-            // the Gem Agent, or the observations module may be
-            // unavailable. In both cases the drawer renders without
-            // the trajectory line.
             let trajectorySummary = null;
             try {
               const trajectory = W.observations?.trajectory?.(
@@ -32728,13 +32838,6 @@ W.tokenAnalysis = (() => {
               );
             }
 
-            // Read the owner association from the session map, if
-            // any. Optional in the same way: the token may never
-            // have been observed by the Gem Agent this session, or
-            // the module may be unavailable.
-            //
-            // This uses the read-only get() accessor, not observe().
-            // The drawer must not mutate session state on open.
             let ownerSummary = null;
             try {
               const association = W.ownerAssociations?.get?.(
@@ -32752,14 +32855,6 @@ W.tokenAnalysis = (() => {
               );
             }
 
-            // Read the cached deployer profile, if any. Same
-            // optional contract: the token may never have been
-            // scanned by the Gem Agent, the profile may not be
-            // cached, or the module may be unavailable.
-            //
-            // This uses the read-only get() accessor. The drawer
-            // must not call observe() — that would issue a network
-            // request and mutate the cache on every open.
             let deployerSummary = null;
             try {
               const profile = W.deployerGraph?.get?.(
@@ -32776,13 +32871,6 @@ W.tokenAnalysis = (() => {
               );
             }
 
-            // Read the user's own Track Record for this asset, if
-            // any. Optional in the same way as the three summaries
-            // above: the user may never have captured a decision
-            // for this asset, or the module may be unavailable.
-            //
-            // This is a read-only query; it does not mutate any
-            // record and does not issue a network request.
             let trackRecordSummary = null;
             try {
               trackRecordSummary =
@@ -32795,11 +32883,12 @@ W.tokenAnalysis = (() => {
               );
             }
 
-            // ★ CRITICAL FIX: Pass the provenance array to the drawer ★
             W.ui.evidenceDrawer.open({
               explanation: result.explanation,
               domains:
-                (result.unifiedVerdict && result.unifiedVerdict.domains) || {},
+                result.evidenceDomains ||
+                (result.unifiedVerdict && result.unifiedVerdict.domains) ||
+                {},
               methodologyVersion:
                 result.unifiedVerdict &&
                 result.unifiedVerdict.methodologyVersion,
@@ -32809,7 +32898,7 @@ W.tokenAnalysis = (() => {
               bearishEvidence: result.bearishEvidence,
               contradictions: result.contradictions,
               evidenceQuality: result.evidenceQuality,
-              provenance: result.unifiedVerdict?.provenance || [], // <-- ADDED THIS LINE
+              provenance: result.unifiedVerdict?.provenance || [],
               trajectorySummary,
               ownerSummary,
               deployerSummary,
