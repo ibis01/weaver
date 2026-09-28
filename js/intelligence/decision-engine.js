@@ -33,16 +33,29 @@ W.decisionEngine = (() => {
   // `_signalType` field available for it.
   const RISK_SIGNAL_TYPES = new Set(["THESIS_DETERIORATION", "SECURITY_RISK"]);
 
-  // Signal types whose relevance is not tied to the user's holdings.
-  // A regime shift describes the environment the user is operating
-  // in — the fact that they hold no position in the affected asset
-  // is not a reason to hide it. Without this baseline, an empty
-  // portfolio produces a relevance of 0, which collapses the score
-  // to 0, which the `score > 0` filter in run() drops silently.
-  //
-  // Types NOT in this set are asset-specific and correctly require
-  // a holdings/watchlist/thesis match to score above zero.
+  // Unconditionally market-wide: any instance is relevant to every
+  // user regardless of personal context. A regime shift describes
+  // the environment itself, not an asset within it.
   const MARKET_WIDE_TYPES = new Set(["REGIME_SHIFT"]);
+
+  // Tier-conditional market-wide: relevant to every user *when the
+  // signal is about a major-cap asset*. A 4% BTC move is market
+  // news; a 4% move in a $200M token is not. The producer (see
+  // events.js collectPriceEvents) tags the signal with
+  // rawData.marketCapTier. Mid and small cap moves still require a
+  // holdings/watchlist/thesis match, which is the correct default.
+  const TIER_CONDITIONAL_TYPES = new Set(["PRICE_MOVE"]);
+  const MARKET_WIDE_TIER = "major";
+
+  function isMarketWide(signal) {
+    const type = signal?.type;
+    if (!type) return false;
+    if (MARKET_WIDE_TYPES.has(type)) return true;
+    if (TIER_CONDITIONAL_TYPES.has(type)) {
+      return signal?.rawData?.marketCapTier === MARKET_WIDE_TIER;
+    }
+    return false;
+  }
 
   // ── Warn-once bookkeeping ─────────────────────────────
   const _warned = Object.create(null);
@@ -53,16 +66,10 @@ W.decisionEngine = (() => {
   }
 
   // ── Cached run state ──────────────────────────────────
-  // `_cache` is the frozen array of frozen decision rows.
-  // `_cacheTime` is the wall-clock time at which it was produced.
-  // A caller receives a shallow copy so it cannot mutate the cached
-  // array in place.
   let _cache = null;
   let _cacheTime = 0;
 
   // ── Helper: safe module access ────────────────────────
-  // Every external read is wrapped. A missing or broken module
-  // returns its documented empty default rather than throwing.
   function safeCall(fn, fallback) {
     try {
       const v = typeof fn === "function" ? fn() : undefined;
@@ -77,11 +84,6 @@ W.decisionEngine = (() => {
   }
 
   // ── Helper: Personal context ──────────────────────────
-  // Not validated against the canonical PersonalContext contract:
-  // this is an intermediate scoring context, not the module that
-  // emits PersonalContext to other consumers. It carries the fields
-  // the scoring function needs, with honest nulls where the data is
-  // genuinely absent.
   function computePersonalContext(
     assetId,
     portfolio,
@@ -174,10 +176,6 @@ W.decisionEngine = (() => {
       });
       recentDecisions = recent.length;
 
-      // decisionConfidence is the average of the user's own stated
-      // confidences on recent decisions about this asset. Null when
-      // no stated confidence exists — "we do not know how confident
-      // the user is" is not the same as "the user is 0% confident".
       const stated = recent
         .map((d) => Number(d?.confidence))
         .filter((c) => Number.isFinite(c) && c >= 0 && c <= 1);
@@ -221,17 +219,15 @@ W.decisionEngine = (() => {
   // ── Helper: Assessment ────────────────────────────────
   function computeAssessment(signal, context, evidence) {
     // Relevance — always a number. Built from numeric inputs with
-    // well-defined zero defaults (zero "how much of your portfolio
-    // is this" is not a fabricated claim; it is the correct answer
-    // when the user does not hold the asset).
+    // well-defined zero defaults.
     let relevance = 0;
 
     // Market-wide signals carry a baseline relevance regardless of
-    // the user's holdings. See MARKET_WIDE_TYPES for rationale. The
+    // the user's holdings. See isMarketWide for the exact rule. The
     // baseline is deliberately small (0.3): large enough that the
     // resulting score clears the `score > 0` filter in run(), small
     // enough that a held-asset signal outranks it.
-    if (signal?.type && MARKET_WIDE_TYPES.has(signal.type)) relevance += 0.3;
+    if (isMarketWide(signal)) relevance += 0.3;
 
     if (context.portfolioWeight > 0) relevance += context.portfolioWeight * 0.4;
     if (context.watchlistStatus === "WATCHING") relevance += 0.2;
@@ -258,11 +254,6 @@ W.decisionEngine = (() => {
     }
 
     // Severity — the signal's own claim about how large the event is.
-    // A non-finite or absent value is a real gap in the signal, not
-    // a mid-range event. Two-tier handling:
-    //   - If the raw value is finite, use it (clamped to [0, 1]).
-    //   - If not, fall back to 0.5 and warn once — the fallback is
-    //     documented as a neutral default, not a measurement.
     const rawSeverity = signal?.rawData?.impactValue;
     let eventSeverity;
     if (Number.isFinite(rawSeverity)) {
@@ -275,11 +266,7 @@ W.decisionEngine = (() => {
       );
     }
 
-    // Impact — null when confidence is null. "We do not know how
-    // confident the evidence is" is not the same as "the impact is
-    // zero". The magnitude multiplier uses portfolio weight so a
-    // signal about a held asset weighs more than one about a watched
-    // asset with no position.
+    // Impact — null when confidence is null.
     let impact = null;
     if (confidence !== null) {
       impact = confidence * eventSeverity * (context.portfolioWeight * 2 + 0.2);
@@ -313,8 +300,6 @@ W.decisionEngine = (() => {
         : `Confidence: ${(confidence * 100).toFixed(0)}%`,
     ];
 
-    // User calibration is a DISPLAY metric. It never modifies
-    // evidence.confidence.
     let userCalibration = null;
     if (W.calibration?.forAsset) {
       try {
@@ -341,8 +326,6 @@ W.decisionEngine = (() => {
       ? assessment.reasoning
       : [];
 
-    // All four factors must be finite numbers. Any null makes the
-    // whole score null.
     const hasAll =
       Number.isFinite(assessment.relevance) &&
       Number.isFinite(assessment.impact) &&
@@ -363,17 +346,6 @@ W.decisionEngine = (() => {
       ? ELIGIBILITY.ELIGIBLE
       : ELIGIBILITY.INSUFFICIENT_EVIDENCE;
 
-    // Recommended action — canonical values only.
-    //
-    //   Risk signal types           → REVIEW
-    //   INSUFFICIENT_EVIDENCE       → MONITOR
-    //   score >= 0.7                → ACT
-    //   score >= 0.4                → REVIEW
-    //   otherwise                   → MONITOR
-    //
-    // The risk override precedes the eligibility check because the
-    // fact that a risk signal fired is itself information, even when
-    // the numeric score cannot be computed.
     let recommendedAction = ACTION.MONITOR;
     if (signal?.type && RISK_SIGNAL_TYPES.has(signal.type)) {
       recommendedAction = ACTION.REVIEW;
@@ -398,7 +370,6 @@ W.decisionEngine = (() => {
       (reasoning.length ? ` ${reasoning.join(". ")}` : "");
 
     return {
-      // Canonical DecisionPriority fields.
       signalId: String(signal?.id || ""),
       assessment: Object.freeze({ ...assessment }),
       score,
@@ -407,7 +378,6 @@ W.decisionEngine = (() => {
       explanation,
       methodologyVersion: MODULE_VERSION,
       scoreVersion: MODULE_VERSION,
-      // Presentation-only fields. Not part of the canonical contract.
       _assetSymbol: signal?.assetId?.symbol || "Asset",
       _signalType: signal?.type || "",
       _signalTitle: signal?.rawData?.title || signal?.type || "Signal",
@@ -415,9 +385,6 @@ W.decisionEngine = (() => {
   }
 
   // ── Helper: Evidence construction ─────────────────────
-  // Prefer the canonical evidence builder. Fall back to an inline
-  // construction if it is not available, so the engine never emits
-  // an undefined evidence object.
   function buildEvidence(signal) {
     const meta = signal?.metadata || {};
 
@@ -433,8 +400,6 @@ W.decisionEngine = (() => {
       }
     }
 
-    // Inline fallback. Uses the canonical confidence function so the
-    // contract holds even when W.evidence is unavailable.
     if (
       !W.intelligence?.computeConfidence ||
       !W.intelligence?.create?.evidence
@@ -481,9 +446,6 @@ W.decisionEngine = (() => {
   async function run() {
     const now = Date.now();
     if (_cache && now - _cacheTime < CACHE_TTL) {
-      // Return a shallow copy so the caller cannot mutate the frozen
-      // cache in place. The individual rows are frozen, so a shallow
-      // copy is sufficient.
       return _cache.slice();
     }
 
@@ -551,8 +513,6 @@ W.decisionEngine = (() => {
       }
     }
 
-    // Sort: eligible (numeric score) descending, insufficient at the
-    // bottom preserving input order.
     decisions.sort((a, b) => {
       const aHas = a.score !== null;
       const bHas = b.score !== null;
@@ -562,9 +522,6 @@ W.decisionEngine = (() => {
       return 0;
     });
 
-    // Keep everything eligible with a non-zero score, plus every
-    // INSUFFICIENT_EVIDENCE item (so the UI can render them in the
-    // "under observation" bucket rather than dropping them silently).
     const filtered = decisions.filter(
       (d) =>
         d.eligibility === ELIGIBILITY.INSUFFICIENT_EVIDENCE ||
@@ -577,9 +534,6 @@ W.decisionEngine = (() => {
   }
 
   // ── Presentation ──────────────────────────────────────
-  // CSP-clean: every style is a class or a CSS custom property.
-  // Zero setAttribute("style", ...), zero cssText, zero inline
-  // style attributes in the generated markup.
   function render(container, decisions, limit = 5) {
     if (!container) return;
     const top = Array.isArray(decisions) ? decisions.slice(0, limit) : [];
@@ -633,7 +587,6 @@ W.decisionEngine = (() => {
       what.textContent = item._signalTitle || `${item._signalType} detected`;
       li.appendChild(what);
 
-      // Context (optional).
       if (W.context && typeof W.context.generateContext === "function") {
         try {
           const eventObj = {
@@ -678,7 +631,6 @@ W.decisionEngine = (() => {
         li.appendChild(f);
       }
 
-      // Confidence bar.
       const confidence =
         item.assessment && Number.isFinite(item.assessment.confidence)
           ? item.assessment.confidence
@@ -726,7 +678,6 @@ W.decisionEngine = (() => {
         li.appendChild(n);
       }
 
-      // Suggested action — canonical values only.
       const action = document.createElement("div");
       action.className = "small decision-action";
       const map = {
@@ -766,8 +717,11 @@ W.decisionEngine = (() => {
     },
     _internal: Object.freeze({
       buildEvidence,
+      isMarketWide,
       RISK_SIGNAL_TYPES,
       MARKET_WIDE_TYPES,
+      TIER_CONDITIONAL_TYPES,
+      MARKET_WIDE_TIER,
       resetWarnings: () => {
         for (const k of Object.keys(_warned)) delete _warned[k];
       },
@@ -776,5 +730,5 @@ W.decisionEngine = (() => {
 })();
 
 console.log(
-  "[DecisionEngine] Module loaded (decision-engine-v2: canonical actions, signal.metadata, class-based render).",
+  "[DecisionEngine] Module loaded (decision-engine-v2: canonical actions, signal.metadata, class-based render; tier-conditional market-wide relevance).",
 );

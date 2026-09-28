@@ -41,9 +41,6 @@ describe("Decision Pipeline Scenarios", () => {
     };
   }
 
-  // Every scenario below calls run() or computeAssessment() against
-  // shared state. Clear the 60s TTL cache before each test so a
-  // previous scenario cannot leak its result forward.
   beforeEach(() => {
     if (W.decisionEngine && W.decisionEngine.clearCache) {
       W.decisionEngine.clearCache();
@@ -69,7 +66,6 @@ describe("Decision Pipeline Scenarios", () => {
     expect(priority.methodologyVersion).to.equal("decision-engine-v2");
     expect(priority.explanation).to.include("Confidence: 90%");
 
-    // decision-engine-v2 uses canonical actions: MONITOR, REVIEW, ACT, EXIT, IGNORE
     expect(priority.recommendedAction).to.be.oneOf([
       "REVIEW",
       "ACT",
@@ -132,7 +128,6 @@ describe("Decision Pipeline Scenarios", () => {
       assessment,
     );
 
-    // decision-engine-v2 correctly maps risk signals to "REVIEW"
     expect(priority.recommendedAction).to.equal("REVIEW");
     expect(priority.recommendedAction).to.not.be.oneOf([
       "BUY",
@@ -142,24 +137,10 @@ describe("Decision Pipeline Scenarios", () => {
   });
 
   // ── Scenario E: the empty-profile pipeline ─────────────────────
-  //
-  // Regression guard for the relevance-collapse bug. Before the fix:
-  // an empty profile produced relevance 0, score 0, and the
-  // `score > 0` filter in run() dropped the decision with no
-  // warning. A REGIME_SHIFT signal — which is information about the
-  // market environment, not about a position — was therefore
-  // invisible to any user without a portfolio.
-  //
-  // This scenario is the first test in the suite that calls run()
-  // end to end. The four scenarios above verify computeAssessment
-  // and computeDecisionPriority in isolation; none of them exercise
-  // the filter at the tail of run(), which is where the bug lived.
   describe("Scenario E: empty-profile pipeline", () => {
     let saved;
 
     beforeEach(() => {
-      // Snapshot the globals this scenario overwrites so a failed
-      // assertion cannot leak stub state into other spec files.
       saved = {
         portfolio: W.portfolio,
         watchlist: W.watchlist,
@@ -174,9 +155,6 @@ describe("Decision Pipeline Scenarios", () => {
     });
 
     afterEach(() => {
-      // Restore in reverse order of assignment, tolerating deletes
-      // (a key that was undefined before the test should be
-      // undefined after, not left as a stale stub).
       const keys = [
         "portfolio",
         "watchlist",
@@ -198,8 +176,6 @@ describe("Decision Pipeline Scenarios", () => {
     });
 
     it("a market-wide signal survives an empty profile and appears in run()", async () => {
-      // Empty profile — the state every new user starts in, and the
-      // state in which relevance collapses to 0 without a baseline.
       W.portfolio = { all: () => [] };
       W.watchlist = { list: () => [] };
       W.theses = { all: () => [] };
@@ -207,17 +183,10 @@ describe("Decision Pipeline Scenarios", () => {
       W.behavior = { analyze: () => ({ pattern: "none" }) };
       W.store = { get: () => ({}) };
 
-      // Trivial signal contract for this test — the shape validation
-      // of a real signal is exercised by types.js's own unit tests.
       W.intelligence = {
         is: { signal: () => true },
       };
 
-      // Well-formed evidence with a finite confidence, so the
-      // assessment path is fully determined. The regime signal
-      // below produces: relevance = 0.3 (baseline), confidence =
-      // 0.53, impact ≈ 0.53 * 0.53 * 0.2, urgency = 0.5.
-      // Score ≈ 0.0045, comfortably above the `score > 0` filter.
       W.evidence = {
         build: () => ({ confidence: 0.53, incomplete: false, reasoning: [] }),
       };
@@ -250,9 +219,6 @@ describe("Decision Pipeline Scenarios", () => {
 
       const decisions = await W.decisionEngine.run();
 
-      // Before the fix, this array was empty: relevance was 0, the
-      // score was 0, and the `score > 0` filter in run() dropped the
-      // decision silently.
       expect(decisions).to.have.lengthOf(1);
       expect(decisions[0]._signalType).to.equal("REGIME_SHIFT");
       expect(decisions[0].eligibility).to.equal("ELIGIBLE");
@@ -261,11 +227,6 @@ describe("Decision Pipeline Scenarios", () => {
     });
 
     it("an asset-specific signal without a match is still dropped, and that is intentional", async () => {
-      // Counterpart to the test above. The baseline relevance is
-      // for market-wide types only; an UNLOCK on an asset the user
-      // does not hold has relevance 0, score 0, and is correctly
-      // filtered out. This guard ensures the fix did not become
-      // "keep everything" by accident.
       W.portfolio = { all: () => [] };
       W.watchlist = { list: () => [] };
       W.theses = { all: () => [] };
@@ -305,10 +266,238 @@ describe("Decision Pipeline Scenarios", () => {
 
       const decisions = await W.decisionEngine.run();
 
-      // An UNLOCK for an unheld, unwatched, unthesised asset does
-      // not concern this user. Relevance is 0, score is 0, filter
-      // drops it. That behaviour is deliberate.
       expect(decisions).to.have.lengthOf(0);
+    });
+  });
+
+  // ── Scenario F: PRICE_MOVE tier gating ────────────────────────
+  describe("Scenario F: PRICE_MOVE tier gating", () => {
+    let saved;
+
+    beforeEach(() => {
+      saved = {
+        portfolio: W.portfolio,
+        watchlist: W.watchlist,
+        theses: W.theses,
+        journal: W.journal,
+        behavior: W.behavior,
+        store: W.store,
+        events: W.events,
+        evidence: W.evidence,
+        intelligence: W.intelligence,
+      };
+
+      W.portfolio = { all: () => [] };
+      W.watchlist = { list: () => [] };
+      W.theses = { all: () => [] };
+      W.journal = { all: () => [] };
+      W.behavior = { analyze: () => ({ pattern: "none" }) };
+      W.store = { get: () => ({}) };
+      W.intelligence = { is: { signal: () => true } };
+      W.evidence = {
+        build: () => ({ confidence: 0.7, incomplete: false, reasoning: [] }),
+      };
+    });
+
+    afterEach(() => {
+      const keys = [
+        "portfolio",
+        "watchlist",
+        "theses",
+        "journal",
+        "behavior",
+        "store",
+        "events",
+        "evidence",
+        "intelligence",
+      ];
+      for (const k of keys) {
+        if (saved[k] === undefined) delete W[k];
+        else W[k] = saved[k];
+      }
+      if (W.decisionEngine && W.decisionEngine.clearCache) {
+        W.decisionEngine.clearCache();
+      }
+    });
+
+    function priceMove(symbol, coingeckoId, tier, changePct) {
+      return {
+        id: `price-${symbol}-${tier}`,
+        type: "PRICE_MOVE",
+        source: "market_scanner",
+        timestamp: Date.now(),
+        assetId: {
+          chainId: "unknown",
+          contractAddress: null,
+          symbol,
+          coingeckoId,
+          name: symbol,
+        },
+        rawData: {
+          title: `${symbol} moved ${changePct > 0 ? "+" : ""}${changePct.toFixed(1)}% in 24h`,
+          impactValue: Math.min(1, Math.abs(changePct) / 15),
+          marketCapTier: tier,
+          price_change_percentage_24h: changePct,
+          dataCompleteness: 0.9,
+          interpretationConfidence: 0.7,
+        },
+        metadata: {
+          corroborationCount: 1,
+          dataCompleteness: 0.9,
+          interpretationConfidence: 0.7,
+        },
+      };
+    }
+
+    it("a major-cap price move surfaces for an empty profile", async () => {
+      W.events = {
+        collectEvents: async () => [priceMove("BTC", "bitcoin", "major", -5.2)],
+      };
+
+      const decisions = await W.decisionEngine.run();
+
+      expect(decisions).to.have.lengthOf(1);
+      expect(decisions[0]._signalType).to.equal("PRICE_MOVE");
+      expect(decisions[0].eligibility).to.equal("ELIGIBLE");
+      expect(decisions[0].score).to.be.greaterThan(0);
+    });
+
+    it("a mid-cap price move of the same size is correctly filtered out", async () => {
+      W.events = {
+        collectEvents: async () => [priceMove("ARB", "arbitrum", "mid", -5.2)],
+      };
+
+      const decisions = await W.decisionEngine.run();
+
+      expect(decisions).to.have.lengthOf(0);
+    });
+
+    it("isMarketWide is exposed and matches the documented rule", () => {
+      const f = W.decisionEngine._internal.isMarketWide;
+      expect(typeof f).to.equal("function");
+
+      expect(f({ type: "REGIME_SHIFT" })).to.equal(true);
+      expect(f({ type: "UNLOCK" })).to.equal(false);
+
+      expect(
+        f({ type: "PRICE_MOVE", rawData: { marketCapTier: "major" } }),
+      ).to.equal(true);
+      expect(
+        f({ type: "PRICE_MOVE", rawData: { marketCapTier: "mid" } }),
+      ).to.equal(false);
+      expect(
+        f({ type: "PRICE_MOVE", rawData: { marketCapTier: "small" } }),
+      ).to.equal(false);
+      expect(f({ type: "PRICE_MOVE" })).to.equal(false);
+    });
+  });
+
+  // ── Scenario G: PRICE_MOVE scanner gates ──────────────────────
+  describe("Scenario G: PRICE_MOVE scanner gates", () => {
+    let savedEvents;
+
+    beforeEach(() => {
+      savedEvents = W.events;
+      // Load the production events module. It may already be loaded
+      // in a prior spec; requiring again is idempotent because the
+      // module overwrites W.events.
+      global.window.W = global.W;
+      require("../../js/intelligence/events.js");
+    });
+
+    afterEach(() => {
+      if (savedEvents === undefined) delete W.events;
+      else W.events = savedEvents;
+    });
+
+    function makeUniverse(count, opts = {}) {
+      const markets = [];
+      for (let i = 0; i < count; i++) {
+        markets.push({
+          id: `coin${i}`,
+          symbol: `C${i}`,
+          name: `Coin ${i}`,
+          current_price: 1,
+          price_change_percentage_24h: opts.change ?? 1,
+          market_cap: opts.cap ?? 2e9,
+          total_volume: opts.volume ?? 1e8,
+        });
+      }
+      return markets;
+    }
+
+    it("cross-sectional z fires on a move against a calm market", () => {
+      // Universe: fifteen assets at +0.5%, one major at -3.5%.
+      // The major clears its 3% floor and its z is far below the
+      // mean — a real market dislocation.
+      const markets = makeUniverse(15, { change: 0.5, cap: 2e9 });
+      markets.push({
+        id: "bitcoin",
+        symbol: "BTC",
+        name: "Bitcoin",
+        current_price: 60000,
+        price_change_percentage_24h: -3.5,
+        market_cap: 1.2e12,
+        total_volume: 5e9,
+      });
+
+      const events = W.events._internal.collectPriceEvents(markets);
+      const btc = events.find((e) => e.assetId.symbol === "BTC");
+      expect(btc).to.exist;
+      expect(btc.rawData.marketCapTier).to.equal("major");
+      expect(btc.rawData.zScore).to.be.lessThan(-2.0);
+    });
+
+    it("volume confirmation suppresses a move on thin volume", () => {
+      const markets = makeUniverse(15, { change: 1, cap: 2e9 });
+      // One asset moves 20% on 0.1× average volume.
+      markets.push({
+        id: "thin",
+        symbol: "THIN",
+        name: "Thin",
+        current_price: 1,
+        price_change_percentage_24h: 20,
+        market_cap: 5e8,
+        total_volume: 1e7,
+      });
+
+      const events = W.events._internal.collectPriceEvents(markets);
+      const thin = events.find((e) => e.assetId.symbol === "THIN");
+      expect(thin).to.not.exist;
+    });
+
+    it("emission is capped at MAX_PRICE_MOVE_EVENTS", () => {
+      const markets = [];
+      for (let i = 0; i < 30; i++) {
+        markets.push({
+          id: `major${i}`,
+          symbol: `M${i}`,
+          name: `Major ${i}`,
+          current_price: 100,
+          price_change_percentage_24h: 15 - i * 0.1,
+          market_cap: 2e10,
+          total_volume: 1e9,
+        });
+      }
+      const events = W.events._internal.collectPriceEvents(markets);
+      expect(events.length).to.be.at.most(
+        W.events._internal.MAX_PRICE_MOVE_EVENTS,
+      );
+    });
+
+    it("_distribution returns null below MIN_SCANNED_UNIVERSE", () => {
+      const small = W.events._internal._distribution([1, 2, 3, 4, 5]);
+      expect(small).to.equal(null);
+    });
+
+    it("_distribution returns mean and std for a valid population", () => {
+      const d = W.events._internal._distribution([
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      ]);
+      expect(d).to.not.equal(null);
+      expect(d.n).to.equal(12);
+      expect(d.mean).to.equal(6.5);
+      expect(d.std).to.be.greaterThan(0);
     });
   });
 });

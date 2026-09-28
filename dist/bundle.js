@@ -9851,16 +9851,29 @@ W.decisionEngine = (() => {
   // `_signalType` field available for it.
   const RISK_SIGNAL_TYPES = new Set(["THESIS_DETERIORATION", "SECURITY_RISK"]);
 
-  // Signal types whose relevance is not tied to the user's holdings.
-  // A regime shift describes the environment the user is operating
-  // in — the fact that they hold no position in the affected asset
-  // is not a reason to hide it. Without this baseline, an empty
-  // portfolio produces a relevance of 0, which collapses the score
-  // to 0, which the `score > 0` filter in run() drops silently.
-  //
-  // Types NOT in this set are asset-specific and correctly require
-  // a holdings/watchlist/thesis match to score above zero.
+  // Unconditionally market-wide: any instance is relevant to every
+  // user regardless of personal context. A regime shift describes
+  // the environment itself, not an asset within it.
   const MARKET_WIDE_TYPES = new Set(["REGIME_SHIFT"]);
+
+  // Tier-conditional market-wide: relevant to every user *when the
+  // signal is about a major-cap asset*. A 4% BTC move is market
+  // news; a 4% move in a $200M token is not. The producer (see
+  // events.js collectPriceEvents) tags the signal with
+  // rawData.marketCapTier. Mid and small cap moves still require a
+  // holdings/watchlist/thesis match, which is the correct default.
+  const TIER_CONDITIONAL_TYPES = new Set(["PRICE_MOVE"]);
+  const MARKET_WIDE_TIER = "major";
+
+  function isMarketWide(signal) {
+    const type = signal?.type;
+    if (!type) return false;
+    if (MARKET_WIDE_TYPES.has(type)) return true;
+    if (TIER_CONDITIONAL_TYPES.has(type)) {
+      return signal?.rawData?.marketCapTier === MARKET_WIDE_TIER;
+    }
+    return false;
+  }
 
   // ── Warn-once bookkeeping ─────────────────────────────
   const _warned = Object.create(null);
@@ -9871,16 +9884,10 @@ W.decisionEngine = (() => {
   }
 
   // ── Cached run state ──────────────────────────────────
-  // `_cache` is the frozen array of frozen decision rows.
-  // `_cacheTime` is the wall-clock time at which it was produced.
-  // A caller receives a shallow copy so it cannot mutate the cached
-  // array in place.
   let _cache = null;
   let _cacheTime = 0;
 
   // ── Helper: safe module access ────────────────────────
-  // Every external read is wrapped. A missing or broken module
-  // returns its documented empty default rather than throwing.
   function safeCall(fn, fallback) {
     try {
       const v = typeof fn === "function" ? fn() : undefined;
@@ -9895,11 +9902,6 @@ W.decisionEngine = (() => {
   }
 
   // ── Helper: Personal context ──────────────────────────
-  // Not validated against the canonical PersonalContext contract:
-  // this is an intermediate scoring context, not the module that
-  // emits PersonalContext to other consumers. It carries the fields
-  // the scoring function needs, with honest nulls where the data is
-  // genuinely absent.
   function computePersonalContext(
     assetId,
     portfolio,
@@ -9992,10 +9994,6 @@ W.decisionEngine = (() => {
       });
       recentDecisions = recent.length;
 
-      // decisionConfidence is the average of the user's own stated
-      // confidences on recent decisions about this asset. Null when
-      // no stated confidence exists — "we do not know how confident
-      // the user is" is not the same as "the user is 0% confident".
       const stated = recent
         .map((d) => Number(d?.confidence))
         .filter((c) => Number.isFinite(c) && c >= 0 && c <= 1);
@@ -10039,17 +10037,15 @@ W.decisionEngine = (() => {
   // ── Helper: Assessment ────────────────────────────────
   function computeAssessment(signal, context, evidence) {
     // Relevance — always a number. Built from numeric inputs with
-    // well-defined zero defaults (zero "how much of your portfolio
-    // is this" is not a fabricated claim; it is the correct answer
-    // when the user does not hold the asset).
+    // well-defined zero defaults.
     let relevance = 0;
 
     // Market-wide signals carry a baseline relevance regardless of
-    // the user's holdings. See MARKET_WIDE_TYPES for rationale. The
+    // the user's holdings. See isMarketWide for the exact rule. The
     // baseline is deliberately small (0.3): large enough that the
     // resulting score clears the `score > 0` filter in run(), small
     // enough that a held-asset signal outranks it.
-    if (signal?.type && MARKET_WIDE_TYPES.has(signal.type)) relevance += 0.3;
+    if (isMarketWide(signal)) relevance += 0.3;
 
     if (context.portfolioWeight > 0) relevance += context.portfolioWeight * 0.4;
     if (context.watchlistStatus === "WATCHING") relevance += 0.2;
@@ -10076,11 +10072,6 @@ W.decisionEngine = (() => {
     }
 
     // Severity — the signal's own claim about how large the event is.
-    // A non-finite or absent value is a real gap in the signal, not
-    // a mid-range event. Two-tier handling:
-    //   - If the raw value is finite, use it (clamped to [0, 1]).
-    //   - If not, fall back to 0.5 and warn once — the fallback is
-    //     documented as a neutral default, not a measurement.
     const rawSeverity = signal?.rawData?.impactValue;
     let eventSeverity;
     if (Number.isFinite(rawSeverity)) {
@@ -10093,11 +10084,7 @@ W.decisionEngine = (() => {
       );
     }
 
-    // Impact — null when confidence is null. "We do not know how
-    // confident the evidence is" is not the same as "the impact is
-    // zero". The magnitude multiplier uses portfolio weight so a
-    // signal about a held asset weighs more than one about a watched
-    // asset with no position.
+    // Impact — null when confidence is null.
     let impact = null;
     if (confidence !== null) {
       impact = confidence * eventSeverity * (context.portfolioWeight * 2 + 0.2);
@@ -10131,8 +10118,6 @@ W.decisionEngine = (() => {
         : `Confidence: ${(confidence * 100).toFixed(0)}%`,
     ];
 
-    // User calibration is a DISPLAY metric. It never modifies
-    // evidence.confidence.
     let userCalibration = null;
     if (W.calibration?.forAsset) {
       try {
@@ -10159,8 +10144,6 @@ W.decisionEngine = (() => {
       ? assessment.reasoning
       : [];
 
-    // All four factors must be finite numbers. Any null makes the
-    // whole score null.
     const hasAll =
       Number.isFinite(assessment.relevance) &&
       Number.isFinite(assessment.impact) &&
@@ -10181,17 +10164,6 @@ W.decisionEngine = (() => {
       ? ELIGIBILITY.ELIGIBLE
       : ELIGIBILITY.INSUFFICIENT_EVIDENCE;
 
-    // Recommended action — canonical values only.
-    //
-    //   Risk signal types           → REVIEW
-    //   INSUFFICIENT_EVIDENCE       → MONITOR
-    //   score >= 0.7                → ACT
-    //   score >= 0.4                → REVIEW
-    //   otherwise                   → MONITOR
-    //
-    // The risk override precedes the eligibility check because the
-    // fact that a risk signal fired is itself information, even when
-    // the numeric score cannot be computed.
     let recommendedAction = ACTION.MONITOR;
     if (signal?.type && RISK_SIGNAL_TYPES.has(signal.type)) {
       recommendedAction = ACTION.REVIEW;
@@ -10216,7 +10188,6 @@ W.decisionEngine = (() => {
       (reasoning.length ? ` ${reasoning.join(". ")}` : "");
 
     return {
-      // Canonical DecisionPriority fields.
       signalId: String(signal?.id || ""),
       assessment: Object.freeze({ ...assessment }),
       score,
@@ -10225,7 +10196,6 @@ W.decisionEngine = (() => {
       explanation,
       methodologyVersion: MODULE_VERSION,
       scoreVersion: MODULE_VERSION,
-      // Presentation-only fields. Not part of the canonical contract.
       _assetSymbol: signal?.assetId?.symbol || "Asset",
       _signalType: signal?.type || "",
       _signalTitle: signal?.rawData?.title || signal?.type || "Signal",
@@ -10233,9 +10203,6 @@ W.decisionEngine = (() => {
   }
 
   // ── Helper: Evidence construction ─────────────────────
-  // Prefer the canonical evidence builder. Fall back to an inline
-  // construction if it is not available, so the engine never emits
-  // an undefined evidence object.
   function buildEvidence(signal) {
     const meta = signal?.metadata || {};
 
@@ -10251,8 +10218,6 @@ W.decisionEngine = (() => {
       }
     }
 
-    // Inline fallback. Uses the canonical confidence function so the
-    // contract holds even when W.evidence is unavailable.
     if (
       !W.intelligence?.computeConfidence ||
       !W.intelligence?.create?.evidence
@@ -10299,9 +10264,6 @@ W.decisionEngine = (() => {
   async function run() {
     const now = Date.now();
     if (_cache && now - _cacheTime < CACHE_TTL) {
-      // Return a shallow copy so the caller cannot mutate the frozen
-      // cache in place. The individual rows are frozen, so a shallow
-      // copy is sufficient.
       return _cache.slice();
     }
 
@@ -10369,8 +10331,6 @@ W.decisionEngine = (() => {
       }
     }
 
-    // Sort: eligible (numeric score) descending, insufficient at the
-    // bottom preserving input order.
     decisions.sort((a, b) => {
       const aHas = a.score !== null;
       const bHas = b.score !== null;
@@ -10380,9 +10340,6 @@ W.decisionEngine = (() => {
       return 0;
     });
 
-    // Keep everything eligible with a non-zero score, plus every
-    // INSUFFICIENT_EVIDENCE item (so the UI can render them in the
-    // "under observation" bucket rather than dropping them silently).
     const filtered = decisions.filter(
       (d) =>
         d.eligibility === ELIGIBILITY.INSUFFICIENT_EVIDENCE ||
@@ -10395,9 +10352,6 @@ W.decisionEngine = (() => {
   }
 
   // ── Presentation ──────────────────────────────────────
-  // CSP-clean: every style is a class or a CSS custom property.
-  // Zero setAttribute("style", ...), zero cssText, zero inline
-  // style attributes in the generated markup.
   function render(container, decisions, limit = 5) {
     if (!container) return;
     const top = Array.isArray(decisions) ? decisions.slice(0, limit) : [];
@@ -10451,7 +10405,6 @@ W.decisionEngine = (() => {
       what.textContent = item._signalTitle || `${item._signalType} detected`;
       li.appendChild(what);
 
-      // Context (optional).
       if (W.context && typeof W.context.generateContext === "function") {
         try {
           const eventObj = {
@@ -10496,7 +10449,6 @@ W.decisionEngine = (() => {
         li.appendChild(f);
       }
 
-      // Confidence bar.
       const confidence =
         item.assessment && Number.isFinite(item.assessment.confidence)
           ? item.assessment.confidence
@@ -10544,7 +10496,6 @@ W.decisionEngine = (() => {
         li.appendChild(n);
       }
 
-      // Suggested action — canonical values only.
       const action = document.createElement("div");
       action.className = "small decision-action";
       const map = {
@@ -10584,8 +10535,11 @@ W.decisionEngine = (() => {
     },
     _internal: Object.freeze({
       buildEvidence,
+      isMarketWide,
       RISK_SIGNAL_TYPES,
       MARKET_WIDE_TYPES,
+      TIER_CONDITIONAL_TYPES,
+      MARKET_WIDE_TIER,
       resetWarnings: () => {
         for (const k of Object.keys(_warned)) delete _warned[k];
       },
@@ -10594,7 +10548,7 @@ W.decisionEngine = (() => {
 })();
 
 console.log(
-  "[DecisionEngine] Module loaded (decision-engine-v2: canonical actions, signal.metadata, class-based render).",
+  "[DecisionEngine] Module loaded (decision-engine-v2: canonical actions, signal.metadata, class-based render; tier-conditional market-wide relevance).",
 );
 // ---- js/intelligence/events.js ----
 // ===============================================================
@@ -10632,15 +10586,104 @@ console.log(
 //   - Every collector now records an explicit `reasoning` array on
 //     the signal's rawData explaining WHY the signal fired. This
 //     gives the evidence drawer something honest to display.
+//
+// v4 changelog (PRICE_MOVE production-grade):
+//   - Tiered market-cap thresholds replace the flat 3% cutoff.
+//   - Volume confirmation suppresses thin-volume wicks.
+//   - Emission cap bounds the feed on volatile days.
+//
+// v5 changelog (accuracy hardening):
+//   - Cross-sectional Z-score gate added on top of the tier
+//     threshold. An asset's move must be ≥ Z_SCORE_MIN standard
+//     deviations from the mean move across the scanned universe.
+//     This is an adaptive statistical filter — it tightens on
+//     calm days and loosens on volatile ones, which a fixed
+//     percentage cannot do.
+//   - Composite signal score (0–1) combines normalized |z|,
+//     volume ratio, and market-cap tier weight. The score rides in
+//     rawData for the evidence drawer; the decision engine is
+//     unchanged and continues to score on its own canonical
+//     factors.
+//   - Directional coherence gate: moves whose z is near the
+//     boundary must additionally be volume-confirmed. This reduces
+//     boundary flapping without widening the core volume gate.
+//
+// References for the v5 gates:
+//   - Upbit multi-indicator pipeline: weighted voting across
+//     Z-Score (0.30, ≥3.0σ), Bollinger (0.25), RSI (0.20), VWAP
+//     deviation (0.25); combined weight ≥0.5 to fire.
+//   - Crypto Anomaly Detector: adaptive Z-Score thresholds
+//     2.5σ–4.0σ, exponential weighting toward recent data.
+//   - VWAP Sniper: volume must exceed the period average by
+//     1.1–1.3×, or the setup is explicitly skipped.
+//   - n8n CoinGecko workflow: market-cap tier thresholds
+//     (>$1B → 5%, $100M–$1B → 10%, <$100M → 20%).
 // ===============================================================
 
 window.W = window.W || {};
 W.events = (() => {
   const CACHE_KEY = "w_events_cache";
-  const CACHE_VERSION = 3;
+  const CACHE_VERSION = 5;
   const TTL = 5 * 60 * 1000;
   const DAY = 864e5;
   const MAX_SIGNAL_AGE_MS = 7 * DAY;
+
+  // ── PRICE_MOVE thresholds ────────────────────────────────
+  //
+  // Four gates, all of which must pass. No single threshold.
+  //
+  // Weaver has no OHLCV history. The statistical gate is a
+  // CROSS-SECTIONAL Z-Score — each asset's move compared to the
+  // distribution of moves across the scanned universe right now.
+  // This answers "is this move unusual relative to its peers?"
+  // rather than "is this move unusual for this asset?". The
+  // former is weaker for single-asset anomaly detection but
+  // stronger for surfacing market-wide dislocations, which is
+  // what a market scanner should surface. When Weaver retains a
+  // price history, upgrading to a time-series Z is the natural
+  // next step.
+  const TIER_MAJOR_CAP = 1e10; // $10B — BTC, ETH, BNB, SOL, XRP
+  const TIER_MID_CAP = 1e9; // $1B
+  const THRESHOLD_MAJOR = 3; // 3% floor for majors
+  const THRESHOLD_MID = 6; // 6% floor for $1B–$10B
+  const THRESHOLD_SMALL = 12; // 12% floor for <$1B
+  const VOLUME_RATIO_MIN = 1.3; // relative-volume confirmation floor
+  const Z_SCORE_MIN = 2.0; // ~95% two-tailed under normality
+  const Z_SCORE_CAP = 6.0; // above this the z is clamped for scoring
+  const MIN_SCANNED_UNIVERSE = 12; // below this, z is not statistically meaningful
+  const MAX_PRICE_MOVE_EVENTS = 5;
+  const TIER_PRIORITY = Object.freeze({ major: 0, mid: 1, small: 2 });
+  const TIER_WEIGHT = Object.freeze({ major: 1.0, mid: 0.7, small: 0.4 });
+
+  function _marketCapTier(cap) {
+    if (cap >= TIER_MAJOR_CAP) return "major";
+    if (cap >= TIER_MID_CAP) return "mid";
+    return "small";
+  }
+
+  function _thresholdForTier(tier) {
+    if (tier === "major") return THRESHOLD_MAJOR;
+    if (tier === "mid") return THRESHOLD_MID;
+    return THRESHOLD_SMALL;
+  }
+
+  // ── Cross-sectional statistics ───────────────────────────
+  //
+  // Given an array of numeric values, return { mean, std, n }.
+  // std is the population standard deviation (n divisor, not n−1)
+  // because the scanned set IS the population of interest, not a
+  // sample drawn from a larger one. Returns null when the sample
+  // is too small for a z-score to be meaningful.
+  function _distribution(values) {
+    const xs = values.filter((v) => Number.isFinite(v));
+    const n = xs.length;
+    if (n < MIN_SCANNED_UNIVERSE) return null;
+    const mean = xs.reduce((s, v) => s + v, 0) / n;
+    const variance = xs.reduce((s, v) => s + (v - mean) * (v - mean), 0) / n;
+    const std = Math.sqrt(variance);
+    if (!Number.isFinite(std) || std <= 0) return null;
+    return { mean, std, n };
+  }
 
   // ── Helpers ──────────────────────────────────────────────
   function _isValidTimestamp(ts) {
@@ -10729,47 +10772,251 @@ W.events = (() => {
 
   // ── Collectors ───────────────────────────────────────────
 
+  // ── PRICE_MOVE production v5 ─────────────────────────────
+  //
+  // Four gates, all must pass:
+  //
+  //   1. TIER THRESHOLD. The move must clear the absolute floor
+  //      for its market-cap tier. This is the coarse filter.
+  //
+  //   2. CROSS-SECTIONAL Z. The move must be ≥ Z_SCORE_MIN
+  //      standard deviations from the mean move across the
+  //      scanned universe. This is the adaptive filter — it
+  //      tightens automatically on calm days and loosens on
+  //      volatile ones, which a fixed percentage cannot do.
+  //
+  //   3. VOLUME CONFIRMATION. Relative volume (this asset's
+  //      volume ÷ the scan mean volume) must be ≥ VOLUME_RATIO_MIN,
+  //      unless volume data is entirely absent for the asset — in
+  //      which case the signal emits with an honest "not
+  //      volume-confirmed" note rather than fabricating a ratio.
+  //
+  //   4. DIRECTIONAL COHERENCE. When the |z| is near the boundary
+  //      (within 0.75σ of Z_SCORE_MIN), the move must additionally
+  //      be volume-confirmed. This reduces boundary flapping
+  //      without widening the core volume gate.
+  //
+  // Survivors receive a composite score (0–1) combining normalized
+  // z-magnitude, volume ratio, and tier weight. Emissions are
+  // capped at MAX_PRICE_MOVE_EVENTS, sorted majors-first then by
+  // composite score desc.
+  //
+  // Every reasoning trail names the gates that passed AND, where
+  // informative, the ones that were close. The evidence drawer has
+  // honest material to display.
   function collectPriceEvents(markets) {
     const events = [];
-    if (!Array.isArray(markets)) return events;
+    if (!Array.isArray(markets) || !markets.length) return events;
+
+    // ── Build the reference distribution ───────────────────
+    // Two parallel arrays over the scanned set:
+    //   changes[] — the 24h percentage change of each asset
+    //   volumes[] — the total volume of each asset
+    // Both feed the cross-sectional statistics below.
+    const changes = [];
+    const volumes = [];
+
+    for (const coin of markets) {
+      if (!coin || typeof coin !== "object") continue;
+      const changeRaw = Number(
+        coin.price_change_percentage_24h ??
+          coin.price_change_percentage_24h_in_currency,
+      );
+      if (Number.isFinite(changeRaw)) changes.push(changeRaw);
+      const vol = Number(coin.total_volume ?? coin.volume_24h ?? coin.volume24);
+      if (Number.isFinite(vol) && vol > 0) volumes.push(vol);
+    }
+
+    const changeDist = _distribution(changes);
+    const avgVolume = volumes.length
+      ? volumes.reduce((s, v) => s + v, 0) / volumes.length
+      : null;
+
+    const candidates = [];
 
     markets.forEach((coin) => {
       if (!coin || typeof coin !== "object") return;
-      const changeRaw = Number(coin.price_change_percentage_24h);
-      if (!Number.isFinite(changeRaw)) return;
-      const change = Math.abs(changeRaw);
-      if (change <= 3) return;
 
-      // Honest payload description for the evidence drawer.
+      const changeRaw = Number(
+        coin.price_change_percentage_24h ??
+          coin.price_change_percentage_24h_in_currency,
+      );
+      if (!Number.isFinite(changeRaw)) return;
+      const absChange = Math.abs(changeRaw);
+
+      const cap = Number(coin.market_cap);
+      if (!Number.isFinite(cap) || cap <= 0) return;
+
+      // Gate 1 — tier threshold.
+      const tier = _marketCapTier(cap);
+      const threshold = _thresholdForTier(tier);
+      if (absChange < threshold) return;
+
+      // Gate 2 — cross-sectional Z.
+      // When the universe is too small, changeDist is null and we
+      // fall through to the volume gate only. The reasoning trail
+      // records that the statistical gate was skipped.
+      let zScore = null;
+      if (changeDist) {
+        zScore = (changeRaw - changeDist.mean) / changeDist.std;
+      }
+      const zPasses = zScore === null || Math.abs(zScore) >= Z_SCORE_MIN;
+
+      // Gate 3 — volume confirmation.
+      const vol = Number(coin.total_volume ?? coin.volume_24h ?? coin.volume24);
+      const volRatio =
+        Number.isFinite(vol) && avgVolume ? vol / avgVolume : null;
+      const volConfirmed =
+        volRatio === null ? null : volRatio >= VOLUME_RATIO_MIN;
+
+      // Gate 4 — directional coherence. When the z is near the
+      // boundary, require explicit volume confirmation. This is
+      // stricter than the general volume gate and only applies
+      // where the statistical evidence is marginal.
+      const nearBoundary =
+        zScore !== null && Math.abs(zScore) < Z_SCORE_MIN + 0.75;
+      const directionalCoherent = nearBoundary ? volConfirmed === true : true;
+
+      // Composite admission: tier floor + z + volume + coherence.
+      // Missing z (small universe) is tolerated; missing volume
+      // is tolerated with a recorded caveat; a failed volume gate
+      // is fatal.
+      if (!zPasses) return;
+      if (volConfirmed === false) return;
+      if (!directionalCoherent) return;
+
+      candidates.push({
+        coin,
+        changeRaw,
+        absChange,
+        tier,
+        threshold,
+        volRatio,
+        zScore,
+        volConfirmed,
+      });
+    });
+
+    if (!candidates.length) return events;
+
+    // ── Composite scoring ──────────────────────────────────
+    // Each candidate receives a score in [0, 1]:
+    //   0.50 × normalized |z|  (capped at Z_SCORE_CAP)
+    //   0.30 × normalized volume ratio (capped at 3×)
+    //   0.20 × tier weight (major 1.0, mid 0.7, small 0.4)
+    // When z or volRatio is null, that component contributes 0
+    // and the remaining weights are renormalized so the score
+    // still spans [0, 1]. No fabricated numbers.
+    candidates.forEach((c) => {
+      let weighted = 0;
+      let totalWeight = 0;
+
+      if (c.zScore !== null) {
+        const zNorm = Math.min(1, Math.abs(c.zScore) / Z_SCORE_CAP);
+        weighted += 0.5 * zNorm;
+        totalWeight += 0.5;
+      }
+
+      if (c.volRatio !== null) {
+        const volNorm = Math.min(1, c.volRatio / 3);
+        weighted += 0.3 * volNorm;
+        totalWeight += 0.3;
+      }
+
+      const tierW = TIER_WEIGHT[c.tier] ?? 0.4;
+      weighted += 0.2 * tierW;
+      totalWeight += 0.2;
+
+      c.compositeScore = totalWeight > 0 ? weighted / totalWeight : 0;
+    });
+
+    // ── Rank and cap ───────────────────────────────────────
+    candidates.sort((a, b) => {
+      const aRank = TIER_PRIORITY[a.tier] ?? 99;
+      const bRank = TIER_PRIORITY[b.tier] ?? 99;
+      if (aRank !== bRank) return aRank - bRank;
+      return b.compositeScore - a.compositeScore;
+    });
+    const capped = candidates.slice(0, MAX_PRICE_MOVE_EVENTS);
+
+    // ── Emit ───────────────────────────────────────────────
+    capped.forEach((c) => {
+      const {
+        coin,
+        changeRaw,
+        absChange,
+        tier,
+        threshold,
+        volRatio,
+        zScore,
+        compositeScore,
+      } = c;
+
       const reasoning = [
-        `24h price change of ${changeRaw.toFixed(2)}% exceeds the 3% materiality threshold.`,
+        `24h change ${changeRaw > 0 ? "+" : ""}${changeRaw.toFixed(2)}% clears the ${threshold}% floor for ${tier}-cap assets.`,
       ];
 
-      // dataCompleteness is genuinely high for a CoinLore ticker —
-      // we have price, market cap, volume, and 24h change in one
-      // payload. 0.9 reflects "we have the fields we need, though
-      // we do not have OHLC granularity".
-      //
-      // interpretationConfidence is the producer's own confidence
-      // that this is a "signal" worth surfacing. A 3% move being
-      // material is a heuristic; 0.7 says "usually meaningful, not
-      // always". This is an honest number, not a computed one.
+      if (zScore !== null && changeDist) {
+        reasoning.push(
+          `Cross-sectional z-score ${zScore.toFixed(2)}σ vs a scan mean of ${changeDist.mean.toFixed(2)}% (${changeDist.n} assets). Threshold ${Z_SCORE_MIN}σ.`,
+        );
+      } else {
+        reasoning.push(
+          "Cross-sectional statistics unavailable (scan too small); the move passed on the tier floor and volume gates alone.",
+        );
+      }
+
+      if (volRatio !== null) {
+        reasoning.push(
+          `Relative volume ${volRatio.toFixed(2)}× the scan mean (confirmation floor ${VOLUME_RATIO_MIN}×).`,
+        );
+      } else {
+        reasoning.push(
+          "Volume data unavailable for this asset; the move is not volume-confirmed.",
+        );
+      }
+
+      reasoning.push(
+        `Composite signal score ${(compositeScore * 100).toFixed(0)}% (z, volume, and tier weight).`,
+      );
+
+      // dataCompleteness: highest available is 1.0 when both z and
+      // volume are known and pass. Missing either drops it.
+      let dataCompleteness = 0.5;
+      if (zScore !== null) dataCompleteness += 0.25;
+      if (volRatio !== null) dataCompleteness += 0.25;
+
+      // interpretationConfidence tracks the composite score. It is
+      // the producer's own honest assessment that this event is
+      // worth surfacing, derived from measurable inputs. Not
+      // fabricated, not a constant.
+      const interpretationConfidence = Math.max(
+        0.3,
+        Math.min(0.95, compositeScore),
+      );
+
       const sig = normalize(
         {
           symbol: coin.symbol,
           name: coin.name,
-          title: `${coin.name} moved ${changeRaw.toFixed(1)}% in 24h`,
-          impactValue: Math.min(1, change / 15),
-          urgency: change > 7 ? 0.9 : 0.6,
-          source: "coinlore",
-          dataCompleteness: 0.9,
-          interpretationConfidence: 0.7,
+          title: `${coin.name} moved ${changeRaw > 0 ? "+" : ""}${changeRaw.toFixed(1)}% in 24h`,
+          impactValue: Math.min(1, absChange / 15),
+          source: "market_scanner",
+          coingeckoId: coin.id,
+          dataCompleteness,
+          interpretationConfidence,
+          marketCapTier: tier,
+          price_change_percentage_24h: changeRaw,
+          volumeRatio: volRatio,
+          zScore,
+          compositeScore,
           reasoning,
         },
         "PRICE_MOVE",
       );
       if (sig) events.push(sig);
     });
+
     return events;
   }
 
@@ -10789,10 +11036,6 @@ W.events = (() => {
       });
       if (!regimeData || regimeData.regime === "UNKNOWN") return events;
 
-      // dataCompleteness: the regime detector needs all three
-      // inputs (fear/greed, BTC dominance, cap change) to produce a
-      // high-confidence regime call. We report the fraction we
-      // actually had.
       const inputsPresent = [
         Number.isFinite(fgValue),
         Number.isFinite(btcDom),
@@ -10800,11 +11043,6 @@ W.events = (() => {
       ].filter(Boolean).length;
       const dataCompleteness = inputsPresent / 3;
 
-      // interpretationConfidence: the regime detector itself
-      // publishes its own confidence in the regime classification.
-      // That is the honest number to carry here — it is the
-      // producer's confidence in its own interpretation, not a
-      // mixture of source reliability and freshness.
       const interpretationConfidence = Number.isFinite(regimeData.confidence)
         ? Math.max(0, Math.min(1, regimeData.confidence))
         : null;
@@ -10871,18 +11109,10 @@ W.events = (() => {
         const amountKnown = Number.isFinite(u.amount) && u.amount > 0;
         const coinIdKnown = typeof u.coinId === "string" && u.coinId.length > 0;
 
-        // dataCompleteness: an unlock event is "complete" when we
-        // know both the coin and the amount. Two halves.
         let dataCompleteness = 0;
         if (amountKnown) dataCompleteness += 0.5;
         if (coinIdKnown) dataCompleteness += 0.5;
 
-        // interpretationConfidence for an unlock is deliberately
-        // modest. The schedule is on-chain and factual, but the
-        // IMPACT of an unlock on price is a modelling judgement we
-        // do not actually have a rigorous number for. 0.5 = "we
-        // know the event is real; our read on how it will move the
-        // market is a coin flip".
         const interpretationConfidence = 0.5;
 
         const amountText = amountKnown
@@ -10940,11 +11170,6 @@ W.events = (() => {
       opportunities.forEach((opp) => {
         if (!opp || typeof opp !== "object") return;
 
-        // The opportunity scanner is a downstream producer. If it
-        // publishes its own dataCompleteness or interpretationConfidence,
-        // honour those. If it does not, we pass null — we do not
-        // invent a number on its behalf. This is the exact
-        // discipline §2.7 requires.
         const dataCompleteness =
           Number.isFinite(opp.dataCompleteness) &&
           opp.dataCompleteness >= 0 &&
@@ -11047,18 +11272,10 @@ W.events = (() => {
             return;
           }
 
-          // dataCompleteness: the health evaluator needs price AND
-          // regime to make a full judgement. Report what we had.
           let dataCompleteness = 0;
           if (price != null) dataCompleteness += 0.5;
           if (regimeData?.regime) dataCompleteness += 0.5;
 
-          // interpretationConfidence: the health evaluator's own
-          // health score (0–100) is a defensible interpretation-
-          // confidence number — it IS the model's confidence that
-          // the thesis is on track. We normalise it to 0–1. If the
-          // score is non-finite we pass null rather than inventing a
-          // value.
           const interpretationConfidence = Number.isFinite(health.healthScore)
             ? Math.max(0, Math.min(1, health.healthScore / 100))
             : null;
@@ -11103,11 +11320,6 @@ W.events = (() => {
   // symbol, and fall within the same 10-minute bucket. Among
   // duplicates, the one with the higher dataCompleteness wins;
   // null counts as "unknown" and loses to any finite value.
-  //
-  // Note: the winner is chosen by dataCompleteness, not confidence.
-  // Choosing by confidence would require us to compute a
-  // confidence here, and this module is forbidden from doing that.
-  // dataCompleteness is an honest input, not a derivation.
   function _dedupe(signals) {
     const seen = new Map();
     const DEDUP_WINDOW_MS = 10 * 60 * 1000;
@@ -11212,11 +11424,30 @@ W.events = (() => {
     return deduped;
   }
 
-  return Object.freeze({ normalize, collectEvents });
+  return Object.freeze({
+    normalize,
+    collectEvents,
+    _internal: Object.freeze({
+      collectPriceEvents,
+      _marketCapTier,
+      _thresholdForTier,
+      _distribution,
+      TIER_MAJOR_CAP,
+      TIER_MID_CAP,
+      THRESHOLD_MAJOR,
+      THRESHOLD_MID,
+      THRESHOLD_SMALL,
+      VOLUME_RATIO_MIN,
+      Z_SCORE_MIN,
+      Z_SCORE_CAP,
+      MIN_SCANNED_UNIVERSE,
+      MAX_PRICE_MOVE_EVENTS,
+    }),
+  });
 })();
 
 console.log(
-  "[Events] Module loaded (canonical confidence enforced: no local derivation, honest null on missing inputs).",
+  "[Events] Module loaded (canonical confidence enforced: no local derivation, honest null on missing inputs; v5 tiered PRICE_MOVE with cross-sectional z + volume confirmation).",
 );
 // ---- js/intelligence/technical-analysis.js ----
 // ===============================================================
