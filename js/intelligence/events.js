@@ -14,25 +14,10 @@
 //   - Cache versioned and read/write atomic.
 //
 // v3 changelog (canonical-contract enforcement):
-//   - REMOVED every local `sourceRel * freshness` calculation. That
-//     pattern was multiplying source reliability and data freshness
-//     twice (once here, once inside computeConfidence) and
-//     mislabelling the product as `interpretationConfidence`. The
-//     contract in types.js is now the only place a confidence
-//     number is ever produced.
-//   - `sourceReliability` and `dataFreshness` are deliberately NOT
-//     stored in the signal. They are derived at evidence-build time
-//     from the source name and the signal's timestamp.
-//   - `interpretationConfidence` is only populated when the
-//     producing detector provides one. Otherwise it is `null`, and
-//     `null` propagates honestly: computeConfidence returns `null`,
-//     and the UI surfaces "confidence unavailable" rather than a
-//     fabricated number (§2.7, §2.9).
-//   - `dataCompleteness` is likewise `null` when we cannot honestly
-//     estimate it. It is never defaulted to a made-up value.
-//   - Every collector now records an explicit `reasoning` array on
-//     the signal's rawData explaining WHY the signal fired. This
-//     gives the evidence drawer something honest to display.
+//   - REMOVED every local `sourceRel * freshness` calculation.
+//   - sourceReliability / dataFreshness derived at evidence-build.
+//   - interpretationConfidence / dataCompleteness pass null when
+//     unknown, never defaulted to a fabricated number.
 //
 // v4 changelog (PRICE_MOVE production-grade):
 //   - Tiered market-cap thresholds replace the flat 3% cutoff.
@@ -41,43 +26,47 @@
 //
 // v5 changelog (accuracy hardening):
 //   - Cross-sectional Z-score gate added on top of the tier
-//     threshold. An asset's move must be ≥ Z_SCORE_MIN standard
-//     deviations from the mean move across the scanned universe.
-//     This is an adaptive statistical filter — it tightens on
-//     calm days and loosens on volatile ones, which a fixed
-//     percentage cannot do.
+//     threshold.
 //   - Composite signal score (0–1) combines normalized |z|,
-//     volume ratio, and market-cap tier weight. The score rides in
-//     rawData for the evidence drawer; the decision engine is
-//     unchanged and continues to score on its own canonical
-//     factors.
-//   - Directional coherence gate: moves whose z is near the
-//     boundary must additionally be volume-confirmed. This reduces
-//     boundary flapping without widening the core volume gate.
+//     volume ratio, and market-cap tier weight.
+//   - Directional coherence gate near the z boundary.
 //
-// References for the v5 gates:
+// v6 changelog (majors bypass + symbol exclusions):
+//   - Majors bypass the cross-sectional z gate. On a broad
+//     market-down day (mean -1.65%, std 7.63%), an asset needs a
+//     |change - mean| of 15%+ to clear a 2σ gate — impossible for
+//     BTC, whose moves are ~4–8% at most. But BTC, ETH, SOL, and
+//     the top-cap tier *are* the reference distribution. Requiring
+//     them to be outliers against a distribution they dominate is
+//     circular. The tier floor and volume gate are the correct
+//     filters for majors. Mid and small caps still must clear the
+//     z gate, which is exactly what it's designed for.
+//   - EXCLUDED_SYMBOLS: stablecoins and wrapped tokens are
+//     skipped entirely. Stables do not "move" — a depeg is a
+//     different event class with its own producer. Wrapped tokens
+//     mirror their underlying and would produce a duplicate of the
+//     base asset's signal with a different symbol.
+//
+// References for the gates:
 //   - Upbit multi-indicator pipeline: weighted voting across
-//     Z-Score (0.30, ≥3.0σ), Bollinger (0.25), RSI (0.20), VWAP
-//     deviation (0.25); combined weight ≥0.5 to fire.
-//   - Crypto Anomaly Detector: adaptive Z-Score thresholds
-//     2.5σ–4.0σ, exponential weighting toward recent data.
-//   - VWAP Sniper: volume must exceed the period average by
-//     1.1–1.3×, or the setup is explicitly skipped.
-//   - n8n CoinGecko workflow: market-cap tier thresholds
-//     (>$1B → 5%, $100M–$1B → 10%, <$100M → 20%).
+//     Z-Score, Bollinger, RSI, VWAP; combined weight ≥0.5 to fire.
+//   - Crypto Anomaly Detector: adaptive Z-Score 2.5σ–4.0σ.
+//   - VWAP Sniper: volume must exceed period average by 1.1–1.3×.
+//   - n8n CoinGecko workflow: market-cap tier thresholds.
 // ===============================================================
 
 window.W = window.W || {};
 W.events = (() => {
   const CACHE_KEY = "w_events_cache";
-  const CACHE_VERSION = 5;
+  const CACHE_VERSION = 6;
   const TTL = 5 * 60 * 1000;
   const DAY = 864e5;
   const MAX_SIGNAL_AGE_MS = 7 * DAY;
 
   // ── PRICE_MOVE thresholds ────────────────────────────────
   //
-  // Four gates, all of which must pass. No single threshold.
+  // Four gates for non-major assets, three gates for majors
+  // (z gate bypassed — see v6 header comment).
   //
   // Weaver has no OHLCV history. The statistical gate is a
   // CROSS-SECTIONAL Z-Score — each asset's move compared to the
@@ -101,6 +90,51 @@ W.events = (() => {
   const MAX_PRICE_MOVE_EVENTS = 5;
   const TIER_PRIORITY = Object.freeze({ major: 0, mid: 1, small: 2 });
   const TIER_WEIGHT = Object.freeze({ major: 1.0, mid: 0.7, small: 0.4 });
+
+  // ── Excluded from PRICE_MOVE ─────────────────────────────
+  //
+  // Stablecoins do not "move" in the signal sense — a depeg is a
+  // different event class with its own producer. Wrapped and
+  // liquid-staking tokens mirror their underlying and would
+  // produce a duplicate of the base asset's signal with a
+  // different symbol, diluting the feed and double-counting the
+  // same market event.
+  //
+  // This is an allowlist-by-exclusion, not a blocklist of every
+  // possible wrapped token. New wrapped assets should be added
+  // when they appear in the top-50 scan and start producing
+  // duplicate signals.
+  const EXCLUDED_SYMBOLS = new Set([
+    // Fiat-pegged stablecoins
+    "USDT",
+    "USDC",
+    "DAI",
+    "USDE",
+    "TUSD",
+    "BUSD",
+    "FRAX",
+    "USDD",
+    "PYUSD",
+    "FDUSD",
+    "USDP",
+    "GUSD",
+    "LUSD",
+    "MIM",
+    "USDS",
+    "SUSDE",
+    // Wrapped / staked versions of major assets
+    "WBTC",
+    "WETH",
+    "WBETH",
+    "WSTETH",
+    "STETH",
+    "RETH",
+    "CBETH",
+    "SFRXETH",
+    "WEETH",
+    "WSTETH",
+    "TBTC",
+  ]);
 
   function _marketCapTier(cap) {
     if (cap >= TIER_MAJOR_CAP) return "major";
@@ -144,15 +178,10 @@ W.events = (() => {
   // ── Normalize a raw payload into a canonical Signal ──────
   //
   // NOTE: this function does NOT compute a confidence. It builds
-  // the signal's metadata from the four honest inputs it has —
-  // corroborationCount, dataCompleteness, interpretationConfidence,
-  // and the source name (which the evidence-builder later feeds
-  // into getSourceReliability). The fifth input, dataFreshness, is
-  // derived from `timestamp` at evidence-build time.
-  //
+  // the signal's metadata from the four honest inputs it has.
   // If a collector cannot honestly populate dataCompleteness or
-  // interpretationConfidence, it must pass `null` for that field.
-  // Silent defaulting is forbidden by §2.7 / §2.9.
+  // interpretationConfidence, it must pass `null`. Silent
+  // defaulting is forbidden by §2.7 / §2.9.
   function normalize(raw, type) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
 
@@ -177,8 +206,6 @@ W.events = (() => {
       : Date.now();
     if (!_isValidTimestamp(timestamp)) return null;
 
-    // Build metadata strictly from what the collector supplied.
-    // No defaults. No computations. No fallbacks.
     const metadata = {
       corroborationCount:
         Number.isInteger(raw.corroborationCount) && raw.corroborationCount >= 1
@@ -203,9 +230,6 @@ W.events = (() => {
       source: raw.source || "weaver",
       assetId: assetIdInput,
       timestamp,
-      // rawData carries the payload plus a reasoning trail. The
-      // reasoning array is the honest "why did this fire" record
-      // that the evidence drawer can render.
       rawData: {
         ...raw,
         title,
@@ -219,52 +243,49 @@ W.events = (() => {
 
   // ── Collectors ───────────────────────────────────────────
 
-  // ── PRICE_MOVE production v5 ─────────────────────────────
+  // ── PRICE_MOVE production v6 ─────────────────────────────
   //
-  // Four gates, all must pass:
+  // Gates, applied in order:
+  //
+  //   0. EXCLUSION. Stables and wrapped tokens are skipped.
   //
   //   1. TIER THRESHOLD. The move must clear the absolute floor
-  //      for its market-cap tier. This is the coarse filter.
+  //      for its market-cap tier. Coarse filter.
   //
-  //   2. CROSS-SECTIONAL Z. The move must be ≥ Z_SCORE_MIN
-  //      standard deviations from the mean move across the
-  //      scanned universe. This is the adaptive filter — it
-  //      tightens automatically on calm days and loosens on
-  //      volatile ones, which a fixed percentage cannot do.
+  //   2. CROSS-SECTIONAL Z (majors bypass). A non-major move
+  //      must be ≥ Z_SCORE_MIN standard deviations from the mean
+  //      move across the scanned universe. Majors skip this gate
+  //      because they *are* the reference distribution — see the
+  //      v6 header comment.
   //
-  //   3. VOLUME CONFIRMATION. Relative volume (this asset's
-  //      volume ÷ the scan mean volume) must be ≥ VOLUME_RATIO_MIN,
-  //      unless volume data is entirely absent for the asset — in
-  //      which case the signal emits with an honest "not
-  //      volume-confirmed" note rather than fabricating a ratio.
+  //   3. VOLUME CONFIRMATION. Relative volume must be ≥
+  //      VOLUME_RATIO_MIN, unless volume data is entirely absent
+  //      (recorded honestly in the reasoning trail).
   //
-  //   4. DIRECTIONAL COHERENCE. When the |z| is near the boundary
-  //      (within 0.75σ of Z_SCORE_MIN), the move must additionally
-  //      be volume-confirmed. This reduces boundary flapping
-  //      without widening the core volume gate.
+  //   4. DIRECTIONAL COHERENCE. When a non-major's |z| is near
+  //      the boundary (within 0.75σ of Z_SCORE_MIN), the move
+  //      must additionally be volume-confirmed. Majors are not
+  //      subject to this — the z-bypass means there is no
+  //      boundary.
   //
-  // Survivors receive a composite score (0–1) combining normalized
-  // z-magnitude, volume ratio, and tier weight. Emissions are
+  // Survivors receive a composite score (0–1). Emissions are
   // capped at MAX_PRICE_MOVE_EVENTS, sorted majors-first then by
   // composite score desc.
-  //
-  // Every reasoning trail names the gates that passed AND, where
-  // informative, the ones that were close. The evidence drawer has
-  // honest material to display.
   function collectPriceEvents(markets) {
     const events = [];
     if (!Array.isArray(markets) || !markets.length) return events;
 
     // ── Build the reference distribution ───────────────────
-    // Two parallel arrays over the scanned set:
-    //   changes[] — the 24h percentage change of each asset
-    //   volumes[] — the total volume of each asset
-    // Both feed the cross-sectional statistics below.
+    // Excluded symbols do not contribute to the reference
+    // distribution. A stablecoin at +0.01% would pull the mean
+    // toward zero and inflate the std against "real" assets.
     const changes = [];
     const volumes = [];
 
     for (const coin of markets) {
       if (!coin || typeof coin !== "object") continue;
+      const sym = String(coin.symbol || "").toUpperCase();
+      if (EXCLUDED_SYMBOLS.has(sym)) continue;
       const changeRaw = Number(
         coin.price_change_percentage_24h ??
           coin.price_change_percentage_24h_in_currency,
@@ -284,6 +305,10 @@ W.events = (() => {
     markets.forEach((coin) => {
       if (!coin || typeof coin !== "object") return;
 
+      // Gate 0 — symbol exclusion.
+      const sym = String(coin.symbol || "").toUpperCase();
+      if (EXCLUDED_SYMBOLS.has(sym)) return;
+
       const changeRaw = Number(
         coin.price_change_percentage_24h ??
           coin.price_change_percentage_24h_in_currency,
@@ -299,12 +324,12 @@ W.events = (() => {
       const threshold = _thresholdForTier(tier);
       if (absChange < threshold) return;
 
-      // Gate 2 — cross-sectional Z.
-      // When the universe is too small, changeDist is null and we
-      // fall through to the volume gate only. The reasoning trail
-      // records that the statistical gate was skipped.
+      // Gate 2 — cross-sectional Z, bypassed for majors.
+      // Majors define the reference distribution; requiring them
+      // to be outliers against it is circular. Mid and small caps
+      // still must clear the gate.
       let zScore = null;
-      if (changeDist) {
+      if (changeDist && tier !== "major") {
         zScore = (changeRaw - changeDist.mean) / changeDist.std;
       }
       const zPasses = zScore === null || Math.abs(zScore) >= Z_SCORE_MIN;
@@ -316,18 +341,12 @@ W.events = (() => {
       const volConfirmed =
         volRatio === null ? null : volRatio >= VOLUME_RATIO_MIN;
 
-      // Gate 4 — directional coherence. When the z is near the
-      // boundary, require explicit volume confirmation. This is
-      // stricter than the general volume gate and only applies
-      // where the statistical evidence is marginal.
+      // Gate 4 — directional coherence. Only applies when z was
+      // actually computed AND sits near the boundary.
       const nearBoundary =
         zScore !== null && Math.abs(zScore) < Z_SCORE_MIN + 0.75;
       const directionalCoherent = nearBoundary ? volConfirmed === true : true;
 
-      // Composite admission: tier floor + z + volume + coherence.
-      // Missing z (small universe) is tolerated; missing volume
-      // is tolerated with a recorded caveat; a failed volume gate
-      // is fatal.
       if (!zPasses) return;
       if (volConfirmed === false) return;
       if (!directionalCoherent) return;
@@ -347,13 +366,11 @@ W.events = (() => {
     if (!candidates.length) return events;
 
     // ── Composite scoring ──────────────────────────────────
-    // Each candidate receives a score in [0, 1]:
     //   0.50 × normalized |z|  (capped at Z_SCORE_CAP)
     //   0.30 × normalized volume ratio (capped at 3×)
     //   0.20 × tier weight (major 1.0, mid 0.7, small 0.4)
-    // When z or volRatio is null, that component contributes 0
-    // and the remaining weights are renormalized so the score
-    // still spans [0, 1]. No fabricated numbers.
+    // When z is null (majors, or too-small universe), that
+    // component contributes 0 and remaining weights renormalize.
     candidates.forEach((c) => {
       let weighted = 0;
       let totalWeight = 0;
@@ -407,6 +424,10 @@ W.events = (() => {
         reasoning.push(
           `Cross-sectional z-score ${zScore.toFixed(2)}σ vs a scan mean of ${changeDist.mean.toFixed(2)}% (${changeDist.n} assets). Threshold ${Z_SCORE_MIN}σ.`,
         );
+      } else if (tier === "major" && changeDist) {
+        reasoning.push(
+          "Major-cap asset — cross-sectional z gate bypassed (majors define the reference distribution).",
+        );
       } else {
         reasoning.push(
           "Cross-sectional statistics unavailable (scan too small); the move passed on the tier floor and volume gates alone.",
@@ -427,16 +448,10 @@ W.events = (() => {
         `Composite signal score ${(compositeScore * 100).toFixed(0)}% (z, volume, and tier weight).`,
       );
 
-      // dataCompleteness: highest available is 1.0 when both z and
-      // volume are known and pass. Missing either drops it.
       let dataCompleteness = 0.5;
       if (zScore !== null) dataCompleteness += 0.25;
       if (volRatio !== null) dataCompleteness += 0.25;
 
-      // interpretationConfidence tracks the composite score. It is
-      // the producer's own honest assessment that this event is
-      // worth surfacing, derived from measurable inputs. Not
-      // fabricated, not a constant.
       const interpretationConfidence = Math.max(
         0.3,
         Math.min(0.95, compositeScore),
@@ -762,11 +777,6 @@ W.events = (() => {
   }
 
   // ── Deduplication ────────────────────────────────────────
-  //
-  // Two signals are duplicates when they share a type, an asset
-  // symbol, and fall within the same 10-minute bucket. Among
-  // duplicates, the one with the higher dataCompleteness wins;
-  // null counts as "unknown" and loses to any finite value.
   function _dedupe(signals) {
     const seen = new Map();
     const DEDUP_WINDOW_MS = 10 * 60 * 1000;
@@ -879,6 +889,7 @@ W.events = (() => {
       _marketCapTier,
       _thresholdForTier,
       _distribution,
+      EXCLUDED_SYMBOLS,
       TIER_MAJOR_CAP,
       TIER_MID_CAP,
       THRESHOLD_MAJOR,
@@ -894,5 +905,5 @@ W.events = (() => {
 })();
 
 console.log(
-  "[Events] Module loaded (canonical confidence enforced: no local derivation, honest null on missing inputs; v5 tiered PRICE_MOVE with cross-sectional z + volume confirmation).",
+  "[Events] Module loaded (canonical confidence enforced: no local derivation, honest null on missing inputs; v6 tiered PRICE_MOVE with major-z-bypass and symbol exclusions).",
 );

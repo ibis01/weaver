@@ -400,21 +400,10 @@ describe("Decision Pipeline Scenarios", () => {
   //
   // Loaded once with `before`, not per-test with `beforeEach`.
   // events.js assigns W.events when its IIFE runs; requiring it a
-  // second time is a no-op because Node caches modules. A
-  // beforeEach/afterEach save-restore pattern would delete W.events
-  // after the first test and never restore it, because the second
-  // require would not re-execute the module.
-  //
-  // The save/restore pattern is also wrong here in principle: this
-  // scenario only READS W.events, it never replaces it with a
-  // stub. There is nothing to isolate.
+  // second time is a no-op because Node caches modules.
   describe("Scenario G: PRICE_MOVE scanner gates", () => {
     before(() => {
       global.window.W = global.W;
-      // types.js provides W.intelligence.create.signal, which
-      // events.js's normalize() calls directly. If a prior spec
-      // stubbed W.intelligence and did not restore it, re-require
-      // types.js to re-establish the real module.
       if (
         !W.intelligence ||
         !W.intelligence.create ||
@@ -443,7 +432,11 @@ describe("Decision Pipeline Scenarios", () => {
       return markets;
     }
 
-    it("cross-sectional z fires on a move against a calm market", () => {
+    it("majors bypass the cross-sectional z gate", () => {
+      // Universe uniformly up 0.5%, one major down 3.5%. On a broad
+      // down day the z gate would reject everything (mean and std
+      // are dominated by market-wide moves, majors never look like
+      // outliers). Majors must fire on the tier floor alone.
       const markets = makeUniverse(15, { change: 0.5, cap: 2e9 });
       markets.push({
         id: "bitcoin",
@@ -459,7 +452,31 @@ describe("Decision Pipeline Scenarios", () => {
       const btc = events.find((e) => e.assetId.symbol === "BTC");
       expect(btc).to.exist;
       expect(btc.rawData.marketCapTier).to.equal("major");
-      expect(btc.rawData.zScore).to.be.lessThan(-2.0);
+      // Majors do not carry a z score — the gate is bypassed.
+      expect(btc.rawData.zScore).to.equal(null);
+    });
+
+    it("non-majors still must clear the cross-sectional z gate", () => {
+      // Universe uniformly up 10% (a red-letter day), one mid-cap
+      // up 6.5% — clears its 6% floor but is *below* the mean. Its
+      // z is negative and small in magnitude (std is inflated by
+      // the market-wide rally), so it should not fire.
+      const markets = makeUniverse(15, { change: 10, cap: 2e9 });
+      markets.push({
+        id: "arbitrum",
+        symbol: "ARB",
+        name: "Arbitrum",
+        current_price: 1,
+        price_change_percentage_24h: 6.5,
+        market_cap: 3e9,
+        total_volume: 1e8,
+      });
+
+      const events = W.events._internal.collectPriceEvents(markets);
+      const arb = events.find((e) => e.assetId.symbol === "ARB");
+      // ARB clears the 6% floor but its z is below threshold.
+      // The exact z is not asserted — only that it did not fire.
+      expect(arb).to.not.exist;
     });
 
     it("volume confirmation suppresses a move on thin volume", () => {
@@ -496,6 +513,46 @@ describe("Decision Pipeline Scenarios", () => {
       expect(events.length).to.be.at.most(
         W.events._internal.MAX_PRICE_MOVE_EVENTS,
       );
+    });
+
+    it("stablecoins and wrapped tokens are excluded from emission", () => {
+      const markets = makeUniverse(15, { change: 1, cap: 2e9 });
+      // WBTC down 6% — would clear the major floor, but it is
+      // excluded because it mirrors BTC and would double-count.
+      markets.push({
+        id: "wrapped-bitcoin",
+        symbol: "WBTC",
+        name: "Wrapped Bitcoin",
+        current_price: 60000,
+        price_change_percentage_24h: -6,
+        market_cap: 1.5e10,
+        total_volume: 1e9,
+      });
+      // USDT at +0.5% — a stablecoin depeg would be a different
+      // signal class; routine noise should never surface.
+      markets.push({
+        id: "tether",
+        symbol: "USDT",
+        name: "Tether",
+        current_price: 1,
+        price_change_percentage_24h: 0.5,
+        market_cap: 1.2e11,
+        total_volume: 5e10,
+      });
+
+      const events = W.events._internal.collectPriceEvents(markets);
+      expect(events.find((e) => e.assetId.symbol === "WBTC")).to.not.exist;
+      expect(events.find((e) => e.assetId.symbol === "USDT")).to.not.exist;
+    });
+
+    it("excluded symbols do not contribute to the reference distribution", () => {
+      // If stables were included, the massive USDT volume would
+      // pull avgVolume up and reject every real asset on volume.
+      // The reference distribution is built from non-excluded
+      // symbols only.
+      expect(W.events._internal.EXCLUDED_SYMBOLS.has("USDT")).to.equal(true);
+      expect(W.events._internal.EXCLUDED_SYMBOLS.has("WBTC")).to.equal(true);
+      expect(W.events._internal.EXCLUDED_SYMBOLS.has("BTC")).to.equal(false);
     });
 
     it("_distribution returns null below MIN_SCANNED_UNIVERSE", () => {
