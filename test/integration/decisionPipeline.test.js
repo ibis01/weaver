@@ -1,7 +1,11 @@
 const { expect } = require("chai");
 
-// Load the production decision engine into the shared JSDOM test runtime.
+// Production load order: types.js must come before anything that
+// calls W.intelligence.create.signal(), which events.js does
+// directly in normalize(). decision-engine.js has enum fallbacks
+// and runs without types.js, but events.js does not.
 global.window.W = global.W;
+require("../../js/intelligence/types.js");
 require("../../js/intelligence/decision-engine.js");
 
 describe("Decision Pipeline Scenarios", () => {
@@ -393,21 +397,34 @@ describe("Decision Pipeline Scenarios", () => {
   });
 
   // ── Scenario G: PRICE_MOVE scanner gates ──────────────────────
+  //
+  // Loaded once with `before`, not per-test with `beforeEach`.
+  // events.js assigns W.events when its IIFE runs; requiring it a
+  // second time is a no-op because Node caches modules. A
+  // beforeEach/afterEach save-restore pattern would delete W.events
+  // after the first test and never restore it, because the second
+  // require would not re-execute the module.
+  //
+  // The save/restore pattern is also wrong here in principle: this
+  // scenario only READS W.events, it never replaces it with a
+  // stub. There is nothing to isolate.
   describe("Scenario G: PRICE_MOVE scanner gates", () => {
-    let savedEvents;
-
-    beforeEach(() => {
-      savedEvents = W.events;
-      // Load the production events module. It may already be loaded
-      // in a prior spec; requiring again is idempotent because the
-      // module overwrites W.events.
+    before(() => {
       global.window.W = global.W;
-      require("../../js/intelligence/events.js");
-    });
-
-    afterEach(() => {
-      if (savedEvents === undefined) delete W.events;
-      else W.events = savedEvents;
+      // types.js provides W.intelligence.create.signal, which
+      // events.js's normalize() calls directly. If a prior spec
+      // stubbed W.intelligence and did not restore it, re-require
+      // types.js to re-establish the real module.
+      if (
+        !W.intelligence ||
+        !W.intelligence.create ||
+        typeof W.intelligence.create.signal !== "function"
+      ) {
+        require("../../js/intelligence/types.js");
+      }
+      if (!W.events || !W.events._internal) {
+        require("../../js/intelligence/events.js");
+      }
     });
 
     function makeUniverse(count, opts = {}) {
@@ -427,9 +444,6 @@ describe("Decision Pipeline Scenarios", () => {
     }
 
     it("cross-sectional z fires on a move against a calm market", () => {
-      // Universe: fifteen assets at +0.5%, one major at -3.5%.
-      // The major clears its 3% floor and its z is far below the
-      // mean — a real market dislocation.
       const markets = makeUniverse(15, { change: 0.5, cap: 2e9 });
       markets.push({
         id: "bitcoin",
@@ -450,7 +464,6 @@ describe("Decision Pipeline Scenarios", () => {
 
     it("volume confirmation suppresses a move on thin volume", () => {
       const markets = makeUniverse(15, { change: 1, cap: 2e9 });
-      // One asset moves 20% on 0.1× average volume.
       markets.push({
         id: "thin",
         symbol: "THIN",
