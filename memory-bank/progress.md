@@ -3,58 +3,59 @@
 > Last synced: 2026-09-28.
 
 ## Current State
-Weaver has transitioned from the prototype/feature-building phase into
-the integration hardening and production-candidate phase. The core
-evidence/security architecture is substantially built and functional.
-All automated test suites are green on CI.
+Weaver has transitioned from prototype/feature-building into the
+production-candidate phase. The core evidence/security architecture
+and the intelligence signal scanner are functional. All automated
+test suites are green on CI.
 
 ## Completion Estimates (by subsystem)
 - **Core Architecture & Security Boundaries** — ~95%
-  Non-custodial rules enforced; Worker SSRF protected; CSP strict.
 - **Evidence / Provenance Pipeline** — ~90%
-  Unified verdict versioning; canonical `computeConfidence`;
-  provenance fields flowing through to the drawer.
+- **Intelligence / Signal Pipeline** — ~90%
+  PRICE_MOVE scanner v6 production-grade; REGIME_SHIFT and UNLOCK
+  producers live; OPPORTUNITY and THESIS_DETERIORATION wired.
 - **Track Record** — ~90%
-  Immutable snapshots, decision/outcome separation, migration.
 - **Wallet Infrastructure** — ~80%
-  Multi-chain sync functional; CORS/RPC fallbacks hardened.
 - **Provider Reliability** — ~90%
-  Migrated from CoinGecko to CoinLore → CoinPaprika → Coinbase.
-  CI snapshot pipeline aligned with the live provider chain.
+  CoinLore → CoinBase → CoinPaprika chain. CI snapshot pipeline
+  aligned.
 - **Dashboard / UI** — ~85%
-  Feature-complete. Visual acceptance (UI-002) pending.
+  Feature-complete. Manual UI-002 visual pass remains open.
 - **Testing / CI** — ~95%
-  Unit (538), Integration (16), Security (16), Worker tests, and
-  Playwright E2E (11) all run on CI and pass. Deeper coverage for
-  portfolio math and critical-path flows remains a listed gap.
+  Unit (538), Integration (28), Security (16), Worker, E2E (30)
+  all run on CI and pass.
+- **Documentation / Memory Bank** — ~70%
+  Provider-chain and E2E-count corrections applied. `data-path-audit.md`
+  still describes the pre-migration architecture.
+
+## Test Suite Counts (current)
+| Suite | Command | Count |
+|---|---|---|
+| Unit | `npm run test:unit` | 538 |
+| Integration | `npm run test:integration` | 28 |
+| Security | `npm run test:security` | 16 |
+| E2E | `npm run test:e2e` | 30 |
 
 ## Recently Completed
-- **CI Expansion** — root `test:unit`, `test:integration`,
-  `test:security`, Worker tests, and Playwright E2E are all gated in
-  `.github/workflows/test-and-build.yml`.
-- **E2E discovery fix** — was discovering 3 of 11 tests; now
-  discovers and runs all 11.
-- **Broken merge recovery** — revert-forward of `5001479`; `main`
-  is clean and CI is green.
-- **Reconciled `.github/workflows/data.yml`** with the live
-  CoinLore/CoinPaprika provider architecture.
-- **Resolved Evidence Drawer CSP and unit test regressions**.
-- **Implemented Helius RPC key injection via Cloudflare Worker**.
+- PRICE_MOVE scanner v6 with major-z-bypass and symbol exclusions.
+- Empty-profile signal fix (market-wide baseline relevance).
+- PR #21 merged; `feat/drawer-provenance` deleted.
+- README provider chain corrected; test counts updated.
+- Chart precision fix in explorer.
+- CI Expansion gating all suites.
+- Playwright test discovery fix.
+- Broken merge recovery (revert-forward of `5001479`).
+- Root-level `workflows` file removed.
 
 ## Active Focus
-1. **UI-002 acceptance** — browser-based Dashboard verification.
-2. **PR #21 reconciliation** — the branch state was disturbed by the
-   merge recovery. Close as superseded or restore the original commit
-   (`e4428b5`) and rebase against current `main`.
-3. **README + memory-bank hygiene** — replace stale provider references
-   and outdated test-status claims.
+1. **Portfolio accounting tests** — weighted-average cost basis,
+   partial sells, realized/unrealized P&L.
+2. **Critical-path E2E** — portfolio add → signal → evidence drawer.
+3. **`data-path-audit.md`** — stale CoinGecko-era content.
 
 ## Known Gaps (not blocking production)
-- Portfolio math unit tests (weighted-average cost basis, realized/
-  unrealized P&L) are smoke-level only.
-- E2E suite is smoke + acceptance. No browser coverage for wallet-sync
-  failure paths, degraded-provider behavior, or the end-to-end
-  intelligence → evidence → verdict → drawer flow.
-- `systemPatterns.md` was corrupted in a previous edit (contained an
-  embedded copy of `techContext.md` behind a stray header). Fixed in
-  the same sync as this file.
+- Portfolio math unit tests are smoke-level only.
+- E2E suite lacks degraded-provider and critical-path coverage.
+- CSP inline-style violations at `bundle.js:302` (~40 per render).
+- Snapshot schema still validates against a CoinGecko shape.
+- Local CORS: Worker rejects `http://localhost:8080`.

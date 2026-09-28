@@ -1,60 +1,72 @@
 # Active Context
 
-> Last synced: 2026-09-28. See `git log --oneline -1` for the current
-> HEAD. Sync reason: CI Expansion is complete and the earlier memory
-> bank described a state the repository has moved past.
+> Last synced: 2026-09-28. See `git log --oneline -1` for current
+> HEAD. Sync reason: intelligence scanner v6 shipped, CI green,
+> provider-chain and E2E-count corrections applied.
 
 ## Current Status
-Weaver is in the **integration hardening** phase. The core architecture,
-evidence pipeline, and security boundaries are substantially built and
-functional. Remaining work is browser-level acceptance, memory-bank and
-documentation hygiene, and open-PR reconciliation — not new feature
-development.
+Weaver is in the **production-candidate** phase. Core architecture,
+evidence pipeline, security boundaries, and the intelligence signal
+scanner are functional. CI is green on all suites. Remaining work is
+repository truth sync (docs vs code), portfolio-math test coverage,
+and critical-path E2E — none of it blocking.
 
 ## Last Verified Commit
-The current HEAD (run `git log --oneline -1`). Previous reference
-commit was `5cb894f` (Sep 27, 2026); `main` has since moved through
-`f83e168` and the E2E discovery fix.
+Run `git log --oneline -1` for the current HEAD. Recent reference
+commits, most recent first:
+- `85264f6` — fix(intelligence): majors bypass z gate; exclude stables and wrapped tokens
+- `3a456d3` — feat(intelligence): production-grade PRICE_MOVE scanner
+- `df4cb58` — fix(intelligence): baseline relevance for market-wide signals
+- `9f74590` — test(e2e): remove stylesheet readiness probe from overflow tests
 
-## Current Active Tasks
-1. **UI-002 Acceptance** — browser pass on the Dashboard: visual
-   hierarchy, emoji removal, CSP console cleanliness, mobile/responsive
-   layout, keyboard navigation, focus states, touch-target sizing,
-   loading and error states. Feature-complete; acceptance not done.
-2. **PR #21 Reconciliation** — `feat/drawer-provenance` currently points
-   at the recovery commit `f83e168`. The original provenance work is at
-   `e4428b5`. Decide: close as superseded, or restore the branch and
-   rebase against current `main`.
-3. **Documentation hygiene** — README still names CoinGecko as the
-   primary market-data provider. The code uses CoinLore → CoinPaprika
-   → Coinbase (fallback). Correct the provider story in README and
-   any lingering doc references.
+CI: `Run Test and Build (36416209168)` — success.
 
-## Recently Completed (since last sync)
-- **CI Expansion** — `.github/workflows/test-and-build.yml` now runs
-  root `test:unit`, `test:integration`, `test:security`, Worker tests,
-  and Playwright E2E. No further gating work required.
-- **Playwright test discovery fix** — `playwright.config.js` pointed at
-  `./tests/e2e` (one file, three tests). Consolidated to `./test/e2e`
-  (four files, eleven tests). Three spec files were silently skipped
-  on every previous CI run.
-- **Broken merge recovery** — `5001479` accidentally merged
-  `feat/drawer-provenance` into `main` with conflict markers in
-  `js/ui/evidence-drawer.js`, `js/features/token-analysis.js`, and
-  `dist/bundle*.js`. Reverted forward via `f83e168`; `main` is clean.
-- **E2E flake fix** — `weaver.spec.js` was selecting the wrong `+ Add`
-  button (`has-text("+ Add")` matched `+ Add to Watchlist` earlier in
-  the DOM). Fixed with an anchored accessible-name regex. All eleven
-  tests pass on CI (run 36394740700).
+## Provider Chain (verified against `js/api/prices.js`)
+CoinLore → PRIMARY (tickers)
+CoinBase → SECONDARY
+CoinPaprika → TERTIARY (chart / search / trending / coin detail)
+data/*.json → last resort, refreshed by .github/workflows/data.yml
 
-## Resolved Issues (previously listed)
-- Evidence Drawer unit test regressions: resolved.
-- Market-data provider divergence between live app and CI snapshot
-  pipeline: resolved (CoinLore → CoinPaprika chain in both).
-- Solana RPC CORS and 403 errors: resolved via Worker proxy + Helius
-  key injection.
+Note: the module banner at `js/api/prices.js:988` reads
+`CoinLore → CoinBase → CoinPaprika → Cache` and matches the code.
+
+## Recently Completed
+- **PRICE_MOVE scanner v6** — tiered thresholds (3% major / 6% mid /
+  12% small), cross-sectional z gate bypassed for majors, volume
+  confirmation, stable/wrapped symbol exclusions, composite score.
+  Produces real signals from real market data.
+- **Empty-profile signals fix** — market-wide signals carry baseline
+  relevance; regime shifts and major-cap price moves surface for
+  users with no holdings. `W.decisionEngine._internal.isMarketWide()`
+  is the canonical predicate.
+- **PR #21** — merged. Provenance rendering at
+  `js/ui/evidence-drawer.js:237`. `feat/drawer-provenance` deleted.
+- **README cleanup** — provider chain corrected; test counts updated.
+- **Chart precision fix** — `fmtChartPrice()` in
+  `js/features/explorer.js`.
+- **CI Expansion** — `.github/workflows/test-and-build.yml` runs
+  unit (538), integration (28), security (16), Worker, and
+  Playwright E2E (30).
+- **Playwright discovery fix** — `testDir` corrected to `./test/e2e`.
+- **Root-level `workflows` file removed** — was a CoinGecko-era
+  duplicate of `.github/workflows/data.yml`.
+
+## Active Focus
+1. **Portfolio accounting tests** — weighted-average cost basis,
+   partial sells, realized/unrealized P&L, zero/negative rejection.
+2. **Critical-path E2E** — portfolio add → signal → evidence drawer.
+3. **CSP inline-style cleanup** — ~40 warnings per dashboard render
+   at `bundle.js:302`. Three call sites. Warnings only.
+
+## Known Deferred
+- Snapshot schema still validates against a CoinGecko shape
+  (`SchemaValidationError: CoinGecko global: data must be an object`).
+  Prices work via the fallback patch; the validator is stale.
+- Local CORS: the Worker rejects `http://localhost:8080` with
+  `Access-Control-Allow-Origin: null`, so local Playwright exercises
+  only snapshot fallbacks. Production Pages origin is allowed.
 
 ## Guiding Principle
 > "Source code is truth."
-AI assistance must prioritize the actual state of the repository over
-historical assumptions or outdated documentation.
+AI assistance must prioritize the actual state of the repository
+over historical assumptions or outdated documentation.
