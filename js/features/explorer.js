@@ -14,6 +14,24 @@ W.explorer = (() => {
   let chart = null;
   let chartAbortController = null;
 
+  // Precision-aware price formatter. Default toLocaleString uses
+  // 2 fraction digits, which renders any sub-cent token as $0.00.
+  // Pick the number of digits from the magnitude.
+  function fmtChartPrice(value) {
+    const v = Number(value);
+    if (!Number.isFinite(v)) return "—";
+    if (v === 0) return "$0";
+    const abs = Math.abs(v);
+    if (abs >= 1) return "$" + v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    if (abs >= 0.01) return "$" + v.toLocaleString(undefined, { maximumFractionDigits: 4 });
+    if (abs >= 0.0001) return "$" + v.toLocaleString(undefined, { maximumFractionDigits: 6 });
+    // Below 0.0001, use significant digits so tiny values are not
+    // rounded to zero. 4 sig figs is enough for the tooltip; the
+    // axis falls back to the same function.
+    return "$" + v.toPrecision(4);
+  }
+
+
   // ── Constants ─────────────────────────────────────────
   const MAX_SEARCH_QUERY_LEN = 100;
   const MAX_DESCRIPTION_LEN = 600;
@@ -740,13 +758,7 @@ W.explorer = (() => {
             tooltip: {
               callbacks: {
                 label: (ctx) => {
-                  const v = Number(ctx.parsed.y);
-                  return Number.isFinite(v)
-                    ? "$" +
-                        v.toLocaleString(undefined, {
-                          maximumFractionDigits: 2,
-                        })
-                    : "—";
+                  return fmtChartPrice(ctx.parsed.y);
                 },
               },
             },
@@ -761,7 +773,7 @@ W.explorer = (() => {
                 color: "#9aa3b2",
                 callback: (value) => {
                   const v = Number(value);
-                  return Number.isFinite(v) ? "$" + v.toLocaleString() : "";
+                  return Number.isFinite(v) ? fmtChartPrice(v) : "";
                 },
               },
               grid: { color: "rgba(255,255,255,.05)" },
