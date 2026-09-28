@@ -5,7 +5,7 @@
 window.W = window.W || {};
 
 W.dashboard = (() => {
-  const MODULE_VERSION = "dashboard-v3.4";
+  const MODULE_VERSION = "dashboard-v3.5";
   const MARKET_ROWS_DEFAULT = 10;
   let marketRowsExpanded = false;
 
@@ -46,6 +46,73 @@ W.dashboard = (() => {
     const cls = isUp ? "up" : "down";
     return `<span class="${cls}">${isUp ? "+" : "-"}${W.fmt.money(Math.abs(n))}</span>`;
   };
+
+  // ── Signal drawer opener ─────────────────────────────────
+  // The evidence drawer's open() expects an object with a
+  // `domains` map. The dashboard historically passed a raw
+  // signalId string, which the drawer coerced to {} and rendered
+  // empty. This helper does the decision lookup and builds the
+  // shape the drawer understands.
+  //
+  // Decision-row relationship is derived from recommendedAction:
+  //   ACT       → supporting   (the engine is telling you to act on it)
+  //   EXIT      → contradicting (the engine is telling you to leave)
+  //   REVIEW    → unknown       (worth a look; not a directional call)
+  //   MONITOR   → unknown
+  //   IGNORE    → unknown
+  function openSignalDrawer(signalId, decisions) {
+    if (!signalId || !W.evidenceDrawer?.open) return;
+
+    const decision = Array.isArray(decisions)
+      ? decisions.find((d) => d && d.signalId === signalId)
+      : null;
+
+    if (!decision) {
+      // The signal list moved on between the click-handler bind
+      // and the click. Open an honest empty drawer rather than a
+      // populated-looking lie.
+      try {
+        W.evidenceDrawer.open({
+          explanation: "This signal is no longer in the current decision set.",
+        });
+      } catch (e) {
+        console.warn("[Dashboard] drawer open failed:", e?.message);
+      }
+      return;
+    }
+
+    const action = decision.recommendedAction;
+    const relationship =
+      action === "ACT"
+        ? "supporting"
+        : action === "EXIT"
+          ? "contradicting"
+          : "unknown";
+
+    const reliability = Number.isFinite(decision.assessment?.confidence)
+      ? Math.max(0, Math.min(1, decision.assessment.confidence))
+      : undefined;
+
+    try {
+      W.evidenceDrawer.open({
+        explanation: decision.explanation,
+        methodologyVersion: decision.methodologyVersion,
+        domains: {
+          signal: {
+            status: decision.eligibility || "unknown",
+            relationship,
+            source: decision._signalType || "signal",
+            reliability,
+            reasons: Array.isArray(decision.assessment?.reasoning)
+              ? decision.assessment.reasoning.slice()
+              : [],
+          },
+        },
+      });
+    } catch (e) {
+      console.warn("[Dashboard] drawer open failed:", e?.message);
+    }
+  }
 
   // ── Tape (market strip) ─────────────────────────────────────
   const tapeHTML = (coins) => {
@@ -149,17 +216,6 @@ W.dashboard = (() => {
       : '<span class="text-muted small-text">—</span>';
 
   // ── Logo or letter avatar ───────────────────────────────────
-  //
-  // CoinLore, CoinBase, and CoinPaprika all return image: "" — none
-  // of them publish logo URLs. W.api maintains a static LOGO_MAP for
-  // the twenty-six tokens the app displays most often; the letter
-  // avatar covers every other token and acts as a runtime fallback
-  // if the CDN image fails to load.
-  //
-  // The avatar is deterministic: a symbol always maps to the same
-  // colour slot (hash of the symbol modulo ten). The palette lives
-  // in style.css section 25 (.token-avatar-slot-0 through
-  // .token-avatar-slot-9). No inline style attributes.
   function avatarSlot(sym) {
     let hash = 0;
     for (let i = 0; i < sym.length; i++) {
@@ -168,9 +224,6 @@ W.dashboard = (() => {
     return Math.abs(hash) % 10;
   }
 
-  // Restrict image URLs to the CoinGecko CDN. A hostile value from
-  // any provider cannot inject a javascript: or data: URL into an
-  // img src through this helper.
   function safeImageUrl(u) {
     if (typeof u !== "string" || !u) return null;
     try {
@@ -183,11 +236,6 @@ W.dashboard = (() => {
     }
   }
 
-  // ── Shared avatar markup ────────────────────────────────────
-  // Prefers a real logo when the provider supplied one. Falls back
-  // to the letter monogram when the map has no entry for this
-  // symbol, when the URL fails validation, or when the image fails
-  // to load at runtime (wireAvatarFallbacks handles the last case).
   function avatarMarkup(symbol, imageUrl, extraClass) {
     const sym = String(symbol || "?").toUpperCase();
     const slot = avatarSlot(sym);
@@ -202,12 +250,6 @@ W.dashboard = (() => {
     return `<img class="token-avatar-img${cls}" src="${esc(safe)}" alt="" loading="lazy" decoding="async" width="32" height="32" data-fallback-symbol="${esc(sym)}">`;
   }
 
-  // ── Runtime fallback for failed images ─────────────────────
-  // The <img> above carries data-fallback-symbol. This pass runs
-  // after a table renders and swaps any image that failed to load
-  // with the equivalent letter avatar. Uses
-  // addEventListener('error') rather than an inline onerror=
-  // attribute so the strict CSP remains unaffected.
   function wireAvatarFallbacks(root) {
     if (!root || typeof root.querySelectorAll !== "function") return;
     root.querySelectorAll("img[data-fallback-symbol]").forEach((img) => {
@@ -223,8 +265,6 @@ W.dashboard = (() => {
         span.appendChild(inner);
         if (img.parentNode) img.parentNode.replaceChild(span, img);
       };
-      // The browser may have already fired error before this pass
-      // ran. complete && naturalWidth === 0 identifies that case.
       if (img.complete && img.naturalWidth === 0) {
         swap();
       } else {
@@ -234,14 +274,6 @@ W.dashboard = (() => {
   }
 
   // ── Top-tokens row ──────────────────────────────────────────
-  //
-  // Five columns: rank, identity, price, 24h change, market cap.
-  //
-  // The previous version rendered a sixth column labelled
-  // "Confidence" whose value was computed as `100 - i * 6` — a
-  // positional index with no connection to any measurement. That
-  // was fabricated data on live market prices, and the most
-  // dangerous kind because it looked plausible. Removed in v3.1.
   const tokenRow = (c, i) => {
     if (!c || typeof c !== "object") return "";
     const id = c.id || "unknown";
@@ -320,7 +352,6 @@ W.dashboard = (() => {
       .map((h) => {
         const m = markets.find((c) => c.id === h.coinId) || {};
 
-        // Current price comes ONLY from market data. Never from buyPrice. (§6.3)
         let price = Number.isFinite(m.current_price) ? m.current_price : null;
         let priceStale = false;
 
@@ -331,7 +362,6 @@ W.dashboard = (() => {
           priceCache[h.coinId] &&
           Number.isFinite(priceCache[h.coinId].price)
         ) {
-          // Rate-limited / offline: use last-known-good, explicitly labeled (§3.4)
           price = priceCache[h.coinId].price;
           priceStale = true;
         }
@@ -339,7 +369,6 @@ W.dashboard = (() => {
         const qty = parseFloat(h.qty) || 0;
         const value = price !== null ? price * qty : null;
 
-        // §2.7: unknown cost basis stays null — NEVER 0 (no fabricated P/L)
         let cost = null;
         if (h.wallet) {
           if (
@@ -409,15 +438,6 @@ W.dashboard = (() => {
   }
 
   // ── Holdings table ──────────────────────────────────────────
-  //
-  // Uses the same logo-or-avatar treatment as Top Tokens. The
-  // previous version rendered <img src=""> (broken placeholder)
-  // when no image was available. v3.3 replaced that with the shared
-  // avatarMarkup helper; v3.4 extends it to prefer real logos.
-  //
-  // Two smaller changes from v3.2: the 24h cell now carries
-  // up/down colour, and the P/L cell shows "Set cost basis" rather
-  // than a passive "—" when the cost basis is genuinely unknown.
   const holdingsTable = (rows) => `
     <div class="table-wrap"><table><thead><tr><th>Asset</th><th>Price</th><th>24h</th><th>Qty</th><th>Value</th><th>P/L</th><th></th></tr></thead><tbody>
       ${rows
@@ -779,7 +799,6 @@ W.dashboard = (() => {
           `,
         )
         .join("");
-      // Colour assigned via CSSOM, not an inline style attribute.
       legend.querySelectorAll(".dash-legend-dot").forEach((el) => {
         const c = el.dataset.color;
         if (c) el.style.background = c;
@@ -856,11 +875,6 @@ W.dashboard = (() => {
   }
 
   // ── BTC dominance card ────────────────────────────────────
-  //
-  // Removed in v3.1: the SVG sparkline. It was a hardcoded path
-  // drawn identically on every page load — a §2.7 fabrication. The
-  // current data layer has no historical dominance series. If one is
-  // added later, a real sparkline can be restored here.
   function renderDominance(g) {
     const dom = Number(g?.data?.market_cap_percentage?.btc);
     const change = Number(g?.data?.market_cap_change_percentage_24h_usd);
@@ -966,10 +980,6 @@ W.dashboard = (() => {
   }
 
   // ── Quick actions ─────────────────────────────────────────
-  //
-  // Routes are relative (no leading "#"); the click handler below
-  // prepends it. "Open Evidence" targets /market because that page
-  // is labelled "Signals" in the sidebar — see app.js NAV_GROUPS.
   function renderQuickActions() {
     const actions = [
       { icon: "+", label: "Add Token", route: "/portfolio" },
@@ -1281,22 +1291,14 @@ W.dashboard = (() => {
       </div>
     `;
 
-    // Static interactions
+    // Static interactions. The initial [data-signal-id] handler is a
+    // no-op at this point — the initial render is skeletons and no
+    // signal ids exist. The real handlers are bound below, once the
+    // `decisions` array has resolved.
     view.querySelectorAll("[data-route]").forEach((el) => {
       el.addEventListener("click", () => {
         const route = el.dataset.route;
         if (route) location.hash = "#" + route;
-      });
-    });
-    view.querySelectorAll("[data-signal-id]").forEach((el) => {
-      el.addEventListener("click", () => {
-        const id = el.dataset.signalId;
-        if (!id || !W.evidenceDrawer?.open) return;
-        try {
-          W.evidenceDrawer.open(id);
-        } catch (e) {
-          console.warn("[Dashboard] drawer open failed:", e?.message);
-        }
       });
     });
 
@@ -1365,19 +1367,15 @@ W.dashboard = (() => {
     const alloc = buildAllocation(rows, totals);
     drawAllocationDonut(view, alloc);
 
-    // Recent signals
+    // Recent signals — the click handler now delegates to
+    // openSignalDrawer, which looks up the matching DecisionPriority
+    // in the current render and shapes the object the drawer needs.
     const signalsEl = view.querySelector("#d-signals");
     if (signalsEl) {
       signalsEl.innerHTML = renderSignals(decisions);
       signalsEl.querySelectorAll("[data-signal-id]").forEach((el) => {
         el.addEventListener("click", () => {
-          const id = el.dataset.signalId;
-          if (!id || !W.evidenceDrawer?.open) return;
-          try {
-            W.evidenceDrawer.open(id);
-          } catch (e) {
-            console.warn("[Dashboard] drawer open failed:", e?.message);
-          }
+          openSignalDrawer(el.dataset.signalId, decisions);
         });
       });
     }
@@ -1468,19 +1466,13 @@ W.dashboard = (() => {
         ? renderDominance({ data: g })
         : `<div class="dash-card-title">BTC Dominance</div><div class="dom-value">—</div><div class="dom-delta muted">Source unavailable</div>`;
 
-    // Evidence preview
+    // Evidence preview — delegates to openSignalDrawer.
     const evEl = view.querySelector("#d-evidence");
     if (evEl) {
       evEl.innerHTML = renderEvidencePreview(decisions);
       evEl.querySelectorAll("[data-signal-id]").forEach((el) => {
         el.addEventListener("click", () => {
-          const id = el.dataset.signalId;
-          if (!id || !W.evidenceDrawer?.open) return;
-          try {
-            W.evidenceDrawer.open(id);
-          } catch (e) {
-            console.warn("[Dashboard] drawer open failed:", e?.message);
-          }
+          openSignalDrawer(el.dataset.signalId, decisions);
         });
       });
     }
@@ -1497,19 +1489,13 @@ W.dashboard = (() => {
       });
     }
 
-    // Key insights
+    // Key insights — delegates to openSignalDrawer for signal items.
     const insEl = view.querySelector("#d-insights");
     if (insEl) {
       insEl.innerHTML = renderInsights(decisions, fg, rows, totals);
       insEl.querySelectorAll("[data-signal-id]").forEach((el) => {
         el.addEventListener("click", () => {
-          const id = el.dataset.signalId;
-          if (!id || !W.evidenceDrawer?.open) return;
-          try {
-            W.evidenceDrawer.open(id);
-          } catch (e) {
-            console.warn("[Dashboard] drawer open failed:", e?.message);
-          }
+          openSignalDrawer(el.dataset.signalId, decisions);
         });
       });
       insEl.querySelectorAll("[data-route]").forEach((el) => {
@@ -1599,8 +1585,6 @@ W.dashboard = (() => {
         </div>
       `;
 
-      // §6.4: never record a snapshot while any asset is unpriced —
-      // a failed price run must not become a fake "-100%" crash in history.
       if (totals && W.delta && totals.unpriced === 0) {
         const currentSnapshot = W.delta.getSnapshot();
         if (
@@ -1650,5 +1634,5 @@ W.dashboard = (() => {
 })();
 
 console.log(
-  "[Dashboard] Module loaded (Command Center v3.4: real token logos with letter-avatar fallback).",
+  "[Dashboard] Module loaded (Command Center v3.5: real token logos with letter-avatar fallback; signal drawer passes shaped domains).",
 );
