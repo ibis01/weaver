@@ -382,9 +382,8 @@ describe("Gem Agent — Shield filter correctness (P0)", () => {
   });
 
   // ── Test 13 ───────────────────────────────────────────
-  it("Test 13 — seen candidate with cached high-risk is not notified again", async () => {
+  it("Test 13 — seen candidate is not notified again on second scan", async () => {
     installFetch([mockPair("ethereum", ADDR_A, "SEEN")]);
-
     let notifyCount = 0;
     let thesesCount = 0;
     global.W.tg = {
@@ -398,21 +397,23 @@ describe("Gem Agent — Shield filter correctness (P0)", () => {
         thesesCount++;
       },
     };
+
+    // FIX: Use a LOW risk score so the token is eligible for notification.
+    // High-risk tokens are intentionally excluded from notifications (!isDanger).
     global.W.shield.check = async () => ({
-      riskScore: 80,
-      riskLevel: ["🔴 High identified risk indicators", "high-risk"],
+      riskScore: 10,
+      riskLevel: ["🟢 No identified risk indicators", "no-identified-risk"],
       scoreVersion: "shield-evm-v1",
     });
 
-    // Prime cache via the TTL-aware helper.
     const key = global.W.gems._internal.shieldCacheKey(ADDR_A, "ethereum");
     global.W.gems._internal.setCachedShield(key, {
-      riskScore: 80,
-      riskLevel: ["🔴 High identified risk indicators", "high-risk"],
+      riskScore: 10,
+      riskLevel: ["🟢 No identified risk indicators", "no-identified-risk"],
       scoreVersion: "shield-evm-v1",
     });
 
-    let root = buildScanDom({ hideRisk: true });
+    let root = buildScanDom({ hideRisk: false });
     await scanAndSettle(root);
     const firstNotify = notifyCount;
     const firstTheses = thesesCount;
@@ -421,16 +422,15 @@ describe("Gem Agent — Shield filter correctness (P0)", () => {
     root.remove();
 
     // Second scan — `seen` should suppress notification/thesis.
-    root = buildScanDom({ hideRisk: true });
+    root = buildScanDom({ hideRisk: false });
     await scanAndSettle(root);
     expect(notifyCount).to.equal(firstNotify);
     expect(thesesCount).to.equal(firstTheses);
-
     root.remove();
+
     global.W.tg = originalTg;
     global.W.theses = originalTheses;
   });
-
   // ── Amendment 7 regression ────────────────────────────
   it("Amendment 7 — cross-chain cache isolation (Ethereum vs Base)", () => {
     const { shieldCacheKey, getCachedShield, setCachedShield } =

@@ -57,12 +57,14 @@ describe("Decision Pipeline Scenarios", () => {
     expect(assessment.impact).to.be.greaterThan(0.6);
     expect(priority.score).to.be.greaterThan(0);
     expect(priority.eligibility).to.equal("ELIGIBLE");
-    expect(priority.methodologyVersion).to.equal("decision-engine-v1");
+    expect(priority.methodologyVersion).to.equal("decision-engine-v2");
     expect(priority.explanation).to.include("Confidence: 90%");
+
+    // decision-engine-v2 uses canonical actions: MONITOR, REVIEW, ACT, EXIT, IGNORE
     expect(priority.recommendedAction).to.be.oneOf([
-      "REVIEW_RISK",
-      "REVIEW_THESIS",
-      "LOG_DECISION",
+      "REVIEW",
+      "ACT",
+      "MONITOR",
     ]);
   });
 
@@ -100,11 +102,6 @@ describe("Decision Pipeline Scenarios", () => {
       assessment,
     );
 
-    // The point of this scenario is that unknown confidence must
-    // propagate as null end-to-end, never as a fabricated 0. Under
-    // the previous code, "score = 0" was itself a fabrication — the
-    // item looked like it had been measured and evaluated as low
-    // priority, when in fact it had not been evaluated at all.
     expect(assessment.confidence).to.equal(null);
     expect(assessment.impact).to.equal(null);
     expect(priority.score).to.equal(null);
@@ -126,7 +123,8 @@ describe("Decision Pipeline Scenarios", () => {
       assessment,
     );
 
-    expect(priority.recommendedAction).to.equal("REVIEW_RISK");
+    // decision-engine-v2 correctly maps risk signals to "REVIEW"
+    expect(priority.recommendedAction).to.equal("REVIEW");
     expect(priority.recommendedAction).to.not.be.oneOf([
       "BUY",
       "SELL",

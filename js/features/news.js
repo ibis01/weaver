@@ -1,11 +1,7 @@
 // ===============================================================
-//                  News Module — Graceful Degradation & CSP Compliant
+//   News Module 
 // ===============================================================
-// §3.4: Never shows blank screen. Shows error state if fetch fails.
-// §2.7: Preserves source attribution for every article.
-// §5.3: Calm visual language, ZERO inline styles.
-// SECURITY: All RSS content escaped before DOM insertion.
-// ===============================================================
+
 
 window.W = window.W || {};
 
@@ -14,27 +10,44 @@ W.news = (() => {
     console.log(`[News] ${msg}`, data || "");
   };
 
-  // ── RSS Feeds ─────────────────────────────────────────────────
-  const FEEDS = [
+  // ── Attribute-safe escaper ─────────────────────────────
+  // Local, always available. Covers all five HTML-significant
+  // characters. Never depends on load order.
+  function esc(v) {
+    if (v == null) return "";
+    const s = String(v);
+    if (!/[&<>"']/.test(s)) return s;
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  // ── Constants ──────────────────────────────────────────
+  const FEEDS = Object.freeze([
     ["CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"],
     ["Cointelegraph", "https://cointelegraph.com/rss"],
     ["Decrypt", "https://decrypt.co/feed"],
-  ];
+  ]);
 
-  // ── Fixed snapshot URLs (used only if live feeds fail) ─────────
-  const SNAPSHOT_URLS = [
+  const SNAPSHOT_URLS = Object.freeze([
     "data/news.json",
     "https://ibis01.github.io/weaver/data/news.json",
-  ];
+  ]);
 
-  // ── Weaver proxy route ─────────────────────────────────────────
-  const PROXIES = [
+  const PROXIES = Object.freeze([
     (u) =>
       `https://weaver-proxy.ibis01-weaver.workers.dev/proxy?url=${encodeURIComponent(u)}`,
-    (u) => u, // Direct fallback (rarely works for RSS due to CORS)
-  ];
+    (u) => u,
+  ]);
 
-  // ── Fetch with proxy fallback ─────────────────────────────────
+  // Render generation counter. A new render() invalidates every
+  // in-flight continuation from a prior call.
+  let _renderGen = 0;
+
+  // ── Fetch with proxy fallback ──────────────────────────
   async function fetchViaProxy(url, asJSON = false) {
     let lastErr = null;
 
@@ -44,10 +57,7 @@ W.news = (() => {
       const timeout = setTimeout(() => controller.abort(), 10000);
 
       try {
-        const requestOptions = {
-          signal: controller.signal,
-          headers: { "User-Agent": "Mozilla/5.0 (compatible; WeaverBot/1.0)" },
-        };
+        const requestOptions = { signal: controller.signal };
 
         const resp = W.requestGuard
           ? await W.requestGuard.fetch(proxyUrl, requestOptions, {
@@ -60,13 +70,10 @@ W.news = (() => {
 
         clearTimeout(timeout);
 
-        if (!resp.ok) {
-          throw new Error(`HTTP ${resp.status}`);
-        }
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
         const text = await resp.text();
 
-        // Guard: if we asked for RSS and got HTML, this proxy failed
         if (
           !asJSON &&
           text.trim().startsWith("<") &&
@@ -89,7 +96,7 @@ W.news = (() => {
     throw lastErr || new Error("All proxies failed");
   }
 
-  // ── Fetch the fixed snapshot directly (no proxy chain) ─────────
+  // ── Fetch the fixed snapshot ───────────────────────────
   async function fetchSnapshot() {
     const embedded = window.__WEAVER_NEWS_SNAPSHOT__;
     if (Array.isArray(embedded) && embedded.length) {
@@ -98,10 +105,18 @@ W.news = (() => {
     }
 
     for (const snapshotUrl of SNAPSHOT_URLS) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
       try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 8000);
-        const resp = await fetch(snapshotUrl, { signal: controller.signal });
+        // Route through requestGuard for consistency with the RSS
+        // path. Falls back to raw fetch if requestGuard is absent.
+        const resp = W.requestGuard
+          ? await W.requestGuard.fetch(
+              snapshotUrl,
+              { signal: controller.signal },
+              { capacity: 4, refillMs: 10000 },
+            )
+          : await fetch(snapshotUrl, { signal: controller.signal });
         clearTimeout(timeout);
 
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -116,6 +131,7 @@ W.news = (() => {
 
         throw new Error("snapshot is empty");
       } catch (e) {
+        clearTimeout(timeout);
         newsLog(`Snapshot failed (${snapshotUrl}): ${e.message}`);
       }
     }
@@ -123,7 +139,22 @@ W.news = (() => {
     return [];
   }
 
-  // ── Parse RSS XML ──────────────────────────────────────────────
+  // ── Strip HTML from a description via DOM parsing ──────
+  // Replaces the regex approach, which is bypassable with
+  // malformed tags. Returns plain text.
+  function stripHtml(raw) {
+    if (typeof raw !== "string" || !raw) return "";
+    let text;
+    try {
+      const doc = new DOMParser().parseFromString(raw, "text/html");
+      text = doc.body ? doc.body.textContent || "" : "";
+    } catch {
+      text = raw.replace(/[<>]/g, "");
+    }
+    return text.replace(/\s+/g, " ").trim();
+  }
+
+  // ── Parse RSS XML ──────────────────────────────────────
   function parseRSS(xml, sourceName) {
     try {
       const parser = new DOMParser();
@@ -133,24 +164,48 @@ W.news = (() => {
         throw new Error("Invalid XML");
       }
 
-      const items = doc.querySelectorAll("item");
+      // Support both RSS <item> and Atom <entry>. Atom is not used
+      // by the current feed list, but a feed can change format
+      // without warning and the module should degrade rather than
+      // return zero articles.
+      let items = doc.querySelectorAll("item");
+      let isAtom = false;
+      if (items.length === 0) {
+        items = doc.querySelectorAll("entry");
+        isAtom = true;
+      }
+
       const articles = [];
 
       items.forEach((item) => {
         const title = item.querySelector("title")?.textContent || "Untitled";
-        const link = item.querySelector("link")?.textContent || "#";
-        const description =
-          item.querySelector("description")?.textContent || "";
-        const pubDate = item.querySelector("pubDate")?.textContent || "";
 
-        // Strip HTML tags that some feeds embed in description
-        const plainDesc = description.replace(/<[^>]+>/g, "").trim();
+        let link = "#";
+        if (isAtom) {
+          // Atom puts the href in an attribute.
+          const linkEl = item.querySelector("link");
+          link = linkEl?.getAttribute("href") || linkEl?.textContent || "#";
+        } else {
+          link = item.querySelector("link")?.textContent || "#";
+        }
+
+        const description =
+          item.querySelector("description")?.textContent ||
+          item.querySelector("summary")?.textContent ||
+          item.querySelector("content")?.textContent ||
+          "";
+
+        const pubDate =
+          item.querySelector("pubDate")?.textContent ||
+          item.querySelector("published")?.textContent ||
+          item.querySelector("updated")?.textContent ||
+          "";
 
         articles.push({
           source: sourceName,
           title,
           link,
-          description: plainDesc,
+          description: stripHtml(description),
           pubDate,
         });
       });
@@ -163,13 +218,16 @@ W.news = (() => {
     }
   }
 
-  // ── Deduplicate and sort articles by date ──────────────────────
+  // ── Deduplicate and sort ───────────────────────────────
   function dedupeAndSort(articles) {
+    if (!Array.isArray(articles)) return [];
     const seen = new Set();
     const unique = [];
 
     for (const a of articles) {
-      const key = a.link || a.title;
+      if (!a || typeof a !== "object") continue;
+      const key = a.link || a.title || "";
+      if (!key) continue;
       if (seen.has(key)) continue;
       seen.add(key);
       unique.push(a);
@@ -178,18 +236,27 @@ W.news = (() => {
     return unique.sort((a, b) => {
       const ta = Date.parse(a.pubDate) || 0;
       const tb = Date.parse(b.pubDate) || 0;
-      return tb - ta; // Newest first
+      return tb - ta;
     });
   }
 
-  // ── Render articles into container (ZERO inline styles) ───────
-  function renderArticles(container, articles) {
-    if (!container) {
-      console.warn("[News] renderArticles: container is null");
-      return;
+  // ── Safe external URL ──────────────────────────────────
+  function safeHref(value) {
+    if (typeof value !== "string" || !value) return "#";
+    try {
+      const url = new URL(value, window.location.href);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return "#";
+      return url.href;
+    } catch {
+      return "#";
     }
+  }
 
-    if (!articles || articles.length === 0) {
+  // ── Render articles ────────────────────────────────────
+  function renderArticles(container, articles) {
+    if (!container) return;
+
+    if (!Array.isArray(articles) || articles.length === 0) {
       container.innerHTML = `
         <div class="card">
           <div class="empty text-center p-24">
@@ -202,21 +269,10 @@ W.news = (() => {
       return;
     }
 
-    const esc = W.fmt?.escapeHTML || ((s) => String(s ?? ""));
-
-    const safeHref = (value) => {
-      try {
-        const url = new URL(String(value || ""), window.location.href);
-        return ["http:", "https:"].includes(url.protocol) ? url.href : "#";
-      } catch {
-        return "#";
-      }
-    };
-
     const formatDate = (dateStr) => {
       if (!dateStr) return "";
       const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return dateStr;
+      if (isNaN(d.getTime())) return "";
       return d.toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
@@ -228,10 +284,11 @@ W.news = (() => {
     const items = articles
       .slice(0, 30)
       .map((a) => {
-        const safeTitle = esc(a.title);
+        const safeTitle = esc(a.title || "Untitled");
         const safeLink = esc(safeHref(a.link));
-        const safeDesc = esc(a.description || "");
-        const safeDate = formatDate(a.pubDate);
+        const rawDesc = typeof a.description === "string" ? a.description : "";
+        const safeDesc = esc(rawDesc.slice(0, 200));
+        const safeDate = esc(formatDate(a.pubDate));
         const safeSource = esc(a.source || "Unknown");
 
         return `
@@ -242,52 +299,59 @@ W.news = (() => {
             </a>
           </h3>
           <p class="muted small mb-8">
-            ${safeDesc ? safeDesc.substring(0, 200) + "…" : ""}
+            ${safeDesc ? safeDesc + "…" : ""}
           </p>
-          <small class="muted">${safeSource} · ${safeDate}</small>
+          <small class="muted">${safeSource}${safeDate ? " · " + safeDate : ""}</small>
         </article>
       `;
       })
       .join("");
 
     container.innerHTML = `<div class="news-list">${items}</div>`;
-    newsLog(`Rendered ${articles.length} articles`);
+    newsLog(`Rendered ${Math.min(articles.length, 30)} articles`);
   }
 
-  // ── Show error state (ZERO inline styles) ─────────────────────
-  function showError(container, message) {
+  // ── Show error state ───────────────────────────────────
+  // v2: takes an onRetry callback instead of inferring a target
+  // from the DOM. The caller (render) captures the correct view
+  // element and closure.
+  function showError(container, message, onRetry) {
     if (!container) return;
+    const safeMessage = esc(
+      message || "We couldn't load the latest news right now.",
+    );
+
     container.innerHTML = `
       <div class="card">
         <div class="empty text-center p-24">
           <div class="empty-icon mb-16">📰</div>
           <h3>News Feed Unavailable</h3>
-          <p class="muted small mt-8 mb-24">${W.fmt?.escapeHTML(message) || "We couldn't load the latest news right now."}</p>
+          <p class="muted small mt-8 mb-24">${safeMessage}</p>
           <button class="btn primary" id="news-retry">Try Again</button>
         </div>
       </div>
     `;
 
     const retryBtn = container.querySelector("#news-retry");
-    if (retryBtn) {
+    if (retryBtn && typeof onRetry === "function") {
       retryBtn.onclick = () => {
         newsLog("Retry clicked");
-        render(container.closest(".app") || document.getElementById("view"));
+        onRetry();
       };
     }
   }
 
-  // ════════════════════════════════════════════════════════════════
-  //         render(view) — called by the router
-  // ════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════
+  // render(view) — called by the router
+  // ═══════════════════════════════════════════════════════
   async function render(view) {
+    if (!view) return;
     newsLog("Render called");
 
-    const routeAtStart = location.hash;
-    const isCurrentRoute = () =>
-      location.hash === routeAtStart && view.dataset.route === "news";
+    const gen = ++_renderGen;
+    const isCurrent = () => gen === _renderGen;
 
-    // 1. Build the page structure
+    // 1. Page structure
     view.innerHTML = `
       <div class="card">
         <h3>📰 Crypto News</h3>
@@ -299,39 +363,39 @@ W.news = (() => {
     `;
 
     const container = view.querySelector("#news-container");
-    if (!container) {
-      console.error("[News] Container not found after rendering");
-      return;
-    }
+    if (!container) return;
 
-    // Show loading state
     container.innerHTML =
       '<div class="loading text-center p-24 muted">Loading news...</div>';
 
+    // Retry closure captures the original view. The old version
+    // passed container.closest(".app") to render(), which wiped
+    // the app shell.
+    const retry = () => render(view);
+
     try {
-      // 2. Try embedded snapshot first
-      const embeddedSnapshot = dedupeAndSort(
-        window.__WEAVER_NEWS_SNAPSHOT__ || [],
-      );
+      // 2. Embedded snapshot
+      const embeddedRaw = window.__WEAVER_NEWS_SNAPSHOT__ || [];
+      const embeddedSnapshot = dedupeAndSort(embeddedRaw);
 
       if (embeddedSnapshot.length) {
+        if (!isCurrent()) return;
         newsLog(`Using ${embeddedSnapshot.length} embedded articles`);
-        if (isCurrentRoute()) {
-          renderArticles(container, embeddedSnapshot);
-          W.dataHealth?.mark?.("news", {
-            source: "embedded-snapshot",
-            observedAt: Date.now() - 31 * 60 * 1000,
-            staleAfter: 60 * 60 * 1000,
-          });
-        }
+        renderArticles(container, embeddedSnapshot);
+        W.dataHealth?.mark?.("news", {
+          source: "embedded-snapshot",
+          observedAt: Date.now(),
+          staleAfter: 60 * 60 * 1000,
+        });
         return;
       }
 
-      // 3. Try live feeds in parallel
+      // 3. Live feeds in parallel
       newsLog("Fetching live feeds...");
       const feedPromises = FEEDS.map(async ([name, url]) => {
         try {
           const xml = await fetchViaProxy(url);
+          if (!isCurrent()) return { name, articles: [], error: null };
           const articles = parseRSS(xml, name);
           return { name, articles, error: null };
         } catch (err) {
@@ -341,18 +405,12 @@ W.news = (() => {
       });
 
       const results = await Promise.all(feedPromises);
-
-      if (!isCurrentRoute()) {
-        newsLog("User navigated away, aborting render");
-        return;
-      }
+      if (!isCurrent()) return;
 
       const allArticles = dedupeAndSort(results.flatMap((r) => r.articles));
 
       if (allArticles.length > 0) {
-        newsLog(
-          `Successfully loaded ${allArticles.length} articles from live feeds`,
-        );
+        newsLog(`Successfully loaded ${allArticles.length} articles`);
         W.dataHealth?.mark?.("news", {
           source: "rss",
           observedAt: Date.now(),
@@ -362,17 +420,16 @@ W.news = (() => {
         return;
       }
 
-      // 4. All live feeds failed, try snapshot
+      // 4. Snapshot fallback
       newsLog("Live feeds failed, trying snapshot...");
-      const snapshot = await fetchSnapshot();
-
-      if (!isCurrentRoute()) return;
+      const snapshot = dedupeAndSort(await fetchSnapshot());
+      if (!isCurrent()) return;
 
       if (snapshot.length) {
         newsLog(`Using ${snapshot.length} snapshot articles`);
         W.dataHealth?.mark?.("news", {
           source: "snapshot",
-          observedAt: Date.now() - 31 * 60 * 1000,
+          observedAt: Date.now(),
           staleAfter: 60 * 60 * 1000,
         });
         renderArticles(container, snapshot);
@@ -384,14 +441,20 @@ W.news = (() => {
       showError(
         container,
         "All news sources are currently unavailable. Please try again later.",
+        retry,
       );
     } catch (err) {
+      if (!isCurrent()) return;
       console.error("[News] Render error:", err);
-      showError(container, err.message || "An unexpected error occurred");
+      showError(
+        container,
+        err && err.message ? err.message : "An unexpected error occurred",
+        retry,
+      );
     }
   }
 
   return { render };
 })();
 
-console.log("[News] Module loaded (Graceful Degradation & CSP Compliant).");
+console.log("[News] Module loaded v2 (graceful degradation, CSP compliant).");

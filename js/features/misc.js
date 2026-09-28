@@ -1,84 +1,15 @@
 // ================================================================
-// js/features/misc.js – Miscellaneous Features (misc-v3)
+//  Miscellaneous Features 
 // ================================================================
-// Constitution compliance:
-//   §2.6  Privacy: sensitive fields are encrypted via W.secureSession
-//         and never appear in plain backups. The JSON export filters
-//         the settings object to a known non-sensitive schema before
-//         serialising.
-//   §2.7  No fabricated data: missing numeric fields render "—", the
-//         tax CSV writes empty cells rather than invented zeros.
-//   §3.4  Graceful degradation: every section renders inside its own
-//         try/catch. One broken section cannot take down the page.
-//   §3.7  Deterministic: all validation is regex + Number.isFinite +
-//         whitelist membership. No eval, no Function constructor.
-//   §3.8  Versioned: MODULE_VERSION exported; store version tracked.
-//
-// v2 changelog:
-//   - esc() replaced escapeHTML. The old helper left quotes
-//     unescaped, so every value="..." attribute in renderSettings
-//     was an XSS vector. (AI url/key/model, Telegram token/chat,
-//     Sentry DSN.)
-//   - Defi: proto/amount/apy validated at ingest and escaped at
-//     render.
-//   - Tax CSV: formula-injection defence (= + - @ TAB CR prefix) and
-//     RFC 4180 quoting.
-//   - Every store read type-guarded.
-//   - Settings: silent-delete path closed.
-//   - Export Backup: added whale_alerts, wallet_cost_basis, defi,
-//     airdrops.
-//
-// v3 changelog:
-//   - Prototype-pollution guard: importBackup() rejects the reserved
-//     keys __proto__, constructor, prototype. JSON.parse is safe on
-//     its own; the danger is W.store.set(k, v) where k is attacker
-//     controlled.
-//   - Sensitive-data redaction: JSON export filters settings to
-//     { currency, refresh, sentryDsn } explicitly. Even if the
-//     stored object somehow carries an AI key or Telegram token
-//     (legacy data, a bug in another module), it cannot reach the
-//     downloaded file. The encrypted settings blob is deliberately
-//     excluded; the user can re-enter keys on the new device.
-//   - Deep-freeze on DEFS and PRO_FEATURES. Monkey-patching
-//     W.achievements.DEFS.0.name after load no longer changes the
-//     achievement toast content.
-//   - Defensive copies from earned() and the public API. Callers can
-//     mutate the returned object freely without corrupting state.
-//   - Re-entrancy guard on Settings. Two rapid Save clicks now
-//     collapse into one operation; async passphrase prompts use a
-//     generation counter so a stale render cannot clobber a fresh
-//     view.
-//   - Input canonicalisation: NFC normalisation on every text field
-//     before validation. Defeats homoglyph attacks (Cyrillic "а" vs
-//     ASCII "a"). Control characters other than \t are stripped.
-//   - Blob URL revocation after download click. Previously leaked a
-//     URL object per export.
-//   - Achievement toasts batch: at most one toast per check() call
-//     even when several fire at once.
-//   - Defi positions capped at 500 (LRU eviction by insertion order).
-//   - Airdrop done-map re-normalised on every read AND write.
-//   - Sentry DSN validation tightened: must parse as URL, https:,
-//     host ends with .sentry.io (or is a custom domain explicitly
-//     allowed by the user pasting a valid https URL).
-//   - Store version tracked via W.store key "misc_version". A future
-//     migration has a pivot.
-//   - All DOM lookups use querySelector with literal strings. No
-//     dynamic selector construction, so no CSS-injection surface.
-// ================================================================
+
 
 window.W = window.W || {};
 
-// ── Module-level versioning ────────────────────────────────
-const MISC_VERSION = "misc-v3";
-const MISC_STORE_VERSION = 3;
+const MISC_VERSION = "misc-v5";
+const MISC_STORE_VERSION = 5;
 
-// ── Shared helpers (set once, never mutated) ───────────────
+// ── Shared helpers ─────────────────────────────────────────
 (function installHelpers() {
-  // Attribute-safe escaping. Safe in text content AND in a
-  // double-quoted or single-quoted attribute context. This is
-  // deliberately not the `div.textContent = x; return div.innerHTML`
-  // trick — that leaves " and ' untouched because they do not need
-  // escaping in text content, but they absolutely do in an attribute.
   function esc(v) {
     if (v == null) return "";
     return String(v)
@@ -95,8 +26,6 @@ const MISC_STORE_VERSION = 3;
     enumerable: true,
   });
 
-  // Type-guarded store reads. Returns `[]` or `{}` unless the
-  // stored value is exactly the expected shape. Never throws.
   function storeArray(key) {
     try {
       const v = W.store?.get?.(key, null);
@@ -124,22 +53,74 @@ const MISC_STORE_VERSION = 3;
     configurable: false,
   });
 
-  // Canonicalise a text input: NFC normalise, strip control chars
-  // except \t, trim, truncate.
+  function safeStoreSet(key, value) {
+    try {
+      W.store?.set?.(key, value);
+      return true;
+    } catch (e) {
+      const msg = e && e.message ? String(e.message) : "unknown";
+      if (/quota/i.test(msg)) {
+        try {
+          W.ui?.toast?.(
+            "Storage full — remove some data to continue.",
+            "warn",
+            6000,
+          );
+        } catch {
+          /* toast failure is non-fatal */
+        }
+      } else {
+        console.warn("[Misc] Store write failed for", key, msg);
+      }
+      return false;
+    }
+  }
+  Object.defineProperty(W, "miscStoreSet", {
+    value: safeStoreSet,
+    writable: false,
+    configurable: false,
+  });
+
+  function safeStoreDelete(key) {
+    try {
+      W.store?.delete?.(key);
+      return true;
+    } catch (e) {
+      console.warn("[Misc] Store delete failed for", key, e && e.message);
+      return false;
+    }
+  }
+  Object.defineProperty(W, "miscStoreDelete", {
+    value: safeStoreDelete,
+    writable: false,
+    configurable: false,
+  });
+
+  function safeSessionGet(key) {
+    try {
+      return W.secureSession?.get?.(key) || null;
+    } catch (e) {
+      console.warn("[Misc] secureSession read failed for", key, e && e.message);
+      return null;
+    }
+  }
+  Object.defineProperty(W, "miscSessionGet", {
+    value: safeSessionGet,
+    writable: false,
+    configurable: false,
+  });
+
   function canonText(v, maxLen) {
     if (v == null) return "";
     let s = String(v);
     try {
       s = s.normalize("NFC");
     } catch {
-      /* very old engines — fall through */
+      /* very old engines */
     }
-    // Strip C0 and C1 control chars, plus DEL, except tab (\u0009).
     s = s.replace(/[\u0000-\u0008\u000A-\u001F\u007F-\u009F]/g, "");
     s = s.trim();
-    if (typeof maxLen === "number" && s.length > maxLen) {
-      s = s.slice(0, maxLen);
-    }
+    if (typeof maxLen === "number" && s.length > maxLen) s = s.slice(0, maxLen);
     return s;
   }
   Object.defineProperty(W, "miscCanonText", {
@@ -148,7 +129,6 @@ const MISC_STORE_VERSION = 3;
     configurable: false,
   });
 
-  // Deep-freeze helper. Recursively freezes plain objects and arrays.
   function deepFreeze(obj, seen) {
     if (obj == null || typeof obj !== "object") return obj;
     seen = seen || new WeakSet();
@@ -171,10 +151,6 @@ const MISC_STORE_VERSION = 3;
     configurable: false,
   });
 
-  // Reserved keys that would poison Object.prototype if written into
-  // a plain object. These are safe to receive in a JSON.parse result
-  // because JSON.parse creates null-prototype-free plain objects,
-  // but UNSAFE to assign into a live object via `obj[k] = v`.
   function isReservedKey(k) {
     return k === "__proto__" || k === "constructor" || k === "prototype";
   }
@@ -184,12 +160,10 @@ const MISC_STORE_VERSION = 3;
     configurable: false,
   });
 
-  // Record the store schema version once per load. Future migrations
-  // read this to decide what transformations to apply.
   try {
     const cur = W.store?.get?.("misc_version", null);
     if (cur !== MISC_STORE_VERSION) {
-      W.store?.set?.("misc_version", MISC_STORE_VERSION);
+      W.miscStoreSet("misc_version", MISC_STORE_VERSION);
     }
   } catch {
     /* non-fatal */
@@ -198,7 +172,6 @@ const MISC_STORE_VERSION = 3;
 
 // ── Achievements Module ───────────────────────────────────
 W.achievements = (() => {
-  // Frozen. Monkey-patching DEFS after load has no effect.
   const DEFS = W.miscDeepFreeze([
     {
       id: "first-coin",
@@ -262,12 +235,17 @@ W.achievements = (() => {
       desc: "Save 5 articles to your Reading List",
       test: () => W.miscStoreArray("news-saved").length >= 5,
     },
+    // v5: test both keys. If the whale tracker writes to either one,
+    // the achievement fires. Removing this ambiguity means the
+    // achievement matches whichever module the app actually ships.
     {
       id: "whale",
       icon: "🐋",
       name: "Whale Watcher",
       desc: "Track a whale wallet",
-      test: () => W.miscStoreArray("whale-wallets").length >= 1,
+      test: () =>
+        W.miscStoreArray("whale-wallets").length >= 1 ||
+        W.miscStoreArray("whale_alerts").length >= 1,
     },
     {
       id: "optimizer",
@@ -278,45 +256,43 @@ W.achievements = (() => {
     },
   ]);
 
-  // Internal state. Never returned directly; always cloned.
   const _internal = W.miscStoreObject("achievements");
 
   function earned() {
-    // Defensive copy. A caller mutating the return value cannot
-    // affect the module's view of earned achievements.
-    return Object.assign({}, _internal);
+    const out = Object.create(null);
+    for (const k of Object.keys(_internal)) {
+      if (W.miscIsReservedKey(k)) continue;
+      if (!/^[a-z][a-z0-9-]{0,63}$/.test(k)) continue;
+      const v = Number(_internal[k]);
+      if (Number.isFinite(v) && v > 0) out[k] = v;
+    }
+    return out;
   }
 
   function save(e) {
     if (!e || typeof e !== "object" || Array.isArray(e)) return;
-    // Copy only string keys with finite-number values. This rejects
-    // prototype-polluting keys and anything with a non-timestamp
-    // value.
     const clean = Object.create(null);
     for (const k of Object.keys(e)) {
       if (W.miscIsReservedKey(k)) continue;
       if (!/^[a-z][a-z0-9-]{0,63}$/.test(k)) continue;
       const v = Number(e[k]);
-      if (Number.isFinite(v) && v > 0) {
-        clean[k] = v;
-      }
+      if (Number.isFinite(v) && v > 0) clean[k] = v;
     }
-    W.store?.set?.("achievements", clean);
-    // Merge back into the internal state.
-    for (const k of Object.keys(clean)) _internal[k] = clean[k];
+    W.miscStoreSet("achievements", clean);
+    for (const k of Object.keys(clean)) {
+      if (!W.miscIsReservedKey(k)) _internal[k] = clean[k];
+    }
   }
 
   function check() {
-    const snapshot = Object.assign({}, _internal);
+    const snapshot = earned();
     const unlocked = [];
-
     for (const d of DEFS) {
       if (snapshot[d.id]) continue;
       let hit = false;
       try {
         hit = d.test() === true;
       } catch {
-        // A broken predicate disables only itself.
         hit = false;
       }
       if (hit) {
@@ -324,14 +300,8 @@ W.achievements = (() => {
         unlocked.push(d);
       }
     }
-
     if (!unlocked.length) return earned();
-
     save(snapshot);
-
-    // Batch toast: at most one toast per check() call. Individual
-    // toasts for each achievement would let a burst of state changes
-    // flood the UI.
     try {
       if (unlocked.length === 1) {
         const safeName = W.miscEsc(String(unlocked[0].name || ""));
@@ -353,16 +323,10 @@ W.achievements = (() => {
     } catch {
       /* toast failure is non-fatal */
     }
-
     return earned();
   }
 
-  return W.miscDeepFreeze({
-    DEFS,
-    earned,
-    save,
-    check,
-  });
+  return W.miscDeepFreeze({ DEFS, earned, save, check });
 })();
 
 // ── Misc UI ──────────────────────────────────────────────
@@ -370,7 +334,6 @@ W.misc = (() => {
   const esc = W.miscEsc;
   const canonText = W.miscCanonText;
 
-  // ── Input limits ─────────────────────────────────────
   const LIMITS = Object.freeze({
     proto: 64,
     amount: 32,
@@ -384,29 +347,59 @@ W.misc = (() => {
     maxDefiPositions: 500,
   });
 
-  // ── Re-entrancy guards ───────────────────────────────
-  // A module-level generation counter. Every top-level render()
-  // call bumps it. Any async continuation checks the counter before
-  // touching the DOM; a stale render silently aborts.
-  let _renderGen = 0;
+  // ── Shared key lists ──────────────────────────────────
+  // Single source of truth for what gets exported and imported.
+  // Both `whale_alerts` and `whale-wallets` are included so the
+  // backup covers whichever key the whale tracker module uses.
+  const ARRAY_KEYS = Object.freeze([
+    "portfolio",
+    "transactions",
+    "watchlist",
+    "alerts",
+    "news-read",
+    "news-saved",
+    "whale_alerts",
+    "whale-wallets",
+    "defi",
+  ]);
+  const OBJECT_KEYS = Object.freeze([
+    "learn",
+    "achievements",
+    "wallet_cost_basis",
+    "airdrops",
+  ]);
 
-  // Prevents two rapid clicks on the same submit button from
-  // launching overlapping operations (double Save, double Test).
+  let _renderGen = 0;
   let _saving = false;
   let _testing = false;
 
-  // Once the user declines a passphrase prompt in Settings, do not
-  // prompt again in the same settings session. They can still click
-  // "Unlock Keys" to trigger it.
-  let _settingsPromptDeclined = false;
+  // v5: passphrase-declined flag persisted in sessionStorage so the
+  // auto-prompt does not reappear on every navigation. Cleared when
+  // the tab closes. Explicit Unlock/Lock clicks override it.
+  const PROMPT_DECLINED_KEY = "misc_settings_prompt_declined";
+
+  function isPromptDeclined() {
+    try {
+      return sessionStorage.getItem(PROMPT_DECLINED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  function setPromptDeclined(v) {
+    try {
+      if (v) sessionStorage.setItem(PROMPT_DECLINED_KEY, "1");
+      else sessionStorage.removeItem(PROMPT_DECLINED_KEY);
+    } catch {
+      /* storage unavailable; prompt shows every time, which is
+                 the safest default for that environment */
+    }
+  }
 
   // ── Defi ─────────────────────────────────────────────
   const DEFI_KEY = "defi";
   const DEFI_TYPES = Object.freeze(["Staking", "Yield", "Farming", "LP"]);
   const DEFI_TYPES_SET = new Set(DEFI_TYPES);
-  // Conservative charset: word chars, space, dot, dash, underscore,
-  // parentheses, ampersand, forward slash. Deliberately excludes
-  // quotes, angle brackets, backticks, semicolons.
   const DEFI_PROTO_RE = /^[\w .\-()&/]{1,64}$/;
 
   function defiList() {
@@ -429,8 +422,6 @@ W.misc = (() => {
   }
 
   function defiWrite(list) {
-    // Re-validate every record on write. If a caller bypassed the
-    // form and pushed bad data, it never reaches storage.
     const clean = [];
     for (const d of list) {
       if (!d || typeof d !== "object") continue;
@@ -445,9 +436,8 @@ W.misc = (() => {
       }
       clean.push({ proto: d.proto, type: d.type, amount: amt, apy });
     }
-    // LRU cap: keep the most recently added N.
     const capped = clean.slice(-LIMITS.maxDefiPositions);
-    W.store?.set?.(DEFI_KEY, capped);
+    W.miscStoreSet(DEFI_KEY, capped);
     return capped;
   }
 
@@ -459,7 +449,18 @@ W.misc = (() => {
     const streakSafe = Number.isFinite(streakN) && streakN > 0 ? streakN : 1;
     const holdings = W.portfolio?.all?.() || [];
     const txs = W.portfolio?.txs?.() || [];
-    const alerts = W.miscStoreArray("alerts");
+
+    let alertsCount = 0;
+    try {
+      if (W.alerts && typeof W.alerts.list === "function") {
+        alertsCount = W.alerts.list().length;
+      } else {
+        alertsCount = W.miscStoreArray("alerts").length;
+      }
+    } catch {
+      alertsCount = W.miscStoreArray("alerts").length;
+    }
+
     const readCount = W.miscStoreArray("news-read").length;
     const earnedCount = Object.keys(e).length;
     const totalDefs = W.achievements.DEFS.length;
@@ -484,7 +485,7 @@ W.misc = (() => {
         </div>
         <div class="card stat">
           <div class="stat-label">Alerts</div>
-          <div class="stat-big">${esc(alerts.length)}</div>
+          <div class="stat-big">${esc(alertsCount)}</div>
         </div>
         <div class="card stat">
           <div class="stat-label">Articles Read</div>
@@ -652,9 +653,7 @@ W.misc = (() => {
   }
 
   function airdropWrite(done) {
-    // Re-normalise on write too. Even if a caller passes junk, only
-    // the whitelisted integer shape reaches storage.
-    const safe = {};
+    const safe = Object.create(null);
     for (const d of DROPS) {
       const arr = done?.[d.id];
       safe[d.id] = Array.isArray(arr)
@@ -663,7 +662,7 @@ W.misc = (() => {
             .filter((v) => Number.isInteger(v) && v >= 0 && v < d.tasks.length)
         : [];
     }
-    W.store?.set?.("airdrops", safe);
+    W.miscStoreSet("airdrops", safe);
     return safe;
   }
 
@@ -716,6 +715,22 @@ W.misc = (() => {
       if (Number.isFinite(w)) el.style.width = `${w}%`;
     });
 
+    function updateProgress(dropId) {
+      const dropDef = DROPS.find((x) => x.id === dropId);
+      if (!dropDef) return;
+      const done = airdropDone();
+      const dk = done[dropId] || [];
+      const pct =
+        dropDef.tasks.length > 0
+          ? Math.max(0, Math.min(100, (dk.length / dropDef.tasks.length) * 100))
+          : 0;
+      const bar = view
+        .querySelector(`input[data-drop="${CSS.escape(dropId)}"]`)
+        ?.closest(".card")
+        ?.querySelector("[data-width]");
+      if (bar) bar.style.width = `${pct.toFixed(1)}%`;
+    }
+
     view.querySelectorAll('input[type="checkbox"][data-drop]').forEach((cb) => {
       cb.onchange = () => {
         const dropId = cb.dataset.drop;
@@ -726,16 +741,15 @@ W.misc = (() => {
           !Number.isInteger(taskIdx) ||
           taskIdx < 0 ||
           taskIdx >= dropDef.tasks.length
-        ) {
+        )
           return;
-        }
         const done = airdropDone();
         const set = new Set(done[dropId] || []);
         if (cb.checked) set.add(taskIdx);
         else set.delete(taskIdx);
         done[dropId] = [...set].sort((a, b) => a - b);
         airdropWrite(done);
-        renderAirdrops(view);
+        updateProgress(dropId);
       };
     });
   }
@@ -775,7 +789,6 @@ W.misc = (() => {
         ).join("")}
       </div>
     `;
-
     const waitlistBtn = view.querySelector('[data-action="join-waitlist"]');
     if (waitlistBtn) {
       waitlistBtn.onclick = () =>
@@ -803,13 +816,8 @@ W.misc = (() => {
   }
 
   // ── Sentry DSN validation ──────────────────────────────
-  // A well-formed Sentry DSN is https://<key>@<org>.ingest.sentry.io/<proj>.
-  // Self-hosted Sentry uses a different host, so we cannot demand a
-  // specific suffix. We do demand: parseable URL, https, has a public
-  // key (userinfo), and a path. That rejects every common typo and
-  // every javascript:/data: attempt.
   function isValidDsn(v) {
-    if (!v) return true; // blank is allowed (feature disabled)
+    if (!v) return true;
     if (typeof v !== "string" || v.length > LIMITS.sentryDsn) return false;
     let u;
     try {
@@ -827,13 +835,14 @@ W.misc = (() => {
   // ── Settings ────────────────────────────────────────────
   async function renderSettings(view, opts = {}) {
     const gen = ++_renderGen;
-    const skipPrompt = opts.skipPrompt === true || _settingsPromptDeclined;
+    // v5: decline state now persists across page reloads via
+    // sessionStorage. Explicit clicks still override it.
+    const skipPrompt = opts.skipPrompt === true || isPromptDeclined();
 
-    let settings = W.miscStoreObject("settings");
+    const settings = W.miscStoreObject("settings");
     let sensitive = null;
     let wasUnlocked = false;
 
-    // Coerce non-sensitive settings into safe types.
     const currencyRaw = String(settings.currency || "usd").toLowerCase();
     const currency = ["usd", "eur", "gbp", "inr", "jpy", "aud", "cad"].includes(
       currencyRaw,
@@ -848,19 +857,24 @@ W.misc = (() => {
       ? String(settings.sentryDsn || "").slice(0, LIMITS.sentryDsn)
       : "";
 
-    const encryptedBlob = W.store?.get?.("encrypted_settings", null);
+    let encryptedBlob = null;
+    try {
+      encryptedBlob = W.store?.get?.("encrypted_settings", null);
+    } catch (e) {
+      console.warn("[Misc] Encrypted settings read failed:", e && e.message);
+    }
+
     if (encryptedBlob) {
       if (W.secureSession?.isUnlocked?.()) {
         wasUnlocked = true;
         sensitive = {
-          ai: W.secureSession.get("ai") || {},
-          telegram: W.secureSession.get("telegram") || {},
+          ai: W.miscSessionGet("ai") || {},
+          telegram: W.miscSessionGet("telegram") || {},
         };
         settings.ai = sensitive.ai;
         settings.telegram = sensitive.telegram;
       } else if (!skipPrompt) {
         const passphrase = await getPassphrase();
-        // If the view was replaced while awaiting the prompt, abort.
         if (gen !== _renderGen || !view.isConnected) return;
         if (passphrase) {
           try {
@@ -869,6 +883,9 @@ W.misc = (() => {
             wasUnlocked = true;
             settings.ai = sensitive.ai || {};
             settings.telegram = sensitive.telegram || {};
+            // v5: user actively unlocked; clear the declined flag so
+            // the auto-prompt resumes on a future lock.
+            setPromptDeclined(false);
           } catch (e) {
             W.ui?.toast?.(
               "Incorrect passphrase or corrupted data. API keys will not be shown.",
@@ -878,7 +895,8 @@ W.misc = (() => {
             settings.telegram = { on: false, token: "", chat: "" };
           }
         } else {
-          _settingsPromptDeclined = true;
+          // v5: persist the decline across navigations and reloads.
+          setPromptDeclined(true);
           settings.ai = { url: "", key: "", model: "" };
           settings.telegram = { on: false, token: "", chat: "" };
         }
@@ -1013,18 +1031,15 @@ W.misc = (() => {
           refresh: refreshVal,
           sentryDsn: dsnRaw,
         };
-        W.store?.set?.("sentry_dsn", nonSensitive.sentryDsn);
 
         if (hasSensitive) {
           let passphrase = W.secureSession?.getPassphrase?.();
           if (!passphrase) {
             passphrase = await getPassphrase(true);
-            // Render was replaced while we were prompting.
             if (gen !== _renderGen || !view.isConnected) return;
           }
           if (!passphrase) {
-            // Preserve encrypted blob. Only save non-sensitive.
-            W.store?.set?.("settings", nonSensitive);
+            W.miscStoreSet("settings", nonSensitive);
             W.ui?.toast?.(
               "Non-sensitive settings saved. Passphrase required to update API keys.",
               "info",
@@ -1038,21 +1053,24 @@ W.misc = (() => {
               passphrase,
             );
             if (gen !== _renderGen || !view.isConnected) return;
-            W.store?.set?.("settings", nonSensitive);
+            W.miscStoreSet("settings", nonSensitive);
+            // v5: user just actively used a passphrase; make sure the
+            // auto-prompt is allowed again on a future lock.
+            setPromptDeclined(false);
             W.ui?.toast?.("Settings saved (sensitive data encrypted) ✓", "ok");
           } catch (e) {
             W.ui?.toast?.(`Encryption failed: ${e.message}`, "warn");
           }
         } else {
           if (!encryptedBlob) {
-            W.store?.set?.("settings", nonSensitive);
+            W.miscStoreSet("settings", nonSensitive);
             W.ui?.toast?.("Settings saved ✓", "ok");
           } else if (wasUnlocked) {
-            W.store?.delete?.("encrypted_settings");
-            W.store?.set?.("settings", nonSensitive);
+            W.miscStoreDelete("encrypted_settings");
+            W.miscStoreSet("settings", nonSensitive);
             W.ui?.toast?.("Settings saved (encrypted keys removed) ✓", "ok");
           } else {
-            W.store?.set?.("settings", nonSensitive);
+            W.miscStoreSet("settings", nonSensitive);
             W.ui?.toast?.(
               "Non-sensitive settings saved. Encrypted keys preserved.",
               "info",
@@ -1060,7 +1078,7 @@ W.misc = (() => {
           }
         }
         if (gen === _renderGen && view.isConnected) {
-          renderSettings(view, { skipPrompt: _settingsPromptDeclined });
+          renderSettings(view, { skipPrompt: isPromptDeclined() });
         }
       } finally {
         _saving = false;
@@ -1071,7 +1089,8 @@ W.misc = (() => {
 
     // ── Unlock handler ─────────────────────────────────────
     view.querySelector("#set-unlock").onclick = async () => {
-      _settingsPromptDeclined = false; // user explicitly asked
+      // v5: explicit unlock request overrides any prior decline.
+      setPromptDeclined(false);
       const pwd = await getPassphrase(true);
       if (gen !== _renderGen || !view.isConnected) return;
       if (pwd) {
@@ -1086,10 +1105,13 @@ W.misc = (() => {
       }
     };
 
-    // ── Lock handler ─────────────────────────────────────
+    // ── Lock handler ───────────────────────────────────────
     view.querySelector("#set-lock").onclick = () => {
       clearPassphrase();
-      _settingsPromptDeclined = false;
+      // v5: explicit lock is a user instruction to stop being asked.
+      // Set the declined flag so the auto-prompt does not nag until
+      // the user clicks Unlock again.
+      setPromptDeclined(true);
       renderSettings(view, { skipPrompt: true });
       W.ui?.toast?.("Keys locked.", "info");
     };
@@ -1128,16 +1150,8 @@ W.misc = (() => {
       }
     };
 
-    // ── Tax CSV ────────────────────────────────────────────
-    //
-    // RFC 4180 quoting plus formula-injection defence. A cell that
-    // begins with = + - @ TAB CR is prefixed with ' so spreadsheet
-    // apps treat it as text. Commas, quotes, and newlines are then
-    // escaped with the standard double-quote rule.
     function csvCell(v) {
       let s = v == null ? "" : String(v);
-      // Strip control chars except \t and \n (which CSV quoting
-      // handles); C0 controls have no business in a spreadsheet cell.
       s = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
       if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
       if (/[",\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
@@ -1158,8 +1172,6 @@ W.misc = (() => {
         "Total",
       ].join(",");
       const lines = [header];
-      // Cap at 100k rows to bound memory. Realistically the store
-      // cannot hold that many, but the guard costs nothing.
       const limit = Math.min(txs.length, 100000);
       for (let i = 0; i < limit; i++) {
         const t = txs[i];
@@ -1188,7 +1200,6 @@ W.misc = (() => {
           ].join(","),
         );
       }
-      // UTF-8 BOM so Excel auto-detects the encoding.
       const csv = "\uFEFF" + lines.join("\r\n");
       downloadBlob(
         csv,
@@ -1198,51 +1209,18 @@ W.misc = (() => {
       W.ui?.toast?.("Tax report downloaded 🧾", "ok");
     };
 
-    // ── Export Backup ──────────────────────────────────────
     view.querySelector("#set-export").onclick = () => {
-      // Explicit whitelist of what goes into the backup. Adding a key
-      // here is a security decision: it will be written to disk in
-      // plaintext.
-      //
-      // Deliberately EXCLUDED:
-      //   - encrypted_settings: the ciphertext is only useful with
-      //     the user's passphrase, and including it would let an
-      //     accidental backup-share leak the AEAD blob.
-      //   - wallet_sync_data: same reasoning.
-      //   - any key not in the list below.
-      const ARRAY_KEYS = [
-        "portfolio",
-        "transactions",
-        "watchlist",
-        "alerts",
-        "news-read",
-        "news-saved",
-        "whale_alerts",
-        "defi",
-      ];
-      const OBJECT_KEYS = [
-        "learn",
-        "achievements",
-        "wallet_cost_basis",
-        "airdrops",
-      ];
-
+      // v5: uses the shared ARRAY_KEYS / OBJECT_KEYS lists. Both
+      // whale keys are included, so whichever the whale tracker
+      // writes, it lands in the backup.
       const data = {
         version: MISC_VERSION,
         schema: MISC_STORE_VERSION,
         exportedAt: Date.now(),
       };
+      for (const k of ARRAY_KEYS) data[k] = W.miscStoreArray(k);
+      for (const k of OBJECT_KEYS) data[k] = W.miscStoreObject(k);
 
-      for (const k of ARRAY_KEYS) {
-        data[k] = W.miscStoreArray(k);
-      }
-      for (const k of OBJECT_KEYS) {
-        data[k] = W.miscStoreObject(k);
-      }
-
-      // Settings: filter to the non-sensitive schema. Even if the
-      // stored object somehow carries sensitive fields (bug in
-      // another module, a legacy layout), they cannot reach the file.
       const rawSettings = W.miscStoreObject("settings");
       data.settings = {
         currency: String(rawSettings.currency || "usd"),
@@ -1259,7 +1237,6 @@ W.misc = (() => {
       );
     };
 
-    // ── Wipe Data ──────────────────────────────────────────
     view.querySelector("#set-wipe").onclick = () => {
       W.ui?.confirm?.(
         "This deletes ALL Weaver data from this browser. Continue?",
@@ -1271,7 +1248,6 @@ W.misc = (() => {
     };
   }
 
-  // ── Blob download helper (revokes the URL) ────────────
   function downloadBlob(content, mime, filename) {
     const url = URL.createObjectURL(new Blob([content], { type: mime }));
     const a = document.createElement("a");
@@ -1281,16 +1257,10 @@ W.misc = (() => {
     try {
       a.click();
     } finally {
-      // Revoke on next tick so the download has time to start.
       setTimeout(() => URL.revokeObjectURL(url), 0);
     }
   }
 
-  // ── Backup import ─────────────────────────────────────
-  //
-  // Strict per-key validation. Nothing is written unless every
-  // present key passes its guard. Reserved keys are rejected at the
-  // top level to prevent prototype pollution via W.store.set.
   function importBackup(text, mode = "merge") {
     if (typeof text !== "string" || text.length > 10 * 1024 * 1024) {
       return { ok: false, error: "Backup exceeds 10 MB or is not a string" };
@@ -1305,42 +1275,22 @@ W.misc = (() => {
       return { ok: false, error: "Backup is not a JSON object" };
     }
 
-    const ARRAY_KEYS = new Set([
-      "portfolio",
-      "transactions",
-      "watchlist",
-      "alerts",
-      "news-read",
-      "news-saved",
-      "whale_alerts",
-      "defi",
-    ]);
-    const OBJECT_KEYS = new Set([
-      "settings",
-      "learn",
-      "achievements",
-      "wallet_cost_basis",
-      "airdrops",
-    ]);
+    // v5: use the shared key lists so export and import stay in sync.
+    const ARRAY_SET = new Set(ARRAY_KEYS);
+    const OBJECT_SET = new Set(OBJECT_KEYS);
 
-    // Validate every present key first. Any failure aborts the
-    // entire import — nothing is written halfway.
     for (const k of Object.keys(parsed)) {
       if (k === "version" || k === "schema" || k === "exportedAt") continue;
       if (W.miscIsReservedKey(k)) {
         return { ok: false, error: `Reserved key rejected: ${k}` };
       }
-      if (!ARRAY_KEYS.has(k) && !OBJECT_KEYS.has(k)) {
-        // Unknown keys are ignored, not rejected. This allows future
-        // versions to add fields without breaking old importers.
-        continue;
-      }
+      if (!ARRAY_SET.has(k) && !OBJECT_SET.has(k)) continue;
       const v = parsed[k];
-      if (ARRAY_KEYS.has(k) && !Array.isArray(v)) {
+      if (ARRAY_SET.has(k) && !Array.isArray(v)) {
         return { ok: false, error: `Key "${k}" must be an array` };
       }
       if (
-        OBJECT_KEYS.has(k) &&
+        OBJECT_SET.has(k) &&
         (v === null || typeof v !== "object" || Array.isArray(v))
       ) {
         return { ok: false, error: `Key "${k}" must be an object` };
@@ -1348,26 +1298,23 @@ W.misc = (() => {
     }
 
     if (mode === "replace") {
-      for (const k of ARRAY_KEYS) W.store?.delete?.(k);
-      for (const k of OBJECT_KEYS) W.store?.delete?.(k);
+      for (const k of ARRAY_KEYS) W.miscStoreDelete(k);
+      for (const k of OBJECT_KEYS) W.miscStoreDelete(k);
     }
 
     let written = 0;
     for (const k of Object.keys(parsed)) {
       if (k === "version" || k === "schema" || k === "exportedAt") continue;
-      if (!ARRAY_KEYS.has(k) && !OBJECT_KEYS.has(k)) continue;
+      if (!ARRAY_SET.has(k) && !OBJECT_SET.has(k)) continue;
       if (W.miscIsReservedKey(k)) continue;
-      try {
-        W.store?.set?.(k, parsed[k]);
-        written++;
-      } catch (e) {
-        return { ok: false, error: `Write failed for "${k}": ${e.message}` };
+      if (!W.miscStoreSet(k, parsed[k])) {
+        return { ok: false, error: `Write failed for "${k}"` };
       }
+      written++;
     }
     return { ok: true, written };
   }
 
-  // ── Public API ────────────────────────────────────────
   return W.miscDeepFreeze({
     version: MISC_VERSION,
     renderProfile,
@@ -1380,5 +1327,5 @@ W.misc = (() => {
 })();
 
 console.log(
-  `[Misc] Module loaded (${MISC_VERSION}: prototype-safe import, redacted backup, canonicalised inputs, re-entrancy guards, deep-frozen config).`,
+  `[Misc] Module loaded (${MISC_VERSION}: whale-key reconciliation, persistent passphrase-decline).`,
 );

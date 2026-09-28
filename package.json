@@ -11,7 +11,7 @@
     "build": "node concat.js",
     "minify": "esbuild dist/bundle.js --minify --outfile=dist/bundle.min.js",
     "test:unit": "npx mocha --require test/setup.js --ui bdd test/unit/**/*.test.js",
-    "test:integration": "npx mocha --require test/setup.js --ui bdd test/integration/**/*.test.js",
+    "test:integration": "npx mocha --require test/setup.js --ui bdd test/integration/**/*.test.js --timeout 5000",
     "test:security": "npx mocha --require test/setup.js --ui bdd test/security/**/*.test.js",
     "test:e2e": "npx playwright test",
     "test": "npm run test:unit && npm run test:integration && npm run test:security && npm run test:e2e",

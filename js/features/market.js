@@ -1,56 +1,190 @@
 // ================================================================
-// js/features/market.js – Market Overview
+//  Market Overview 
 // ================================================================
 
 window.W = window.W || {};
 
 W.market = (() => {
-  // ── Helpers ──────────────────────────────────────────────
-  // Bucket a percentage to the nearest 10 for the .meter-fill-N
-  // classes in style.css. Kept local so this module has no
-  // dependency on W.ui being fully populated. CSP-safe: width is
-  // set via a class, not an inline style attribute.
+  "use strict";
+
+  const MAX_URL_LEN = 2048;
+  const MAX_NAME_LEN = 100;
+  const MAX_SYMBOL_LEN = 16;
+  const MAX_ID_LEN = 128;
+
+  // ── Attribute-safe escaping ───────────────────────────
+  function esc(v) {
+    if (v === null || v === undefined) return "";
+    const s = String(v);
+    if (!/[&<>"']/.test(s)) return s;
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function safeStr(v, maxLen) {
+    if (v === null || v === undefined) return "";
+    const s = String(v);
+    return maxLen ? s.slice(0, maxLen) : s;
+  }
+
+  function safeNum(v, fallback = null) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  // ── Image URL allowlist ───────────────────────────────
+  const IMG_PLACEHOLDER =
+    "data:image/svg+xml;utf8," +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">' +
+        '<rect width="24" height="24" fill="#2b2d42"/></svg>',
+    );
+
+  function safeImageUrl(u) {
+    if (typeof u !== "string" || !u || u.length > MAX_URL_LEN) {
+      return IMG_PLACEHOLDER;
+    }
+    try {
+      const parsed = new URL(u);
+      if (parsed.protocol !== "https:") return IMG_PLACEHOLDER;
+      return parsed.toString();
+    } catch {
+      return IMG_PLACEHOLDER;
+    }
+  }
+
   function pctBucket(n) {
     const v = Math.max(0, Math.min(100, Math.round(Number(n) || 0)));
     return Math.round(v / 10) * 10;
   }
 
-  // ── Helpers ──────────────────────────────────────────────
-  function escapeHTML(str) {
-    if (!str) return "";
-    const div = document.createElement("div");
-    div.textContent = str;
-    return div.innerHTML;
+  // ── Safe formatter wrappers ───────────────────────────
+  // W.fmt.* behavior on null/undefined is out of scope for this
+  // module. These wrappers guarantee "—" is shown rather than
+  // "NaN", "undefined", or a thrown error.
+  function fmtPrice(v) {
+    if (v === null || v === undefined) return "—";
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    try {
+      return W.fmt.price(n);
+    } catch {
+      return "—";
+    }
+  }
+  function fmtPct(v) {
+    if (v === null || v === undefined) return "—";
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    try {
+      return W.fmt.pct(n);
+    } catch {
+      return "—";
+    }
+  }
+  function fmtMoney(v) {
+    if (v === null || v === undefined) return "—";
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    try {
+      return W.fmt.money(n, { compact: true });
+    } catch {
+      return "—";
+    }
   }
 
-  const card = (label, big, sub) =>
-    `<div class="card stat"><div class="stat-label">${label}</div><div class="stat-big">${big}</div><div class="stat-sub">${sub}</div></div>`;
+  // ── Card helper ───────────────────────────────────────
+  // label, big, sub are all text. If a color class is supplied
+  // for the big value, it is applied via a wrapping span. The
+  // class is esc'd too — the value comes from a fixed enum in
+  // every callsite, but escaping it here means no caller has to
+  // remember which argument is "safe".
+  function card(label, big, sub, bigClass) {
+    const bigOut =
+      bigClass && typeof bigClass === "string"
+        ? '<span class="' + esc(bigClass) + '">' + esc(big) + "</span>"
+        : esc(big);
+    return (
+      '<div class="card stat">' +
+      '<div class="stat-label">' +
+      esc(label) +
+      "</div>" +
+      '<div class="stat-big">' +
+      bigOut +
+      "</div>" +
+      '<div class="stat-sub">' +
+      esc(sub) +
+      "</div>" +
+      "</div>"
+    );
+  }
 
-  const miniTable = (coins) =>
-    `<table class="mini">
-      <tbody>
-        ${coins
-          .map(
-            (c) => `
-          <tr>
-            <td class="coin-cell"><img src="${c.image}" alt="${c.name}"><a class="link" href="#/coin/${c.id}">${c.symbol.toUpperCase()}</a></td>
-            <td>${W.fmt.price(c.current_price)}</td>
-            <td>${W.fmt.pct(c.price_change_percentage_24h_in_currency)}</td>
-          </tr>
-        `,
-          )
-          .join("")}
-      </tbody>
-    </table>`;
+  // ── Row normalizer ────────────────────────────────────
+  function normalizeRow(c) {
+    if (!c || typeof c !== "object") return null;
+    const id = safeStr(c.id, MAX_ID_LEN);
+    if (!id) return null;
+    return {
+      id,
+      symbol: safeStr(c.symbol, MAX_SYMBOL_LEN).toUpperCase(),
+      name: safeStr(c.name, MAX_NAME_LEN),
+      image: safeImageUrl(c.image),
+      current_price: safeNum(c.current_price, null),
+      change24h: safeNum(c.price_change_percentage_24h_in_currency, null),
+      change7d: safeNum(c.price_change_percentage_7d_in_currency, null),
+    };
+  }
 
-  const heatColor = (p) => {
-    const clamped = Math.max(-10, Math.min(10, p)) / 10;
+  // ── Mini table ────────────────────────────────────────
+  function miniTable(rows) {
+    if (!Array.isArray(rows) || !rows.length) {
+      return '<p class="muted small">No data available.</p>';
+    }
+    const trs = rows
+      .map((c) => {
+        const href = "#/coin/" + encodeURIComponent(c.id);
+        return (
+          "<tr>" +
+          '<td class="coin-cell">' +
+          '<img src="' +
+          esc(c.image) +
+          '" alt="' +
+          esc(c.name) +
+          '"' +
+          ' loading="lazy" referrerpolicy="no-referrer">' +
+          '<a class="link" href="' +
+          esc(href) +
+          '">' +
+          esc(c.symbol) +
+          "</a>" +
+          "</td>" +
+          "<td>" +
+          esc(fmtPrice(c.current_price)) +
+          "</td>" +
+          "<td>" +
+          esc(fmtPct(c.change24h)) +
+          "</td>" +
+          "</tr>"
+        );
+      })
+      .join("");
+    return '<table class="mini"><tbody>' + trs + "</tbody></table>";
+  }
+
+  // ── Heat color ────────────────────────────────────────
+  function heatColor(p) {
+    const n = safeNum(p, 0);
+    const clamped = Math.max(-10, Math.min(10, n)) / 10;
     return clamped >= 0
-      ? `rgba(46,230,168,${0.15 + clamped * 0.55})`
-      : `rgba(255,92,122,${0.15 - clamped * 0.55})`;
-  };
+      ? "rgba(46,230,168," + (0.15 + clamped * 0.55).toFixed(3) + ")"
+      : "rgba(255,92,122," + (0.15 - clamped * 0.55).toFixed(3) + ")";
+  }
 
-  // ── Render ──────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────
   async function render(view) {
     if (!view) {
       console.warn("[Market] No view element provided");
@@ -70,103 +204,206 @@ W.market = (() => {
       <div class="card"><h3>🗺️ Market Heatmap (Top 40 · 7d)</h3><div id="m-heat" class="heatmap"></div></div>
     `;
 
+    // ── Global stats ─────────────────────────────────────
     try {
       const [g, fg] = await Promise.all([W.api.global(), W.api.fearGreed()]);
-      const d = g.data;
-      const fgColor =
-        fg.value < 25
-          ? "#ff5c7a"
-          : fg.value < 45
-            ? "#ffb35c"
-            : fg.value < 55
-              ? "#f5d76e"
-              : fg.value < 75
-                ? "#9be15d"
-                : "#2ee6a8";
-      view.querySelector("#m-cards").innerHTML = `
-        ${card(
-          "Fear & Greed Index",
-          `<span class="${fg.value > 50 ? "text-up" : fg.value < 25 ? "text-down" : "text-muted"}">${fg.value}</span>`,
-          fg.value_classification,
-        )}
-        ${card("BTC Dominance", d.market_cap_percentage.btc.toFixed(1) + "%", "of total market cap")}
-        ${card("Total Market Cap", W.fmt.money(d.total_market_cap[W.currency()], { compact: true }), W.fmt.pct(d.market_cap_change_percentage_24h_usd))}
-        ${card("Total Volume (24h)", W.fmt.money(d.total_volume[W.currency()], { compact: true }), "all markets")}
-      `;
+
+      const d = g && g.data ? g.data : {};
+      const fgVal = safeNum(fg && fg.value, null);
+      const fgClass = safeStr(fg && fg.value_classification, 64);
+
+      const btcDom = safeNum(
+        d.market_cap_percentage && d.market_cap_percentage.btc,
+        null,
+      );
+      const btcDomText = btcDom !== null ? btcDom.toFixed(1) + "%" : "—";
+
+      const cur = W.currency();
+      const totalCap =
+        d.total_market_cap && cur ? d.total_market_cap[cur] : null;
+      const totalVol = d.total_volume && cur ? d.total_volume[cur] : null;
+      const capChange = safeNum(d.market_cap_change_percentage_24h_usd, null);
+
+      const fgNumText = fgVal !== null ? String(fgVal) : "—";
+      const fgColorClass =
+        fgVal === null
+          ? "text-muted"
+          : fgVal > 50
+            ? "text-up"
+            : fgVal < 25
+              ? "text-down"
+              : "text-muted";
+
+      const cardsEl = view.querySelector("#m-cards");
+      if (cardsEl) {
+        cardsEl.innerHTML =
+          card("Fear & Greed Index", fgNumText, fgClass || "—", fgColorClass) +
+          card("BTC Dominance", btcDomText, "of total market cap") +
+          card("Total Market Cap", fmtMoney(totalCap), fmtPct(capChange)) +
+          card("Total Volume (24h)", fmtMoney(totalVol), "all markets");
+      }
     } catch (e) {
-      view.querySelector("#m-cards").innerHTML =
-        `<p class="muted">${escapeHTML(e.message)}</p>`;
+      const el = view.querySelector("#m-cards");
+      if (el) {
+        el.innerHTML =
+          '<p class="muted">' + esc(safeStr(e && e.message, 200)) + "</p>";
+      }
     }
 
+    // ── Trending ─────────────────────────────────────────
     try {
       const t = await W.api.trending();
-      view.querySelector("#m-trend").innerHTML = t.coins
-        .map(
-          (x) =>
-            `<a class="trend-chip" href="#/coin/${x.item.id}">
-          <img src="${x.item.small || x.item.thumb}" alt="${x.item.name}">
-          ${escapeHTML(x.item.name)}
-          <span class="muted small">${x.item.symbol}</span>
-        </a>`,
-        )
-        .join("");
+      const items = Array.isArray(t && t.coins) ? t.coins : [];
+
+      const el = view.querySelector("#m-trend");
+      if (!el) return;
+
+      if (!items.length) {
+        el.innerHTML = '<p class="muted small">No trending data available.</p>';
+      } else {
+        el.innerHTML = items
+          .slice(0, 20)
+          .map((x) => {
+            const item = x && x.item ? x.item : {};
+            const id = safeStr(item.id, MAX_ID_LEN);
+            if (!id) return "";
+            const href = "#/coin/" + encodeURIComponent(id);
+            const img = safeImageUrl(item.small || item.thumb);
+            const name = safeStr(item.name, MAX_NAME_LEN);
+            const symbol = safeStr(item.symbol, MAX_SYMBOL_LEN);
+            return (
+              '<a class="trend-chip" href="' +
+              esc(href) +
+              '">' +
+              '<img src="' +
+              esc(img) +
+              '" alt="' +
+              esc(name) +
+              '"' +
+              ' loading="lazy" referrerpolicy="no-referrer">' +
+              esc(name) +
+              ' <span class="muted small">' +
+              esc(symbol) +
+              "</span>" +
+              "</a>"
+            );
+          })
+          .join("");
+      }
     } catch (e) {
-      view.querySelector("#m-trend").innerHTML =
-        `<p class="muted">${escapeHTML(e.message)}</p>`;
+      const el = view.querySelector("#m-trend");
+      if (el) {
+        el.innerHTML =
+          '<p class="muted">' + esc(safeStr(e && e.message, 200)) + "</p>";
+      }
     }
 
+    // ── Top / gainers / losers / alt season / heatmap ────
     try {
-      const top = await W.api.top(100);
-      const btc = top.find((c) => c.id === "bitcoin");
-      const sorted = [...top].sort(
-        (a, b) =>
-          (b.price_change_percentage_24h_in_currency ?? 0) -
-          (a.price_change_percentage_24h_in_currency ?? 0),
-      );
-      view.querySelector("#m-gain").innerHTML = miniTable(sorted.slice(0, 8));
-      view.querySelector("#m-lose").innerHTML = miniTable(
-        sorted.slice(-8).reverse(),
-      );
+      const rawTop = await W.api.top(100);
+      const top = Array.isArray(rawTop) ? rawTop : [];
+      const normalized = top.map(normalizeRow).filter(Boolean);
 
-      const top50 = top.slice(0, 50).filter((c) => c.id !== "bitcoin");
+      // ── Gainers / losers ──
+      const sorted = normalized.slice().sort((a, b) => {
+        const av = a.change24h === null ? -Infinity : a.change24h;
+        const bv = b.change24h === null ? -Infinity : b.change24h;
+        return bv - av;
+      });
+
+      const gainEl = view.querySelector("#m-gain");
+      if (gainEl) gainEl.innerHTML = miniTable(sorted.slice(0, 8));
+      const loseEl = view.querySelector("#m-lose");
+      if (loseEl) loseEl.innerHTML = miniTable(sorted.slice(-8).reverse());
+
+      // ── Altcoin Season Index ──
+      const btc = normalized.find((c) => c.id === "bitcoin");
+      const btc7d = btc && btc.change7d !== null ? btc.change7d : 0;
+      const top50 = normalized.slice(0, 50).filter((c) => c.id !== "bitcoin");
+
       const beating = top50.filter(
-        (c) =>
-          (c.price_change_percentage_7d_in_currency ?? -999) >
-          (btc?.price_change_percentage_7d_in_currency ?? 0),
+        (c) => c.change7d !== null && c.change7d > btc7d,
       ).length;
+
       const idx = top50.length ? Math.round((beating / top50.length) * 100) : 0;
+
       const label =
         idx >= 75
           ? "Altcoin Season 🌈"
           : idx >= 25
             ? "Mixed Market"
             : "Bitcoin Season ₿";
-      view.querySelector("#m-alt").innerHTML = `
-        <div class="alt-num">${idx}</div>
-        <div class="alt-bar"><div class="meter-fill meter-fill-${pctBucket(idx)}"></div></div>
-        <p class="muted small">${beating}/${top50.length} of the top-50 coins outperformed BTC over 7 days (≥75 = Altcoin Season).</p>
-        <b>${label}</b>
-      `;
 
-      view.querySelector("#m-heat").innerHTML = top
-        .slice(0, 40)
-        .map((c) => {
-          const p = c.price_change_percentage_7d_in_currency ?? 0;
-          return `<a class="heat-cell heat-fill" data-heat="${heatColor(p)}" href="#/coin/${c.id}" title="${escapeHTML(c.name)} 7d: ${p.toFixed(2)}%">
-          <b>${c.symbol.toUpperCase()}</b>
-          <span>${p >= 0 ? "+" : ""}${p.toFixed(1)}%</span>
-        </a>`;
-        })
-        .join("");
+      const altEl = view.querySelector("#m-alt");
+      if (altEl) {
+        altEl.innerHTML =
+          '<div class="alt-num">' +
+          esc(idx) +
+          "</div>" +
+          '<div class="alt-bar"><div class="meter-fill meter-fill-' +
+          esc(pctBucket(idx)) +
+          '"></div></div>' +
+          '<p class="muted small">' +
+          esc(beating) +
+          "/" +
+          esc(top50.length) +
+          " of the top-50 coins outperformed BTC over 7 days (≥75 = Altcoin Season).</p>" +
+          "<b>" +
+          esc(label) +
+          "</b>";
+      }
+
+      // ── Heatmap ──
+      const heatCells = normalized.slice(0, 40).map((c) => {
+        const p = c.change7d !== null ? c.change7d : 0;
+        const href = "#/coin/" + encodeURIComponent(c.id);
+        const title = c.name + " 7d: " + p.toFixed(2) + "%";
+        return (
+          '<a class="heat-cell heat-fill" ' +
+          'data-heat="' +
+          esc(heatColor(p)) +
+          '" ' +
+          'href="' +
+          esc(href) +
+          '" ' +
+          'title="' +
+          esc(title) +
+          '">' +
+          "<b>" +
+          esc(c.symbol) +
+          "</b>" +
+          "<span>" +
+          esc((p >= 0 ? "+" : "") + p.toFixed(1) + "%") +
+          "</span>" +
+          "</a>"
+        );
+      });
+
+      const heatEl = view.querySelector("#m-heat");
+      if (heatEl) {
+        heatEl.innerHTML = heatCells.join("");
+        heatEl.querySelectorAll(".heat-cell[data-heat]").forEach((el) => {
+          const v = el.getAttribute("data-heat");
+          if (typeof v === "string" && v.startsWith("rgba(")) {
+            el.style.background = v;
+          }
+        });
+      }
     } catch (e) {
-      console.warn("[Market] Error fetching top data:", e);
+      console.warn("[Market] Error fetching top data:", e && e.message);
+      const el = view.querySelector("#m-heat");
+      if (el) {
+        el.innerHTML =
+          '<p class="muted">' +
+          esc(safeStr(e && e.message, 200) || "Failed to load market data") +
+          "</p>";
+      }
     }
   }
-        view.querySelectorAll(".heat-cell[data-heat]").forEach((el) => {
-          el.style.background = el.dataset.heat;
-        });
 
   return { render };
 })();
 
-console.log("[Market] Module loaded.");
+console.log(
+  "[Market] Module loaded v3 — attribute-safe, URL allowlist, shape-guarded.",
+);

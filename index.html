@@ -13,6 +13,11 @@
     HTTP layer. On GitHub Pages that is not possible; on a custom
     host (Cloudflare Pages, Netlify, a reverse proxy) set them there.
 
+    Similarly, the CSP directives frame-ancestors, report-uri,
+    report-to, and sandbox are IGNORED when delivered via <meta>.
+    Clickjacking protection therefore requires the X-Frame-Options
+    header at the HTTP layer, not a meta-tag directive.
+
     Recommended HTTP headers (for the host layer):
       Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
       X-Content-Type-Options: nosniff
@@ -86,8 +91,6 @@
         blocked by CSP).
       connect-src 'self' + allowlist
         Every API the app actually calls. Dead hosts removed.
-      frame-ancestors 'none'
-        Clickjacking defence.
       form-action 'none'
         All forms are JS-handled; nothing should submit off-origin.
       frame-src 'none'
@@ -98,6 +101,16 @@
         Service workers and blob workers (Chart.js offscreen path).
       upgrade-insecure-requests
         Any accidental http:// subresource is rewritten to https://.
+
+    Directives deliberately NOT set here because the <meta> transport
+    cannot carry them:
+      frame-ancestors — ignored via <meta>. Clickjacking protection
+        requires the X-Frame-Options HTTP header. See the note at
+        the top of this file.
+      report-to / report-uri — ignored via <meta>. Violation
+        reporting requires the HTTP header transport.
+      sandbox — ignored via <meta>.
+
     Note: report-to / report-uri cannot be set via <meta>; configure
     a reporting endpoint at the HTTP layer if you want violations.
   -->
@@ -130,7 +143,6 @@
         https://cdn.jsdelivr.net
         https://weaver-proxy.ibis01-weaver.workers.dev;
       form-action 'none';
-      frame-ancestors 'none';
       frame-src 'none';
       base-uri 'self';
       object-src 'none';
