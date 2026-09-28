@@ -1,5 +1,5 @@
 // ===============================================================
-//                Weaver Dashboard 
+//                Weaver Dashboard
 // ===============================================================
 
 window.W = window.W || {};
@@ -966,12 +966,16 @@ W.dashboard = (() => {
   }
 
   // ── Quick actions ─────────────────────────────────────────
+  //
+  // Routes are relative (no leading "#"); the click handler below
+  // prepends it. "Open Evidence" targets /market because that page
+  // is labelled "Signals" in the sidebar — see app.js NAV_GROUPS.
   function renderQuickActions() {
     const actions = [
       { icon: "+", label: "Add Token", route: "/portfolio" },
       { icon: "⟐", label: "Sync Wallet", route: "/walletsync" },
       { icon: "▤", label: "View Portfolio", route: "/portfolio" },
-      { icon: "◎", label: "Open Evidence", route: "/signals" },
+      { icon: "◎", label: "Open Evidence", route: "/market" },
     ];
     return `<div class="quick-actions">${actions
       .map(
@@ -1196,7 +1200,7 @@ W.dashboard = (() => {
         <div class="card dash-signals-card">
           <div class="dash-card-head">
             <span class="dash-card-title">Recent Signals</span>
-            <button type="button" class="dash-card-link" data-route="/signals">View all →</button>
+            <button type="button" class="dash-card-link" data-route="/market">View all →</button>
           </div>
           <div id="d-signals"></div>
         </div>

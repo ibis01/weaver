@@ -2,7 +2,6 @@
 //         Unified Decision Engine (decision-engine-v2)
 // ===============================================================
 
-
 window.W = window.W || {};
 
 W.decisionEngine = (() => {
@@ -33,6 +32,17 @@ W.decisionEngine = (() => {
   // that distinction is a UI concern, and the UI has the
   // `_signalType` field available for it.
   const RISK_SIGNAL_TYPES = new Set(["THESIS_DETERIORATION", "SECURITY_RISK"]);
+
+  // Signal types whose relevance is not tied to the user's holdings.
+  // A regime shift describes the environment the user is operating
+  // in — the fact that they hold no position in the affected asset
+  // is not a reason to hide it. Without this baseline, an empty
+  // portfolio produces a relevance of 0, which collapses the score
+  // to 0, which the `score > 0` filter in run() drops silently.
+  //
+  // Types NOT in this set are asset-specific and correctly require
+  // a holdings/watchlist/thesis match to score above zero.
+  const MARKET_WIDE_TYPES = new Set(["REGIME_SHIFT"]);
 
   // ── Warn-once bookkeeping ─────────────────────────────
   const _warned = Object.create(null);
@@ -215,6 +225,14 @@ W.decisionEngine = (() => {
     // is this" is not a fabricated claim; it is the correct answer
     // when the user does not hold the asset).
     let relevance = 0;
+
+    // Market-wide signals carry a baseline relevance regardless of
+    // the user's holdings. See MARKET_WIDE_TYPES for rationale. The
+    // baseline is deliberately small (0.3): large enough that the
+    // resulting score clears the `score > 0` filter in run(), small
+    // enough that a held-asset signal outranks it.
+    if (signal?.type && MARKET_WIDE_TYPES.has(signal.type)) relevance += 0.3;
+
     if (context.portfolioWeight > 0) relevance += context.portfolioWeight * 0.4;
     if (context.watchlistStatus === "WATCHING") relevance += 0.2;
     if (context.thesisStatus === "ACTIVE") relevance += 0.2;
@@ -749,6 +767,7 @@ W.decisionEngine = (() => {
     _internal: Object.freeze({
       buildEvidence,
       RISK_SIGNAL_TYPES,
+      MARKET_WIDE_TYPES,
       resetWarnings: () => {
         for (const k of Object.keys(_warned)) delete _warned[k];
       },
