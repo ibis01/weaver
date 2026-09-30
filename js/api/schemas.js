@@ -98,30 +98,30 @@ W.schemas = (() => {
 
   function markets(value) {
     assert(
-      "CoinGecko markets",
+      "market listings",
       Array.isArray(value) && value.length > 0,
       "expected a non-empty array",
     );
     value.forEach((coin, index) =>
-      marketCoin(coin, `CoinGecko markets[${index}]`),
+      marketCoin(coin, `markets[${index}]`),
     );
     return value;
   }
 
   function global(value) {
     assert(
-      "CoinGecko global",
+      "global market",
       isObject(value) && isObject(value.data),
       "data must be an object",
     );
     const data = value.data;
     assert(
-      "CoinGecko global",
+      "global market",
       isObject(data.total_market_cap),
       "total_market_cap is required",
     );
     assert(
-      "CoinGecko global",
+      "global market",
       optionalNumber(data.market_cap_change_percentage_24h_usd),
       "market cap change must be numeric",
     );
@@ -150,13 +150,13 @@ W.schemas = (() => {
 
   function search(value) {
     assert(
-      "CoinGecko search",
+      "search",
       isObject(value) && Array.isArray(value.coins),
       "coins must be an array",
     );
     value.coins.forEach((coin, index) => {
       assert(
-        "CoinGecko search",
+        "search",
         isObject(coin) && requiredString(coin.id),
         `coins[${index}].id is required`,
       );
@@ -166,17 +166,17 @@ W.schemas = (() => {
 
   function coin(value) {
     assert(
-      "CoinGecko coin",
+      "coin",
       isObject(value) && requiredString(value.id),
       "id is required",
     );
     assert(
-      "CoinGecko coin",
+      "coin",
       requiredString(value.symbol),
       "symbol is required",
     );
     assert(
-      "CoinGecko coin",
+      "coin",
       isObject(value.market_data),
       "market_data is required",
     );
@@ -185,13 +185,13 @@ W.schemas = (() => {
 
   function chart(value) {
     assert(
-      "CoinGecko chart",
+      "chart",
       isObject(value) && Array.isArray(value.prices),
       "prices must be an array",
     );
     value.prices.forEach((point, index) => {
       assert(
-        "CoinGecko chart",
+        "chart",
         Array.isArray(point) &&
           point.length >= 2 &&
           isFiniteNumber(point[0]) &&
@@ -204,7 +204,7 @@ W.schemas = (() => {
 
   function trending(value) {
     assert(
-      "CoinGecko trending",
+      "trending",
       isObject(value) && Array.isArray(value.coins),
       "coins must be an array",
     );
@@ -341,10 +341,10 @@ W.schemas = (() => {
   }
 
   function categories(value) {
-    assert("CoinGecko categories", Array.isArray(value), "expected an array");
+    assert("categories", Array.isArray(value), "expected an array");
     value.forEach((item, index) =>
       assert(
-        "CoinGecko categories",
+        "categories",
         isObject(item) && requiredString(item.id),
         `categories[${index}].id is required`,
       ),

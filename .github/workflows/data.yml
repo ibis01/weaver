@@ -59,16 +59,28 @@ jobs:
           echo "Fetching global market stats from CoinPaprika..."
           fetch_json "https://api.coinpaprika.com/v1/global" "$tmp_dir/raw_global.json"
           
-          # Transform global stats to match dashboard.js expectations (e.g., market_cap_percentage.btc)
+          # Transform global stats into the same shape the live
+          # provider returns, so the runtime schema validates one
+          # shape only. Wrap the numeric fields in { usd: ... } and
+          # put everything under a top-level "data" key.
           jq '{
-            active_cryptocurrencies: .coins_count,
-            markets: .markets_count,
-            total_market_cap: .market_cap_usd,
-            total_volume: .volume_24h_usd,
-            market_cap_percentage: {
-              btc: .bitcoin_dominance_percentage
-            },
-            updated_at: .last_updated
+            data: {
+              active_cryptocurrencies: .cryptocurrencies_number,
+              markets: null,
+              total_market_cap: { usd: .market_cap_usd },
+              total_volume: { usd: .volume_24h_usd },
+              market_cap_percentage: {
+                btc: .bitcoin_dominance_percentage
+              },
+              market_cap_change_percentage_24h_usd: (
+                if .market_cap_usd and .market_cap_change_24h
+                then ((.market_cap_change_24h /
+                       (.market_cap_usd - .market_cap_change_24h)) * 100)
+                else null
+                end
+              ),
+              updated_at: ((.last_updated | fromdateiso8601) * 1000)
+            }
           }' "$tmp_dir/raw_global.json" > "$tmp_dir/global.json"
 
           echo "Fetching Fear & Greed Index..."
@@ -79,7 +91,7 @@ jobs:
           jq -e 'type == "array" and length > 0 and all(.[]; (.id | type == "string") and (.current_price | type == "number"))' "$tmp_dir/top.json" >/dev/null
           
           echo "Validating global.json..."
-          jq -e 'has("market_cap_percentage") and (.market_cap_percentage | has("btc"))' "$tmp_dir/global.json" >/dev/null
+          jq -e '.data | has("total_market_cap") and (.total_market_cap | has("usd")) and (.market_cap_percentage | has("btc"))' "$tmp_dir/global.json" >/dev/null
           
           echo "Validating fng.json..."
           jq -e 'has("data") and (.data | type == "array") and (.data | length > 0)' "$tmp_dir/fng.json" >/dev/null
