@@ -7,6 +7,23 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".app")).toBeVisible({ timeout: 15000 });
   await page.waitForSelector("#view .card", { timeout: 20000 });
+
+  // The signal list renders asynchronously — the decision engine
+  // awaits W.events.collectEvents() before it returns. Waiting on
+  // "#view .card" is not sufficient because the KPI cards render
+  // first. Wait for the signal container to settle into either a
+  // populated state or the explicit empty state.
+  await page.waitForFunction(
+    () => {
+      const el = document.querySelector("#d-signals");
+      if (!el) return false;
+      const hasRows =
+        el.querySelectorAll("[data-signal-id]").length > 0;
+      const text = (el.textContent || "").trim();
+      return hasRows || text.includes("No recent signals");
+    },
+    { timeout: 15000 },
+  );
 });
 
 test.describe("Critical path — pipeline → dashboard → drawer", () => {
@@ -134,7 +151,7 @@ test.describe("Critical path — pipeline → dashboard → drawer", () => {
     await signalRows.first().click();
 
     const drawer = page.locator(
-      "#modal-root [role='dialog']:not([aria-hidden='true']), .evidence-drawer",
+      "#modal-root [role='dialog']:not([aria-hidden='true']), .evidence-drawer, #modal-root .modal",
     );
     await expect(drawer.first()).toBeVisible({ timeout: 10000 });
 
