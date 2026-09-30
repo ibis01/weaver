@@ -42,7 +42,7 @@ test suites are green on CI.
 - PR #21 merged; `feat/drawer-provenance` deleted.
 - README provider chain corrected; test counts updated.
 - Chart precision fix in explorer.
-- CI Expansion gating all suites.
+- CI gating all suites — *completed*. `test-and-build` is a required status check on `main`.
 - Playwright test discovery fix.
 - Broken merge recovery (revert-forward of `5001479`).
 - Root-level `workflows` file removed.

@@ -44,9 +44,7 @@ Note: the module banner at `js/api/prices.js:988` reads
 - **README cleanup** — provider chain corrected; test counts updated.
 - **Chart precision fix** — `fmtChartPrice()` in
   `js/features/explorer.js`.
-- **CI Expansion** — `.github/workflows/test-and-build.yml` runs
-  unit (538), integration (28), security (16), Worker, and
-  Playwright E2E (30).
+- **CI Expansion** — *completed*. `.github/workflows/test-and-build.yml` runs the build, unit, integration, security, Worker, and Playwright E2E stages on every push and pull request to `main`. The `test-and-build` status is a required check on `main`.
 - **Playwright discovery fix** — `testDir` corrected to `./test/e2e`.
 - **Root-level `workflows` file removed** — was a CoinGecko-era
   duplicate of `.github/workflows/data.yml`.
