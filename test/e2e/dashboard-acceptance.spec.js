@@ -382,6 +382,79 @@ test.describe("Loading and error states", () => {
   });
 });
 
+
+  test("dashboard honestly labels the fallback state when all providers fail", async ({
+    page,
+  }) => {
+    // Block every external data source so the app is forced onto its
+    // snapshot tier — the middle rung of the fallback chain:
+    // live -> snapshot -> built-in constant.
+    await page.route("**/api.coinlore.net/**", (route) => route.abort());
+    await page.route("**/api.coinpaprika.com/**", (route) => route.abort());
+    await page.route("**/api.coinbase.com/**", (route) => route.abort());
+    await page.route("**/api.binance.com/**", (route) => route.abort());
+    await page.route("**/api.alternative.me/**", (route) => route.abort());
+    await page.route("**/weaver-proxy.ibis01-weaver.workers.dev/**", (route) =>
+      route.abort(),
+    );
+
+    const pageErrors = [];
+    page.on("pageerror", (err) => pageErrors.push(err.message));
+
+    await page.goto("/");
+    await expect(page.locator(".app")).toBeVisible({ timeout: 15000 });
+    await page.waitForSelector("#view .card", { timeout: 20000 });
+    await page.waitForTimeout(3000);
+
+    const state = await page.evaluate(() => {
+      return {
+        source: (window.W && W.api && W.api.source) || null,
+        hasStaleIndicator: !!document.querySelector(
+          ".data-status, .data-freshness, [data-status='stale'], [data-status='snapshot'], [data-freshness='stale']",
+        ),
+        bodyText:
+          (document.querySelector("#view") || {}).innerText || "",
+      };
+    });
+
+    if (pageErrors.length > 0) {
+      console.log("Page errors during degraded run:", pageErrors);
+    }
+
+    // The app must not crash.
+    expect(pageErrors, "Uncaught errors under provider failure").toHaveLength(0);
+
+    // The app must render content — not a blank screen.
+    expect(state.bodyText.length).toBeGreaterThan(0);
+
+    // The app must honestly label the data source. Either the
+    // internal W.api.source is set to a non-live value, or the UI
+    // renders a stale/snapshot indicator, or the visible text names
+    // the fallback state. Any of these satisfies the honesty claim.
+    const labelled =
+      state.source === "snapshot" ||
+      state.source === "cache" ||
+      state.source === "fallback" ||
+      state.hasStaleIndicator ||
+      /snapshot|stale|fallback|offline|using cached|unavailable/i.test(
+        state.bodyText,
+      );
+
+    if (!labelled) {
+      console.log("Diagnostic — source:", state.source);
+      console.log("Diagnostic — hasStaleIndicator:", state.hasStaleIndicator);
+      console.log(
+        "Diagnostic — bodyText head:",
+        state.bodyText.slice(0, 400),
+      );
+    }
+
+    expect(
+      labelled,
+      "Dashboard did not label its data as snapshot/cache/stale under provider failure",
+    ).toBe(true);
+  });
+
 // ── Card class hygiene ──────────────────────────────────
 test.describe("Card class hygiene", () => {
   test("every Dashboard card uses a known class", async ({ page }) => {
