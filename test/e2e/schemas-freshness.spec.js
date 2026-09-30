@@ -27,7 +27,7 @@ test.describe("Runtime schemas and data freshness", () => {
     });
     expect(result.rejected).toBe(true);
     expect(result.name).toBe("SchemaValidationError");
-    expect(result.schema).toBe("CoinGecko markets[0]");
+    expect(result.schema).toBe("markets[0]");
   });
 
   test("renders a fresh data indicator with source and age", async ({
