@@ -9,7 +9,7 @@ Weaver is in the **production-candidate** phase. Core architecture,
 evidence pipeline, security boundaries, and the intelligence signal
 scanner are functional. CI is green on all suites. Remaining work is
 repository truth sync (docs vs code), portfolio-math test coverage,
-and critical-path E2E — none of it blocking.
+— none of it blocking.
 
 ## Last Verified Commit
 Run `git log --oneline -1` for the current HEAD. Recent reference
@@ -60,9 +60,7 @@ Note: the module banner at `js/api/prices.js:988` reads
 - Snapshot schema still validates against a CoinGecko shape
   (`SchemaValidationError: CoinGecko global: data must be an object`).
   Prices work via the fallback patch; the validator is stale.
-- Local CORS: the Worker rejects `http://localhost:8080` with
-  `Access-Control-Allow-Origin: null`, so local Playwright exercises
-  only snapshot fallbacks. Production Pages origin is allowed.
+- Local CORS: *resolved*. `http://localhost:8080` is in the Worker's `ALLOWED_ORIGINS` list, so local Playwright runs exercise the real fetch path.
 
 ## Guiding Principle
 > "Source code is truth."

@@ -54,8 +54,8 @@ test suites are green on CI.
 3. **`data-path-audit.md`** — stale CoinGecko-era content.
 
 ## Known Gaps (not blocking production)
-- Portfolio math unit tests are smoke-level only.
+- Portfolio math: *covered*. `test/unit/portfolio.test.js` exercises weighted-average cost basis, partial sells, full liquidation, realized P&L accumulation, and invalid-input rejection — 22 tests against the real module.
 - E2E suite lacks degraded-provider and critical-path coverage.
 - CSP inline-style violations at `bundle.js:302` (~40 per render).
 - Snapshot schema still validates against a CoinGecko shape.
-- Local CORS: Worker rejects `http://localhost:8080`.
+- Local CORS: *resolved*. `http://localhost:8080` is in the Worker's `ALLOWED_ORIGINS` list.

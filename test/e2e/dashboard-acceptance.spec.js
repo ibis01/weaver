@@ -472,3 +472,30 @@ test.describe("Card class hygiene", () => {
     expect(bad, `Cards without base class: ${bad.join(", ")}`).toEqual([]);
   });
 });
+test("DEBUG: capture every CSP violation during boot", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__CSP__ = [];
+    document.addEventListener("securitypolicyviolation", (e) => {
+      window.__CSP__.push({
+        directive: e.violatedDirective,
+        blockedURI: e.blockedURI,
+        sample: e.sample,
+        sourceFile: e.sourceFile,
+        lineNumber: e.lineNumber,
+        columnNumber: e.columnNumber,
+      });
+    });
+  });
+
+  await page.goto("/");
+  await page.waitForSelector("#view .card", { timeout: 20000 });
+  await page.waitForTimeout(2000);
+
+  const violations = await page.evaluate(() => window.__CSP__ || []);
+  console.log("Total violations during boot:", violations.length);
+  for (const v of violations.slice(0, 20)) {
+    console.log(
+      `  ${v.violatedDirective} — ${v.blockedURI} — sample: ${(v.sample || "").slice(0, 60)} — ${v.sourceFile}:${v.lineNumber}`,
+    );
+  }
+});
