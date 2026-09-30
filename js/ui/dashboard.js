@@ -61,7 +61,7 @@ W.dashboard = (() => {
   //   MONITOR   → unknown
   //   IGNORE    → unknown
   function openSignalDrawer(signalId, decisions) {
-    if (!signalId || !W.evidenceDrawer?.open) return;
+    if (!signalId || !W.ui?.evidenceDrawer?.open) return;
 
     const decision = Array.isArray(decisions)
       ? decisions.find((d) => d && d.signalId === signalId)
@@ -72,7 +72,7 @@ W.dashboard = (() => {
       // and the click. Open an honest empty drawer rather than a
       // populated-looking lie.
       try {
-        W.evidenceDrawer.open({
+        W.ui.evidenceDrawer.open({
           explanation: "This signal is no longer in the current decision set.",
         });
       } catch (e) {
@@ -94,7 +94,7 @@ W.dashboard = (() => {
       : undefined;
 
     try {
-      W.evidenceDrawer.open({
+      W.ui.evidenceDrawer.open({
         explanation: decision.explanation,
         methodologyVersion: decision.methodologyVersion,
         domains: {
