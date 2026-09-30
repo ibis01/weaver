@@ -98,6 +98,8 @@ W.portfolio = W.portfolio || {};
         qty: newTotalQty,
         buyPrice: newAvgPrice,
         totalCost: newTotalCost,
+        // A position that was closed and is now reopened.
+        closedAt: null,
         updatedAt: Date.now(),
       };
     } else {
@@ -115,6 +117,9 @@ W.portfolio = W.portfolio || {};
         qty,
         buyPrice,
         totalCost,
+        realizedPnl: 0,
+        disposals: [],
+        closedAt: null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
@@ -130,26 +135,148 @@ W.portfolio = W.portfolio || {};
     return true;
   }
 
+  // ── Update (validated, allowlisted fields) ────────────────────
+  // Quantity must be finite and > 0. A quantity of 0 is a full
+  // disposal, and sell() is the correct entry point for that. Only
+  // name, qty, buyPrice, and img can be edited. assetId, symbol,
+  // coinId, id, createdAt, and the accounting fields are protected.
   function update(id, updates) {
+    if (typeof id !== "string" || !id) return false;
+    if (!updates || typeof updates !== "object" || Array.isArray(updates)) {
+      return false;
+    }
+
     const index = holdings.findIndex((h) => h.id === id);
     if (index === -1) return false;
+
     const current = holdings[index];
-    const newQty =
-      updates.qty !== undefined ? parseFloat(updates.qty) : current.qty;
-    const newPrice =
-      updates.buyPrice !== undefined
-        ? parseFloat(updates.buyPrice)
-        : current.buyPrice;
-    holdings[index] = {
-      ...current,
-      ...updates,
-      qty: newQty,
-      buyPrice: newPrice,
-      totalCost: newQty * newPrice,
-      updatedAt: Date.now(),
-    };
+
+    let newQty = current.qty;
+    if (updates.qty !== undefined) {
+      const q = parseFloat(updates.qty);
+      if (!Number.isFinite(q) || q <= 0) {
+        console.warn("[Portfolio] update: invalid qty");
+        return false;
+      }
+      newQty = q;
+    }
+
+    let newPrice = current.buyPrice;
+    if (updates.buyPrice !== undefined) {
+      const p = parseFloat(updates.buyPrice);
+      if (!Number.isFinite(p) || p < 0) {
+        console.warn("[Portfolio] update: invalid buyPrice");
+        return false;
+      }
+      newPrice = p;
+    }
+
+    const next = { ...current };
+    next.qty = newQty;
+    next.buyPrice = newPrice;
+    next.totalCost = newQty * newPrice;
+    next.updatedAt = Date.now();
+
+    if (typeof updates.name === "string") next.name = updates.name;
+    if (typeof updates.img === "string") next.img = updates.img;
+
+    holdings[index] = next;
     save();
     return true;
+  }
+
+  // ── Sell (partial or full disposal, average-cost) ─────────────
+  // Reduces the position by sellQty at the current average cost.
+  // The disposed portion contributes realizedPnl = (price - avg) *
+  // qty. The remaining position retains the same average cost.
+  //
+  // Returns a disposal record on success, or null on any failure
+  // (invalid qty, invalid price, qty > held, unknown id). All
+  // validation happens before any state mutation.
+  function sell(id, qty, price) {
+    if (typeof id !== "string" || !id) return null;
+
+    const sellQty = parseFloat(qty);
+    const sellPrice = parseFloat(price);
+
+    if (!Number.isFinite(sellQty) || sellQty <= 0) {
+      console.warn("[Portfolio] sell: invalid qty");
+      return null;
+    }
+    if (!Number.isFinite(sellPrice) || sellPrice < 0) {
+      console.warn("[Portfolio] sell: invalid price");
+      return null;
+    }
+
+    const index = holdings.findIndex((h) => h.id === id);
+    if (index === -1) {
+      console.warn("[Portfolio] sell: holding not found");
+      return null;
+    }
+
+    const h = holdings[index];
+    const heldQty = parseFloat(h.qty) || 0;
+    if (sellQty > heldQty) {
+      console.warn("[Portfolio] sell: qty exceeds position");
+      return null;
+    }
+
+    // Average cost per unit before this sale.
+    const totalCost = parseFloat(h.totalCost) || 0;
+    const avgCost = heldQty > 0 ? totalCost / heldQty : 0;
+
+    // Cost basis of the disposed portion.
+    const disposedCost = avgCost * sellQty;
+    const proceeds = sellQty * sellPrice;
+    const realizedPnl = proceeds - disposedCost;
+
+    // Remaining position after the sale.
+    const remainingQty = heldQty - sellQty;
+    const remainingCost = totalCost - disposedCost;
+
+    // New average cost per unit (should equal avgCost, but recompute
+    // to avoid floating-point drift on the last partial sale).
+    const newAvgPrice = remainingQty > 0 ? remainingCost / remainingQty : 0;
+
+    const disposal = {
+      qty: sellQty,
+      price: sellPrice,
+      costBasis: disposedCost,
+      proceeds,
+      realizedPnl,
+      at: Date.now(),
+    };
+
+    const priorDisposals = Array.isArray(h.disposals) ? h.disposals : [];
+    const priorRealized = Number.isFinite(h.realizedPnl) ? h.realizedPnl : 0;
+
+    holdings[index] = {
+      ...h,
+      qty: remainingQty,
+      buyPrice: newAvgPrice,
+      totalCost: remainingCost,
+      realizedPnl: priorRealized + realizedPnl,
+      disposals: [...priorDisposals, disposal],
+      closedAt: remainingQty === 0 ? Date.now() : null,
+      updatedAt: Date.now(),
+    };
+
+    // Mirror into the transaction log so the tax CSV and the Track
+    // Record see the sell.
+    recordTx({
+      type: "sell",
+      coinId: h.coinId,
+      symbol: h.symbol,
+      name: h.name,
+      qty: sellQty,
+      price: sellPrice,
+      total: proceeds,
+      realizedPnl,
+      date: disposal.at,
+    });
+
+    save();
+    return disposal;
   }
 
   function clear() {
@@ -242,6 +369,7 @@ W.portfolio = W.portfolio || {};
     add,
     remove,
     update,
+    sell,
     clear,
     txs,
     recordTx,
@@ -253,5 +381,5 @@ W.portfolio = W.portfolio || {};
 })();
 
 console.log(
-  "[Portfolio] Module loaded (canonical AssetId + weighted-average).",
+  "[Portfolio] Module loaded (canonical AssetId + weighted-average + sell).",
 );

@@ -1,6 +1,5 @@
 // test/setup.js
 const { JSDOM } = require("jsdom");
-
 const dom = new JSDOM("<!DOCTYPE html><html><body></body></html>", {
   url: "http://localhost/",
   pretendToBeVisual: true,
@@ -106,35 +105,6 @@ global.W = {
           : null,
     },
   },
-  portfolio: {
-    _holdings: [],
-    add: function (holding) {
-      if (
-        !holding ||
-        !holding.symbol ||
-        holding.qty <= 0 ||
-        holding.buyPrice < 0
-      )
-        return false;
-      const existing = this._holdings.find((h) => h.symbol === holding.symbol);
-      if (existing) {
-        const totalQty = existing.qty + holding.qty;
-        existing.buyPrice =
-          (existing.qty * existing.buyPrice + holding.qty * holding.buyPrice) /
-          totalQty;
-        existing.qty = totalQty;
-      } else {
-        this._holdings.push({ ...holding });
-      }
-      return true;
-    },
-    all: function () {
-      return this._holdings;
-    },
-    clear: function () {
-      this._holdings = [];
-    },
-  },
   // Placeholders for modules loaded at the bottom of this file. If a
   // require throws (e.g. JSDOM missing an API), the parity test fails
   // cleanly rather than throwing on undefined.
@@ -183,6 +153,7 @@ try {
 }
 try {
   require("../js/features/track-record.js");
+require("../js/features/portfolio.js");
 } catch (e) {
   console.warn("[setup] track-record.js load failed:", e.message);
 }
