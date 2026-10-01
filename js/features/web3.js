@@ -75,37 +75,44 @@ W.web3 = W.web3 || {};
     }
   }
 
-  async function getSolBalance(address) {
-    const phantom = window.phantom?.solana;
-    if (!phantom) return null;
-    try {
-      if (typeof phantom.getBalance === "function")
-        return (await phantom.getBalance()) / 1e9;
-      const response = await fetch("https://api.mainnet-beta.solana.com", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "getBalance",
-          params: [address],
-        }),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-      if (W.schemas) W.schemas.validate("jsonRpc", data);
-      W.dataHealth?.mark("wallet-data", {
-        source: "solana-rpc",
-        observedAt: Date.now(),
-        staleAfter: 10 * 60 * 1000,
-      });
-      return data.result?.value !== undefined ? data.result.value / 1e9 : null;
-    } catch (error) {
-      console.error("[Web3] Solana balance error"); // SAFE: No raw address logged
-      return null;
-    }
-  }
+   async function getSolBalance(address) {
+     const phantom = window.phantom?.solana;
+     if (!phantom) return null;
+     try {
+       if (typeof phantom.getBalance === "function")
+         return (await phantom.getBalance()) / 1e9;
 
+       // Fallback for wallets that do not expose getBalance().
+       //
+       // Route through W.walletsync.solanaRpcCall, which points at
+       // mainnet.helius-rpc.com with a placeholder api-key that the
+       // Cloudflare Worker swaps for the real HELIUS_KEY. The public
+       // RPC (api.mainnet-beta.solana.com) is blocked from Cloudflare
+       // Worker egress and is not on the Worker's ALLOWED_PROXY_HOSTS
+       // list; a browser-direct call would also leak the user's IP
+       // to a public endpoint. See cf-worker/index.js header notes.
+       if (!W.walletsync || typeof W.walletsync.solanaRpcCall !== "function") {
+         return null;
+       }
+       const data = await W.walletsync.solanaRpcCall({
+         jsonrpc: "2.0",
+         id: 1,
+         method: "getBalance",
+         params: [address],
+       });
+       W.dataHealth?.mark("wallet-data", {
+         source: "solana-helius",
+         observedAt: Date.now(),
+         staleAfter: 10 * 60 * 1000,
+       });
+       return data?.result?.value !== undefined
+         ? data.result.value / 1e9
+         : null;
+     } catch (error) {
+       console.error("[Web3] Solana balance error"); // SAFE: No raw address logged
+       return null;
+     }
+   }
   // ── Chain Switching ───────────────────────────────────
   async function switchChain(chainId) {
     if (!window.ethereum) {
