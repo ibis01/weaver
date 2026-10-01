@@ -359,6 +359,18 @@ window.W = window.W || {};
       const cur = W.currency();
       const el = document.getElementById("currency");
       if (el) el.value = cur;
+
+      // Load FX rates in the background. money() stays synchronous
+      // and uses the cached rates.
+      if (typeof W.fmt?.loadFxRates === "function") {
+        W.fmt.loadFxRates().catch((error) => {
+          console.warn(
+            "[App] FX rate loading failed:",
+            error?.message || error,
+          );
+        });
+      }
+
       startLoop();
     } catch (e) {
       console.warn("[App] applySettings failed:", e && e.message);
