@@ -821,11 +821,21 @@ W.trackRecord = (() => {
     );
   }
 
+  const MAX_OUTCOME_RESPONSE_BYTES = 5 * 1024 * 1024;
+
   async function fetchWithTimeout(url, timeoutMs = OUTCOME_FETCH_TIMEOUT_MS) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetch(url, { signal: controller.signal });
+      const response = await fetch(url, { signal: controller.signal });
+      const declared = Number(response.headers.get("content-length"));
+      if (
+        Number.isFinite(declared) &&
+        declared > MAX_OUTCOME_RESPONSE_BYTES
+      ) {
+        throw new Error("Outcome response exceeds size cap");
+      }
+      return response;
     } finally {
       clearTimeout(timeout);
     }
@@ -1142,7 +1152,18 @@ W.trackRecord = (() => {
   }
 
   function escape(value) {
-    return W.fmt?.escapeHTML ? W.fmt.escapeHTML(value) : String(value ?? "");
+    if (typeof W.fmt?.escapeHTML === "function") {
+      return W.fmt.escapeHTML(value);
+    }
+    if (value === null || value === undefined) return "";
+    const s = String(value);
+    if (!/[&<>"']/.test(s)) return s;
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, '&#39;');
   }
   function csvCell(value) {
     if (value === null || value === undefined) return "";
