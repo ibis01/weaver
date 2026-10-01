@@ -361,14 +361,34 @@ window.W = window.W || {};
       if (el) el.value = cur;
 
       // Load FX rates in the background. money() stays synchronous
-      // and uses the cached rates.
+      // and uses the cached rates. Re-render once they resolve so the
+      // first paint is not stuck on the un-converted USD values.
       if (typeof W.fmt?.loadFxRates === "function") {
-        W.fmt.loadFxRates().catch((error) => {
-          console.warn(
-            "[App] FX rate loading failed:",
-            error?.message || error,
-          );
-        });
+        const initialFxState = W.fmt.getFxState?.();
+        W.fmt
+          .loadFxRates()
+          .then(() => {
+            const nextFxState = W.fmt.getFxState?.();
+            // Only re-render if the rates actually changed — avoids a
+            // pointless second render when the cache was fresh.
+            if (
+              nextFxState &&
+              initialFxState &&
+              nextFxState.loadedAt !== initialFxState.loadedAt
+            ) {
+              try {
+                route();
+              } catch (e) {
+                console.warn("[App] re-render after FX load failed:", e?.message);
+              }
+            }
+          })
+          .catch((error) => {
+            console.warn(
+              "[App] FX rate loading failed:",
+              error?.message || error,
+            );
+          });
       }
 
       startLoop();
