@@ -1019,6 +1019,7 @@ W.walletSync = (() => {
     clearCostBasis,
     version: MODULE_VERSION,
     solanaRpcCall,
+    solanaRpcCall,
   };
 })();
 
