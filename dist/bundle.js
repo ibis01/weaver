@@ -793,21 +793,162 @@ W.fmt = W.fmt || {};
   /**
    * Format a number as currency
    */
-  W.fmt.money = function (amount, options = {}) {
-    if (amount === null || amount === undefined || isNaN(amount))
-      return "$0.00";
-    const currency = W.store?.get("settings", {})?.currency || "usd";
-    const config = CURRENCIES[currency] || CURRENCIES.usd;
 
+  // -------------------------------------------------------------
+  // FX rate state and helpers
+  // -------------------------------------------------------------
+
+  const FX_API = "https://api.frankfurter.dev/v2/rates";
+  const FX_TTL_MS = 6 * 60 * 60 * 1000;
+
+  let fxRates = { USD: 1 };
+  let fxDate = null;
+  let fxLoadedAt = 0;
+  let fxLoading = null;
+
+  W.fmt.getCurrency = function () {
+    try {
+      const settings = W.store?.get?.("settings", {});
+      if (
+        settings &&
+        typeof settings === "object" &&
+        !Array.isArray(settings) &&
+        typeof settings.currency === "string"
+      ) {
+        const currency = settings.currency.toLowerCase();
+        if (CURRENCIES[currency]) {
+          return currency;
+        }
+      }
+    } catch (e) {
+      console.warn("[Format] Failed to read currency:", e?.message);
+    }
+    return "usd";
+  };
+
+  W.fmt.getCurrencyConfig = function () {
+    const currency = W.fmt.getCurrency();
+    return { ...(CURRENCIES[currency] || CURRENCIES.usd) };
+  };
+
+  W.fmt.getFxState = function () {
+    return {
+      rates: { ...fxRates },
+      date: fxDate,
+      loadedAt: fxLoadedAt,
+      stale: !fxLoadedAt || Date.now() - fxLoadedAt > FX_TTL_MS,
+    };
+  };
+
+  W.fmt.loadFxRates = async function (options = {}) {
+    const force = options.force === true;
+    if (!force && fxLoadedAt && Date.now() - fxLoadedAt < FX_TTL_MS) {
+      return W.fmt.getFxState();
+    }
+    if (fxLoading) {
+      return fxLoading;
+    }
+    fxLoading = (async () => {
+      try {
+        const targets = ["EUR", "GBP", "NGN", "INR", "JPY", "AUD", "CAD"].join(
+          ",",
+        );
+        const url = `${FX_API}?base=USD&quotes=${encodeURIComponent(targets)}`;
+        const fxController = new AbortController();
+        const fxTimer = setTimeout(() => fxController.abort(), 10000);
+        let response;
+        try {
+          response = await fetch(url, {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            credentials: "omit",
+            cache: "no-store",
+            signal: fxController.signal,
+          });
+        } finally {
+          clearTimeout(fxTimer);
+        }
+        if (!response.ok) {
+          throw new Error(`FX provider returned HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        if (!Array.isArray(payload)) {
+          throw new Error("FX provider returned invalid data");
+        }
+        const nextRates = { USD: 1 };
+        for (const row of payload) {
+          if (
+            !row ||
+            typeof row.quote !== "string" ||
+            typeof row.rate !== "number" ||
+            !Number.isFinite(row.rate) ||
+            row.rate <= 0
+          ) {
+            continue;
+          }
+          const code = row.quote.toUpperCase();
+          if (CURRENCIES[code.toLowerCase()]) {
+            nextRates[code] = row.rate;
+          }
+        }
+        if (Object.keys(nextRates).length < 2) {
+          throw new Error("FX provider returned no usable rates");
+        }
+        fxRates = nextRates;
+        const firstDate = payload.find(
+          (row) => typeof row?.date === "string",
+        );
+        fxDate = firstDate?.date || null;
+        fxLoadedAt = Date.now();
+        console.info(
+          `[Format] FX rates loaded${fxDate ? ` for ${fxDate}` : ""}.`,
+        );
+        return W.fmt.getFxState();
+      } catch (error) {
+        console.warn(
+          "[Format] FX rate loading failed:",
+          error?.message || error,
+        );
+        return W.fmt.getFxState();
+      } finally {
+        fxLoading = null;
+      }
+    })();
+    return fxLoading;
+  };
+
+  W.fmt.refreshFxRates = function () {
+    return W.fmt.loadFxRates({ force: true });
+  };
+
+  W.fmt.money = function (amount, options = {}) {
+    if (amount === null || amount === undefined || isNaN(amount)) {
+      return "$0.00";
+    }
+    const numericAmount = Number(amount);
+    if (!Number.isFinite(numericAmount)) {
+      return "$0.00";
+    }
+    const currency = W.fmt.getCurrency();
+    const config = CURRENCIES[currency] || CURRENCIES.usd;
+    const code = currency.toUpperCase();
+    let convertedAmount = numericAmount;
+    // BTC and ETH are not fiat. Do not convert via FX rates.
+    if (code !== "USD" && code !== "BTC" && code !== "ETH") {
+      const rate = fxRates[code];
+      if (Number.isFinite(rate) && rate > 0) {
+        convertedAmount = numericAmount * rate;
+      }
+    }
     try {
       return new Intl.NumberFormat(config.locale, {
         style: "currency",
-        currency: currency.toUpperCase(),
+        currency: code,
         minimumFractionDigits: options.compact ? 0 : 2,
         maximumFractionDigits: options.compact ? 0 : 2,
-      }).format(amount);
+      }).format(convertedAmount);
     } catch (e) {
-      return `$${Number(amount).toFixed(2)}`;
+      return `${config.symbol}${convertedAmount.toFixed(2)}`;
     }
   };
 
@@ -865,10 +1006,35 @@ W.fmt = W.fmt || {};
    * Escape HTML to prevent XSS
    */
   W.fmt.escapeHTML = function (str) {
-    if (!str || typeof str !== "string") return "";
-    const div = document.createElement("div");
-    div.textContent = str;
-    return div.innerHTML;
+    // Escapes &, <, >, ", '. Attribute-safe: the output can be used
+    // in text and quoted-attribute positions.
+    //
+    // The prior implementation used the textContent → innerHTML
+    // trick, which escapes only &, <, > — unsafe in any attribute
+    // context where a payload containing a quote could break out.
+    if (str === null || str === undefined) return "";
+    let value;
+    try {
+      value = String(str);
+    } catch (e) {
+      return "";
+    }
+    return value.replace(/[&<>"']/g, (char) => {
+      switch (char) {
+        case "&":
+          return "&amp;";
+        case "<":
+          return "&lt;";
+        case ">":
+          return "&gt;";
+        case '"':
+          return "&quot;";
+        case "'":
+          return "&#39;";
+        default:
+          return char;
+      }
+    });
   };
 
   /**
@@ -1780,7 +1946,21 @@ W.ui = {
     placeholder = "Password",
   } = {}) {
     return new Promise((resolve) => {
-      const esc = W.fmt?.escapeHTML || ((s) => s);
+      const esc =
+        W.fmt && typeof W.fmt.escapeHTML === "function"
+          ? W.fmt.escapeHTML
+          : (s) =>
+              String(s == null ? "" : s).replace(
+                /[&<>"']/g,
+                (c) =>
+                  ({
+                    "&": "&amp;",
+                    "<": "&lt;",
+                    ">": "&gt;",
+                    '"': "&quot;",
+                    "'": "&#39;",
+                  })[c],
+              );
       const body = `
         ${message ? `<p class="muted small">${esc(message)}</p>` : ""}
         <label>
@@ -1961,7 +2141,7 @@ W.ui = {
             });
           } catch (e) {
             console.warn("[UI] coinPicker search error:", e.message);
-            results.innerHTML = `<div class="picker-item muted">⚠️ ${e.message}</div>`;
+                        results.innerHTML = `<div class="picker-item muted">⚠️ ${esc(e.message)}</div>`;
             results.classList.remove("hidden");
           }
         }, 350)
@@ -6877,6 +7057,7 @@ W.ai.providers = (() => {
     model,
     apiKey,
     endpointOverride,
+    signal,
   }) {
     const provider = registry[providerName];
     if (!provider)
@@ -6893,6 +7074,7 @@ W.ai.providers = (() => {
       method: "POST",
       headers,
       body: JSON.stringify(body),
+      signal,
     });
 
     if (!response.ok) {
@@ -13329,6 +13511,12 @@ W.deployerGraph = (() => {
       return null;
     }
 
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () => controller.abort(),
+      10000,
+    );
+
     let response;
     try {
       response = await fetch(workerBase + "/bitquery/deployer", {
@@ -13338,10 +13526,13 @@ W.deployerGraph = (() => {
           chain: chain,
           deployerAddress: deployerAddress,
         }),
+        signal: controller.signal,
       });
     } catch (e) {
       warnOnce("fetch-failed", "Deployer fetch failed: " + (e && e.message));
       return null;
+    } finally {
+      clearTimeout(timer);
     }
 
     if (!response || !response.ok) {
@@ -13879,7 +14070,7 @@ console.log(
 );
 // ---- js/features/watchlist.js ----
 // ================================================================
-// js/features/watchlist.js – Weaver Watchlist
+//     Weaver Watchlist
 // ================================================================
 
 window.W = window.W || {};
@@ -13977,7 +14168,7 @@ W.watchlist = (() => {
       coins = data || [];
     } catch (e) {
       console.warn("[Watchlist] Market fetch error:", e);
-      body.innerHTML = `<p class="muted">${e.message}</p>`;
+            body.innerHTML = `<p class="muted">${W.fmt.escapeHTML(e.message)}</p>`;
       return;
     }
 
@@ -18486,19 +18677,31 @@ const AiModule = (() => {
   // ════════════════════════════════════════════════════════
   // 2. ON-CHAIN INTELLIGENCE
   // ════════════════════════════════════════════════════════
+  const ONCHAIN_FETCH_TIMEOUT_MS = 10000;
+
   async function fetchOnChainJSON(url) {
-    const response = W.requestGuard
-      ? await W.requestGuard.fetch(
-          url,
-          {},
-          {
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () => controller.abort(),
+      ONCHAIN_FETCH_TIMEOUT_MS,
+    );
+    const init = { signal: controller.signal };
+    let response;
+    try {
+      response = W.requestGuard
+        ? await W.requestGuard.fetch(url, init, {
             capacity: 8,
             refillMs: 10000,
             failureThreshold: 4,
             cooldownMs: 30000,
-          },
-        )
-      : await fetch(url);
+          })
+        : await fetch(url, init);
+    } catch (e) {
+      clearTimeout(timer);
+      const reason = e && e.name === "AbortError" ? "timed out" : e?.message;
+      throw new Error(`On-chain request failed: ${reason}`);
+    }
+    clearTimeout(timer);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     if (W.schemas) W.schemas.validate("blockscoutCollection", data);
@@ -22395,7 +22598,7 @@ W.shield = (() => {
       );
     }
 
-    const url = `${GOPLUS_API}/${chainId}?contract_addresses=${address.toLowerCase()}`;
+    const url = `${GOPLUS_API}/${chainId}?contract_addresses=${encodeURIComponent(address.toLowerCase())}`;
 
     // Use direct provider only
     const proxies = [(u) => u];
@@ -22419,6 +22622,7 @@ W.shield = (() => {
         setCache(chainId, address, data);
         return data;
       } catch (e) {
+        clearTimeout(timeout);
         lastError = e;
         console.warn("[Shield] Proxy failed:", e.message);
       }
@@ -22451,7 +22655,7 @@ W.shield = (() => {
     }
 
     // Address case matters for Solana — never lowercase it.
-    const url = `${GOPLUS_SOLANA_API}?contract_addresses=${address}`;
+    const url = `${GOPLUS_SOLANA_API}?contract_addresses=${encodeURIComponent(address)}`;
 
     const proxies = [(u) => u];
 
@@ -22473,6 +22677,7 @@ W.shield = (() => {
         setCache("solana", address, data);
         return data;
       } catch (e) {
+        clearTimeout(timeout);
         lastError = e;
         console.warn("[Shield] Solana proxy failed:", e.message);
       }
@@ -23277,37 +23482,44 @@ W.web3 = W.web3 || {};
     }
   }
 
-  async function getSolBalance(address) {
-    const phantom = window.phantom?.solana;
-    if (!phantom) return null;
-    try {
-      if (typeof phantom.getBalance === "function")
-        return (await phantom.getBalance()) / 1e9;
-      const response = await fetch("https://api.mainnet-beta.solana.com", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "getBalance",
-          params: [address],
-        }),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-      if (W.schemas) W.schemas.validate("jsonRpc", data);
-      W.dataHealth?.mark("wallet-data", {
-        source: "solana-rpc",
-        observedAt: Date.now(),
-        staleAfter: 10 * 60 * 1000,
-      });
-      return data.result?.value !== undefined ? data.result.value / 1e9 : null;
-    } catch (error) {
-      console.error("[Web3] Solana balance error"); // SAFE: No raw address logged
-      return null;
-    }
-  }
+   async function getSolBalance(address) {
+     const phantom = window.phantom?.solana;
+     if (!phantom) return null;
+     try {
+       if (typeof phantom.getBalance === "function")
+         return (await phantom.getBalance()) / 1e9;
 
+       // Fallback for wallets that do not expose getBalance().
+       //
+       // Route through W.walletsync.solanaRpcCall, which points at
+       // mainnet.helius-rpc.com with a placeholder api-key that the
+       // Cloudflare Worker swaps for the real HELIUS_KEY. The public
+       // RPC (api.mainnet-beta.solana.com) is blocked from Cloudflare
+       // Worker egress and is not on the Worker's ALLOWED_PROXY_HOSTS
+       // list; a browser-direct call would also leak the user's IP
+       // to a public endpoint. See cf-worker/index.js header notes.
+       if (!W.walletsync || typeof W.walletsync.solanaRpcCall !== "function") {
+         return null;
+       }
+       const data = await W.walletsync.solanaRpcCall({
+         jsonrpc: "2.0",
+         id: 1,
+         method: "getBalance",
+         params: [address],
+       });
+       W.dataHealth?.mark("wallet-data", {
+         source: "solana-helius",
+         observedAt: Date.now(),
+         staleAfter: 10 * 60 * 1000,
+       });
+       return data?.result?.value !== undefined
+         ? data.result.value / 1e9
+         : null;
+     } catch (error) {
+       console.error("[Web3] Solana balance error"); // SAFE: No raw address logged
+       return null;
+     }
+   }
   // ── Chain Switching ───────────────────────────────────
   async function switchChain(chainId) {
     if (!window.ethereum) {
@@ -28092,7 +28304,7 @@ function render(view) {
         status.innerHTML = '<p class="up small">✅ Save completed</p>';
       })
       .catch((e) => {
-        status.innerHTML = `<p class="down small">❌ ${e.message}</p>`;
+                status.innerHTML = `<p class="down small">❌ ${W.fmt.escapeHTML(e.message)}</p>`;
       });
   };
 
@@ -28104,7 +28316,7 @@ function render(view) {
         status.innerHTML = '<p class="up small">✅ Restore completed</p>';
       })
       .catch((e) => {
-        status.innerHTML = `<p class="down small">❌ ${e.message}</p>`;
+                status.innerHTML = `<p class="down small">❌ ${W.fmt.escapeHTML(e.message)}</p>`;
       });
   };
 
@@ -28812,6 +29024,22 @@ W.walletSync = (() => {
     "bsc-rpc.publicnode.com",
     "mainnet.helius-rpc.com",
   ];
+
+  // ── Attribute-safe escaper ────────────────────────────
+  // W.fmt.escapeHTML uses the textContent→innerHTML trick,
+  // which escapes & < > but not " or '. Unsafe in quoted-
+  // attribute positions. This local escaper covers all five.
+  function esc(v) {
+    if (v === null || v === undefined) return "";
+    const s = String(v);
+    if (!/[&<>"']/.test(s)) return s;
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
 
   // ── Fetch helper ──────────────────────────────────────
   async function fetchJSON(url, options, schema) {
@@ -29623,7 +29851,7 @@ W.walletSync = (() => {
     if (w.error) {
       // Render a compact diagnostic instead of just "error" so the
       // user can distinguish a network problem from a bad address.
-      return `<span class="down" title="${W.fmt.escapeHTML(w.error)}">unreachable</span>`;
+      return `<span class="down" title="${esc(w.error)}">unreachable</span>`;
     }
     if (!Number.isFinite(w.totalValue))
       return '<span class="text-muted" title="Price unavailable">—</span>';
@@ -29750,6 +29978,7 @@ W.walletSync = (() => {
     setCostBasis,
     clearCostBasis,
     version: MODULE_VERSION,
+    solanaRpcCall,
   };
 })();
 
@@ -31311,11 +31540,21 @@ W.trackRecord = (() => {
     );
   }
 
+  const MAX_OUTCOME_RESPONSE_BYTES = 5 * 1024 * 1024;
+
   async function fetchWithTimeout(url, timeoutMs = OUTCOME_FETCH_TIMEOUT_MS) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetch(url, { signal: controller.signal });
+      const response = await fetch(url, { signal: controller.signal });
+      const declared = Number(response.headers.get("content-length"));
+      if (
+        Number.isFinite(declared) &&
+        declared > MAX_OUTCOME_RESPONSE_BYTES
+      ) {
+        throw new Error("Outcome response exceeds size cap");
+      }
+      return response;
     } finally {
       clearTimeout(timeout);
     }
@@ -31632,7 +31871,18 @@ W.trackRecord = (() => {
   }
 
   function escape(value) {
-    return W.fmt?.escapeHTML ? W.fmt.escapeHTML(value) : String(value ?? "");
+    if (typeof W.fmt?.escapeHTML === "function") {
+      return W.fmt.escapeHTML(value);
+    }
+    if (value === null || value === undefined) return "";
+    const s = String(value);
+    if (!/[&<>"']/.test(s)) return s;
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, '&#39;');
   }
   function csvCell(value) {
     if (value === null || value === undefined) return "";
@@ -33627,6 +33877,38 @@ window.W = window.W || {};
       const cur = W.currency();
       const el = document.getElementById("currency");
       if (el) el.value = cur;
+
+      // Load FX rates in the background. money() stays synchronous
+      // and uses the cached rates. Re-render once they resolve so the
+      // first paint is not stuck on the un-converted USD values.
+      if (typeof W.fmt?.loadFxRates === "function") {
+        const initialFxState = W.fmt.getFxState?.();
+        W.fmt
+          .loadFxRates()
+          .then(() => {
+            const nextFxState = W.fmt.getFxState?.();
+            // Only re-render if the rates actually changed — avoids a
+            // pointless second render when the cache was fresh.
+            if (
+              nextFxState &&
+              initialFxState &&
+              nextFxState.loadedAt !== initialFxState.loadedAt
+            ) {
+              try {
+                route();
+              } catch (e) {
+                console.warn("[App] re-render after FX load failed:", e?.message);
+              }
+            }
+          })
+          .catch((error) => {
+            console.warn(
+              "[App] FX rate loading failed:",
+              error?.message || error,
+            );
+          });
+      }
+
       startLoop();
     } catch (e) {
       console.warn("[App] applySettings failed:", e && e.message);
