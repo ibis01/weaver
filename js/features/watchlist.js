@@ -1,5 +1,5 @@
 // ================================================================
-// js/features/watchlist.js – Weaver Watchlist
+//     Weaver Watchlist
 // ================================================================
 
 window.W = window.W || {};
@@ -97,7 +97,7 @@ W.watchlist = (() => {
       coins = data || [];
     } catch (e) {
       console.warn("[Watchlist] Market fetch error:", e);
-      body.innerHTML = `<p class="muted">${e.message}</p>`;
+            body.innerHTML = `<p class="muted">${W.fmt.escapeHTML(e.message)}</p>`;
       return;
     }
 

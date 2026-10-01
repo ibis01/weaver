@@ -427,7 +427,7 @@ function render(view) {
         status.innerHTML = '<p class="up small">✅ Save completed</p>';
       })
       .catch((e) => {
-        status.innerHTML = `<p class="down small">❌ ${e.message}</p>`;
+                status.innerHTML = `<p class="down small">❌ ${W.fmt.escapeHTML(e.message)}</p>`;
       });
   };
 
@@ -439,7 +439,7 @@ function render(view) {
         status.innerHTML = '<p class="up small">✅ Restore completed</p>';
       })
       .catch((e) => {
-        status.innerHTML = `<p class="down small">❌ ${e.message}</p>`;
+                status.innerHTML = `<p class="down small">❌ ${W.fmt.escapeHTML(e.message)}</p>`;
       });
   };
 

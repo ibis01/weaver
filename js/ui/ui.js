@@ -86,7 +86,21 @@ W.ui = {
     placeholder = "Password",
   } = {}) {
     return new Promise((resolve) => {
-      const esc = W.fmt?.escapeHTML || ((s) => s);
+      const esc =
+        W.fmt && typeof W.fmt.escapeHTML === "function"
+          ? W.fmt.escapeHTML
+          : (s) =>
+              String(s == null ? "" : s).replace(
+                /[&<>"']/g,
+                (c) =>
+                  ({
+                    "&": "&amp;",
+                    "<": "&lt;",
+                    ">": "&gt;",
+                    '"': "&quot;",
+                    "'": "&#39;",
+                  })[c],
+              );
       const body = `
         ${message ? `<p class="muted small">${esc(message)}</p>` : ""}
         <label>
@@ -267,7 +281,7 @@ W.ui = {
             });
           } catch (e) {
             console.warn("[UI] coinPicker search error:", e.message);
-            results.innerHTML = `<div class="picker-item muted">⚠️ ${e.message}</div>`;
+                        results.innerHTML = `<div class="picker-item muted">⚠️ ${esc(e.message)}</div>`;
             results.classList.remove("hidden");
           }
         }, 350)
