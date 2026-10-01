@@ -81,6 +81,22 @@ W.walletSync = (() => {
     "mainnet.helius-rpc.com",
   ];
 
+  // ── Attribute-safe escaper ────────────────────────────
+  // W.fmt.escapeHTML uses the textContent→innerHTML trick,
+  // which escapes & < > but not " or '. Unsafe in quoted-
+  // attribute positions. This local escaper covers all five.
+  function esc(v) {
+    if (v === null || v === undefined) return "";
+    const s = String(v);
+    if (!/[&<>"']/.test(s)) return s;
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   // ── Fetch helper ──────────────────────────────────────
   async function fetchJSON(url, options, schema) {
     const needsProxy = PROXY_REQUIRED_DOMAINS.some((domain) =>
@@ -891,7 +907,7 @@ W.walletSync = (() => {
     if (w.error) {
       // Render a compact diagnostic instead of just "error" so the
       // user can distinguish a network problem from a bad address.
-      return `<span class="down" title="${W.fmt.escapeHTML(w.error)}">unreachable</span>`;
+      return `<span class="down" title="${esc(w.error)}">unreachable</span>`;
     }
     if (!Number.isFinite(w.totalValue))
       return '<span class="text-muted" title="Price unavailable">—</span>';
