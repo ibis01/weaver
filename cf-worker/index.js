@@ -81,9 +81,11 @@
 //   structurally impossible — those hostnames simply are not on the
 //   list.
 //
-//   HTTPS-only, no redirects followed implicitly, no client headers
-//   forwarded except Content-Type on POST. The client's Origin is
-//   still gated by ALLOWED_ORIGINS above.
+//   HTTPS-only, no redirects followed (redirect: "manual" on every
+//   upstream fetch — a 3xx is treated as a failure and never cached,
+//   so an allowlisted host with an open redirect cannot poison the
+//   edge cache), no client headers forwarded except Content-Type on
+//   POST. The client's Origin is still gated by ALLOWED_ORIGINS above.
 //
 //   EDGE CACHE (§3.4, §3.6):
 //   GET requests are cached at the Cloudflare edge for
@@ -240,6 +242,13 @@ const DEPLOYER_QUERY_LIMIT = 50;
 const EVM_ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
 const FETCH_TIMEOUT_MS = 10000;
 
+// Hard cap on any single upstream response body. Protects the Worker
+// isolate from a misbehaving or hostile allowlisted host streaming
+// unbounded bytes. Cloudflare caps isolate memory well below this,
+// but hitting that ceiling takes the route down for every caller
+// until the isolate is recycled — better to fail the single request.
+const MAX_UPSTREAM_BYTES = 5 * 1024 * 1024; // 5 MB
+
 const GOPLUS_RATE_LIMIT_CODE = 4029;
 const GOPLUS_MAX_ATTEMPTS = 3;
 const GOPLUS_BASE_DELAY_MS = 400;
@@ -268,6 +277,26 @@ function jsonResponse(obj, status, headers) {
   });
 }
 
+// Read a response body as text, enforcing the size cap from the
+// declared Content-Length when present, and from the actual read
+// length afterwards. The post-read check covers upstreams that
+// omit Content-Length or send a lie.
+//
+// The declared check is in bytes; the post-read check is in UTF-16
+// code units. For JSON this is close enough — the intent is a
+// coarse ceiling, not byte-exact enforcement.
+async function readTextWithCap(resp) {
+  const declared = Number(resp.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_UPSTREAM_BYTES) {
+    throw new Error("Upstream response too large (declared)");
+  }
+  const text = await resp.text();
+  if (text.length > MAX_UPSTREAM_BYTES) {
+    throw new Error("Upstream response too large (actual)");
+  }
+  return text;
+}
+
 // ----------------------------------------------------------------
 // Upstream relays
 // ----------------------------------------------------------------
@@ -293,8 +322,9 @@ async function fetchGoPlusOnce(upstreamUrl, env) {
     const resp = await fetch(upstreamUrl, {
       signal: controller.signal,
       headers,
+      redirect: "manual",
     });
-    const text = await resp.text();
+    const text = await readTextWithCap(resp);
     return { status: resp.status, text };
   } finally {
     clearTimeout(timeout);
@@ -309,8 +339,11 @@ async function relay(upstreamUrl, headers, env) {
     try {
       result = await fetchGoPlusOnce(upstreamUrl, env);
     } catch (e) {
+      // Detail goes to server-side logs only. The client gets a
+      // generic message; upstream error bodies are never echoed.
+      console.error("[relay] GoPlus fetch failed:", e && e.message);
       return jsonResponse(
-        { code: 0, message: `Upstream fetch failed: ${e.message}` },
+        { code: 0, message: "Upstream fetch failed" },
         502,
         headers,
       );
@@ -373,6 +406,7 @@ async function relayBitquery(env, network, address, headers) {
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
   let upstreamResp;
+  let upstreamText;
   try {
     upstreamResp = await fetch(BITQUERY_ENDPOINT, {
       method: "POST",
@@ -383,10 +417,15 @@ async function relayBitquery(env, network, address, headers) {
         "User-Agent": "WeaverProxy/1.0",
       },
       body,
+      redirect: "manual",
     });
+    upstreamText = await readTextWithCap(upstreamResp);
   } catch (e) {
+    // Detail logged server-side; client gets a generic message.
+    // e.message can carry the upstream URL or CF-internal detail.
+    console.error("[relayBitquery] Bitquery fetch failed:", e && e.message);
     return jsonResponse(
-      { error: `Bitquery fetch failed: ${e.message}` },
+      { error: "Bitquery upstream unavailable" },
       502,
       headers,
     );
@@ -404,7 +443,7 @@ async function relayBitquery(env, network, address, headers) {
 
   let parsed;
   try {
-    parsed = await upstreamResp.json();
+    parsed = JSON.parse(upstreamText);
   } catch (e) {
     return jsonResponse(
       { error: "Bitquery returned a non-JSON response" },
@@ -509,7 +548,16 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
     "User-Agent": "WeaverProxy/1.0",
   };
 
-  const init = { method, headers: upstreamHeaders };
+  const init = {
+    method,
+    headers: upstreamHeaders,
+    // Do not follow upstream redirects. An allowlisted host that
+    // returns a 3xx could otherwise redirect to a non-allowlisted
+    // target, and the response would be cached under the original
+    // URL key — a cache-poisoning vector. 3xx responses therefore
+    // surface as !ok and are treated as failures below.
+    redirect: "manual",
+  };
   if (method === "POST") {
     init.body = await request.text();
     init.headers["Content-Type"] = "application/json";
@@ -562,10 +610,12 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
       signal: controller.signal,
     });
     if (upstream.ok) {
-      text = await upstream.text();
+      text = await readTextWithCap(upstream);
       upstreamOk = true;
     }
   } catch (e) {
+    // readTextWithCap throws on oversize; leave text null so the
+    // failure path below runs. Detail is not surfaced to the client.
     upstream = null;
   } finally {
     clearTimeout(timer);
