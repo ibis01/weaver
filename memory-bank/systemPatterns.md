@@ -1,6 +1,6 @@
 # Weaver System Patterns — Architectural Rules
 
-> Last synced: 2026-09-28. Prior version contained an embedded copy of
+> Last synced: 2026-10-01. Prior version contained an embedded copy of
 > `techContext.md` and a stray "ready-to-copy Markdown files" header;
 > both removed.
 
@@ -9,6 +9,7 @@
 ### Canonical Flow
 ```text
 Signal → Evidence → PersonalContext → Assessment → DecisionPriority → Presentation
+
 Module Ownership
 
     Signal Generation: js/intelligence/events.js
@@ -28,12 +29,15 @@ Module Ownership
 Confidence Authority
 
 Single Canonical Authority: W.intelligence.computeConfidence()
+text
+
 confidence =
     sourceReliability
   × dataFreshness
   × corroborationFactor     // 1 + (corroborationCount − 1) × 0.1
   × dataCompleteness
   × interpretationConfidence
+
 Rules:
 
     If any factor is null or unknown → confidence = null, never a
@@ -52,6 +56,7 @@ Rules:
 
     Data freshness decays with signal age; the window is chosen per
     signal type.
+
 Shield Risk Authority
 Scoring System
 
@@ -251,6 +256,8 @@ Cache Strategy
 
 Module Contract
 Standard Pattern
+js
+
 window.W = window.W || {};
 W.<feature> = (() => {
   // private functions and constants
@@ -261,6 +268,7 @@ W.<feature> = (() => {
 
   return { render /* other public methods */ };
 })();
+
 CSP Compliance
 
     Zero inline styles (style="..." attributes prohibited).
@@ -302,90 +310,4 @@ Error Handling
 
     No unhandled promise rejections.
 
-    No silent failures.
-    EOF
-
----
-
-## 4 — `techContext.md`
-
-```bash
-cat > memory-bank/techContext.md << 'EOF'
-# Technical Context
-
-> Last synced: 2026-09-28.
-
-## Core Architecture
-Weaver is an evidence-first, non-custodial crypto intelligence and
-decision engine. It strictly separates Signal, Evidence, Personal
-Context, Assessment, Decision Priority, and Presentation.
-
-## Market Data Provider Chain (Live & CI)
-Due to rate-limiting and Cloudflare egress blocking of legacy
-providers, the architecture has migrated to a resilient, keyless
-fallback chain:
-1. **Primary:** CoinLore (`api.coinlore.net`) — free, reliable,
-   no API key required.
-2. **Secondary:** CoinPaprika (`api.coinpaprika.com`) — robust free
-   tier, matches the lowercase ID schema used by the app.
-3. **Fallback:** Coinbase (`api.coinbase.com/v2`) — spot quotes for
-   the top tickers.
-4. **Last resort:** local cached snapshots (`data/top.json`,
-   `data/global.json`) refreshed hourly by
-   `.github/workflows/data.yml`.
-
-Note: `assets.coingecko.com` URLs still appear in
-`js/api/prices.js`, but only as image hosts for token logos. Market
-data no longer flows through the CoinGecko API.
-
-## RPC & Node Infrastructure
-- **Solana:** Helius RPC. API keys are **never** exposed to the
-  client. The browser sends a placeholder to the Cloudflare Worker
-  (`weaver-proxy`), which injects `HELIUS_KEY` server-side before
-  forwarding to Helius.
-- **Ethereum / BSC:** public RPCs (`ethereum.publicnode.com`,
-  `bsc-dataseed.binance.org`) and block-explorer APIs
-  (`api.bscscan.com`), routed through the Worker proxy to bypass
-  browser CORS restrictions.
-
-## Cloudflare Worker Security (`cf-worker/index.js`)
-- **Strict Allowlisting** — the `/proxy` endpoint validates every
-  outbound request against a hardcoded `ALLOWED_PROXY_HOSTS` Set.
-  Arbitrary SSRF is blocked.
-- **Query Construction** — Bitquery GraphQL queries are constructed
-  server-side; the client cannot inject arbitrary GraphQL.
-- **Secret Management** — API keys (Helius, etc.) live exclusively
-  in Wrangler secrets. Never in Git, never in the browser.
-
-## Testing & CI
-Four application suites run under `npm test` (and individually):
-
-| Suite       | Command                     | Count | Notes                                 |
-|-------------|-----------------------------|-------|---------------------------------------|
-| Unit        | `npm run test:unit`         | ~538  | Mocha + Chai, JSDOM setup             |
-| Integration | `npm run test:integration`  | 16    | Cross-module pipelines                |
-| Security    | `npm run test:security`     | 16    | CSP, SSRF, privacy, CSV injection     |
-| E2E         | `npm run test:e2e`          | 11    | Playwright, Chromium only             |
-
-CI (`.github/workflows/test-and-build.yml`) runs all four suites plus
-Worker tests, and verifies that no inline styles or inline event
-handlers remain in `index.html`.
-
-### E2E Configuration
-- **Config:** `playwright.config.js`
-- **`testDir`:** `./test/e2e` — four spec files:
-  `app.spec.js`, `schemas-freshness.spec.js`, `track-record.spec.js`,
-  `weaver.spec.js`.
-- **Retries on CI:** 2. Local: 0.
-- **Workers on CI:** 1. Local: default.
-- **Web server:** `npx http-server -p 8080 -c-1`.
-- **Artifacts on failure:** `playwright-report/` (HTML report) and
-  `test-results/` (screenshots, videos, traces). Both are ignored by
-  `.gitignore`.
-
-### Known Gaps
-- No dedicated unit tests for portfolio math (weighted-average cost
-  basis, realized / unrealized P&L).
-- E2E suite is smoke and acceptance — no browser coverage for
-  wallet-sync failure paths, degraded-provider behavior, or the full
-  end-to-end intelligence → evidence → verdict → drawer flow.
+    No silent failures
