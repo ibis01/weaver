@@ -1074,6 +1074,42 @@ W.fmt = W.fmt || {};
   };
 
   console.log("[Format] Utilities loaded.");
+
+  // ── Boot: load FX rates once the page is interactive ──────────
+  // The prior hook lived inside W.applySettings in app.js, which is
+  // defined but never called — so FX rates were never fetched at
+  // boot, and every currency switch showed the USD number with a
+  // different symbol. This block self-boots: it kicks off the load
+  // on DOM ready (or immediately if readyState is already past
+  // loading), then triggers a re-render if W.refresh is available
+  // and the rates actually arrived.
+  function bootFx() {
+    const before = W.fmt.getFxState();
+    W.fmt
+      .loadFxRates()
+      .then(() => {
+        const after = W.fmt.getFxState();
+        if (after && before && after.loadedAt !== before.loadedAt) {
+          try {
+            if (typeof W.refresh === "function") W.refresh();
+          } catch (e) {
+            console.warn("[Format] FX re-render failed:", e?.message || e);
+          }
+        }
+      })
+      .catch((e) => {
+        console.warn("[Format] FX boot load failed:", e?.message || e);
+      });
+  }
+
+  if (typeof document !== "undefined") {
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", bootFx, { once: true });
+    } else {
+      // Deferred one tick so app.js can finish defining W.refresh.
+      setTimeout(bootFx, 0);
+    }
+  }
 })();
 // ---- js/utils/finance.js ----
 // ===============================================================
@@ -31547,7 +31583,7 @@ W.trackRecord = (() => {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(url, { signal: controller.signal });
-      const declared = Number(response.headers.get("content-length"));
+      const declared = Number(response.headers?.get?.("content-length") ?? 0);
       if (
         Number.isFinite(declared) &&
         declared > MAX_OUTCOME_RESPONSE_BYTES
