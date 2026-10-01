@@ -57,11 +57,15 @@ self.addEventListener("fetch", (e) => {
   e.respondWith(
     (async () => {
       const cache = await caches.open(CACHE);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
       try {
-        const net = await fetch(e.request);
+        const net = await fetch(e.request, { signal: controller.signal });
+        clearTimeout(timer);
         if (net && net.ok) cache.put(e.request, net.clone());
         return net;
       } catch (err) {
+        clearTimeout(timer);
         const hit = await cache.match(e.request);
         if (hit) return hit;
         if (e.request.mode === "navigate")

@@ -84,12 +84,20 @@ W.fmt = W.fmt || {};
           ",",
         );
         const url = `${FX_API}?base=USD&quotes=${encodeURIComponent(targets)}`;
-        const response = await fetch(url, {
-          method: "GET",
-          headers: { Accept: "application/json" },
-          credentials: "omit",
-          cache: "no-store",
-        });
+        const fxController = new AbortController();
+        const fxTimer = setTimeout(() => fxController.abort(), 10000);
+        let response;
+        try {
+          response = await fetch(url, {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            credentials: "omit",
+            cache: "no-store",
+            signal: fxController.signal,
+          });
+        } finally {
+          clearTimeout(fxTimer);
+        }
         if (!response.ok) {
           throw new Error(`FX provider returned HTTP ${response.status}`);
         }

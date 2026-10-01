@@ -601,6 +601,12 @@ W.deployerGraph = (() => {
       return null;
     }
 
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () => controller.abort(),
+      10000,
+    );
+
     let response;
     try {
       response = await fetch(workerBase + "/bitquery/deployer", {
@@ -610,10 +616,13 @@ W.deployerGraph = (() => {
           chain: chain,
           deployerAddress: deployerAddress,
         }),
+        signal: controller.signal,
       });
     } catch (e) {
       warnOnce("fetch-failed", "Deployer fetch failed: " + (e && e.message));
       return null;
+    } finally {
+      clearTimeout(timer);
     }
 
     if (!response || !response.ok) {

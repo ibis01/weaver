@@ -592,19 +592,31 @@ const AiModule = (() => {
   // ════════════════════════════════════════════════════════
   // 2. ON-CHAIN INTELLIGENCE
   // ════════════════════════════════════════════════════════
+  const ONCHAIN_FETCH_TIMEOUT_MS = 10000;
+
   async function fetchOnChainJSON(url) {
-    const response = W.requestGuard
-      ? await W.requestGuard.fetch(
-          url,
-          {},
-          {
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () => controller.abort(),
+      ONCHAIN_FETCH_TIMEOUT_MS,
+    );
+    const init = { signal: controller.signal };
+    let response;
+    try {
+      response = W.requestGuard
+        ? await W.requestGuard.fetch(url, init, {
             capacity: 8,
             refillMs: 10000,
             failureThreshold: 4,
             cooldownMs: 30000,
-          },
-        )
-      : await fetch(url);
+          })
+        : await fetch(url, init);
+    } catch (e) {
+      clearTimeout(timer);
+      const reason = e && e.name === "AbortError" ? "timed out" : e?.message;
+      throw new Error(`On-chain request failed: ${reason}`);
+    }
+    clearTimeout(timer);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     if (W.schemas) W.schemas.validate("blockscoutCollection", data);

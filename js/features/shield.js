@@ -225,7 +225,7 @@ W.shield = (() => {
       );
     }
 
-    const url = `${GOPLUS_API}/${chainId}?contract_addresses=${address.toLowerCase()}`;
+    const url = `${GOPLUS_API}/${chainId}?contract_addresses=${encodeURIComponent(address.toLowerCase())}`;
 
     // Use direct provider only
     const proxies = [(u) => u];
@@ -249,6 +249,7 @@ W.shield = (() => {
         setCache(chainId, address, data);
         return data;
       } catch (e) {
+        clearTimeout(timeout);
         lastError = e;
         console.warn("[Shield] Proxy failed:", e.message);
       }
@@ -281,7 +282,7 @@ W.shield = (() => {
     }
 
     // Address case matters for Solana — never lowercase it.
-    const url = `${GOPLUS_SOLANA_API}?contract_addresses=${address}`;
+    const url = `${GOPLUS_SOLANA_API}?contract_addresses=${encodeURIComponent(address)}`;
 
     const proxies = [(u) => u];
 
@@ -303,6 +304,7 @@ W.shield = (() => {
         setCache("solana", address, data);
         return data;
       } catch (e) {
+        clearTimeout(timeout);
         lastError = e;
         console.warn("[Shield] Solana proxy failed:", e.message);
       }

@@ -25,6 +25,7 @@ W.ai.providers = (() => {
     model,
     apiKey,
     endpointOverride,
+    signal,
   }) {
     const provider = registry[providerName];
     if (!provider)
@@ -41,6 +42,7 @@ W.ai.providers = (() => {
       method: "POST",
       headers,
       body: JSON.stringify(body),
+      signal,
     });
 
     if (!response.ok) {
