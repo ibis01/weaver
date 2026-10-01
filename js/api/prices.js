@@ -25,6 +25,19 @@ W.api = (() => {
     (u) => u,
   ];
 
+  // Hosts that must bypass the Worker and go direct from the browser.
+  //
+  // CoinPaprika's free tier is 20,000 req/month PER IP. The Worker's
+  // shared Cloudflare egress IP pool exhausts that quota for every
+  // Weaver user at once. Each user's own browser IP has its own fresh
+  // 20,000/month, so direct routing eliminates the shared-bucket
+  // failure mode entirely.
+  //
+  // CoinPaprika sends permissive CORS headers, so the browser can call
+  // it directly without a relay. This list is intentionally minimal;
+  // only add hosts verified to send Access-Control-Allow-Origin.
+  const DIRECT_ONLY_DOMAINS = new Set(["api.coinpaprika.com"]);
+
   // ── Token logo URLs ─────────────────────────────────────────
   const LOGO_MAP = Object.freeze({
     bitcoin: "https://assets.coingecko.com/coins/images/1/small/bitcoin.png",
@@ -498,7 +511,19 @@ W.api = (() => {
 
     let lastRefusal = null;
 
-    for (const proxy of PROXIES) {
+    // Skip the Worker for hosts whose free-tier quota is per-IP.
+    // Sending them through the Worker would exhaust the shared pool.
+    let activeProxies = PROXIES;
+    try {
+      const parsed = new URL(url);
+      if (DIRECT_ONLY_DOMAINS.has(parsed.hostname)) {
+        activeProxies = PROXIES.slice(1);
+      }
+    } catch {
+      /* malformed URL — leave the default proxy chain in place */
+    }
+
+    for (const proxy of activeProxies) {
       const proxyUrl = proxy(url);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
