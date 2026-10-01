@@ -23,21 +23,154 @@ W.fmt = W.fmt || {};
   /**
    * Format a number as currency
    */
-  W.fmt.money = function (amount, options = {}) {
-    if (amount === null || amount === undefined || isNaN(amount))
-      return "$0.00";
-    const currency = W.store?.get("settings", {})?.currency || "usd";
-    const config = CURRENCIES[currency] || CURRENCIES.usd;
 
+  // -------------------------------------------------------------
+  // FX rate state and helpers
+  // -------------------------------------------------------------
+
+  const FX_API = "https://api.frankfurter.dev/v2/rates";
+  const FX_TTL_MS = 6 * 60 * 60 * 1000;
+
+  let fxRates = { USD: 1 };
+  let fxDate = null;
+  let fxLoadedAt = 0;
+  let fxLoading = null;
+
+  W.fmt.getCurrency = function () {
+    try {
+      const settings = W.store?.get?.("settings", {});
+      if (
+        settings &&
+        typeof settings === "object" &&
+        !Array.isArray(settings) &&
+        typeof settings.currency === "string"
+      ) {
+        const currency = settings.currency.toLowerCase();
+        if (CURRENCIES[currency]) {
+          return currency;
+        }
+      }
+    } catch (e) {
+      console.warn("[Format] Failed to read currency:", e?.message);
+    }
+    return "usd";
+  };
+
+  W.fmt.getCurrencyConfig = function () {
+    const currency = W.fmt.getCurrency();
+    return { ...(CURRENCIES[currency] || CURRENCIES.usd) };
+  };
+
+  W.fmt.getFxState = function () {
+    return {
+      rates: { ...fxRates },
+      date: fxDate,
+      loadedAt: fxLoadedAt,
+      stale: !fxLoadedAt || Date.now() - fxLoadedAt > FX_TTL_MS,
+    };
+  };
+
+  W.fmt.loadFxRates = async function (options = {}) {
+    const force = options.force === true;
+    if (!force && fxLoadedAt && Date.now() - fxLoadedAt < FX_TTL_MS) {
+      return W.fmt.getFxState();
+    }
+    if (fxLoading) {
+      return fxLoading;
+    }
+    fxLoading = (async () => {
+      try {
+        const targets = ["EUR", "GBP", "NGN", "INR", "JPY", "AUD", "CAD"].join(
+          ",",
+        );
+        const url = `${FX_API}?base=USD&quotes=${encodeURIComponent(targets)}`;
+        const response = await fetch(url, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          credentials: "omit",
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          throw new Error(`FX provider returned HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        if (!Array.isArray(payload)) {
+          throw new Error("FX provider returned invalid data");
+        }
+        const nextRates = { USD: 1 };
+        for (const row of payload) {
+          if (
+            !row ||
+            typeof row.quote !== "string" ||
+            typeof row.rate !== "number" ||
+            !Number.isFinite(row.rate) ||
+            row.rate <= 0
+          ) {
+            continue;
+          }
+          const code = row.quote.toUpperCase();
+          if (CURRENCIES[code.toLowerCase()]) {
+            nextRates[code] = row.rate;
+          }
+        }
+        if (Object.keys(nextRates).length < 2) {
+          throw new Error("FX provider returned no usable rates");
+        }
+        fxRates = nextRates;
+        const firstDate = payload.find(
+          (row) => typeof row?.date === "string",
+        );
+        fxDate = firstDate?.date || null;
+        fxLoadedAt = Date.now();
+        console.info(
+          `[Format] FX rates loaded${fxDate ? ` for ${fxDate}` : ""}.`,
+        );
+        return W.fmt.getFxState();
+      } catch (error) {
+        console.warn(
+          "[Format] FX rate loading failed:",
+          error?.message || error,
+        );
+        return W.fmt.getFxState();
+      } finally {
+        fxLoading = null;
+      }
+    })();
+    return fxLoading;
+  };
+
+  W.fmt.refreshFxRates = function () {
+    return W.fmt.loadFxRates({ force: true });
+  };
+
+  W.fmt.money = function (amount, options = {}) {
+    if (amount === null || amount === undefined || isNaN(amount)) {
+      return "$0.00";
+    }
+    const numericAmount = Number(amount);
+    if (!Number.isFinite(numericAmount)) {
+      return "$0.00";
+    }
+    const currency = W.fmt.getCurrency();
+    const config = CURRENCIES[currency] || CURRENCIES.usd;
+    const code = currency.toUpperCase();
+    let convertedAmount = numericAmount;
+    // BTC and ETH are not fiat. Do not convert via FX rates.
+    if (code !== "USD" && code !== "BTC" && code !== "ETH") {
+      const rate = fxRates[code];
+      if (Number.isFinite(rate) && rate > 0) {
+        convertedAmount = numericAmount * rate;
+      }
+    }
     try {
       return new Intl.NumberFormat(config.locale, {
         style: "currency",
-        currency: currency.toUpperCase(),
+        currency: code,
         minimumFractionDigits: options.compact ? 0 : 2,
         maximumFractionDigits: options.compact ? 0 : 2,
-      }).format(amount);
+      }).format(convertedAmount);
     } catch (e) {
-      return `$${Number(amount).toFixed(2)}`;
+      return `${config.symbol}${convertedAmount.toFixed(2)}`;
     }
   };
 
