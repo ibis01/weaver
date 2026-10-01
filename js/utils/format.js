@@ -95,10 +95,35 @@ W.fmt = W.fmt || {};
    * Escape HTML to prevent XSS
    */
   W.fmt.escapeHTML = function (str) {
-    if (!str || typeof str !== "string") return "";
-    const div = document.createElement("div");
-    div.textContent = str;
-    return div.innerHTML;
+    // Escapes &, <, >, ", '. Attribute-safe: the output can be used
+    // in text and quoted-attribute positions.
+    //
+    // The prior implementation used the textContent → innerHTML
+    // trick, which escapes only &, <, > — unsafe in any attribute
+    // context where a payload containing a quote could break out.
+    if (str === null || str === undefined) return "";
+    let value;
+    try {
+      value = String(str);
+    } catch (e) {
+      return "";
+    }
+    return value.replace(/[&<>"']/g, (char) => {
+      switch (char) {
+        case "&":
+          return "&amp;";
+        case "<":
+          return "&lt;";
+        case ">":
+          return "&gt;";
+        case '"':
+          return "&quot;";
+        case "'":
+          return "&#39;";
+        default:
+          return char;
+      }
+    });
   };
 
   /**

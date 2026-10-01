@@ -291,10 +291,10 @@ Escaping
     One escaper per module: esc() covering &, <, >, ", '.
     Safe in text and quoted-attribute contexts.
 
-    W.fmt.escapeHTML (the textContent → innerHTML trick) escapes
-    only &, <, > — it does not escape quotes. It is unsafe
-    in any attribute position. Use a local esc in every renderer
-    that emits attributes.
+    W.fmt.escapeHTML (js/utils/format.js) escapes &, <, >, ", '.
+    Safe in text and quoted-attribute contexts. Use it, or a local
+    esc(), anywhere a value is interpolated into a template string
+    that becomes innerHTML.
 
     URL schemes allowlisted: https: for images; http: / https:
     for navigation. Reject javascript:, data:, vbscript:.
