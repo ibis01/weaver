@@ -286,18 +286,33 @@ CSP Compliance
     No inline <script> — the CSP meta tag carries no nonce; every
     script loads same-origin or from an allowlisted CDN.
 
-Escaping
+### Escaping
 
-    One escaper per module: esc() covering &, <, >, ", '.
-    Safe in text and quoted-attribute contexts.
+- Two equivalent escaper conventions exist in the codebase. Either is
+  safe in text and quoted-attribute contexts.
+  - **Per-module local `esc()`** covering `& < > " '`. Preferred in
+    modules that already define one.
+  - **`W.fmt.escapeHTML`** (`js/utils/format.js:448`) — a real
+    five-character escaper. Despite its name it does **not** use the
+    `textContent → innerHTML` trick; it uses
+    `value.replace(/[&<>"']/g, ...)` and maps each character to its
+    HTML entity. Attribute-safe.
+- Both escapers are verified by `test/unit/xss.test.js`, which asserts
+  attribute-position safety directly:
+  - Test 3 — exact-equality escaping of `"><img src=x onerror=alert(1)>`
+  - Test 4 — DOM-level assertion that the same payload in a WalletSync
+    `title` attribute produces no `img` element
+- URL schemes allowlisted: `https:` for images; `http:` / `https:` for
+  navigation. Reject `javascript:`, `data:`, `vbscript:`.
 
-    W.fmt.escapeHTML (the textContent → innerHTML trick) escapes
-    only &, <, > — it does not escape quotes. It is unsafe
-    in any attribute position. Use a local esc in every renderer
-    that emits attributes.
-
-    URL schemes allowlisted: https: for images; http: / https:
-    for navigation. Reject javascript:, data:, vbscript:.
+**History note (2026-10-01):** An earlier version of this section
+described `W.fmt.escapeHTML` as a `textContent → innerHTML` trick that
+escapes only `& < >`. That description was incorrect by the time it
+was audited — the implementation had already been upgraded to the
+five-character form. The security audit that surfaced this
+(`memory-bank/security-audit-2026-10-01.md`) initially reproduced the
+stale claim as a finding; `test/unit/xss.test.js` disproved it.
+Source code is truth.
 
 Error Handling
 
