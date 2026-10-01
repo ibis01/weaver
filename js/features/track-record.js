@@ -828,7 +828,7 @@ W.trackRecord = (() => {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(url, { signal: controller.signal });
-      const declared = Number(response.headers.get("content-length"));
+      const declared = Number(response.headers?.get?.("content-length") ?? 0);
       if (
         Number.isFinite(declared) &&
         declared > MAX_OUTCOME_RESPONSE_BYTES
