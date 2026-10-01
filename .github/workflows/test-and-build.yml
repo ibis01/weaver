@@ -50,6 +50,27 @@ jobs:
           test -f dist/bundle.min.js
           test -f js/failsafe.js
 
+      # The committed dist/ artifacts are served directly by GitHub
+      # Pages. If they fall behind source, production silently ships
+      # stale code. This step rebuilds (the two previous steps did
+      # so already) and fails if the working tree diff is non-empty —
+      # i.e. the committed bundle does not match what
+      # 'npm run build && npm run minify' produces.
+      #
+      # Determinism caveat: minified output depends on the esbuild
+      # version and the Node version. Both are pinned (esbuild in
+      # package-lock.json, Node via .nvmrc), so output should be
+      # byte-identical across environments. If this step ever flakes,
+      # suspect an unpinned transitive dep in esbuild's tree before
+      # suspecting a real drift.
+      - name: Verify bundle is up to date
+        run: |
+          if ! git diff --exit-code dist/; then
+            echo "::error::dist/ is stale — run 'npm run build && npm run minify' and commit the result"
+            git diff --stat dist/
+            exit 1
+          fi
+
       - name: Verify no inline styles remain in index.html
         run: |
           if grep -qE 'style="' index.html; then
