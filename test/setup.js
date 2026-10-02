@@ -33,12 +33,6 @@ global.W = {
     clearAll: function () {
       this._data = {};
     },
-    setSecureSettings: async function (data, password) {
-      this.set("encrypted_settings", "mock_encrypted_blob");
-    },
-    getSecureSettings: async function (password) {
-      return { ai: { key: "mock_key" }, telegram: { token: "mock_token" } };
-    },
   },
   fmt: {
     escapeHTML: (str) =>
@@ -96,15 +90,6 @@ global.W = {
       return { healthScore: 80, status: "Healthy", reasons: [] };
     },
   },
-  crypto: {
-    secure: {
-      encrypt: async (plaintext, password) => `encrypted_${plaintext}`,
-      decrypt: async (ciphertext, password) =>
-        password === "myPassword123"
-          ? ciphertext.replace("encrypted_", "")
-          : null,
-    },
-  },
   // Placeholders for modules loaded at the bottom of this file. If a
   // require throws (e.g. JSDOM missing an API), the parity test fails
   // cleanly rather than throwing on undefined.
@@ -134,6 +119,9 @@ global.W.api = {
 global.window.W = global.W;
 
 require("../js/models/asset.js");
+require("../js/utils/format.js");
+require("../js/lib/crypto/secure.js");
+require("../js/lib/crypto/secure-session.js");
 require("../js/utils/logger.js");
 require("../js/intelligence/decision-engine.js");
 require("../js/intelligence/calibration.js");
