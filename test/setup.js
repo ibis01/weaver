@@ -54,42 +54,6 @@ global.W = {
         ? `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`
         : addr,
   },
-  intelligence: {
-    computeConfidence: () => 0.8,
-    computeFreshness: () => 1.0,
-    getSourceReliability: () => 0.9,
-  },
-  evidence: {
-    build: (signal, metadata) => ({
-      signalId: signal.id,
-      strength: 0.8,
-      supportingFacts: ["Mocked supporting fact"],
-      conflictingFacts: [],
-      sourceReliability: 0.9,
-      dataFreshnessScore: 1.0,
-      confidence: 0.8,
-    }),
-  },
-  thesisHealth: {
-    evaluate: (thesis, marketData, evidence) => {
-      if (marketData.price < thesis.entryPrice * 0.6)
-        return {
-          healthScore: 20,
-          status: "Invalidated",
-          reasons: ["Price dropped >40%"],
-        };
-      if (
-        marketData.price > thesis.entryPrice &&
-        marketData.regime === "RISK-ON"
-      )
-        return {
-          healthScore: 90,
-          status: "Strengthening",
-          reasons: ["Price and regime align"],
-        };
-      return { healthScore: 80, status: "Healthy", reasons: [] };
-    },
-  },
   // Placeholders for modules loaded at the bottom of this file. If a
   // require throws (e.g. JSDOM missing an API), the parity test fails
   // cleanly rather than throwing on undefined.
@@ -123,6 +87,9 @@ require("../js/utils/format.js");
 require("../js/lib/crypto/secure.js");
 require("../js/lib/crypto/secure-session.js");
 require("../js/utils/logger.js");
+require("../js/intelligence/types.js");
+require("../js/intelligence/evidence-builder.js");
+require("../js/intelligence/thesis-health.js");
 require("../js/intelligence/decision-engine.js");
 require("../js/intelligence/calibration.js");
 

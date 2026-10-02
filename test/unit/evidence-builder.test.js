@@ -1,31 +1,9 @@
 const { expect } = require("chai");
 
-const realBuilderPath =
-  require.resolve("../../js/intelligence/evidence-builder.js");
-const realTypesPath = require.resolve("../../js/intelligence/types.js");
-
 describe("Evidence Builder", () => {
-  let savedBuild;
-  let savedIntelligence;
-
-  before(() => {
-    savedBuild = global.W.evidence.build;
-    savedIntelligence = global.W.intelligence;
-    // Load the real canonical confidence model. The builder delegates
-    // to W.intelligence.computeConfidence(), so the test must exercise
-    // the real function rather than the setup.js mock (which returns a
-    // fixed 0.8 regardless of input and cannot represent the
-    // "unknown ⇒ null" contract).
-    delete require.cache[realTypesPath];
-    require(realTypesPath);
-    delete require.cache[realBuilderPath];
-    require(realBuilderPath);
-  });
-
-  after(() => {
-    global.W.evidence.build = savedBuild;
-    global.W.intelligence = savedIntelligence;
-  });
+  // The real types.js (canonical confidence model) and
+  // evidence-builder.js are loaded once by test/setup.js. No per-test
+  // cache dance needed — this test exercises production directly.
 
   function signal(overrides = {}) {
     return {
