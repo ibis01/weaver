@@ -36,7 +36,10 @@ W.api = (() => {
   // CoinPaprika sends permissive CORS headers, so the browser can call
   // it directly without a relay. This list is intentionally minimal;
   // only add hosts verified to send Access-Control-Allow-Origin.
-  const DIRECT_ONLY_DOMAINS = new Set(["api.coinpaprika.com"]);
+  const DIRECT_ONLY_DOMAINS = new Set([
+    "api.binance.com",
+    "api.coinpaprika.com",
+  ]);
 
   // ── Token logo URLs ─────────────────────────────────────────
   const LOGO_MAP = Object.freeze({
@@ -1126,6 +1129,7 @@ W.api = (() => {
     },
 
     _internal: Object.freeze({
+      DIRECT_ONLY_DOMAINS,
       binancePairFor,
       binanceIntervalFor,
       BINANCE_EXCLUDED,
