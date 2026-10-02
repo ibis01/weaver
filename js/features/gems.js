@@ -740,7 +740,12 @@ W.gems = (() => {
   const MAX_FRESH_SHIELD_PER_SCAN = 12;
   const SHIELD_CONCURRENCY = 4;
   const MAX_FRESH_DEPLOYER_PER_SCAN = 6;
-  const DEPLOYER_CONCURRENCY = 3;
+  // Bitquery's free tier rate-limits concurrent queries per IP. The
+  // Worker's shared egress pool amplifies that — a scan with N=3
+  // concurrent deployer lookups reliably produced 502s on some
+  // requests. Serializing at 1 costs ~300–500ms per scan of ~10
+  // candidates and eliminates the burst entirely.
+  const DEPLOYER_CONCURRENCY = 1;
   const SHIELD_CACHE_TTL = 300000;
   const FETCH_TIMEOUT_MS = 9000;
 

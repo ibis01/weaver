@@ -21069,7 +21069,12 @@ W.gems = (() => {
   const MAX_FRESH_SHIELD_PER_SCAN = 12;
   const SHIELD_CONCURRENCY = 4;
   const MAX_FRESH_DEPLOYER_PER_SCAN = 6;
-  const DEPLOYER_CONCURRENCY = 3;
+  // Bitquery's free tier rate-limits concurrent queries per IP. The
+  // Worker's shared egress pool amplifies that — a scan with N=3
+  // concurrent deployer lookups reliably produced 502s on some
+  // requests. Serializing at 1 costs ~300–500ms per scan of ~10
+  // candidates and eliminates the burst entirely.
+  const DEPLOYER_CONCURRENCY = 1;
   const SHIELD_CACHE_TTL = 300000;
   const FETCH_TIMEOUT_MS = 9000;
 
@@ -22659,23 +22664,15 @@ W.shield = (() => {
     const cached = getCached(chainId, address);
     if (cached) return cached;
 
-    // Prefer our own worker — reliable, no third-party dependency.
-    try {
-      const viaWorker = await fetchViaOwnWorker("evm", chainId, address);
-      if (viaWorker) {
-        setCache(chainId, address, viaWorker);
-        return viaWorker;
-      }
-    } catch (e) {
-      // If GoPlus is rate-limiting, the direct-provider fallback will
-      // hit the same limit (and in a browser, CORS anyway). Surface
-      // the real cause instead of a confusing generic failure.
-      if (e.code === "RATE_LIMITED") throw e;
-      console.warn(
-        "[Shield] Own worker failed, using direct provider:",
-        e.message,
-      );
-    }
+    // GoPlus direct is the primary path. The Worker's shared
+    // Cloudflare egress IP pool causes GoPlus to return
+    // { code: 4012, message: "signature verification failure" } — its
+    // opaque rate-limit response on the free unauthenticated tier.
+    // Direct requests use the user's own IP, each with a fresh per-IP
+    // quota. api.gopluslabs.io echoes our Origin in
+    // Access-Control-Allow-Origin, so CORS is not an obstacle.
+    // fetchViaOwnWorker is retained as a manual escape hatch but is
+    // not called on the hot path.
 
     const url = `${GOPLUS_API}/${chainId}?contract_addresses=${encodeURIComponent(address.toLowerCase())}`;
 
@@ -22694,6 +22691,13 @@ W.shield = (() => {
         clearTimeout(timeout);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
+        if (data.code === 4012 || data.code === 4029) {
+          const err = new Error(
+            "GoPlus is rate-limiting right now. Please wait a few seconds and retry.",
+          );
+          err.code = "RATE_LIMITED";
+          throw err;
+        }
         if (data.code !== 1) {
           throw new Error(data.message || "API error");
         }
@@ -22718,20 +22722,15 @@ W.shield = (() => {
     const cached = getCached("solana", address);
     if (cached) return cached;
 
-    // Prefer our own worker — reliable, no third-party dependency.
-    try {
-      const viaWorker = await fetchViaOwnWorker("solana", null, address);
-      if (viaWorker) {
-        setCache("solana", address, viaWorker);
-        return viaWorker;
-      }
-    } catch (e) {
-      if (e.code === "RATE_LIMITED") throw e;
-      console.warn(
-        "[Shield] Own worker failed, using direct provider:",
-        e.message,
-      );
-    }
+    // GoPlus direct is the primary path. The Worker's shared
+    // Cloudflare egress IP pool causes GoPlus to return
+    // { code: 4012, message: "signature verification failure" } — its
+    // opaque rate-limit response on the free unauthenticated tier.
+    // Direct requests use the user's own IP, each with a fresh per-IP
+    // quota. api.gopluslabs.io echoes our Origin in
+    // Access-Control-Allow-Origin, so CORS is not an obstacle.
+    // fetchViaOwnWorker is retained as a manual escape hatch but is
+    // not called on the hot path.
 
     // Address case matters for Solana — never lowercase it.
     const url = `${GOPLUS_SOLANA_API}?contract_addresses=${encodeURIComponent(address)}`;
@@ -22750,6 +22749,13 @@ W.shield = (() => {
         clearTimeout(timeout);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
+        if (data.code === 4012 || data.code === 4029) {
+          const err = new Error(
+            "GoPlus is rate-limiting right now. Please wait a few seconds and retry.",
+          );
+          err.code = "RATE_LIMITED";
+          throw err;
+        }
         if (data.code !== 1) {
           throw new Error(data.message || "API error");
         }
