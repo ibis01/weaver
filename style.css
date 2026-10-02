@@ -223,6 +223,7 @@ input[type="radio"] { accent-color: var(--brand); }
 .brand {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   padding: 4px 8px 20px;
   border-bottom: 1px solid var(--border);
