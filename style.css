@@ -3358,7 +3358,10 @@ body {
    shown on mobile. Injected by initSidebar(). */
 .sidebar-close-btn {
   display: none;
-  margin-left: auto;
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
   background: transparent;
   border: 1px solid var(--border);
   color: var(--muted);
