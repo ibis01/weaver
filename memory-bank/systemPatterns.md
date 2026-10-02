@@ -311,3 +311,27 @@ Error Handling
     No unhandled promise rejections.
 
     No silent failures
+## Rate Limiting and Provider Routing
+
+### The shared-egress-pool problem
+
+When a Cloudflare Worker aggregates traffic from all Weaver users,
+every user's requests leave from the same pool of Cloudflare IPs.
+Free-tier APIs rate-limit per source IP. A single user's burst can
+exhaust the pool's quota and break the provider for every user
+simultaneously. Observed failures and their resolutions:
+
+| Provider | Symptom | Resolution |
+|---|---|---|
+| CoinPaprika | HTTP 402 "20,000 monthly requests limit exceeded" on every coin/chart | Direct from browser (CORS-permissive) |
+| GoPlus | HTTP 200 with `{code: 4012, message: "signature verification failure"}` | Direct from browser (CORS-permissive) |
+| Bitquery | HTTP 502 under concurrent load from gem scans | Serialize calls (keyed provider, cannot go direct) |
+
+**Rule:** route keyless, CORS-permissive APIs direct from the browser.
+Reserve the Worker for two cases:
+
+1. Keyed providers where the key must not leak (Helius, Bitquery)
+2. Upstreams that do not send CORS headers
+
+`prices.js` implements this with `DIRECT_ONLY_DOMAINS`. `shield.js`
+now uses direct-only routing for GoPlus on both EVM and Solana paths.
