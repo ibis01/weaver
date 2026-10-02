@@ -1729,7 +1729,7 @@ th.num { text-align: right; }
 @media (max-width: 860px) {
   @supports (padding: env(safe-area-inset-top)) {
     .sidebar {
-      padding-top: max(16px, env(safe-area-inset-top));
+      padding-top: max(28px, env(safe-area-inset-top));
       padding-bottom: max(16px, env(safe-area-inset-bottom));
       padding-left: max(16px, env(safe-area-inset-left));
     }
