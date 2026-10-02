@@ -14,9 +14,45 @@ describe("Prices — direct-only routing", () => {
   let originalFetch;
   let calls;
 
+  let originalGlobalFetch;
+  let originalWindowFetch;
+  let hadWindowFetch;
+
   beforeEach(() => {
     calls = [];
-    originalFetch = global.fetch;
+    // Clear any api_cache:* entries that earlier test files populated.
+    // Without this, fetchWithProxy short-circuits on getCached() and
+    // never reaches the spy, so the "Worker first" assertion fails.
+    try {
+      if (typeof localStorage !== "undefined") {
+        Object.keys(localStorage)
+          .filter((k) => k.indexOf("api_cache") === 0)
+          .forEach((k) => localStorage.removeItem(k));
+      }
+    } catch (_) { /* ignore */ }
+    // W.requestGuard is a module singleton whose buckets persist across
+    // test files. Earlier tests (dashboard enrich, etc.) consume tokens
+    // against the Worker origin; without a reset the coinlore assertion
+    // fails intermittently in the full suite but passes in isolation.
+    try {
+      if (global.W && global.W.requestGuard && typeof global.W.requestGuard.reset === "function") {
+        global.W.requestGuard.reset();
+      }
+    } catch (_) { /* ignore */ }
+    // prices.js keeps its own module-level circuit breaker and
+    // providerBlockedUntil map. Without a reset, earlier test files
+    // can open the circuit for ~90s and every fetchWithProxy call
+    // short-circuits before reaching the fetch spy.
+    try {
+      if (global.W?.api?._internal?.resetProviderBlocks) {
+        global.W.api._internal.resetProviderBlocks();
+      }
+    } catch (_) { /* ignore */ }
+    originalGlobalFetch = global.fetch;
+    if (typeof window !== "undefined") {
+      hadWindowFetch = "fetch" in window;
+      originalWindowFetch = window.fetch;
+    }
     const spy = async (url) => {
       calls.push(String(url));
       return {
@@ -31,8 +67,12 @@ describe("Prices — direct-only routing", () => {
   });
 
   afterEach(() => {
-    global.fetch = originalFetch;
-    if (typeof window !== "undefined") window.fetch = originalFetch;
+    if (originalGlobalFetch !== undefined) global.fetch = originalGlobalFetch;
+    else delete global.fetch;
+    if (typeof window !== "undefined") {
+      if (hadWindowFetch) window.fetch = originalWindowFetch;
+      else delete window.fetch;
+    }
   });
 
   const workerHitCount = () =>

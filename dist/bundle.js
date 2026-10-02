@@ -5908,6 +5908,13 @@ W.api = (() => {
     circuitBreaker.until = 0;
   }
 
+  // Test-only: clear provider blocks and the circuit breaker so a
+  // fresh test file starts from a known state. Not for production use.
+  function resetProviderBlocks() {
+    for (const k of Object.keys(providerBlockedUntil)) delete providerBlockedUntil[k];
+    resetCircuit();
+  }
+
   // ── fetchWithProxy — proxy walk with refusal fallthrough ────
   //
   // Two proxies in the list:
@@ -6558,6 +6565,8 @@ W.api = (() => {
 
     _internal: Object.freeze({
       DIRECT_ONLY_DOMAINS,
+      resetCircuit,
+      resetProviderBlocks,
       binancePairFor,
       binanceIntervalFor,
       BINANCE_EXCLUDED,
