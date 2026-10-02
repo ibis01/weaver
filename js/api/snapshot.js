@@ -121,11 +121,26 @@ window.W = window.W || {};
   async function loadSnapshots() {
     try {
       // Try loading from /data/ folder
-      const [topRes, globalRes, fngRes] = await Promise.allSettled([
-        fetch("data/top.json?t=" + Date.now(), { cache: "no-store" }),
-        fetch("data/global.json?t=" + Date.now(), { cache: "no-store" }),
-        fetch("data/fng.json?t=" + Date.now(), { cache: "no-store" }),
-      ]);
+      const snapshotController = new AbortController();
+      const snapshotTimer = setTimeout(
+        () => snapshotController.abort(),
+        8000,
+      );
+      const opts = {
+        cache: "no-store",
+        signal: snapshotController.signal,
+      };
+      let results;
+      try {
+        results = await Promise.allSettled([
+          fetch("data/top.json?t=" + Date.now(), opts),
+          fetch("data/global.json?t=" + Date.now(), opts),
+          fetch("data/fng.json?t=" + Date.now(), opts),
+        ]);
+      } finally {
+        clearTimeout(snapshotTimer);
+      }
+      const [topRes, globalRes, fngRes] = results;
 
       if (topRes.status === "fulfilled" && topRes.value.ok) {
         topSnapshot = acceptSnapshot("top", await topRes.value.json());

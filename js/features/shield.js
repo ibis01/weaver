@@ -219,17 +219,13 @@ W.shield = (() => {
 
     const url = `${GOPLUS_API}/${chainId}?contract_addresses=${encodeURIComponent(address.toLowerCase())}`;
 
-    // Use direct provider only
-    const proxies = [(u) => u];
-
     let lastError = null;
-    for (const proxy of proxies) {
+    {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 10000);
-        const response = await fetch(proxy(url), {
+        const response = await fetch(url, {
           signal: controller.signal,
-          headers: { "User-Agent": "WeaverBot/1.0" },
         });
         clearTimeout(timeout);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -253,7 +249,7 @@ W.shield = (() => {
         console.warn("[Shield] Proxy failed:", e.message);
       }
     }
-    throw lastError || new Error("All proxies failed");
+    throw lastError || new Error("GoPlus request failed");
   }
 
   // ── Fetch from GoPlus (Solana) ─────────────────────────
@@ -278,16 +274,13 @@ W.shield = (() => {
     // Address case matters for Solana — never lowercase it.
     const url = `${GOPLUS_SOLANA_API}?contract_addresses=${encodeURIComponent(address)}`;
 
-    const proxies = [(u) => u];
-
     let lastError = null;
-    for (const proxy of proxies) {
+    {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 10000);
-        const response = await fetch(proxy(url), {
+        const response = await fetch(url, {
           signal: controller.signal,
-          headers: { "User-Agent": "WeaverBot/1.0" },
         });
         clearTimeout(timeout);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -310,7 +303,7 @@ W.shield = (() => {
         console.warn("[Shield] Solana proxy failed:", e.message);
       }
     }
-    throw lastError || new Error("All proxies failed");
+    throw lastError || new Error("GoPlus request failed");
   }
 
   // ── Parse and Render Results ──────────────────────────
