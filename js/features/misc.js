@@ -797,18 +797,18 @@ W.misc = (() => {
   }
 
   // ── Passphrase Helpers ─────────────────────────────────
-  async function getPassphrase(forcePrompt = false) {
-    if (!forcePrompt && W.secureSession?.getPassphrase?.()) {
-      return W.secureSession.getPassphrase();
-    }
-    const pwd = await W.ui.promptPassword({
+  // Prompts for a passphrase. The value returned to the caller is
+  // used immediately (as an argument to saveWithPassphrase/unlock)
+  // and is never cached by this module — W.secureSession owns the
+  // in-memory caching and never exposes the passphrase itself.
+  async function promptPassphrase() {
+    return W.ui.promptPassword({
       title: "Unlock API Keys",
       message:
         "Enter your passphrase to access API keys (leave blank to skip encryption).",
       confirmLabel: "Unlock",
       minLength: 12,
     });
-    return pwd;
   }
 
   function clearPassphrase() {
@@ -874,7 +874,7 @@ W.misc = (() => {
         settings.ai = sensitive.ai;
         settings.telegram = sensitive.telegram;
       } else if (!skipPrompt) {
-        const passphrase = await getPassphrase();
+        const passphrase = await promptPassphrase();
         if (gen !== _renderGen || !view.isConnected) return;
         if (passphrase) {
           try {
@@ -1033,25 +1033,27 @@ W.misc = (() => {
         };
 
         if (hasSensitive) {
-          let passphrase = W.secureSession?.getPassphrase?.();
-          if (!passphrase) {
-            passphrase = await getPassphrase(true);
+          const payload = { ai: aiSettings, telegram: tgSettings };
+          let passphrase = null;
+          if (!W.secureSession.isUnlocked()) {
+            passphrase = await promptPassphrase();
             if (gen !== _renderGen || !view.isConnected) return;
-          }
-          if (!passphrase) {
-            W.miscStoreSet("settings", nonSensitive);
-            W.ui?.toast?.(
-              "Non-sensitive settings saved. Passphrase required to update API keys.",
-              "info",
-            );
-            renderSettings(view, { skipPrompt: true });
-            return;
+            if (!passphrase) {
+              W.miscStoreSet("settings", nonSensitive);
+              W.ui?.toast?.(
+                "Non-sensitive settings saved. Passphrase required to update API keys.",
+                "info",
+              );
+              renderSettings(view, { skipPrompt: true });
+              return;
+            }
           }
           try {
-            await W.secureSession.save(
-              { ai: aiSettings, telegram: tgSettings },
-              passphrase,
-            );
+            if (passphrase) {
+              await W.secureSession.saveWithPassphrase(payload, passphrase);
+            } else {
+              await W.secureSession.save(payload);
+            }
             if (gen !== _renderGen || !view.isConnected) return;
             W.miscStoreSet("settings", nonSensitive);
             // v5: user just actively used a passphrase; make sure the
@@ -1059,14 +1061,14 @@ W.misc = (() => {
             setPromptDeclined(false);
             W.ui?.toast?.("Settings saved (sensitive data encrypted) ✓", "ok");
           } catch (e) {
-            W.ui?.toast?.(`Encryption failed: ${e.message}`, "warn");
+            W.ui?.toast?.(`Save failed: ${e.message}`, "warn");
           }
         } else {
           if (!encryptedBlob) {
             W.miscStoreSet("settings", nonSensitive);
             W.ui?.toast?.("Settings saved ✓", "ok");
           } else if (wasUnlocked) {
-            W.miscStoreDelete("encrypted_settings");
+            W.secureSession?.clear?.();
             W.miscStoreSet("settings", nonSensitive);
             W.ui?.toast?.("Settings saved (encrypted keys removed) ✓", "ok");
           } else {
@@ -1091,7 +1093,7 @@ W.misc = (() => {
     view.querySelector("#set-unlock").onclick = async () => {
       // v5: explicit unlock request overrides any prior decline.
       setPromptDeclined(false);
-      const pwd = await getPassphrase(true);
+      const pwd = await promptPassphrase();
       if (gen !== _renderGen || !view.isConnected) return;
       if (pwd) {
         try {

@@ -51,89 +51,10 @@ const StorageModule = (function () {
       }
     },
 
-    // ── Secure Storage Methods ──────────────────────────────
-    async setSecureSettings(settings, password) {
-      try {
-        if (!W.crypto || !W.crypto.secure) {
-          throw new Error("SecureCrypto module not loaded");
-        }
-        const encrypted = await W.crypto.secure.encryptSettings(
-          settings,
-          password,
-        );
-        const secureData = {
-          encrypted: encrypted,
-          timestamp: Date.now(),
-        };
-        localStorage.setItem(
-          this._key("secure_settings"),
-          JSON.stringify(secureData),
-        );
-        const safeSettings = { ...settings };
-        delete safeSettings.ai;
-        delete safeSettings.telegram;
-        this.set("settings", safeSettings);
-        console.log("[Storage] Secure settings saved");
-      } catch (e) {
-        console.error("[Storage] setSecureSettings error:", e.message);
-        throw e;
-      }
-    },
-
-    async getSecureSettings(password) {
-      try {
-        const raw = localStorage.getItem(this._key("secure_settings"));
-        if (!raw) return null;
-        const secureData = JSON.parse(raw);
-        if (!secureData.encrypted) return null;
-        const sensitiveData = await W.crypto.secure.decryptSettings(
-          secureData.encrypted,
-          password,
-        );
-        return sensitiveData;
-      } catch (e) {
-        console.warn("[Storage] getSecureSettings error:", e.message);
-        return null;
-      }
-    },
-
-    needsMigration() {
-      const settings = this.get("settings", {});
-      return !!(settings.ai?.key || settings.telegram?.token);
-    },
-
-    async migrateToSecure(password) {
-      try {
-        const settings = this.get("settings", {});
-        if (!this.needsMigration()) {
-          console.log("[Storage] No migration needed");
-          return true;
-        }
-        console.log("[Storage] Starting migration to secure storage...");
-        await this.setSecureSettings(settings, password);
-        const testRead = await this.getSecureSettings(password);
-        if (!testRead) throw new Error("Migration verification failed");
-        console.log("[Storage] Migration completed successfully");
-        return true;
-      } catch (e) {
-        console.error("[Storage] Migration failed:", e.message);
-        throw e;
-      }
-    },
-
-    clearSecureSettings() {
-      try {
-        localStorage.removeItem(this._key("secure_settings"));
-        console.log("[Storage] Secure settings cleared");
-      } catch (e) {
-        console.warn("[Storage] clearSecureSettings error:", e.message);
-      }
-    },
-
-    hasSecureSettings() {
-      const raw = localStorage.getItem(this._key("secure_settings"));
-      return !!raw;
-    },
+    // Note: the legacy secure_settings store and its migration
+    // helpers were removed — sensitive data now lives in the
+    // "encrypted_settings" blob owned by W.secureSession. See
+    // js/lib/crypto/secure-session.js.
 
     // ── IndexedDB placeholders ──────────────────────────────
     async openIndexedDB(dbName = "WeaverDB", version = 1) {
@@ -589,10 +510,17 @@ console.log("[SecureCrypto] Module loaded.");
 // This module holds the decrypted sensitive settings ONLY in memory,
 // for the current page session. It is never written to localStorage.
 // Reloading the page clears it — same as clicking "Lock Keys".
+//
+// The plaintext passphrase is captured by unlock()/saveWithPassphrase()
+// and never leaves the module. Callers use save(sensitiveObj) which
+// re-encrypts with the cached key — they never need to see or hold the
+// passphrase themselves.
 
 window.W = window.W || {};
 
 W.secureSession = (() => {
+  "use strict";
+
   let _passphrase = null;
   let _cache = null; // { ai: {...}, telegram: {...} } — decrypted, memory-only
 
@@ -600,8 +528,14 @@ W.secureSession = (() => {
     return !!_cache;
   }
 
-  /** Decrypts encrypted_settings with the given passphrase and caches the result in memory. */
+  function hasStoredSecrets() {
+    return !!W.store.get("encrypted_settings", null);
+  }
+
   async function unlock(passphrase) {
+    if (typeof passphrase !== "string" || !passphrase) {
+      throw new Error("Passphrase is required");
+    }
     const blob = W.store.get("encrypted_settings", null);
     if (!blob) {
       throw new Error("No encrypted settings found");
@@ -612,14 +546,28 @@ W.secureSession = (() => {
     return data;
   }
 
-  /** Clears the in-memory cache. Does not touch anything on disk. */
-  function lock() {
-    _passphrase = null;
-    _cache = null;
+  async function save(sensitiveObj) {
+    if (!_passphrase) {
+      throw new Error("Session is locked");
+    }
+    if (!sensitiveObj || typeof sensitiveObj !== "object") {
+      throw new Error("save() requires a plain object");
+    }
+    const encrypted = await W.crypto.secure.encryptSettings(
+      sensitiveObj,
+      _passphrase,
+    );
+    W.store.set("encrypted_settings", encrypted);
+    _cache = sensitiveObj;
   }
 
-  /** Encrypts + persists sensitiveObj, and updates the in-memory cache to match. */
-  async function save(sensitiveObj, passphrase) {
+  async function saveWithPassphrase(sensitiveObj, passphrase) {
+    if (typeof passphrase !== "string" || !passphrase) {
+      throw new Error("Passphrase is required");
+    }
+    if (!sensitiveObj || typeof sensitiveObj !== "object") {
+      throw new Error("saveWithPassphrase() requires a plain object");
+    }
     const encrypted = await W.crypto.secure.encryptSettings(
       sensitiveObj,
       passphrase,
@@ -629,29 +577,34 @@ W.secureSession = (() => {
     _cache = sensitiveObj;
   }
 
-  /** Returns the decrypted sub-object (e.g. "telegram", "ai"), or null if locked. */
+  function lock() {
+    _passphrase = null;
+    _cache = null;
+  }
+
+  function clear() {
+    W.store.delete("encrypted_settings");
+    _passphrase = null;
+    _cache = null;
+  }
+
   function get(key) {
     if (!_cache) return null;
-    return _cache[key] || null;
+    const v = _cache[key];
+    if (v === null || v === undefined) return null;
+    return typeof v === "object" ? { ...v } : v;
   }
 
-  function getPassphrase() {
-    return _passphrase;
-  }
-
-  function hasStoredSecrets() {
-    return !!W.store.get("encrypted_settings", null);
-  }
-
-  return {
+  return Object.freeze({
     isUnlocked,
-    unlock,
-    lock,
-    save,
-    get,
-    getPassphrase,
     hasStoredSecrets,
-  };
+    unlock,
+    save,
+    saveWithPassphrase,
+    lock,
+    clear,
+    get,
+  });
 })();
 
 console.log("[SecureSession] Module loaded.");
@@ -1943,9 +1896,13 @@ W.ui = {
       </div>
     `;
 
-    const close = () => {
+    function escHandler(e) {
+      if (e.key === "Escape") close();
+    }
+    function close() {
       root.innerHTML = "";
-    };
+      document.removeEventListener("keydown", escHandler);
+    }
 
     const closeBtn = root.querySelector(".modal-x");
     if (closeBtn) closeBtn.onclick = close;
@@ -1957,12 +1914,6 @@ W.ui = {
       });
     }
 
-    const escHandler = (e) => {
-      if (e.key === "Escape") {
-        close();
-        document.removeEventListener("keydown", escHandler);
-      }
-    };
     document.addEventListener("keydown", escHandler);
 
     return {
@@ -2023,18 +1974,26 @@ W.ui = {
       const closeBtn = m.el.querySelector(".modal-x");
 
       let settled = false;
-      const finish = (value) => {
+      function escHandler(e) {
+        if (e.key === "Escape") finish(null);
+      }
+      function finish(value) {
         if (settled) return;
         settled = true;
+        document.removeEventListener("keydown", escHandler);
         m.close();
         resolve(value);
-      };
+      }
 
       const submit = () => {
         const val = input.value;
-        if (minLength && val.length > 0 && val.length < minLength) {
-          errorEl.textContent = `Must be at least ${minLength} characters.`;
+        if (minLength && val.length < minLength) {
+          errorEl.textContent =
+            val.length === 0
+              ? "This field is required."
+              : `Must be at least ${minLength} characters.`;
           errorEl.classList.remove("hidden");
+          input.focus();
           return;
         }
         finish(val);
@@ -2055,12 +2014,7 @@ W.ui = {
           if (e.target.id === "modal-backdrop") finish(null);
         });
       }
-      document.addEventListener("keydown", function escHandler(e) {
-        if (e.key === "Escape") {
-          document.removeEventListener("keydown", escHandler);
-          finish(null);
-        }
-      });
+      document.addEventListener("keydown", escHandler);
 
       setTimeout(() => input?.focus(), 30);
     });
@@ -2100,6 +2054,20 @@ W.ui = {
       return;
     }
 
+    const esc =
+      W.fmt && typeof W.fmt.escapeHTML === "function"
+        ? W.fmt.escapeHTML
+        : (v) =>
+            String(v == null ? "" : v).replace(/[&<>"']/g, (c) =>
+              ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#39;",
+              })[c],
+            );
+
     container.innerHTML = `
       <div class="picker">
         <input class="picker-input" placeholder="Search coin (e.g. bitcoin, ETH)…" autocomplete="off">
@@ -2137,15 +2105,22 @@ W.ui = {
             }
 
             results.innerHTML = coins
-              .map(
-                (c) => `
-              <div class="picker-item" data-id="${c.id}" data-symbol="${c.symbol}" data-name="${c.name}" data-img="${c.thumb || ""}">
-                <img src="${c.thumb || ""}" alt="">
-                <span>${c.name} <b class="muted">${c.symbol.toUpperCase()}</b></span>
-                ${c.market_cap_rank ? `<span class="muted small">#${c.market_cap_rank}</span>` : ""}
+              .map((c) => {
+                const id = esc(String(c.id ?? ""));
+                const symbol = esc(String(c.symbol ?? "").toUpperCase());
+                const name = esc(String(c.name ?? ""));
+                const thumb = esc(String(c.thumb ?? ""));
+                const rank = Number.isFinite(Number(c.market_cap_rank))
+                  ? esc(String(c.market_cap_rank))
+                  : "";
+                return `
+              <div class="picker-item" data-id="${id}" data-symbol="${symbol}" data-name="${name}" data-img="${thumb}">
+                <img src="${thumb}" alt="">
+                <span>${name} <b class="muted">${symbol}</b></span>
+                ${rank ? `<span class="muted small">#${rank}</span>` : ""}
               </div>
-            `,
-              )
+            `;
+              })
               .join("");
 
             results.classList.remove("hidden");
@@ -2159,8 +2134,8 @@ W.ui = {
                   img: it.dataset.img,
                 };
                 chip.innerHTML = `
-              <img src="${pick.img}" alt="">
-              ${pick.name} (${pick.symbol.toUpperCase()})
+              <img src="${esc(String(pick.img ?? ""))}" alt="">
+              ${esc(String(pick.name ?? ""))} (${esc(String(pick.symbol ?? "").toUpperCase())})
               <button class="picker-clear">✕</button>
             `;
                 chip.classList.remove("hidden");
@@ -24885,18 +24860,18 @@ W.misc = (() => {
   }
 
   // ── Passphrase Helpers ─────────────────────────────────
-  async function getPassphrase(forcePrompt = false) {
-    if (!forcePrompt && W.secureSession?.getPassphrase?.()) {
-      return W.secureSession.getPassphrase();
-    }
-    const pwd = await W.ui.promptPassword({
+  // Prompts for a passphrase. The value returned to the caller is
+  // used immediately (as an argument to saveWithPassphrase/unlock)
+  // and is never cached by this module — W.secureSession owns the
+  // in-memory caching and never exposes the passphrase itself.
+  async function promptPassphrase() {
+    return W.ui.promptPassword({
       title: "Unlock API Keys",
       message:
         "Enter your passphrase to access API keys (leave blank to skip encryption).",
       confirmLabel: "Unlock",
       minLength: 12,
     });
-    return pwd;
   }
 
   function clearPassphrase() {
@@ -24962,7 +24937,7 @@ W.misc = (() => {
         settings.ai = sensitive.ai;
         settings.telegram = sensitive.telegram;
       } else if (!skipPrompt) {
-        const passphrase = await getPassphrase();
+        const passphrase = await promptPassphrase();
         if (gen !== _renderGen || !view.isConnected) return;
         if (passphrase) {
           try {
@@ -25121,25 +25096,27 @@ W.misc = (() => {
         };
 
         if (hasSensitive) {
-          let passphrase = W.secureSession?.getPassphrase?.();
-          if (!passphrase) {
-            passphrase = await getPassphrase(true);
+          const payload = { ai: aiSettings, telegram: tgSettings };
+          let passphrase = null;
+          if (!W.secureSession.isUnlocked()) {
+            passphrase = await promptPassphrase();
             if (gen !== _renderGen || !view.isConnected) return;
-          }
-          if (!passphrase) {
-            W.miscStoreSet("settings", nonSensitive);
-            W.ui?.toast?.(
-              "Non-sensitive settings saved. Passphrase required to update API keys.",
-              "info",
-            );
-            renderSettings(view, { skipPrompt: true });
-            return;
+            if (!passphrase) {
+              W.miscStoreSet("settings", nonSensitive);
+              W.ui?.toast?.(
+                "Non-sensitive settings saved. Passphrase required to update API keys.",
+                "info",
+              );
+              renderSettings(view, { skipPrompt: true });
+              return;
+            }
           }
           try {
-            await W.secureSession.save(
-              { ai: aiSettings, telegram: tgSettings },
-              passphrase,
-            );
+            if (passphrase) {
+              await W.secureSession.saveWithPassphrase(payload, passphrase);
+            } else {
+              await W.secureSession.save(payload);
+            }
             if (gen !== _renderGen || !view.isConnected) return;
             W.miscStoreSet("settings", nonSensitive);
             // v5: user just actively used a passphrase; make sure the
@@ -25147,14 +25124,14 @@ W.misc = (() => {
             setPromptDeclined(false);
             W.ui?.toast?.("Settings saved (sensitive data encrypted) ✓", "ok");
           } catch (e) {
-            W.ui?.toast?.(`Encryption failed: ${e.message}`, "warn");
+            W.ui?.toast?.(`Save failed: ${e.message}`, "warn");
           }
         } else {
           if (!encryptedBlob) {
             W.miscStoreSet("settings", nonSensitive);
             W.ui?.toast?.("Settings saved ✓", "ok");
           } else if (wasUnlocked) {
-            W.miscStoreDelete("encrypted_settings");
+            W.secureSession?.clear?.();
             W.miscStoreSet("settings", nonSensitive);
             W.ui?.toast?.("Settings saved (encrypted keys removed) ✓", "ok");
           } else {
@@ -25179,7 +25156,7 @@ W.misc = (() => {
     view.querySelector("#set-unlock").onclick = async () => {
       // v5: explicit unlock request overrides any prior decline.
       setPromptDeclined(false);
-      const pwd = await getPassphrase(true);
+      const pwd = await promptPassphrase();
       if (gen !== _renderGen || !view.isConnected) return;
       if (pwd) {
         try {

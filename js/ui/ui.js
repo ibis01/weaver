@@ -47,9 +47,13 @@ W.ui = {
       </div>
     `;
 
-    const close = () => {
+    function escHandler(e) {
+      if (e.key === "Escape") close();
+    }
+    function close() {
       root.innerHTML = "";
-    };
+      document.removeEventListener("keydown", escHandler);
+    }
 
     const closeBtn = root.querySelector(".modal-x");
     if (closeBtn) closeBtn.onclick = close;
@@ -61,12 +65,6 @@ W.ui = {
       });
     }
 
-    const escHandler = (e) => {
-      if (e.key === "Escape") {
-        close();
-        document.removeEventListener("keydown", escHandler);
-      }
-    };
     document.addEventListener("keydown", escHandler);
 
     return {
@@ -127,18 +125,26 @@ W.ui = {
       const closeBtn = m.el.querySelector(".modal-x");
 
       let settled = false;
-      const finish = (value) => {
+      function escHandler(e) {
+        if (e.key === "Escape") finish(null);
+      }
+      function finish(value) {
         if (settled) return;
         settled = true;
+        document.removeEventListener("keydown", escHandler);
         m.close();
         resolve(value);
-      };
+      }
 
       const submit = () => {
         const val = input.value;
-        if (minLength && val.length > 0 && val.length < minLength) {
-          errorEl.textContent = `Must be at least ${minLength} characters.`;
+        if (minLength && val.length < minLength) {
+          errorEl.textContent =
+            val.length === 0
+              ? "This field is required."
+              : `Must be at least ${minLength} characters.`;
           errorEl.classList.remove("hidden");
+          input.focus();
           return;
         }
         finish(val);
@@ -159,12 +165,7 @@ W.ui = {
           if (e.target.id === "modal-backdrop") finish(null);
         });
       }
-      document.addEventListener("keydown", function escHandler(e) {
-        if (e.key === "Escape") {
-          document.removeEventListener("keydown", escHandler);
-          finish(null);
-        }
-      });
+      document.addEventListener("keydown", escHandler);
 
       setTimeout(() => input?.focus(), 30);
     });
@@ -204,6 +205,20 @@ W.ui = {
       return;
     }
 
+    const esc =
+      W.fmt && typeof W.fmt.escapeHTML === "function"
+        ? W.fmt.escapeHTML
+        : (v) =>
+            String(v == null ? "" : v).replace(/[&<>"']/g, (c) =>
+              ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#39;",
+              })[c],
+            );
+
     container.innerHTML = `
       <div class="picker">
         <input class="picker-input" placeholder="Search coin (e.g. bitcoin, ETH)…" autocomplete="off">
@@ -241,15 +256,22 @@ W.ui = {
             }
 
             results.innerHTML = coins
-              .map(
-                (c) => `
-              <div class="picker-item" data-id="${c.id}" data-symbol="${c.symbol}" data-name="${c.name}" data-img="${c.thumb || ""}">
-                <img src="${c.thumb || ""}" alt="">
-                <span>${c.name} <b class="muted">${c.symbol.toUpperCase()}</b></span>
-                ${c.market_cap_rank ? `<span class="muted small">#${c.market_cap_rank}</span>` : ""}
+              .map((c) => {
+                const id = esc(String(c.id ?? ""));
+                const symbol = esc(String(c.symbol ?? "").toUpperCase());
+                const name = esc(String(c.name ?? ""));
+                const thumb = esc(String(c.thumb ?? ""));
+                const rank = Number.isFinite(Number(c.market_cap_rank))
+                  ? esc(String(c.market_cap_rank))
+                  : "";
+                return `
+              <div class="picker-item" data-id="${id}" data-symbol="${symbol}" data-name="${name}" data-img="${thumb}">
+                <img src="${thumb}" alt="">
+                <span>${name} <b class="muted">${symbol}</b></span>
+                ${rank ? `<span class="muted small">#${rank}</span>` : ""}
               </div>
-            `,
-              )
+            `;
+              })
               .join("");
 
             results.classList.remove("hidden");
@@ -263,8 +285,8 @@ W.ui = {
                   img: it.dataset.img,
                 };
                 chip.innerHTML = `
-              <img src="${pick.img}" alt="">
-              ${pick.name} (${pick.symbol.toUpperCase()})
+              <img src="${esc(String(pick.img ?? ""))}" alt="">
+              ${esc(String(pick.name ?? ""))} (${esc(String(pick.symbol ?? "").toUpperCase())})
               <button class="picker-clear">✕</button>
             `;
                 chip.classList.remove("hidden");

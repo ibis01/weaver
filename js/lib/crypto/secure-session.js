@@ -11,10 +11,17 @@
 // This module holds the decrypted sensitive settings ONLY in memory,
 // for the current page session. It is never written to localStorage.
 // Reloading the page clears it — same as clicking "Lock Keys".
+//
+// The plaintext passphrase is captured by unlock()/saveWithPassphrase()
+// and never leaves the module. Callers use save(sensitiveObj) which
+// re-encrypts with the cached key — they never need to see or hold the
+// passphrase themselves.
 
 window.W = window.W || {};
 
 W.secureSession = (() => {
+  "use strict";
+
   let _passphrase = null;
   let _cache = null; // { ai: {...}, telegram: {...} } — decrypted, memory-only
 
@@ -22,8 +29,14 @@ W.secureSession = (() => {
     return !!_cache;
   }
 
-  /** Decrypts encrypted_settings with the given passphrase and caches the result in memory. */
+  function hasStoredSecrets() {
+    return !!W.store.get("encrypted_settings", null);
+  }
+
   async function unlock(passphrase) {
+    if (typeof passphrase !== "string" || !passphrase) {
+      throw new Error("Passphrase is required");
+    }
     const blob = W.store.get("encrypted_settings", null);
     if (!blob) {
       throw new Error("No encrypted settings found");
@@ -34,14 +47,28 @@ W.secureSession = (() => {
     return data;
   }
 
-  /** Clears the in-memory cache. Does not touch anything on disk. */
-  function lock() {
-    _passphrase = null;
-    _cache = null;
+  async function save(sensitiveObj) {
+    if (!_passphrase) {
+      throw new Error("Session is locked");
+    }
+    if (!sensitiveObj || typeof sensitiveObj !== "object") {
+      throw new Error("save() requires a plain object");
+    }
+    const encrypted = await W.crypto.secure.encryptSettings(
+      sensitiveObj,
+      _passphrase,
+    );
+    W.store.set("encrypted_settings", encrypted);
+    _cache = sensitiveObj;
   }
 
-  /** Encrypts + persists sensitiveObj, and updates the in-memory cache to match. */
-  async function save(sensitiveObj, passphrase) {
+  async function saveWithPassphrase(sensitiveObj, passphrase) {
+    if (typeof passphrase !== "string" || !passphrase) {
+      throw new Error("Passphrase is required");
+    }
+    if (!sensitiveObj || typeof sensitiveObj !== "object") {
+      throw new Error("saveWithPassphrase() requires a plain object");
+    }
     const encrypted = await W.crypto.secure.encryptSettings(
       sensitiveObj,
       passphrase,
@@ -51,29 +78,34 @@ W.secureSession = (() => {
     _cache = sensitiveObj;
   }
 
-  /** Returns the decrypted sub-object (e.g. "telegram", "ai"), or null if locked. */
+  function lock() {
+    _passphrase = null;
+    _cache = null;
+  }
+
+  function clear() {
+    W.store.delete("encrypted_settings");
+    _passphrase = null;
+    _cache = null;
+  }
+
   function get(key) {
     if (!_cache) return null;
-    return _cache[key] || null;
+    const v = _cache[key];
+    if (v === null || v === undefined) return null;
+    return typeof v === "object" ? { ...v } : v;
   }
 
-  function getPassphrase() {
-    return _passphrase;
-  }
-
-  function hasStoredSecrets() {
-    return !!W.store.get("encrypted_settings", null);
-  }
-
-  return {
+  return Object.freeze({
     isUnlocked,
-    unlock,
-    lock,
-    save,
-    get,
-    getPassphrase,
     hasStoredSecrets,
-  };
+    unlock,
+    save,
+    saveWithPassphrase,
+    lock,
+    clear,
+    get,
+  });
 })();
 
 console.log("[SecureSession] Module loaded.");

@@ -46,89 +46,10 @@ const StorageModule = (function () {
       }
     },
 
-    // ── Secure Storage Methods ──────────────────────────────
-    async setSecureSettings(settings, password) {
-      try {
-        if (!W.crypto || !W.crypto.secure) {
-          throw new Error("SecureCrypto module not loaded");
-        }
-        const encrypted = await W.crypto.secure.encryptSettings(
-          settings,
-          password,
-        );
-        const secureData = {
-          encrypted: encrypted,
-          timestamp: Date.now(),
-        };
-        localStorage.setItem(
-          this._key("secure_settings"),
-          JSON.stringify(secureData),
-        );
-        const safeSettings = { ...settings };
-        delete safeSettings.ai;
-        delete safeSettings.telegram;
-        this.set("settings", safeSettings);
-        console.log("[Storage] Secure settings saved");
-      } catch (e) {
-        console.error("[Storage] setSecureSettings error:", e.message);
-        throw e;
-      }
-    },
-
-    async getSecureSettings(password) {
-      try {
-        const raw = localStorage.getItem(this._key("secure_settings"));
-        if (!raw) return null;
-        const secureData = JSON.parse(raw);
-        if (!secureData.encrypted) return null;
-        const sensitiveData = await W.crypto.secure.decryptSettings(
-          secureData.encrypted,
-          password,
-        );
-        return sensitiveData;
-      } catch (e) {
-        console.warn("[Storage] getSecureSettings error:", e.message);
-        return null;
-      }
-    },
-
-    needsMigration() {
-      const settings = this.get("settings", {});
-      return !!(settings.ai?.key || settings.telegram?.token);
-    },
-
-    async migrateToSecure(password) {
-      try {
-        const settings = this.get("settings", {});
-        if (!this.needsMigration()) {
-          console.log("[Storage] No migration needed");
-          return true;
-        }
-        console.log("[Storage] Starting migration to secure storage...");
-        await this.setSecureSettings(settings, password);
-        const testRead = await this.getSecureSettings(password);
-        if (!testRead) throw new Error("Migration verification failed");
-        console.log("[Storage] Migration completed successfully");
-        return true;
-      } catch (e) {
-        console.error("[Storage] Migration failed:", e.message);
-        throw e;
-      }
-    },
-
-    clearSecureSettings() {
-      try {
-        localStorage.removeItem(this._key("secure_settings"));
-        console.log("[Storage] Secure settings cleared");
-      } catch (e) {
-        console.warn("[Storage] clearSecureSettings error:", e.message);
-      }
-    },
-
-    hasSecureSettings() {
-      const raw = localStorage.getItem(this._key("secure_settings"));
-      return !!raw;
-    },
+    // Note: the legacy secure_settings store and its migration
+    // helpers were removed — sensitive data now lives in the
+    // "encrypted_settings" blob owned by W.secureSession. See
+    // js/lib/crypto/secure-session.js.
 
     // ── IndexedDB placeholders ──────────────────────────────
     async openIndexedDB(dbName = "WeaverDB", version = 1) {
