@@ -153,53 +153,6 @@ W.shield = (() => {
     return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
   }
 
-  // ── Own CORS proxy (Cloudflare Worker) ─────────────────
-  // Deployed Worker: https://weaver-proxy.ibis01-weaver.workers.dev
-  // Without this URL, fetchViaOwnWorker returns null and Shield falls
-  // back to a direct fetch, which browsers block via CORS.
-  const WORKER_PROXY_BASE = "https://weaver-proxy.ibis01-weaver.workers.dev";
-
-  async function fetchViaOwnWorker(kind, chainId, address) {
-    if (!WORKER_PROXY_BASE) return null;
-    const path =
-      kind === "solana" ? "/goplus/solana" : `/goplus/evm/${chainId}`;
-    const addrParam = kind === "solana" ? address : address.toLowerCase();
-    const url = `${WORKER_PROXY_BASE}${path}?contract_addresses=${encodeURIComponent(addrParam)}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-    try {
-      const response = await fetch(url, { signal: controller.signal });
-
-      // Worker returns 429 when GoPlus is rate-limiting.
-      if (response.status === 429) {
-        const err = new Error(
-          "GoPlus is rate-limiting right now. Please wait a few seconds and retry.",
-        );
-        err.code = "RATE_LIMITED";
-        throw err;
-      }
-
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-      const data = await response.json();
-
-      // Defensive: older Worker versions may still pass through a
-      // 200-with-4029 body. Catch it here too.
-      if (data && data.code === 4029) {
-        const err = new Error(
-          "GoPlus is rate-limiting right now. Please wait a few seconds and retry.",
-        );
-        err.code = "RATE_LIMITED";
-        throw err;
-      }
-
-      if (data.code !== 1) throw new Error(data.message || "API error");
-      return data;
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
   // ── Fetch from GoPlus ─────────────────────────────────
 
   async function fetchTokenSecurity(chainId, address) {
@@ -246,7 +199,7 @@ W.shield = (() => {
       } catch (e) {
         clearTimeout(timeout);
         lastError = e;
-        console.warn("[Shield] Proxy failed:", e.message);
+        console.warn("[Shield] GoPlus request failed:", e.message);
       }
     }
     throw lastError || new Error("GoPlus request failed");
@@ -300,7 +253,7 @@ W.shield = (() => {
       } catch (e) {
         clearTimeout(timeout);
         lastError = e;
-        console.warn("[Shield] Solana proxy failed:", e.message);
+        console.warn("[Shield] GoPlus Solana request failed:", e.message);
       }
     }
     throw lastError || new Error("GoPlus request failed");
