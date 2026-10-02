@@ -465,6 +465,26 @@ window.W = window.W || {};
 
     if (backdrop) backdrop.addEventListener("click", closeDrawer);
 
+    // Inject a mobile-only close button into the sidebar header.
+    // Hidden on desktop via CSS; visible and wired on mobile.
+    try {
+      const brand = sidebarEl.querySelector(".brand");
+      if (brand && !brand.querySelector(".sidebar-close-btn")) {
+        const closeBtn = document.createElement("button");
+        closeBtn.type = "button";
+        closeBtn.className = "sidebar-close-btn";
+        closeBtn.setAttribute("aria-label", "Close menu");
+        closeBtn.textContent = "✕";
+        closeBtn.addEventListener("click", closeDrawer);
+        brand.appendChild(closeBtn);
+      }
+    } catch (e) {
+      console.warn(
+        "[App] sidebar close button injection failed:",
+        e && e.message,
+      );
+    }
+
     const navEl = document.getElementById("nav");
     if (navEl) {
       navEl.querySelectorAll("a").forEach((a) => {

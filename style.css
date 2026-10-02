@@ -3321,3 +3321,67 @@ body {
 .delta-value {
   font-weight: bold;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE DRAWER — keep the header visible above the open drawer
+   ═══════════════════════════════════════════════════════════════
+   Problem: on mobile the sidebar opens from y=0 and covers the
+   topbar, including the hamburger. There is then no visible way
+   to close the drawer without hunting for the backdrop.
+
+   Fix:
+     1. Shift the sidebar down so it starts below the topbar. The
+        topbar and its hamburger remain visible.
+     2. Raise the hamburger above the backdrop (z-index) so it
+        stays tappable while the drawer is open.
+     3. A close button injected inside the drawer (via JS in
+        initSidebar) gives a second, unambiguous affordance.
+*/
+
+@media (max-width: 860px) {
+  /* 1. Drawer starts below the mobile topbar (~60px). Uses the
+     safe-area inset on top for notched devices. */
+  .sidebar {
+    top: calc(60px + env(safe-area-inset-top, 0px));
+    height: calc(100vh - 60px - env(safe-area-inset-top, 0px));
+  }
+
+  /* 2. Hamburger above the backdrop so it stays tappable. */
+  .hamburger {
+    position: relative;
+    z-index: 102;
+  }
+}
+
+/* 3. Close button inside the drawer header. Hidden on desktop;
+   shown on mobile. Injected by initSidebar(). */
+.sidebar-close-btn {
+  display: none;
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  font-family: inherit;
+}
+.sidebar-close-btn:hover,
+.sidebar-close-btn:focus-visible {
+  color: var(--text);
+  border-color: var(--border-highlight);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+@media (max-width: 860px) {
+  .sidebar-close-btn { display: inline-flex; }
+}
