@@ -92,6 +92,11 @@ W.delta = (() => {
   // alongside Gem Agent's new-intelligence list, to avoid nesting a
   // card inside a card.
   function buildList(container, deltas) {
+    // NOTE: class names only, no el.style.* writes. dashboard.js reads
+    // this subtree back through .innerHTML; any CSSOM-assigned style
+    // would serialize to a style="..." attribute and be blocked by the
+    // CSP style-src directive on re-parse. Classes survive the
+    // round-trip because style-src allows the linked stylesheet.
     if (!deltas || deltas.length === 0) {
       const p = document.createElement("p");
       p.className = "muted small";
@@ -100,25 +105,18 @@ W.delta = (() => {
       return;
     }
     const list = document.createElement("ul");
-    list.style.listStyle = "none";
-    list.style.padding = "0";
-    list.style.margin = "0";
+    list.className = "delta-list";
 
     deltas.forEach((d) => {
       const li = document.createElement("li");
-      li.style.padding = "8px 0";
-      li.style.borderBottom = "1px solid var(--border, #30363d)";
-      li.style.display = "flex";
-      li.style.justifyContent = "space-between";
-      li.style.alignItems = "center";
+      li.className = "delta-row";
 
       const label = document.createElement("span");
       label.textContent = d.metric; // SAFE: textContent
 
       const value = document.createElement("span");
       const isUp = d.deltaAbsolute >= 0;
-      value.style.color = isUp ? "var(--up, #2ee6a8)" : "var(--down, #ff5c7a)";
-      value.style.fontWeight = "bold";
+      value.className = isUp ? "delta-value up" : "delta-value down";
       value.textContent = `${isUp ? "+" : ""}${W.fmt.money(d.deltaAbsolute)} (${isUp ? "+" : ""}${d.deltaPercent.toFixed(2)}%)`; // SAFE
 
       li.appendChild(label);

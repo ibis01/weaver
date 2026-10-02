@@ -3302,3 +3302,22 @@ body {
   overflow-x: clip;
   max-width: 100vw;
 }
+
+/* Portfolio change deltas — used by js/intelligence/delta.js.
+   Classes rather than inline styles so the subtree survives a
+   .innerHTML round-trip under CSP style-src 'self'. */
+.delta-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.delta-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border, #30363d);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.delta-value {
+  font-weight: bold;
+}
