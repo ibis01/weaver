@@ -31,14 +31,17 @@
 
 window.W = window.W || {};
 W.thesisHealth = (() => {
+  // Fallback used only when W.intelligence.types has not loaded yet.
+  // Key shape matches _makeEnum in types.js (value-keyed:
+  // STATUS.Healthy === "Healthy"), so both paths behave identically.
   const STATUS =
     W.intelligence?.types?.THESIS_STATUS ||
     Object.freeze({
-      HEALTHY: "Healthy",
-      STRENGTHENING: "Strengthening",
-      WEAKENING: "Weakening",
-      INVALIDATED: "Invalidated",
-      UNKNOWN: "Unknown",
+      Healthy: "Healthy",
+      Strengthening: "Strengthening",
+      Weakening: "Weakening",
+      Invalidated: "Invalidated",
+      Unknown: "Unknown",
     });
 
   const INVALIDATION_PRICE_DROP = -40; // percent
@@ -70,7 +73,7 @@ W.thesisHealth = (() => {
 
     const reasons = [];
     let healthScore = 100;
-    let status = STATUS.UNKNOWN;
+    let status = STATUS.Unknown;
 
     const {
       asset,
@@ -96,7 +99,7 @@ W.thesisHealth = (() => {
         return Object.freeze({
           thesisId: thesis.id || null,
           healthScore: 0,
-          status: STATUS.INVALIDATED,
+          status: STATUS.Invalidated,
           reasons: Object.freeze(reasons.slice()),
           recommendation:
             "Thesis assumptions appear broken. Consider exiting or re-evaluating.",
@@ -182,24 +185,24 @@ W.thesisHealth = (() => {
     healthScore = _clampScore(healthScore);
 
     // ── 5. Status ────────────────────────────────────────────
-    if (healthScore >= 80) status = STATUS.HEALTHY;
-    else if (healthScore >= 60) status = STATUS.STRENGTHENING;
-    else if (healthScore >= 30) status = STATUS.WEAKENING;
-    else if (healthScore > 0) status = STATUS.INVALIDATED;
-    else status = STATUS.UNKNOWN;
+    if (healthScore >= 80) status = STATUS.Healthy;
+    else if (healthScore >= 60) status = STATUS.Strengthening;
+    else if (healthScore >= 30) status = STATUS.Weakening;
+    else if (healthScore > 0) status = STATUS.Invalidated;
+    else status = STATUS.Unknown;
 
     // ── 6. Recommendation ────────────────────────────────────
     let recommendation = "Monitor thesis progress.";
-    if (status === STATUS.WEAKENING) {
+    if (status === STATUS.Weakening) {
       recommendation =
         "Thesis is weakening. Review invalidation conditions and consider reducing exposure if risk is too high.";
-    } else if (status === STATUS.INVALIDATED) {
+    } else if (status === STATUS.Invalidated) {
       recommendation =
         "Thesis appears invalidated. Strongly consider exiting or re-evaluating the thesis from scratch.";
-    } else if (status === STATUS.STRENGTHENING) {
+    } else if (status === STATUS.Strengthening) {
       recommendation =
         "Thesis is strengthening. Continue monitoring and consider adding to position if within risk tolerance.";
-    } else if (status === STATUS.HEALTHY) {
+    } else if (status === STATUS.Healthy) {
       recommendation = "Thesis remains on track. Continue normal monitoring.";
     }
 
@@ -228,11 +231,11 @@ W.thesisHealth = (() => {
     if (!healthData) return "";
     const { status, healthScore } = healthData;
     let cls = "thesis-health-unknown";
-    if (status === STATUS.HEALTHY || status === STATUS.STRENGTHENING) {
+    if (status === STATUS.Healthy || status === STATUS.Strengthening) {
       cls = "thesis-health-up";
-    } else if (status === STATUS.WEAKENING) {
+    } else if (status === STATUS.Weakening) {
       cls = "thesis-health-warn";
-    } else if (status === STATUS.INVALIDATED) {
+    } else if (status === STATUS.Invalidated) {
       cls = "thesis-health-down";
     }
     const safeId = _escape(thesisId);
