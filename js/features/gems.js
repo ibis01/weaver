@@ -395,6 +395,12 @@ W.securityAdapters = (() => {
     optimism: "10",
   });
 
+  // Honeypot supports EVM chains only. An earlier version listed
+  // solana: "solana" because the docs mentioned it, but every Solana
+  // request returns HTTP 400 — Honeypot's IsHoneypot endpoint has no
+  // Solana simulation. Removing the entry makes fromHoneypotIs return
+  // { ok: false, reason: "unsupported-chain" } before firing a doomed
+  // request, and stops the console noise on every Solana gem scan.
   const HONEYPOT_CHAINS = Object.freeze({
     ethereum: "1",
     bsc: "56",
@@ -402,7 +408,6 @@ W.securityAdapters = (() => {
     arbitrum: "42161",
     polygon: "137",
     avalanche: "43114",
-    solana: "solana",
   });
 
   async function fetchJson(url, opts = {}) {
