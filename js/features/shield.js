@@ -167,8 +167,6 @@ W.shield = (() => {
     // Direct requests use the user's own IP, each with a fresh per-IP
     // quota. api.gopluslabs.io echoes our Origin in
     // Access-Control-Allow-Origin, so CORS is not an obstacle.
-    // fetchViaOwnWorker is retained as a manual escape hatch but is
-    // not called on the hot path.
 
     const url = `${GOPLUS_API}/${chainId}?contract_addresses=${encodeURIComponent(address.toLowerCase())}`;
 
@@ -221,8 +219,6 @@ W.shield = (() => {
     // Direct requests use the user's own IP, each with a fresh per-IP
     // quota. api.gopluslabs.io echoes our Origin in
     // Access-Control-Allow-Origin, so CORS is not an obstacle.
-    // fetchViaOwnWorker is retained as a manual escape hatch but is
-    // not called on the hot path.
 
     // Address case matters for Solana — never lowercase it.
     const url = `${GOPLUS_SOLANA_API}?contract_addresses=${encodeURIComponent(address)}`;

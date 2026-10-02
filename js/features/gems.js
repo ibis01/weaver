@@ -722,7 +722,6 @@ console.log(
 W.gems = (() => {
   // ── Constants ──────────────────────────────────────
   const DEXSCREENER_API = "https://api.dexscreener.com";
-  const PROXIES = [(u) => u];
 
   const CHAINS = Object.freeze({
     solana: "🟣",
@@ -1391,11 +1390,11 @@ W.gems = (() => {
       throw new Error("Invalid DEX Screener URL");
     }
     let lastErr;
-    for (const proxy of PROXIES) {
+    {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
       try {
-        const resp = await fetch(proxy(url), { signal: controller.signal });
+        const resp = await fetch(url, { signal: controller.signal });
         clearTimeout(timeout);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         return await resp.json();

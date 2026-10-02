@@ -21066,7 +21066,6 @@ console.log(
 W.gems = (() => {
   // ── Constants ──────────────────────────────────────
   const DEXSCREENER_API = "https://api.dexscreener.com";
-  const PROXIES = [(u) => u];
 
   const CHAINS = Object.freeze({
     solana: "🟣",
@@ -21735,11 +21734,11 @@ W.gems = (() => {
       throw new Error("Invalid DEX Screener URL");
     }
     let lastErr;
-    for (const proxy of PROXIES) {
+    {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
       try {
-        const resp = await fetch(proxy(url), { signal: controller.signal });
+        const resp = await fetch(url, { signal: controller.signal });
         clearTimeout(timeout);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         return await resp.json();
@@ -22639,8 +22638,6 @@ W.shield = (() => {
     // Direct requests use the user's own IP, each with a fresh per-IP
     // quota. api.gopluslabs.io echoes our Origin in
     // Access-Control-Allow-Origin, so CORS is not an obstacle.
-    // fetchViaOwnWorker is retained as a manual escape hatch but is
-    // not called on the hot path.
 
     const url = `${GOPLUS_API}/${chainId}?contract_addresses=${encodeURIComponent(address.toLowerCase())}`;
 
@@ -22693,8 +22690,6 @@ W.shield = (() => {
     // Direct requests use the user's own IP, each with a fresh per-IP
     // quota. api.gopluslabs.io echoes our Origin in
     // Access-Control-Allow-Origin, so CORS is not an obstacle.
-    // fetchViaOwnWorker is retained as a manual escape hatch but is
-    // not called on the hot path.
 
     // Address case matters for Solana — never lowercase it.
     const url = `${GOPLUS_SOLANA_API}?contract_addresses=${encodeURIComponent(address)}`;
