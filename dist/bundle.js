@@ -1073,6 +1073,55 @@ W.vault = (() => {
     return "vault";
   }
 
+  // ── Legacy credential migration ────────────────────────────
+  // Reads the pre-3c encrypted_settings blob (AI key, Telegram
+  // token under a separate passphrase), writes its sub-objects as
+  // vault entries, and only then deletes the source. If the write
+  // does not persist, the source is retained and the function
+  // throws — user can retry with the correct legacy passphrase.
+  async function migrateSecureSession(oldPassphrase) {
+    if (isLocked()) throw new VaultLockedError();
+    if (typeof oldPassphrase !== "string" || !oldPassphrase) {
+      throw new Error("Legacy passphrase is required");
+    }
+    const blob = W.store.get("encrypted_settings", null);
+    if (!blob) {
+      return { migrated: false, reason: "no-legacy-blob" };
+    }
+    let decrypted;
+    try {
+      decrypted = await W.crypto.secure.decryptSettings(
+        blob,
+        oldPassphrase,
+      );
+    } catch (_) {
+      throw new Error("Incorrect legacy passphrase");
+    }
+    if (!decrypted || typeof decrypted !== "object") {
+      throw new Error("Legacy blob decrypted to an unexpected shape");
+    }
+    const wrote = [];
+    if (decrypted.ai && typeof decrypted.ai === "object") {
+      await set("ai", decrypted.ai);
+      wrote.push("ai");
+    }
+    if (decrypted.telegram && typeof decrypted.telegram === "object") {
+      await set("telegram", decrypted.telegram);
+      wrote.push("telegram");
+    }
+    // Verify both writes persisted before deleting the source.
+    const aiOk = !decrypted.ai || isPersisted(ENTRY_PREFIX + "ai");
+    const tgOk =
+      !decrypted.telegram || isPersisted(ENTRY_PREFIX + "telegram");
+    if (!aiOk || !tgOk) {
+      throw new Error(
+        "Vault write did not persist; legacy blob retained for retry",
+      );
+    }
+    W.store.delete("encrypted_settings");
+    return { migrated: true, keys: wrote };
+  }
+
   // ── Export ────────────────────────────────────────────────
   // Returns the raw ciphertext structure. sync.js calls this and
   // writes the result under vault_<syncCode>. No re-encryption.
@@ -1110,6 +1159,7 @@ W.vault = (() => {
     has,
     keys,
     migrateKeys,
+    migrateSecureSession,
     exportBlob,
     getCached,
     routingFor,

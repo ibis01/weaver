@@ -273,6 +273,82 @@ describe("Vault", () => {
     expect(serialized).to.not.include("btc");
   });
 
+  describe("migrateSecureSession", () => {
+    // Minimal in-memory stand-in for W.crypto.secure that mimics the
+    // two operations migrateSecureSession relies on.
+    function installCryptoShim() {
+      const KEY = "correct-legacy-pass";
+      global.W.crypto = {
+        secure: {
+          async encryptSettings(obj, password) {
+            if (password !== KEY) throw new Error("bad");
+            return { __fake: JSON.stringify(obj) };
+          },
+          async decryptSettings(blob, password) {
+            if (password !== KEY) throw new Error("bad");
+            return JSON.parse(blob.__fake);
+          },
+        },
+      };
+    }
+
+    it("returns no-legacy-blob when nothing to migrate", async () => {
+      installCryptoShim();
+      await W.vault.setup("pw-123456");
+      const result = await W.vault.migrateSecureSession("correct-legacy-pass");
+      expect(result.migrated).to.equal(false);
+      expect(result.reason).to.equal("no-legacy-blob");
+    });
+
+    it("moves legacy credentials into the vault and deletes the source", async () => {
+      installCryptoShim();
+      // Simulate the pre-3c blob in localStorage.
+      W.store.set("encrypted_settings", {
+        __fake: JSON.stringify({
+          ai: { url: "https://api.openai.com", key: "sk-legacy", model: "gpt-4o-mini" },
+          telegram: { on: true, token: "123:legacy", chat: "42" },
+        }),
+      });
+      await W.vault.setup("pw-123456");
+      const result = await W.vault.migrateSecureSession("correct-legacy-pass");
+      expect(result.migrated).to.equal(true);
+      expect(result.keys.sort()).to.deep.equal(["ai", "telegram"]);
+      // Vault entries exist.
+      expect(await W.vault.get("ai")).to.deep.equal({
+        url: "https://api.openai.com",
+        key: "sk-legacy",
+        model: "gpt-4o-mini",
+      });
+      expect(await W.vault.get("telegram")).to.deep.equal({
+        on: true,
+        token: "123:legacy",
+        chat: "42",
+      });
+      // Source blob deleted.
+      expect(localStorage.getItem("weaver:encrypted_settings")).to.equal(null);
+    });
+
+    it("throws on wrong legacy passphrase and retains the source blob", async () => {
+      installCryptoShim();
+      W.store.set("encrypted_settings", {
+        __fake: JSON.stringify({ ai: { key: "sk-legacy" } }),
+      });
+      await W.vault.setup("pw-123456");
+      let threw = false;
+      try {
+        await W.vault.migrateSecureSession("WRONG");
+      } catch (e) {
+        threw = true;
+        expect(e.message).to.include("Incorrect legacy passphrase");
+      }
+      expect(threw).to.equal(true);
+      // Source blob intact — user can retry.
+      expect(localStorage.getItem("weaver:encrypted_settings")).to.not.equal(null);
+      // Vault entry not created.
+      expect(localStorage.getItem("weaver:vault::ai")).to.equal(null);
+    });
+  });
+
   it("exportBlob throws when locked", async () => {
     await W.vault.setup("pw-123456");
     W.vault.__test.clear();
