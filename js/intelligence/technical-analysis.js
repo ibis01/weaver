@@ -395,26 +395,66 @@ W.technicalAnalysis = (() => {
   async function analyzeMultiTimeframe(assetId) {
     if (!W.api?.ohlcv) throw new Error("OHLCV market API unavailable");
     const configs = { "1d": 300, "4h": 500, "1h": 500, "15m": 500 };
-    const entries = await Promise.all(
+    // allSettled so one failed timeframe degrades the analysis
+    // rather than rejecting it. The UI must show partial evidence
+    // honestly; a failed 15m fetch should not blank the whole page.
+    const settled = await Promise.allSettled(
       Object.entries(configs).map(async ([timeframe, limit]) => {
         const candles = await W.api.ohlcv(assetId, timeframe, limit);
+        if (!Array.isArray(candles) || candles.length === 0) {
+          throw new Error("No candles returned for " + timeframe);
+        }
         return [timeframe, candles, analyzeCandles(candles)];
       }),
     );
+    const entries = [];
+    const unavailableTimeframes = [];
+    const unavailableReasons = {};
+    const keys = Object.keys(configs);
+    settled.forEach((outcome, i) => {
+      const tf = keys[i];
+      if (outcome.status === "fulfilled") {
+        entries.push(outcome.value);
+      } else {
+        unavailableTimeframes.push(tf);
+        unavailableReasons[tf] =
+          (outcome.reason && outcome.reason.message) || "unavailable";
+      }
+    });
+    // If every timeframe failed, still throw — the caller cannot
+    // fabricate an analysis from nothing.
+    if (entries.length === 0) {
+      const first = settled[0];
+      const msg =
+        first && first.status === "rejected"
+          ? first.reason?.message || "all timeframes unavailable"
+          : "all timeframes unavailable";
+      throw new Error(msg);
+    }
     const timeframes = Object.fromEntries(
       entries.map(([timeframe, , result]) => [timeframe, result]),
     );
     entries.forEach(([timeframe, candles, result]) => {
       result.liquidityZones = liquidityZones(candles, timeframe);
     });
+    // primary is 1h when available; otherwise the first successful
+    // timeframe so the caller always has a real result object.
+    const primary =
+      timeframes["1h"] || timeframes[Object.keys(timeframes)[0]];
+    const availableCount = entries.length;
+    const alignmentMatch = Object.values(timeframes).filter(
+      (r) => r.bias === primary.bias,
+    ).length;
+    const degraded = unavailableTimeframes.length > 0;
     return {
-      primary: timeframes["1h"],
+      primary,
       timeframes,
       liquidityZones: aggregateLiquidity(timeframes),
-      timeframeAlignment:
-        Object.values(timeframes).filter(
-          (r) => r.bias === timeframes["1h"].bias,
-        ).length + "/4",
+      timeframeAlignment: alignmentMatch + "/" + availableCount,
+      degraded,
+      unavailableTimeframes,
+      unavailableReasons,
+      availableTimeframes: Object.keys(timeframes),
     };
   }
   async function analyze(assetId, days = 90) {
