@@ -162,6 +162,23 @@ W.vault = (() => {
   // in-memory map. That's invisible through W.store.get (which reads
   // the map). Direct localStorage is the only way to know whether a
   // write actually persisted.
+  // Raw localStorage read/write that bypasses W.store's vault
+  // routing. Migration must read the actual plaintext bytes — once
+  // the vault is set up and unlocked, W.store.get(name) would route
+  // to the vault cache and return fallback, not the plaintext.
+  function rawGet(name) {
+    try {
+      const raw = localStorage.getItem(STORE_RAW_PREFIX + name);
+      if (raw === null) return MISSING;
+      return JSON.parse(raw);
+    } catch {
+      return MISSING;
+    }
+  }
+  function rawSet(name, value) {
+    localStorage.setItem(STORE_RAW_PREFIX + name, JSON.stringify(value));
+  }
+
   function isPersisted(name) {
     try {
       return localStorage.getItem(STORE_RAW_PREFIX + name) !== null;
@@ -332,7 +349,7 @@ W.vault = (() => {
         result.skipped.push({ name, reason: "vault-entry-exists" });
         continue;
       }
-      const plain = W.store.get(name, MISSING);
+      const plain = rawGet(name);
       if (plain === MISSING) {
         result.skipped.push({ name, reason: "no-plaintext" });
         continue;
@@ -360,7 +377,7 @@ W.vault = (() => {
         continue;
       }
 
-      W.store.delete(name);
+      try { localStorage.removeItem(STORE_RAW_PREFIX + name); } catch (_) {}
       if (isPersisted(name)) {
         try { W.store.delete(stagingName); } catch (_) {}
         result.failed.push({ name, reason: "plaintext-delete-failed" });
@@ -370,7 +387,7 @@ W.vault = (() => {
       W.store.set(ENTRY_PREFIX + name, blob);
       if (!isPersisted(ENTRY_PREFIX + name)) {
         // Vault write failed. Restore plaintext from in-memory copy.
-        try { W.store.set(name, plain); } catch (_) {}
+        try { rawSet(name, plain); } catch (_) {}
         try { W.store.delete(stagingName); } catch (_) {}
         result.failed.push({ name, reason: "vault-write-failed" });
         continue;

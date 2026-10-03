@@ -10,9 +10,18 @@ if (!globalThis.crypto || !globalThis.crypto.subtle) {
   );
 }
 
+// Mirrors js/storage/storage.js routing behavior so tests exercise
+// the same vault-routing path production does. Without this, the
+// regression test for migrateKeys would pass against a buggy
+// W.store.get that routes through the empty vault cache.
 function makeStore() {
   return {
     get(key, fallback = null) {
+      if (global.W && global.W.vault && typeof global.W.vault.routingFor === "function") {
+        const route = global.W.vault.routingFor(key);
+        if (route === "vault") return global.W.vault.getCached(key, fallback);
+        if (route === "locked") throw new global.W.vault.VaultLockedError();
+      }
       const raw = localStorage.getItem("weaver:" + key);
       if (raw === null) return fallback;
       try {
@@ -22,9 +31,19 @@ function makeStore() {
       }
     },
     set(key, value) {
+      if (global.W && global.W.vault && typeof global.W.vault.routingFor === "function") {
+        const route = global.W.vault.routingFor(key);
+        if (route === "vault") return global.W.vault.set(key, value);
+        if (route === "locked") throw new global.W.vault.VaultLockedError();
+      }
       localStorage.setItem("weaver:" + key, JSON.stringify(value));
     },
     delete(key) {
+      if (global.W && global.W.vault && typeof global.W.vault.routingFor === "function") {
+        const route = global.W.vault.routingFor(key);
+        if (route === "vault") return global.W.vault.delete(key);
+        if (route === "locked") throw new global.W.vault.VaultLockedError();
+      }
       localStorage.removeItem("weaver:" + key);
     },
     clearAll() {
@@ -160,6 +179,24 @@ describe("Vault", () => {
     expect(await W.vault.get("watchlist")).to.deep.equal(["eth"]);
   });
 
+  it("migrateKeys reads through raw localStorage, not vault routing", async () => {
+    // Regression: once setup() completes, W.store.get(name) routes
+    // to the vault (routingFor returns "vault" for vault keys when
+    // unlocked). If migrateKeys used W.store.get, it would read the
+    // empty cache and skip every key as no-plaintext. Verify the
+    // plaintext actually moves.
+    W.store.set("portfolio", [{ id: "btc" }]);
+    W.store.set("watchlist", ["eth", "sol"]);
+    await W.vault.setup("pw-123456");
+    // Sanity: W.store.get now routes to vault and returns fallback
+    expect(W.store.get("portfolio", "FALLBACK")).to.equal("FALLBACK");
+    const result = await W.vault.migrateKeys(["portfolio", "watchlist"]);
+    expect(result.migrated.sort()).to.deep.equal(["portfolio", "watchlist"]);
+    expect(result.skipped.length).to.equal(0);
+    expect(await W.vault.get("portfolio")).to.deep.equal([{ id: "btc" }]);
+    expect(await W.vault.get("watchlist")).to.deep.equal(["eth", "sol"]);
+  });
+
   it("migration aborts if staging cannot persist", async () => {
     W.store.set("portfolio", [{ id: "btc" }]);
     await W.vault.setup("pw-123456");
@@ -175,14 +212,32 @@ describe("Vault", () => {
   });
 
   it("migration skips names with no plaintext and names already in vault", async () => {
-    await W.vault.setup("pw-123456");
-    await W.vault.set("portfolio", ["existing"]);
+    // Write plaintext BEFORE setup so it lands in localStorage
+    // rather than being routed to the vault cache. After setup()
+    // the shim (like production storage.js) routes vault-key
+    // writes to the vault — so this two-step order is required.
+    W.store.set("portfolio", ["plain-will-be-skipped"]);
     W.store.set("watchlist", ["new"]);
-    const result = await W.vault.migrateKeys(["portfolio", "watchlist", "nonexistent"]);
+    await W.vault.setup("pw-123456");
+    // Inject a vault entry for portfolio to simulate the
+    // already-migrated case. Now both a vault entry AND plaintext
+    // exist under portfolio; migrateKeys must prefer the vault
+    // entry and skip.
+    await W.vault.set("portfolio", ["vault-preexisting"]);
+    const result = await W.vault.migrateKeys([
+      "portfolio",
+      "watchlist",
+      "nonexistent",
+    ]);
     const skipped = result.skipped.map((s) => s.reason);
     expect(skipped).to.include("vault-entry-exists");
     expect(skipped).to.include("no-plaintext");
     expect(result.migrated).to.deep.equal(["watchlist"]);
+    // watchlist plaintext is gone; portfolio plaintext stays because
+    // the vault entry took precedence and migration skipped it.
+    // Cleanup happens in the next enable-vault run.
+    expect(localStorage.getItem("weaver:watchlist")).to.equal(null);
+    expect(await W.vault.get("watchlist")).to.deep.equal(["new"]);
   });
 
   it("exportBlob returns ciphertext structure, not plaintext", async () => {
