@@ -47,6 +47,25 @@ W.vault = (() => {
   // so we must pass a distinct sentinel.
   const MISSING = Symbol("vault-missing");
 
+  // Canonical list of keys that route through the vault. W.store
+  // consults this via routingFor(). Additions here are the ONLY place
+  // to declare a new vault-routed key.
+  const VAULT_KEYS = Object.freeze([
+    "portfolio",
+    "transactions",
+    "watchlist",
+    "theses",
+    "journal",
+    "alerts",
+    "unlocks",
+    "learn",
+    "achievements",
+    "web3_state",
+    "deployer_store",
+    "wallet_cost_basis",
+  ]);
+  const VAULT_KEY_SET = new Set(VAULT_KEYS);
+
   const ROOT_KEY = "vault::__root";
   const ENTRY_PREFIX = "vault::";
   const STAGING_PREFIX = "vault::__staging::";
@@ -197,6 +216,20 @@ W.vault = (() => {
       }
       _key = key;
       _cache = Object.create(null);
+      // Pre-decrypt every blob into the sync cache. Reads after
+      // unlock are synchronous (getCached); this is where the cost
+      // is paid, once.
+      const existing = keys();
+      for (const name of existing) {
+        try {
+          const blob = W.store.get(ENTRY_PREFIX + name, null);
+          if (blob && blob.v === BLOB_V) {
+            _cache[name] = await decrypt(_key, blob.iv, blob.ct);
+          }
+        } catch (e) {
+          console.warn("[Vault] Failed to decrypt", name, e && e.message);
+        }
+      }
     })();
     try {
       await _unlocking;
@@ -238,6 +271,9 @@ W.vault = (() => {
     if (typeof name !== "string" || !name) {
       throw new Error("Vault key must be a non-empty string");
     }
+    // Sync cache update first: reads immediately after set() see the
+    // new value even before the async encryption completes.
+    _cache[name] = value;
     const { iv, ct } = await encrypt(_key, value);
     const blob = { v: BLOB_V, iv, ct, writtenAt: Date.now() };
     W.store.set(ENTRY_PREFIX + name, blob);
@@ -348,6 +384,26 @@ W.vault = (() => {
     return result;
   }
 
+  // ── Sync read from cache ──────────────────────────────────
+  // Throws when locked. Returns fallback if the key is not cached.
+  // This is the sync read path that W.store routes vault keys to.
+  function getCached(name, fallback) {
+    if (isLocked()) throw new VaultLockedError();
+    if (_cache && name in _cache) return _cache[name];
+    return fallback === undefined ? null : fallback;
+  }
+
+  // ── Routing decision for W.store ──────────────────────────
+  // Returns "vault"    → W.store should call getCached / set / delete
+  //         "locked"   → throw VaultLockedError (sensitive key, vault locked)
+  //         "plaintext"→ no vault, or non-sensitive key: normal path
+  function routingFor(key) {
+    if (!VAULT_KEY_SET.has(key)) return "plaintext";
+    if (!hasStoredVault()) return "plaintext";
+    if (isLocked()) return "locked";
+    return "vault";
+  }
+
   // ── Export ────────────────────────────────────────────────
   // Returns the raw ciphertext structure. sync.js calls this and
   // writes the result under vault_<syncCode>. No re-encryption.
@@ -386,6 +442,9 @@ W.vault = (() => {
     keys,
     migrateKeys,
     exportBlob,
+    getCached,
+    routingFor,
+    VAULT_KEYS,
     VaultLockedError,
     __test: Object.freeze({
       clear: __testClear,

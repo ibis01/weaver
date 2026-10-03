@@ -18,6 +18,7 @@ const files = [
   "js/storage/observations.js",
   "js/lib/crypto/secure.js",
   "js/lib/crypto/secure-session.js",
+  "js/lib/crypto/vault.js",
   "js/lib/sentry-init.js",
   "js/utils/format.js",
   "js/utils/finance.js",
@@ -28,6 +29,7 @@ const files = [
   // ── UI Core ──────────────────────────────────────────────────
   "js/ui/theme.js",
   "js/ui/ui.js",
+  "js/ui/vault-unlock.js",
   "js/ui/data-status.js",
   "js/ui/dashboard.js",
   "js/ui/skeleton.js",

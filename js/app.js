@@ -209,6 +209,7 @@ window.W = window.W || {};
     track: (v) => safeRender(v, "track", () => W.trackRecord?.render),
     sync: (v) => safeRender(v, "sync", () => W.sync?.render),
     settings: (v) => safeRender(v, "settings", () => W.misc?.renderSettings),
+    unlock: (v) => safeRender(v, "unlock", () => W.vaultUnlock?.render),
     token: (v) =>
       safeRender(v, "token", () => {
         if (typeof W.tokenAnalysis?.render !== "function") return null;
@@ -270,6 +271,30 @@ window.W = window.W || {};
       if (!view) {
         console.warn("[App] View element not found");
         return;
+      }
+
+      // Vault gate — the only route reachable while locked is
+      // #/unlock. A user navigating to #/dashboard (or any other
+      // route) while locked is redirected with the original route
+      // remembered for post-unlock.
+      if (W.vault && W.vault.hasStoredVault && W.vault.hasStoredVault()) {
+        const locked = W.vault.isLocked();
+        if (locked && page !== "unlock") {
+          try {
+            sessionStorage.setItem(
+              "post_unlock_route",
+              page + (param ? "/" + param : ""),
+            );
+          } catch (_) {}
+          if (location.hash !== "#/unlock") {
+            location.hash = "#/unlock";
+            return;
+          }
+        }
+        if (!locked && page === "unlock") {
+          location.hash = "#/dashboard";
+          return;
+        }
       }
 
       // Clear previous route's DOM before dispatch. Without this, a
@@ -634,6 +659,23 @@ window.W = window.W || {};
       } catch (e) {
         console.warn(`[App] init step "${name}" failed:`, e && e.message);
       }
+    }
+
+    // Vault boot gate. If a vault exists and is locked, stop here:
+    // skip achievements/streak/sync (all touch vault keys) and
+    // dispatch straight to #/unlock. A subsequent unlock reloads or
+    // navigates, and this boot path runs again with the vault open.
+    if (
+      W.vault &&
+      W.vault.hasStoredVault &&
+      W.vault.hasStoredVault() &&
+      W.vault.isLocked()
+    ) {
+      if (location.hash !== "#/unlock") location.hash = "#/unlock";
+      try { window.addEventListener("hashchange", route); } catch (_) {}
+      try { route(); } catch (_) {}
+      console.log("[App] Vault locked; showing unlock screen.");
+      return;
     }
 
     try {

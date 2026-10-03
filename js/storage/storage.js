@@ -12,6 +12,16 @@ const StorageModule = (function () {
     },
 
     set(key, value) {
+      // Vault routing. When the vault is unlocked, set() updates the
+      // sync cache synchronously and returns a Promise for the
+      // encrypted write. Callers may ignore the Promise (fire-and-
+      // forget) — the cache is already updated by the time set()
+      // returns.
+      if (W.vault && typeof W.vault.routingFor === "function") {
+        const route = W.vault.routingFor(key);
+        if (route === "vault") return W.vault.set(key, value);
+        if (route === "locked") throw new W.vault.VaultLockedError();
+      }
       try {
         localStorage.setItem(this._key(key), JSON.stringify(value));
       } catch (e) {
@@ -22,6 +32,15 @@ const StorageModule = (function () {
     },
 
     get(key, fallback = null) {
+      // Vault routing — see js/lib/crypto/vault.js. Only meaningful
+      // for keys on the vault list. Throws when the vault is locked
+      // and the key is sensitive (no silent fallback to plaintext,
+      // which would be empty after migration).
+      if (W.vault && typeof W.vault.routingFor === "function") {
+        const route = W.vault.routingFor(key);
+        if (route === "vault") return W.vault.getCached(key, fallback);
+        if (route === "locked") throw new W.vault.VaultLockedError();
+      }
       try {
         const raw = localStorage.getItem(this._key(key));
         if (raw === null) {
@@ -38,6 +57,11 @@ const StorageModule = (function () {
     },
 
     delete(key) {
+      if (W.vault && typeof W.vault.routingFor === "function") {
+        const route = W.vault.routingFor(key);
+        if (route === "vault") return W.vault.delete(key);
+        if (route === "locked") throw new W.vault.VaultLockedError();
+      }
       try {
         localStorage.removeItem(this._key(key));
         if (this._memory) delete this._memory[key];

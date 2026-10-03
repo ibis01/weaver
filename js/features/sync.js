@@ -257,7 +257,37 @@ async function copySyncCode() {
   }
 }
 
+// Vault-integrated sync. When the vault is unlocked and present,
+// syncVault is a fast copy of the vault ciphertext under the sync
+// code — no password prompt, no re-encryption. Fall back to the
+// legacy plaintext vault only if the user has no vault yet (pre-
+// migration) so their existing sync flow keeps working.
 async function syncVault() {
+  const hasVault = W.vault && W.vault.hasStoredVault && W.vault.hasStoredVault();
+  let code = W.store.get("sync_code_current", null);
+  if (!code || !validateSyncCode(code)) {
+    code = await generateAndDisplayCode();
+  }
+
+  if (hasVault) {
+    if (W.vault.isLocked()) {
+      W.ui.toast("Unlock the vault first.", "warn");
+      return;
+    }
+    try {
+      const blob = W.vault.exportBlob();
+      W.store.set(`vault_${code}`, blob);
+      W.ui.toast(`✅ Vault snapshot saved under ${code}`, "ok");
+      const display = document.getElementById("sync-code-display");
+      if (display) display.textContent = code;
+    } catch (e) {
+      W.ui.toast(`❌ Save failed: ${e && e.message ? e.message : "unknown"}`, "warn");
+    }
+    return;
+  }
+
+  // Legacy path: no vault yet. Same plaintext-password flow as
+  // before. Users who haven't opted into the vault see no change.
   const data = {
     portfolio: W.portfolio ? W.portfolio.all() : [],
     transactions: W.portfolio ? W.portfolio.txs() : [],
@@ -269,34 +299,20 @@ async function syncVault() {
     timestamp: Date.now(),
     version: "1.0",
   };
-
   const password = await W.ui.promptPassword({
     title: "Sync Vault",
     message: "Enter your sync password (min 8 characters).",
     confirmLabel: "Sync",
     minLength: 8,
   });
-  if (!password) {
-    W.ui.toast("Sync cancelled.", "info");
-    return;
-  }
-
-  // Reuse the existing code. Regenerating it here would invalidate
-  // any code the user has already saved, orphaning the previously
-  // stored vault under vault_<oldcode>. Only generate when there is
-  // no code yet, or the user explicitly clicks "Generate New".
-  let code = W.store.get("sync_code_current", null);
-  if (!code || !validateSyncCode(code)) {
-    code = await generateAndDisplayCode();
-  }
-
+  if (!password) { W.ui.toast("Sync cancelled.", "info"); return; }
   try {
     await saveVault(data, password, code);
     W.ui.toast(`✅ Vault saved! Code: ${code}`, "ok");
     const display = document.getElementById("sync-code-display");
     if (display) display.textContent = code;
   } catch (e) {
-    W.ui.toast(`❌ Save failed: ${e.message}`, "warn");
+    W.ui.toast(`❌ Save failed: ${e && e.message ? e.message : "unknown"}`, "warn");
   }
 }
 

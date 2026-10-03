@@ -971,6 +971,20 @@ W.misc = (() => {
         </div>
       </div>
       <div class="card">
+        <h3>🔐 Vault</h3>
+        <p class="muted small">
+          Encrypt your portfolio, watchlist, transactions, journal,
+          and other sensitive data with a passphrase. If you forget
+          it, the encrypted data cannot be recovered.
+        </p>
+        ${
+          W.vault && W.vault.hasStoredVault && W.vault.hasStoredVault()
+            ? `<button class="btn ghost" id="vault-lock" type="button">🔒 Lock Now</button>
+               <p class="muted small mt-8">Vault is ${W.vault.isUnlocked() ? "unlocked" : "locked"} for this session.</p>`
+            : `<button class="btn primary" id="vault-enable" type="button">Enable Vault</button>`
+        }
+      </div>
+      <div class="card">
         <h3>Your Data</h3>
         <div class="qa">
           <button class="btn" id="set-tax">🧾 Export Tax Report (CSV)</button>
@@ -1119,6 +1133,40 @@ W.misc = (() => {
     };
 
     // ── Telegram test ─────────────────────────────────────
+    const vaultEnable = view.querySelector("#vault-enable");
+    if (vaultEnable) {
+      vaultEnable.onclick = async () => {
+        const pw = await W.ui.promptPassword({
+          title: "Enable Vault",
+          message:
+            "Choose a passphrase (min 12 chars). Your sensitive data will be encrypted with it. If you forget it, the data cannot be recovered.",
+          confirmLabel: "Enable Vault",
+          minLength: 12,
+        });
+        if (!pw) return;
+        try {
+          await W.vault.setup(pw);
+          const result = await W.vault.migrateKeys([...W.vault.VAULT_KEYS]);
+          W.ui.toast(
+            `Vault enabled. Migrated ${result.migrated.length} key(s).`,
+            "ok",
+          );
+          setTimeout(() => location.reload(), 800);
+        } catch (e) {
+          W.ui.toast(
+            "Vault setup failed: " + (e && e.message ? e.message : "unknown"),
+            "warn",
+          );
+        }
+      };
+    }
+    const vaultLock = view.querySelector("#vault-lock");
+    if (vaultLock) {
+      vaultLock.onclick = () => {
+        if (W.vault && W.vault.lock) W.vault.lock();
+      };
+    }
+
     view.querySelector("#set-tgtest").onclick = async () => {
       if (_testing) return;
       _testing = true;
