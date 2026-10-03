@@ -33742,6 +33742,52 @@ W.tokenAnalysis = (() => {
 
       const safeText = (s) => W.fmt.escapeHTML(String(s ?? ""));
 
+      // Timeframe availability badge. Reads the degraded-state fields
+      // that analyzeMultiTimeframe() emits when one or more OHLCV
+      // timeframes fail. Renders nothing when the fields are absent
+      // (older cached analyses, non-MTF path).
+      const mtf = result.technical?.multiTimeframe || null;
+      const mtfBadge = (() => {
+        if (!mtf) return "";
+        const unavailable = Array.isArray(mtf.unavailableTimeframes)
+          ? mtf.unavailableTimeframes
+          : [];
+        const available = Array.isArray(mtf.availableTimeframes)
+          ? mtf.availableTimeframes
+          : [];
+        const total = available.length + unavailable.length;
+        if (total === 0) return "";
+        if (!mtf.degraded || unavailable.length === 0) {
+          return (
+            '<p class="small up mb-8">' +
+            "&#9679; Analysis complete — " +
+            available.length +
+            "/" +
+            total +
+            " timeframes available" +
+            "</p>"
+          );
+        }
+        const reasons = mtf.unavailableReasons || {};
+        const parts = unavailable.map((tf) => {
+          const reason =
+            typeof reasons[tf] === "string" && reasons[tf]
+              ? ": " + safeText(reasons[tf])
+              : "";
+          return safeText(tf) + reason;
+        });
+        return (
+          '<p class="small warn mb-8">' +
+          "&#9888; Partial analysis — " +
+          available.length +
+          "/" +
+          total +
+          " timeframes available. Unavailable: " +
+          parts.join("; ") +
+          "</p>"
+        );
+      })();
+
       // ── Null-safe formatters ──────────────────────────────
       const isNumber = (v) => Number.isFinite(v);
       const fmtScore = (v) => (isNumber(v) ? `${v}/100` : "—");
@@ -33768,6 +33814,8 @@ W.tokenAnalysis = (() => {
       view.innerHTML = `
         <div class="card">
           <h3>📊 Token Analysis: ${safeText(result.asset)}</h3>
+
+          ${mtfBadge}
 
           <div class="card mt-16 ${actionClass}">
             <h3>${safeText(result.scenario || "Neutral / insufficient evidence")}</h3>
