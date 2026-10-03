@@ -467,6 +467,13 @@ W.technicalAnalysis = (() => {
             timeframes: multi.timeframes,
             liquidityZones: multi.liquidityZones,
             timeframeAlignment: multi.timeframeAlignment,
+            // Propagate the degraded-state fields so the UI can
+            // label partial evidence honestly instead of presenting
+            // a silently incomplete analysis as complete.
+            degraded: multi.degraded,
+            unavailableTimeframes: multi.unavailableTimeframes,
+            unavailableReasons: multi.unavailableReasons,
+            availableTimeframes: multi.availableTimeframes,
           },
         };
       } catch (e) {

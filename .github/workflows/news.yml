@@ -1,0 +1,77 @@
+name: News Snapshot
+
+on:
+  schedule:
+    # Hourly at :15. Market data uses :00, so this avoids racing the
+    # market-data commit.
+    - cron: "15 * * * *"
+  workflow_dispatch:
+    inputs:
+      allow_stale:
+        description: "Commit a stale snapshot (provider outage recovery)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: news-snapshot
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Refresh news snapshot
+        run: node scripts/refresh-news-snapshot.js
+
+      - name: Regenerate embedded module
+        run: node scripts/generate-news-module.js
+
+      - name: Validate snapshot
+        env:
+          NEWS_MAX_AGE_HOURS: "36"
+        run: |
+          if [ "${{ inputs.allow_stale }}" = "true" ]; then
+            node scripts/validate-news-snapshot.js --allow-stale
+          else
+            node scripts/validate-news-snapshot.js
+          fi
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "weaver-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add data/news.json js/data/news-snapshot.js
+          if git diff --cached --quiet; then
+            echo "No change to commit."
+            exit 0
+          fi
+          git commit -m "chore(data): refresh news snapshot"
+          # Push via a branch + PR so branch protection on main is respected.
+          BRANCH="bot/news-snapshot-$(date -u +%Y%m%d-%H%M)"
+          git checkout -b "$BRANCH"
+          git push -u origin "$BRANCH"
+          gh pr create \
+            --title "chore(data): refresh news snapshot" \
+            --body "Automated snapshot refresh. Merged manually or via auto-merge." \
+            --base main \
+            --head "$BRANCH" \
+            || echo "PR creation failed; branch $BRANCH pushed for manual merge."
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

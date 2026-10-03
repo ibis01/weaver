@@ -13298,6 +13298,13 @@ W.technicalAnalysis = (() => {
             timeframes: multi.timeframes,
             liquidityZones: multi.liquidityZones,
             timeframeAlignment: multi.timeframeAlignment,
+            // Propagate the degraded-state fields so the UI can
+            // label partial evidence honestly instead of presenting
+            // a silently incomplete analysis as complete.
+            degraded: multi.degraded,
+            unavailableTimeframes: multi.unavailableTimeframes,
+            unavailableReasons: multi.unavailableReasons,
+            availableTimeframes: multi.availableTimeframes,
           },
         };
       } catch (e) {
@@ -18297,6 +18304,32 @@ window.__WEAVER_NEWS_SNAPSHOT__ = [
 window.W = window.W || {};
 
 W.news = (() => {
+  // Freshness classification for embedded or fetched news data.
+  // Returns { status, ageHours, newest } where status is one of:
+  //   live            — newest article under 6 hours old
+  //   snapshot-fresh  — under 36 hours
+  //   snapshot-stale  — older than 36 hours
+  //   unavailable     — no parseable dates at all
+  function classifyNewsFreshness(articles) {
+    if (!Array.isArray(articles) || !articles.length) {
+      return { status: "unavailable", ageHours: null, newest: null };
+    }
+    let newest = 0;
+    for (const a of articles) {
+      const ts = Date.parse(a && a.pubDate);
+      if (Number.isFinite(ts) && ts > newest) newest = ts;
+    }
+    if (!newest) {
+      return { status: "unavailable", ageHours: null, newest: null };
+    }
+    const ageHours = (Date.now() - newest) / 3600000;
+    let status;
+    if (ageHours < 6) status = "live";
+    else if (ageHours < 36) status = "snapshot-fresh";
+    else status = "snapshot-stale";
+    return { status, ageHours, newest };
+  }
+
   const newsLog = (msg, data) => {
     console.log(`[News] ${msg}`, data || "");
   };
