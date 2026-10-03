@@ -32,6 +32,60 @@ W.news = (() => {
     return { status, ageHours, newest };
   }
 
+  // Human-friendly age for the freshness badge.
+  function formatNewsAge(ageHours) {
+    if (!Number.isFinite(ageHours)) return "unknown";
+    if (ageHours < 1) {
+      const mins = Math.max(1, Math.round(ageHours * 60));
+      return mins + " minute" + (mins === 1 ? "" : "s") + " ago";
+    }
+    if (ageHours < 24) {
+      const h = Math.round(ageHours);
+      return h + " hour" + (h === 1 ? "" : "s") + " ago";
+    }
+    const days = Math.round(ageHours / 24);
+    return days + " day" + (days === 1 ? "" : "s") + " ago";
+  }
+
+  // Render a compact status strip above the article list. Age-based,
+  // not source-based: a snapshot with 2h-old articles is effectively
+  // live; a live feed with 40h-old articles is effectively stale.
+  // Source attribution (RSS vs embedded snapshot) is deferred.
+  function renderNewsFreshnessBadge(fresh) {
+    if (!fresh || fresh.status === "unavailable") {
+      return (
+        '<p class="muted small mb-16">' +
+        "Timestamp unavailable — freshness unknown" +
+        "</p>"
+      );
+    }
+    const age = formatNewsAge(fresh.ageHours);
+    if (fresh.status === "live") {
+      return (
+        '<p class="small up mb-16">' +
+        "&#9679; Live · newest article " +
+        esc(age) +
+        "</p>"
+      );
+    }
+    if (fresh.status === "snapshot-fresh") {
+      return (
+        '<p class="small muted mb-16">' +
+        "Repository snapshot · newest article " +
+        esc(age) +
+        "</p>"
+      );
+    }
+    // snapshot-stale
+    return (
+      '<p class="small warn mb-16">' +
+      "&#9888; Snapshot stale · newest article " +
+      esc(age) +
+      " — verify against a live source before acting" +
+      "</p>"
+    );
+  }
+
   const newsLog = (msg, data) => {
     console.log(`[News] ${msg}`, data || "");
   };
@@ -333,8 +387,14 @@ W.news = (() => {
       })
       .join("");
 
-    container.innerHTML = `<div class="news-list">${items}</div>`;
-    newsLog(`Rendered ${Math.min(articles.length, 30)} articles`);
+    const fresh = classifyNewsFreshness(articles);
+    const badge = renderNewsFreshnessBadge(fresh);
+    container.innerHTML = badge + `<div class="news-list">${items}</div>`;
+    newsLog(
+      `Rendered ${Math.min(articles.length, 30)} articles (` +
+        fresh.status +
+        `, newest ${fresh.ageHours != null ? fresh.ageHours.toFixed(1) : "?"}h)`,
+    );
   }
 
   // ── Show error state ───────────────────────────────────
