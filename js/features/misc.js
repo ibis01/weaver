@@ -980,7 +980,13 @@ W.misc = (() => {
         ${
           W.vault && W.vault.hasStoredVault && W.vault.hasStoredVault()
             ? `<button class="btn ghost" id="vault-lock" type="button">🔒 Lock Now</button>
-               <p class="muted small mt-8">Vault is ${W.vault.isUnlocked() ? "unlocked" : "locked"} for this session.</p>`
+               <p class="muted small mt-8">Vault is ${W.vault.isUnlocked() ? "unlocked" : "locked"} for this session.</p>
+               ${
+                 (W.store.get("encrypted_settings", null) !== null)
+                   ? `<hr class="mt-16"><p class="muted small">You have credentials encrypted under an older passphrase (the AI key and Telegram token). Migrate them into the vault so you only need one passphrase.</p>
+                      <button class="btn primary" id="vault-migrate-creds" type="button">🔑 Migrate Credentials</button>`
+                   : ""
+               }`
             : `<button class="btn primary" id="vault-enable" type="button">Enable Vault</button>`
         }
       </div>
@@ -1160,6 +1166,40 @@ W.misc = (() => {
         }
       };
     }
+    const migrateBtn = view.querySelector("#vault-migrate-creds");
+    if (migrateBtn) {
+      migrateBtn.onclick = async () => {
+        if (!W.vault || !W.vault.isUnlocked()) {
+          W.ui?.toast?.("Unlock the vault first.", "warn");
+          return;
+        }
+        const legacyPw = await W.ui.promptPassword({
+          title: "Migrate Credentials",
+          message:
+            "Enter the passphrase that currently protects your AI key and Telegram token. They will be moved into the vault.",
+          confirmLabel: "Migrate",
+        });
+        if (!legacyPw) return;
+        try {
+          const result = await W.vault.migrateSecureSession(legacyPw);
+          if (!result.migrated) {
+            W.ui?.toast?.("No legacy credentials to migrate.", "info");
+          } else {
+            W.ui?.toast?.(
+              "Migrated: " + result.keys.join(", ") + " ✓",
+              "ok",
+            );
+          }
+          renderSettings(view, { skipPrompt: true });
+        } catch (e) {
+          W.ui?.toast?.(
+            "Migration failed: " + (e && e.message ? e.message : "unknown"),
+            "warn",
+          );
+        }
+      };
+    }
+
     const vaultLock = view.querySelector("#vault-lock");
     if (vaultLock) {
       vaultLock.onclick = () => {

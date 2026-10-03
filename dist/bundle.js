@@ -519,48 +519,79 @@ W.crypto.secure = SecureCrypto;
 console.log("[SecureCrypto] Module loaded.");
 // ---- js/lib/crypto/secure-session.js ----
 // ================================================================
-// Shared decrypted-settings cache
+// Secure Session — vault-backed credential cache (Session 3c)
 // ================================================================
-// Problem this solves: encrypted_settings (AI key, Telegram token) is
-// encrypted at rest via SecureCrypto, but more than one module needs to
-// read the decrypted values during a session (the Settings page, and
-// the Telegram sender for background alerts). Without a shared cache,
-// each module either re-prompts for the passphrase constantly, or
-// (as telegram.js used to) keeps its own plaintext copy on disk.
+// Historical role: owned the encrypted_settings blob (AI key,
+// Telegram token) under its own passphrase. Session 3c retires that
+// role when a vault exists.
 //
-// This module holds the decrypted sensitive settings ONLY in memory,
-// for the current page session. It is never written to localStorage.
-// Reloading the page clears it — same as clicking "Lock Keys".
+// New behavior:
+//   - When W.vault has a stored vault, this module is a thin proxy
+//     over vault.getCached("ai"/"telegram") and vault.set(...).
+//     One passphrase. One unlock. Same vault lifecycle.
+//   - When no vault exists, this module keeps its legacy behavior
+//     (encrypted_settings blob, own passphrase) so pre-3c installs
+//     keep working until the user enables a vault.
 //
-// The plaintext passphrase is captured by unlock()/saveWithPassphrase()
-// and never leaves the module. Callers use save(sensitiveObj) which
-// re-encrypts with the cached key — they never need to see or hold the
-// passphrase themselves.
+// The migration path is W.vault.migrateSecureSession(oldPassphrase):
+// decrypt the legacy blob, write ai + telegram as vault entries, and
+// delete the source only after the writes persist.
 
 window.W = window.W || {};
 
 W.secureSession = (() => {
   "use strict";
 
-  let _passphrase = null;
-  let _cache = null; // { ai: {...}, telegram: {...} } — decrypted, memory-only
+  let _passphrase = null; // legacy mode only
+  let _cache = null;      // legacy mode only { ai, telegram }
+
+  function vaultPresent() {
+    try {
+      return !!(
+        W.vault &&
+        typeof W.vault.hasStoredVault === "function" &&
+        W.vault.hasStoredVault()
+      );
+    } catch (_) {
+      return false;
+    }
+  }
 
   function isUnlocked() {
+    if (vaultPresent()) return W.vault.isUnlocked();
     return !!_cache;
   }
 
   function hasStoredSecrets() {
+    if (vaultPresent()) {
+      // Vault mode: consider credentials present if the vault holds
+      // either sub-object. has() reads the raw key list, so it works
+      // while locked without needing to decrypt.
+      try {
+        return W.vault.has("ai") || W.vault.has("telegram");
+      } catch (_) {
+        return false;
+      }
+    }
     return !!W.store.get("encrypted_settings", null);
   }
 
   async function unlock(passphrase) {
+    if (vaultPresent()) {
+      // Delegates to the vault. The vault handles the KDF, decrypts
+      // every entry into cache, and rejects wrong passphrases.
+      await W.vault.unlock(passphrase);
+      return {
+        ai: W.vault.getCached("ai", {}) || {},
+        telegram: W.vault.getCached("telegram", {}) || {},
+      };
+    }
+    // Legacy path.
     if (typeof passphrase !== "string" || !passphrase) {
       throw new Error("Passphrase is required");
     }
     const blob = W.store.get("encrypted_settings", null);
-    if (!blob) {
-      throw new Error("No encrypted settings found");
-    }
+    if (!blob) throw new Error("No encrypted settings found");
     const data = await W.crypto.secure.decryptSettings(blob, passphrase);
     _passphrase = passphrase;
     _cache = data;
@@ -568,9 +599,22 @@ W.secureSession = (() => {
   }
 
   async function save(sensitiveObj) {
-    if (!_passphrase) {
-      throw new Error("Session is locked");
+    if (vaultPresent()) {
+      if (!W.vault.isUnlocked()) {
+        throw new Error("Unlock the vault first");
+      }
+      if (!sensitiveObj || typeof sensitiveObj !== "object") {
+        throw new Error("save() requires a plain object");
+      }
+      if (sensitiveObj.ai !== undefined) {
+        await W.vault.set("ai", sensitiveObj.ai);
+      }
+      if (sensitiveObj.telegram !== undefined) {
+        await W.vault.set("telegram", sensitiveObj.telegram);
+      }
+      return;
     }
+    if (!_passphrase) throw new Error("Session is locked");
     if (!sensitiveObj || typeof sensitiveObj !== "object") {
       throw new Error("save() requires a plain object");
     }
@@ -583,6 +627,18 @@ W.secureSession = (() => {
   }
 
   async function saveWithPassphrase(sensitiveObj, passphrase) {
+    if (vaultPresent()) {
+      // Vault mode: passphrase is the vault passphrase. Unlock then
+      // write. If already unlocked, `unlock` is a no-op refresh.
+      await W.vault.unlock(passphrase);
+      if (sensitiveObj.ai !== undefined) {
+        await W.vault.set("ai", sensitiveObj.ai);
+      }
+      if (sensitiveObj.telegram !== undefined) {
+        await W.vault.set("telegram", sensitiveObj.telegram);
+      }
+      return;
+    }
     if (typeof passphrase !== "string" || !passphrase) {
       throw new Error("Passphrase is required");
     }
@@ -599,17 +655,36 @@ W.secureSession = (() => {
   }
 
   function lock() {
+    if (vaultPresent()) {
+      // Vault.lock() reloads the page; delegate for a single lock UX.
+      W.vault.lock();
+      return;
+    }
     _passphrase = null;
     _cache = null;
   }
 
   function clear() {
+    if (vaultPresent()) {
+      // Vault mode: delete ai + telegram vault entries.
+      try {
+        W.vault.delete("ai");
+      } catch (_) {}
+      try {
+        W.vault.delete("telegram");
+      } catch (_) {}
+      return;
+    }
     W.store.delete("encrypted_settings");
     _passphrase = null;
     _cache = null;
   }
 
   function get(key) {
+    if (vaultPresent()) {
+      if (!W.vault.isUnlocked()) return null;
+      return W.vault.getCached(key, null);
+    }
     if (!_cache) return null;
     const v = _cache[key];
     if (v === null || v === undefined) return null;
@@ -628,7 +703,7 @@ W.secureSession = (() => {
   });
 })();
 
-console.log("[SecureSession] Module loaded.");
+console.log("[SecureSession] Module loaded (vault-aware).");
 // ---- js/lib/crypto/vault.js ----
 // ================================================================
 // Weaver Vault
@@ -25721,7 +25796,13 @@ W.misc = (() => {
         ${
           W.vault && W.vault.hasStoredVault && W.vault.hasStoredVault()
             ? `<button class="btn ghost" id="vault-lock" type="button">🔒 Lock Now</button>
-               <p class="muted small mt-8">Vault is ${W.vault.isUnlocked() ? "unlocked" : "locked"} for this session.</p>`
+               <p class="muted small mt-8">Vault is ${W.vault.isUnlocked() ? "unlocked" : "locked"} for this session.</p>
+               ${
+                 (W.store.get("encrypted_settings", null) !== null)
+                   ? `<hr class="mt-16"><p class="muted small">You have credentials encrypted under an older passphrase (the AI key and Telegram token). Migrate them into the vault so you only need one passphrase.</p>
+                      <button class="btn primary" id="vault-migrate-creds" type="button">🔑 Migrate Credentials</button>`
+                   : ""
+               }`
             : `<button class="btn primary" id="vault-enable" type="button">Enable Vault</button>`
         }
       </div>
@@ -25901,6 +25982,40 @@ W.misc = (() => {
         }
       };
     }
+    const migrateBtn = view.querySelector("#vault-migrate-creds");
+    if (migrateBtn) {
+      migrateBtn.onclick = async () => {
+        if (!W.vault || !W.vault.isUnlocked()) {
+          W.ui?.toast?.("Unlock the vault first.", "warn");
+          return;
+        }
+        const legacyPw = await W.ui.promptPassword({
+          title: "Migrate Credentials",
+          message:
+            "Enter the passphrase that currently protects your AI key and Telegram token. They will be moved into the vault.",
+          confirmLabel: "Migrate",
+        });
+        if (!legacyPw) return;
+        try {
+          const result = await W.vault.migrateSecureSession(legacyPw);
+          if (!result.migrated) {
+            W.ui?.toast?.("No legacy credentials to migrate.", "info");
+          } else {
+            W.ui?.toast?.(
+              "Migrated: " + result.keys.join(", ") + " ✓",
+              "ok",
+            );
+          }
+          renderSettings(view, { skipPrompt: true });
+        } catch (e) {
+          W.ui?.toast?.(
+            "Migration failed: " + (e && e.message ? e.message : "unknown"),
+            "warn",
+          );
+        }
+      };
+    }
+
     const vaultLock = view.querySelector("#vault-lock");
     if (vaultLock) {
       vaultLock.onclick = () => {
