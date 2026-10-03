@@ -70,6 +70,11 @@ W.thesisHealth = (() => {
    */
   function evaluate(thesis, marketData = {}, signalHistory = []) {
     if (!thesis || typeof thesis !== "object") return null;
+    // Defensive: accept only an object for marketData. Callers that
+    // pass a bare number or null get an empty context rather than a
+    // TypeError deep inside the scoring path.
+    if (!marketData || typeof marketData !== "object") marketData = {};
+    if (!Array.isArray(signalHistory)) signalHistory = [];
 
     const reasons = [];
     let healthScore = 100;

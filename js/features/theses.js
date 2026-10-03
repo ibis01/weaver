@@ -103,8 +103,11 @@ W.theses = W.theses || {};
           .map((t) => {
             // Calculate health using the new engine (Rule 21: handles null price gracefully)
             const currentPrice = marketData[t.asset?.toLowerCase()] || null;
+            // thesisHealth.evaluate signature is
+            // (thesis, marketData, signalHistory). marketData must
+            // be an object with a .price field — not a bare number.
             const health = W.thesisHealth
-              ? W.thesisHealth.evaluate(t, currentPrice, null)
+              ? W.thesisHealth.evaluate(t, { price: currentPrice }, [])
               : null;
 
             const badgeHtml = health
@@ -154,7 +157,11 @@ W.theses = W.theses || {};
     if (W.thesisHealth) {
       activeTheses.forEach((t) => {
         const currentPrice = marketData[t.asset?.toLowerCase()] || null;
-        const health = W.thesisHealth.evaluate(t, currentPrice, null);
+        const health = W.thesisHealth.evaluate(
+          t,
+          { price: currentPrice },
+          [],
+        );
 
         // Only show detailed breakdown if it's not perfectly healthy, to save UI space
         if (health && health.status !== "Healthy") {
