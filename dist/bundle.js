@@ -2863,12 +2863,14 @@ W.vaultUnlock = (() => {
           is not stored anywhere. If you forget it, the encrypted
           data cannot be recovered.
         </p>
-        <label>
-          Passphrase
-          <input type="password" id="vault-pw" autocomplete="current-password" spellcheck="false" class="w-100">
-        </label>
-        <p id="vault-error" class="down small hidden"></p>
-        <button class="btn primary mt" id="vault-unlock-go" type="button">Unlock</button>
+        <form id="vault-form" autocomplete="on">
+          <label>
+            Passphrase
+            <input type="password" id="vault-pw" autocomplete="current-password" spellcheck="false" class="w-100">
+          </label>
+          <p id="vault-error" class="down small hidden"></p>
+          <button class="btn primary mt" id="vault-unlock-go" type="submit">Unlock</button>
+        </form>
       </div>
     `;
 
@@ -2906,13 +2908,15 @@ W.vaultUnlock = (() => {
       }
     }
 
-    btn.onclick = submit;
-    pw.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
+    const form = view.querySelector("#vault-form");
+    if (form) {
+      form.addEventListener("submit", (e) => {
         e.preventDefault();
         submit();
-      }
-    });
+      });
+    } else {
+      btn.onclick = submit;
+    }
     setTimeout(() => pw.focus(), 30);
   }
 
