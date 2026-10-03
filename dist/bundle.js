@@ -25,7 +25,6 @@ const StorageModule = (function () {
       if (W.vault && typeof W.vault.routingFor === "function") {
         const route = W.vault.routingFor(key);
         if (route === "vault") return W.vault.set(key, value);
-        if (route === "locked") throw new W.vault.VaultLockedError();
       }
       try {
         localStorage.setItem(this._key(key), JSON.stringify(value));
@@ -44,7 +43,6 @@ const StorageModule = (function () {
       if (W.vault && typeof W.vault.routingFor === "function") {
         const route = W.vault.routingFor(key);
         if (route === "vault") return W.vault.getCached(key, fallback);
-        if (route === "locked") throw new W.vault.VaultLockedError();
       }
       try {
         const raw = localStorage.getItem(this._key(key));
@@ -65,7 +63,6 @@ const StorageModule = (function () {
       if (W.vault && typeof W.vault.routingFor === "function") {
         const route = W.vault.routingFor(key);
         if (route === "vault") return W.vault.delete(key);
-        if (route === "locked") throw new W.vault.VaultLockedError();
       }
       try {
         localStorage.removeItem(this._key(key));
@@ -1039,8 +1036,14 @@ W.vault = (() => {
   // ── Sync read from cache ──────────────────────────────────
   // Throws when locked. Returns fallback if the key is not cached.
   // This is the sync read path that W.store routes vault keys to.
+  // Synchronous read from the post-unlock cache. Returns fallback
+  // when the vault is locked rather than throwing: the concat
+  // bundle runs every module in one script, so an uncaught throw
+  // at module-load time aborts every file that follows (including
+  // app.js and its boot gate). Writes still throw when locked,
+  // which is where the data-loss guard lives.
   function getCached(name, fallback) {
-    if (isLocked()) throw new VaultLockedError();
+    if (isLocked()) return fallback === undefined ? null : fallback;
     if (_cache && name in _cache) return _cache[name];
     return fallback === undefined ? null : fallback;
   }
@@ -1049,10 +1052,12 @@ W.vault = (() => {
   // Returns "vault"    → W.store should call getCached / set / delete
   //         "locked"   → throw VaultLockedError (sensitive key, vault locked)
   //         "plaintext"→ no vault, or non-sensitive key: normal path
+  // Returns "vault" or "plaintext". Never "locked": reads must
+  // not throw at module load, and the write path is already
+  // guarded by VaultLockedError inside W.vault.set/delete.
   function routingFor(key) {
     if (!VAULT_KEY_SET.has(key)) return "plaintext";
     if (!hasStoredVault()) return "plaintext";
-    if (isLocked()) return "locked";
     return "vault";
   }
 
@@ -24283,6 +24288,17 @@ W.web3 = W.web3 || {};
     W.store.set("web3_state", state);
   }
 
+  // Re-read state from the vault. Called from render() so that a
+  // module-load read against a locked vault (fallback state) is
+  // refreshed once the user has unlocked.
+  function hydrateState() {
+    if (!W.vault || !W.vault.isUnlocked || !W.vault.isUnlocked()) return;
+    try {
+      const stored = W.store.get("web3_state", null);
+      if (stored && typeof stored === "object") state = stored;
+    } catch (_) {}
+  }
+
   // ── Wallet listener bookkeeping ───────────────────────
   // EIP-1193 does not deduplicate listeners: every call to
   // window.ethereum.on("accountsChanged", ...) adds another handler
@@ -24572,6 +24588,7 @@ W.web3 = W.web3 || {};
 
   // ── Render UI (Privacy-First) ────────────────────────
   function render(view) {
+    hydrateState();
     const connectedAddress = state.evm?.address || null;
     const displayAddress = connectedAddress
       ? W.fmt.maskAddress(connectedAddress)

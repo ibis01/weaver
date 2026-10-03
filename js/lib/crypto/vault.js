@@ -404,8 +404,14 @@ W.vault = (() => {
   // ── Sync read from cache ──────────────────────────────────
   // Throws when locked. Returns fallback if the key is not cached.
   // This is the sync read path that W.store routes vault keys to.
+  // Synchronous read from the post-unlock cache. Returns fallback
+  // when the vault is locked rather than throwing: the concat
+  // bundle runs every module in one script, so an uncaught throw
+  // at module-load time aborts every file that follows (including
+  // app.js and its boot gate). Writes still throw when locked,
+  // which is where the data-loss guard lives.
   function getCached(name, fallback) {
-    if (isLocked()) throw new VaultLockedError();
+    if (isLocked()) return fallback === undefined ? null : fallback;
     if (_cache && name in _cache) return _cache[name];
     return fallback === undefined ? null : fallback;
   }
@@ -414,10 +420,12 @@ W.vault = (() => {
   // Returns "vault"    → W.store should call getCached / set / delete
   //         "locked"   → throw VaultLockedError (sensitive key, vault locked)
   //         "plaintext"→ no vault, or non-sensitive key: normal path
+  // Returns "vault" or "plaintext". Never "locked": reads must
+  // not throw at module load, and the write path is already
+  // guarded by VaultLockedError inside W.vault.set/delete.
   function routingFor(key) {
     if (!VAULT_KEY_SET.has(key)) return "plaintext";
     if (!hasStoredVault()) return "plaintext";
-    if (isLocked()) return "locked";
     return "vault";
   }
 

@@ -20,7 +20,6 @@ const StorageModule = (function () {
       if (W.vault && typeof W.vault.routingFor === "function") {
         const route = W.vault.routingFor(key);
         if (route === "vault") return W.vault.set(key, value);
-        if (route === "locked") throw new W.vault.VaultLockedError();
       }
       try {
         localStorage.setItem(this._key(key), JSON.stringify(value));
@@ -39,7 +38,6 @@ const StorageModule = (function () {
       if (W.vault && typeof W.vault.routingFor === "function") {
         const route = W.vault.routingFor(key);
         if (route === "vault") return W.vault.getCached(key, fallback);
-        if (route === "locked") throw new W.vault.VaultLockedError();
       }
       try {
         const raw = localStorage.getItem(this._key(key));
@@ -60,7 +58,6 @@ const StorageModule = (function () {
       if (W.vault && typeof W.vault.routingFor === "function") {
         const route = W.vault.routingFor(key);
         if (route === "vault") return W.vault.delete(key);
-        if (route === "locked") throw new W.vault.VaultLockedError();
       }
       try {
         localStorage.removeItem(this._key(key));

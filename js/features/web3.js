@@ -38,6 +38,17 @@ W.web3 = W.web3 || {};
     W.store.set("web3_state", state);
   }
 
+  // Re-read state from the vault. Called from render() so that a
+  // module-load read against a locked vault (fallback state) is
+  // refreshed once the user has unlocked.
+  function hydrateState() {
+    if (!W.vault || !W.vault.isUnlocked || !W.vault.isUnlocked()) return;
+    try {
+      const stored = W.store.get("web3_state", null);
+      if (stored && typeof stored === "object") state = stored;
+    } catch (_) {}
+  }
+
   // ── Wallet listener bookkeeping ───────────────────────
   // EIP-1193 does not deduplicate listeners: every call to
   // window.ethereum.on("accountsChanged", ...) adds another handler
@@ -327,6 +338,7 @@ W.web3 = W.web3 || {};
 
   // ── Render UI (Privacy-First) ────────────────────────
   function render(view) {
+    hydrateState();
     const connectedAddress = state.evm?.address || null;
     const displayAddress = connectedAddress
       ? W.fmt.maskAddress(connectedAddress)
