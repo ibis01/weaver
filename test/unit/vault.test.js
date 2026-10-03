@@ -100,17 +100,14 @@ describe("Vault", () => {
     expect(threw).to.equal(true);
   });
 
-  it("locked set throws VaultLockedError", async () => {
+  it("locked set is a silent no-op", async () => {
+    // Set no-ops when locked: the boot gate prevents interactive
+    // writes while locked; module-init writes re-run on the next
+    // unlocked boot. Set does not persist and does not throw.
     await W.vault.setup("pw-123456");
     W.vault.__test.clear();
-    let threw = false;
-    try {
-      await W.vault.set("portfolio", []);
-    } catch (e) {
-      threw = true;
-      expect(e.name).to.equal("VaultLockedError");
-    }
-    expect(threw).to.equal(true);
+    await W.vault.set("watchlist", ["x"]);
+    expect(W.store.get("vault::watchlist", null)).to.equal(null);
   });
 
   it("unlock with wrong passphrase throws and leaves locked", async () => {

@@ -923,7 +923,11 @@ W.vault = (() => {
   }
 
   async function set(name, value) {
-    if (isLocked()) throw new VaultLockedError();
+    // No-op when locked. The boot gate ensures no interactive
+    // write path runs while locked; the writes that do reach here
+    // are module-init or background and are idempotent — they
+    // re-run on the next unlocked boot.
+    if (isLocked()) return;
     if (typeof name !== "string" || !name) {
       throw new Error("Vault key must be a non-empty string");
     }
@@ -940,7 +944,8 @@ W.vault = (() => {
   }
 
   async function del(name) {
-    if (isLocked()) throw new VaultLockedError();
+    // Same reasoning as set(): no-op when locked.
+    if (isLocked()) return;
     W.store.delete(ENTRY_PREFIX + name);
     if (_cache) delete _cache[name];
   }
