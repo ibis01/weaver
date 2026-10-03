@@ -165,50 +165,71 @@ describe("Vault", () => {
   });
 
   it("migrateKeys moves plaintext into vault and removes plaintext", async () => {
-    W.store.set("portfolio", [{ id: "btc" }]);
+    W.store.set("portfolio_holdings", [{ id: "btc" }]);
     W.store.set("watchlist", ["eth"]);
     await W.vault.setup("pw-123456");
-    const result = await W.vault.migrateKeys(["portfolio", "watchlist"]);
-    expect(result.migrated).to.include("portfolio");
+    const result = await W.vault.migrateKeys([
+      "portfolio_holdings",
+      "watchlist",
+    ]);
+    expect(result.migrated).to.include("portfolio_holdings");
     expect(result.migrated).to.include("watchlist");
     // W.store.get(key, undefined) does not work: the default
     // parameter replaces undefined with null. Check raw localStorage.
-    expect(localStorage.getItem("weaver:portfolio")).to.equal(null);
+    expect(localStorage.getItem("weaver:portfolio_holdings")).to.equal(
+      null,
+    );
     expect(localStorage.getItem("weaver:watchlist")).to.equal(null);
-    expect(await W.vault.get("portfolio")).to.deep.equal([{ id: "btc" }]);
+    expect(await W.vault.get("portfolio_holdings")).to.deep.equal([
+      { id: "btc" },
+    ]);
     expect(await W.vault.get("watchlist")).to.deep.equal(["eth"]);
   });
 
   it("migrateKeys reads through raw localStorage, not vault routing", async () => {
     // Regression: once setup() completes, W.store.get(name) routes
-    // to the vault (routingFor returns "vault" for vault keys when
-    // unlocked). If migrateKeys used W.store.get, it would read the
-    // empty cache and skip every key as no-plaintext. Verify the
-    // plaintext actually moves.
-    W.store.set("portfolio", [{ id: "btc" }]);
+    // to the vault for names in VAULT_KEYS. If migrateKeys used
+    // W.store.get, it would read the empty cache and skip every key
+    // as no-plaintext. Verify plaintext actually moves.
+    //
+    // Use the real key names declared in VAULT_KEYS (portfolio.js
+    // writes "portfolio_holdings", not "portfolio").
+    W.store.set("portfolio_holdings", [{ id: "btc" }]);
     W.store.set("watchlist", ["eth", "sol"]);
     await W.vault.setup("pw-123456");
-    // Sanity: W.store.get now routes to vault and returns fallback
-    expect(W.store.get("portfolio", "FALLBACK")).to.equal("FALLBACK");
-    const result = await W.vault.migrateKeys(["portfolio", "watchlist"]);
-    expect(result.migrated.sort()).to.deep.equal(["portfolio", "watchlist"]);
+    // Sanity: W.store.get now routes to vault and returns fallback.
+    expect(W.store.get("portfolio_holdings", "FALLBACK")).to.equal(
+      "FALLBACK",
+    );
+    const result = await W.vault.migrateKeys([
+      "portfolio_holdings",
+      "watchlist",
+    ]);
+    expect(result.migrated.sort()).to.deep.equal([
+      "portfolio_holdings",
+      "watchlist",
+    ]);
     expect(result.skipped.length).to.equal(0);
-    expect(await W.vault.get("portfolio")).to.deep.equal([{ id: "btc" }]);
+    expect(await W.vault.get("portfolio_holdings")).to.deep.equal([
+      { id: "btc" },
+    ]);
     expect(await W.vault.get("watchlist")).to.deep.equal(["eth", "sol"]);
   });
 
   it("migration aborts if staging cannot persist", async () => {
-    W.store.set("portfolio", [{ id: "btc" }]);
+    W.store.set("portfolio_holdings", [{ id: "btc" }]);
     await W.vault.setup("pw-123456");
     const origSet = W.store.set.bind(W.store);
     W.store.set = (k, v) => {
       if (k.startsWith("vault::__staging::")) return; // simulate quota
       return origSet(k, v);
     };
-    const result = await W.vault.migrateKeys(["portfolio"]);
+    const result = await W.vault.migrateKeys(["portfolio_holdings"]);
     expect(result.failed.length).to.equal(1);
     expect(result.failed[0].reason).to.equal("staging-not-persisted");
-    expect(W.store.get("portfolio", undefined)).to.not.equal(undefined);
+    expect(localStorage.getItem("weaver:portfolio_holdings")).to.not.equal(
+      null,
+    );
   });
 
   it("migration skips names with no plaintext and names already in vault", async () => {

@@ -51,18 +51,25 @@ W.vault = (() => {
   // consults this via routingFor(). Additions here are the ONLY place
   // to declare a new vault-routed key.
   const VAULT_KEYS = Object.freeze([
-    "portfolio",
-    "transactions",
-    "watchlist",
-    "theses",
-    "journal",
-    "alerts",
-    "unlocks",
-    "learn",
-    "achievements",
-    "web3_state",
-    "deployer_store",
-    "wallet_cost_basis",
+    // Key strings are the ACTUAL constants used by each module,
+    // verified against the source. Do not infer from module names —
+    // e.g. portfolio.js writes "portfolio_holdings", not "portfolio".
+    "portfolio_holdings",     // portfolio.js:9  PORTFOLIO_KEY
+    "portfolio_transactions", // portfolio.js:314 TX_KEY
+    "watchlist",              // watchlist.js:8  KEY
+    "investment_theses",      // theses.js:15   THESES_KEY
+    "alerts_v2",              // alerts.js:11   KEY
+    "token-unlocks",          // unlocks.js:12  KEY
+    "learn",                  // learn.js:481   KEY
+    "track_record",           // track-record.js:11 STORAGE_KEY
+    "wallet_cost_basis",      // walletsync.js:61 BASIS_KEY
+    "web3_state",             // web3.js (inline literal)
+    "achievements",           // misc.js via W.miscStoreSet
+    // Deliberately excluded:
+    //   wallet_sync_data   — already encrypted by walletsync
+    //   wallet_sync_cache  — sanitized cache, 5-min TTL
+    //   gems.deployerHistory.v1 — public cache, rebuildable
+    //   journal             — uses dynamic per-entry keys (Session 3c)
   ]);
   const VAULT_KEY_SET = new Set(VAULT_KEYS);
 
