@@ -7291,148 +7291,413 @@ console.log(
   "[Prices] Module loaded (Binance (direct) → CoinLore → CoinBase → CoinPaprika → Cache; OHLCV via Binance direct, tickers via CoinLore, search/detail via CoinPaprika; logos for 26 tokens).",
 );
 // ---- js/api/snapshot.js ----
+// js/api/snapshot.js – Fallback Snapshot Cache
 
-// Validates data/news.json and js/data/news-snapshot.js.
-//
-// Checks:
-//   - both files parse
-//   - every article has source/title/link/pubDate
-//   - links are http(s) only
-//   - pubDates parse
-//   - no duplicate links
-//   - newest article is under NEWS_MAX_AGE_HOURS (default 36)
-//   - the two files agree
-//
-// Flags:
-//   --allow-stale    downgrade the freshness failure to a warning
-//                    (used by manual `workflow_dispatch` runs during
-//                    provider outages)
+// This module provides local snapshot fallbacks when live APIs are unreachable.
+// It patches W.api methods to return cached data from /data/ folder.
 
-const fs = require("fs");
-const path = require("path");
+window.W = window.W || {};
 
-const ROOT = path.resolve(__dirname, "..");
-const NEWS_JSON = path.join(ROOT, "data/news.json");
-const EMBEDDED = path.join(ROOT, "js/data/news-snapshot.js");
-const MAX_AGE_HOURS = Number(process.env.NEWS_MAX_AGE_HOURS || 36);
-const ALLOW_STALE = process.argv.includes("--allow-stale");
+(function () {
+  // ── Constants ─────────────────────────────────────────
+  const SNAPSHOT_GLOBAL = {
+    data: {
+      total_market_cap: { usd: 2272990000000 },
+      total_volume: { usd: 51130000000 },
+      market_cap_percentage: { btc: 56.3, eth: 10.0 },
+      market_cap_change_percentage_24h_usd: 0.04,
+    },
+  };
 
-function fail(msg) {
-  console.error("NEWS_STATUS=fail");
-  console.error(msg);
-  process.exit(1);
-}
+  const SNAPSHOT_FNG = {
+    value: "41",
+    value_classification: "Fear",
+    timestamp: Date.now() / 1000,
+  };
 
-function pass(msg) {
-  console.log(msg);
-}
+  let topSnapshot = null;
+  let globalSnapshot = null;
+  let fngSnapshot = null;
+  const snapshotTimes = {};
 
-if (!fs.existsSync(NEWS_JSON)) fail("data/news.json missing");
-if (!fs.existsSync(EMBEDDED)) fail("js/data/news-snapshot.js missing");
-
-let parsed;
-try {
-  parsed = JSON.parse(fs.readFileSync(NEWS_JSON, "utf8"));
-} catch (e) {
-  fail("data/news.json is not valid JSON: " + e.message);
-}
-const articles = Array.isArray(parsed) ? parsed : parsed.articles;
-if (!Array.isArray(articles) || articles.length === 0) {
-  fail("news snapshot is empty");
-}
-
-let newest = 0;
-const seen = new Set();
-for (const [i, a] of articles.entries()) {
-  const where = "articles[" + i + "]";
-  if (!a || typeof a !== "object") fail(where + " is not an object");
-  if (typeof a.source !== "string" || !a.source.trim()) {
-    fail(where + " missing source");
+  function saveStored(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify({ value, savedAt: Date.now() }));
+    } catch (e) {}
   }
-  if (typeof a.title !== "string" || !a.title.trim()) {
-    fail(where + " missing title");
-  }
-  if (typeof a.link !== "string" || !/^https?:\/\//i.test(a.link)) {
-    fail(where + " link not http(s): " + a.link);
-  }
-  const ts = Date.parse(a.pubDate);
-  if (!Number.isFinite(ts)) {
-    fail(where + " pubDate unparseable: " + a.pubDate);
-  }
-  if (ts > newest) newest = ts;
-  const key = a.link.toLowerCase();
-  if (seen.has(key)) fail(where + " duplicate link: " + a.link);
-  seen.add(key);
-}
 
-const ageHours = (Date.now() - newest) / 3600000;
-
-// Cross-check: embedded module must reference the same article count.
-const embeddedSrc = fs.readFileSync(EMBEDDED, "utf8");
-// Extract the assignment RHS by scanning from the first `=` to the
-// last `;`. Simpler than a regex over a possibly-nested array.
-const eqIdx = embeddedSrc.indexOf("=");
-const semiIdx = embeddedSrc.lastIndexOf(";");
-if (eqIdx < 0) fail("js/data/news-snapshot.js missing assignment");
-const rhs =
-  semiIdx > eqIdx
-    ? embeddedSrc.slice(eqIdx + 1, semiIdx).trim()
-    : embeddedSrc.slice(eqIdx + 1).trim();
-let embeddedCount;
-let embeddedArticles;
-try {
-  const parsedEmbedded = JSON.parse(rhs);
-  if (!Array.isArray(parsedEmbedded)) {
-    fail("js/data/news-snapshot.js RHS is not an array");
-  }
-  embeddedArticles = parsedEmbedded;
-  embeddedCount = parsedEmbedded.length;
-} catch (e) {
-  fail("js/data/news-snapshot.js array not parseable: " + e.message);
-}
-if (embeddedCount !== articles.length) {
-  fail(
-    "article count mismatch: data/news.json=" +
-      articles.length +
-      " embedded=" +
-      embeddedCount,
-  );
-}
-for (let i = 0; i < articles.length; i += 1) {
-  const source = articles[i];
-  const embedded = embeddedArticles[i];
-  for (const field of ["source", "title", "link", "pubDate"]) {
-    if (embedded?.[field] !== source[field]) {
-      fail(
-        `snapshot mismatch at articles[${i}].${field}: JSON and embedded data differ`,
-      );
+  function readStored(key) {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(key));
+      if (parsed && parsed.value !== undefined) return parsed;
+      return parsed
+        ? { value: parsed, savedAt: Date.now() - 31 * 60 * 1000 }
+        : null;
+    } catch (e) {
+      return null;
     }
   }
-}
 
-pass("NEWS_STATUS=pass");
-pass("NEWS_ARTICLE_COUNT=" + articles.length);
-pass("NEWS_NEWEST_AGE_HOURS=" + ageHours.toFixed(1));
+  // Normalize a snapshot global payload into the wrapped shape the
+  // schema and consumers expect. Two shapes exist in the wild:
+  //   legacy flat  — { total_market_cap, bitcoin_dominance, ... }
+  //   current wrap — { data: { total_market_cap: { usd }, market_cap_percentage: { btc }, ... } }
+  // The workflow transform is intended to produce the wrapped shape,
+  // but old files persist until the next successful run. Accept both.
+  function normalizeGlobal(value) {
+    if (!value || typeof value !== "object") return value;
+    if (value.data && typeof value.data === "object") return value;
 
-if (ageHours > MAX_AGE_HOURS) {
-  if (ALLOW_STALE) {
-    console.warn(
-      "NEWS_STALE=warn newest article " +
-        ageHours.toFixed(1) +
-        "h old exceeds " +
-        MAX_AGE_HOURS +
-        "h",
-    );
-  } else {
-    fail(
-      "newest article " +
-        ageHours.toFixed(1) +
-        "h old exceeds " +
-        MAX_AGE_HOURS +
-        "h; refresh snapshot or pass --allow-stale",
+    const out = { data: {} };
+    const src = value;
+
+    const cap = Number(src.total_market_cap);
+    if (Number.isFinite(cap)) {
+      out.data.total_market_cap = { usd: cap };
+    }
+    const vol = Number(src.total_volume);
+    if (Number.isFinite(vol)) {
+      out.data.total_volume = { usd: vol };
+    }
+    const btcDom = Number(src.bitcoin_dominance);
+    if (Number.isFinite(btcDom)) {
+      out.data.market_cap_percentage = { btc: btcDom };
+    }
+    const capChange = Number(src.market_cap_change_percentage_24h_usd);
+    if (Number.isFinite(capChange)) {
+      out.data.market_cap_change_percentage_24h_usd = capChange;
+    }
+    if (src.updated_at !== undefined) {
+      out.data.updated_at = src.updated_at;
+    } else if (src.timestamp !== undefined) {
+      out.data.updated_at = src.timestamp;
+    }
+
+    return out;
+  }
+
+  function acceptSnapshot(name, value) {
+    if (!W.schemas) return value;
+    if (name === "top") return W.schemas.markets(value);
+    if (name === "global") {
+      return W.schemas.global(normalizeGlobal(value));
+    }
+    if (name === "fng") return W.schemas.fearGreed(value);
+    return value;
+  }
+
+  function markSnapshot(name, source, observedAt) {
+    snapshotTimes[name] = observedAt || Date.now();
+    W.dataHealth?.mark(
+      name === "fng"
+        ? "fear-greed"
+        : name === "global"
+          ? "global-market"
+          : "markets",
+      {
+        source,
+        observedAt: snapshotTimes[name],
+        staleAfter: 30 * 60 * 1000,
+      },
     );
   }
-};
+
+  function markFallback(resource, snapshotName) {
+    W.dataHealth?.mark(resource, {
+      source: "snapshot",
+      observedAt: snapshotTimes[snapshotName] || Date.now() - 31 * 60 * 1000,
+      staleAfter: 30 * 60 * 1000,
+    });
+  }
+
+  // ── Load snapshots ─────────────────────────────────────
+  async function loadSnapshots() {
+    try {
+      // Try loading from /data/ folder
+      const snapshotController = new AbortController();
+      const snapshotTimer = setTimeout(
+        () => snapshotController.abort(),
+        8000,
+      );
+      const opts = {
+        cache: "no-store",
+        signal: snapshotController.signal,
+      };
+      let results;
+      try {
+        results = await Promise.allSettled([
+          fetch("data/top.json?t=" + Date.now(), opts),
+          fetch("data/global.json?t=" + Date.now(), opts),
+          fetch("data/fng.json?t=" + Date.now(), opts),
+        ]);
+      } finally {
+        clearTimeout(snapshotTimer);
+      }
+      const [topRes, globalRes, fngRes] = results;
+
+      if (topRes.status === "fulfilled" && topRes.value.ok) {
+        topSnapshot = acceptSnapshot("top", await topRes.value.json());
+        saveStored("snapshot-top", topSnapshot);
+        markSnapshot("top", "snapshot", Date.now());
+      } else {
+        // Fallback to localStorage
+        const stored = readStored("snapshot-top");
+        if (stored) {
+          topSnapshot = acceptSnapshot("top", stored.value);
+          markSnapshot("top", "local-cache", stored.savedAt);
+        }
+      }
+
+      if (globalRes.status === "fulfilled" && globalRes.value.ok) {
+        globalSnapshot = acceptSnapshot("global", await globalRes.value.json());
+        saveStored("snapshot-global", globalSnapshot);
+        markSnapshot("global", "snapshot", Date.now());
+      } else {
+        const stored = readStored("snapshot-global");
+        if (stored) {
+          globalSnapshot = acceptSnapshot("global", stored.value);
+          markSnapshot("global", "local-cache", stored.savedAt);
+        } else {
+          globalSnapshot = SNAPSHOT_GLOBAL;
+          markSnapshot(
+            "global",
+            "built-in-fallback",
+            Date.now() - 31 * 60 * 1000,
+          );
+        }
+      }
+
+      if (fngRes.status === "fulfilled" && fngRes.value.ok) {
+        fngSnapshot = acceptSnapshot("fng", await fngRes.value.json());
+        saveStored("snapshot-fng", fngSnapshot);
+        markSnapshot("fng", "snapshot", Date.now());
+      } else {
+        const stored = readStored("snapshot-fng");
+        if (stored) {
+          fngSnapshot = acceptSnapshot("fng", stored.value);
+          markSnapshot("fng", "local-cache", stored.savedAt);
+        } else {
+          fngSnapshot = SNAPSHOT_FNG;
+          markSnapshot("fng", "built-in-fallback", Date.now() - 31 * 60 * 1000);
+        }
+      }
+    } catch (e) {
+      console.warn("[Snapshot] Load error:", e);
+      // Use hardcoded defaults
+      topSnapshot = topSnapshot || [];
+      globalSnapshot = globalSnapshot || SNAPSHOT_GLOBAL;
+      fngSnapshot = fngSnapshot || SNAPSHOT_FNG;
+      markSnapshot("top", "built-in-fallback", Date.now() - 31 * 60 * 1000);
+      markSnapshot("global", "built-in-fallback", Date.now() - 31 * 60 * 1000);
+      markSnapshot("fng", "built-in-fallback", Date.now() - 31 * 60 * 1000);
+    }
+
+    // Ensure we have arrays
+    if (!Array.isArray(topSnapshot)) topSnapshot = [];
+  }
+
+  // ── Patch API methods ──────────────────────────────────
+  async function patchAPI() {
+    const api = W.api;
+    if (!api) {
+      console.warn("[Snapshot] W.api not found, skipping patch");
+      return;
+    }
+
+    // Wait for snapshots to load
+    await loadSnapshots();
+
+    // ── Patch markets ──────────────────────────────────
+    const originalMarkets = api.markets;
+    if (originalMarkets) {
+      api.markets = async (ids) => {
+        try {
+          return await originalMarkets(ids);
+        } catch (e) {
+          console.warn("[Snapshot] Markets fallback:", e.message);
+          if (!topSnapshot || !topSnapshot.length)
+            throw new Error("No snapshot data");
+          const idArray = typeof ids === "string" ? ids.split(",") : ids;
+          const result = topSnapshot.filter((c) => idArray.includes(c.id));
+          api.source = "snapshot";
+          markFallback("markets", "top");
+          return result.length ? result : topSnapshot.slice(0, idArray.length);
+        }
+      };
+    }
+
+    // ── Patch top ──────────────────────────────────────
+    const originalTop = api.top;
+    if (originalTop) {
+      api.top = async (limit) => {
+        try {
+          return await originalTop(limit);
+        } catch (e) {
+          console.warn("[Snapshot] Top fallback:", e.message);
+          if (!topSnapshot || !topSnapshot.length)
+            throw new Error("No snapshot data");
+          api.source = "snapshot";
+          markFallback("markets", "top");
+          return topSnapshot.slice(0, limit);
+        }
+      };
+    }
+
+    // ── Patch global ──────────────────────────────────
+    const originalGlobal = api.global;
+    if (originalGlobal) {
+      api.global = async () => {
+        try {
+          return await originalGlobal();
+        } catch (e) {
+          console.warn("[Snapshot] Global fallback:", e.message);
+          api.source = "snapshot";
+          markFallback("global-market", "global");
+          return globalSnapshot || SNAPSHOT_GLOBAL;
+        }
+      };
+    }
+
+    // ── Patch fearGreed ──────────────────────────────
+    const originalFG = api.fearGreed;
+    if (originalFG) {
+      api.fearGreed = async () => {
+        try {
+          return await originalFG();
+        } catch (e) {
+          console.warn("[Snapshot] FearGreed fallback:", e.message);
+          api.source = "snapshot";
+          markFallback("fear-greed", "fng");
+          const fg = fngSnapshot?.data?.[0] || SNAPSHOT_FNG;
+          return fg;
+        }
+      };
+    }
+
+    // ── Patch chart ───────────────────────────────────
+    const originalChart = api.chart;
+    if (originalChart) {
+      api.chart = async (id, days) => {
+        try {
+          return await originalChart(id, days);
+        } catch (e) {
+          console.warn("[Snapshot] Chart fallback:", e.message);
+          if (!topSnapshot || !topSnapshot.length)
+            throw new Error("No snapshot data");
+          const coin = topSnapshot.find((c) => c.id === id);
+          if (coin?.sparkline_in_7d?.price) {
+            api.source = "snapshot";
+            markFallback("chart", "top");
+            const prices = coin.sparkline_in_7d.price;
+            const now = Date.now();
+            return prices.map((v, i) => [
+              now - (prices.length - 1 - i) * 3600000,
+              v,
+            ]);
+          }
+          throw new Error("No chart data in snapshot");
+        }
+      };
+    }
+
+    // ── Patch search ──────────────────────────────────
+    const originalSearch = api.search;
+    if (originalSearch) {
+      api.search = async (query) => {
+        try {
+          return await originalSearch(query);
+        } catch (e) {
+          console.warn("[Snapshot] Search fallback:", e.message);
+          if (!topSnapshot || !topSnapshot.length)
+            throw new Error("No snapshot data");
+          const q = query.toLowerCase();
+          const results = topSnapshot
+            .filter(
+              (c) =>
+                c.name.toLowerCase().includes(q) ||
+                c.symbol.toLowerCase().includes(q),
+            )
+            .slice(0, 10);
+          api.source = "snapshot";
+          markFallback("markets", "top");
+          return {
+            coins: results.map((c) => ({
+              id: c.id,
+              name: c.name,
+              symbol: c.symbol,
+              thumb: c.image,
+              market_cap_rank: c.market_cap_rank,
+            })),
+          };
+        }
+      };
+    }
+
+    // ── Patch coin ────────────────────────────────────
+    const originalCoin = api.coin;
+    if (originalCoin) {
+      api.coin = async (id) => {
+        try {
+          return await originalCoin(id);
+        } catch (e) {
+          console.warn("[Snapshot] Coin fallback:", e.message);
+          if (!topSnapshot || !topSnapshot.length)
+            throw new Error("No snapshot data");
+          const coin = topSnapshot.find((c) => c.id === id);
+          if (!coin) throw new Error("Coin not found in snapshot");
+          api.source = "snapshot";
+          markFallback("markets", "top");
+          return {
+            id: coin.id,
+            symbol: coin.symbol,
+            name: coin.name,
+            image: { large: coin.image, small: coin.image },
+            market_data: {
+              current_price: { usd: coin.current_price },
+              market_cap: { usd: coin.market_cap },
+              total_volume: { usd: coin.total_volume },
+              price_change_percentage_24h: coin.price_change_percentage_24h,
+              price_change_percentage_7d:
+                coin.price_change_percentage_7d_in_currency,
+              price_change_percentage_30d:
+                coin.price_change_percentage_30d_in_currency,
+              circulating_supply: coin.circulating_supply,
+              max_supply: coin.max_supply,
+              ath: { usd: coin.ath },
+              ath_change_percentage: { usd: coin.ath_change_percentage },
+              atl: { usd: coin.atl },
+            },
+            market_cap_rank: coin.market_cap_rank,
+            description: {
+              en: `${coin.name} is a cryptocurrency. Data from snapshot.`,
+            },
+            links: { homepage: [] },
+            platforms: {},
+          };
+        }
+      };
+    }
+
+    console.log("[Snapshot] API patched with fallbacks");
+  }
+
+  // ── Initialize on load ────────────────────────────────
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", patchAPI);
+  } else {
+    patchAPI();
+  }
+
+  // ── Expose snapshot data for debugging ────────────────
+  window.__SNAPSHOT = {
+    top: () => topSnapshot,
+    global: () => globalSnapshot,
+    fng: () => fngSnapshot,
+    reload: loadSnapshots,
+  };
+
+  console.log("[Snapshot] Module loaded.");
+})();
 // ---- js/models/asset.js ----
 // ===============================================================
 //         Canonical Asset Identity Model
