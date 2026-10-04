@@ -124,40 +124,61 @@ W.tokenAnalysis = (() => {
       ],
     }));
     const below = normalizedZones
-      .filter((z) => z.level < entry)
+      // Do not use zones that overlap the reference entry. An overlapping
+      // zone can otherwise place an invalid stop or target on the wrong side.
+      .filter((z) => z.range[1] < entry)
       .sort((a, b) => b.level - a.level);
     const above = normalizedZones
-      .filter((z) => z.level > entry)
+      .filter((z) => z.range[0] > entry)
       .sort((a, b) => a.level - b.level);
-    if (action === "BUY")
-      return {
-        entry,
-        stopLoss:
-          Math.round(
-            Math.min(entry - risk, below[0]?.range?.[0] ?? entry - risk) * 100,
-          ) / 100,
-        takeProfit:
-          Math.round(
-            Math.max(entry + atr * 3, above[0]?.range?.[1] ?? entry + atr * 3) *
-              100,
-          ) / 100,
-        riskDistance: Math.round(risk * 100) / 100,
-        basis: "1.5× ATR stop with liquidity-zone-aware target",
-      };
-    return {
-      entry,
-      stopLoss:
-        Math.round(
-          Math.max(entry + risk, above[0]?.range?.[1] ?? entry + risk) * 100,
-        ) / 100,
-      takeProfit:
-        Math.round(
-          Math.min(entry - atr * 3, below[0]?.range?.[0] ?? entry - atr * 3) *
-            100,
-        ) / 100,
-      riskDistance: Math.round(risk * 100) / 100,
-      basis: "1.5× ATR stop with liquidity-zone-aware target",
-    };
+    const levels =
+      action === "BUY"
+        ? {
+            entry,
+            stopLoss:
+              Math.round(
+                Math.min(entry - risk, below[0]?.range?.[0] ?? entry - risk) *
+                  100,
+              ) / 100,
+            takeProfit:
+              Math.round(
+                Math.max(
+                  entry + atr * 3,
+                  above[0]?.range?.[1] ?? entry + atr * 3,
+                ) * 100,
+              ) / 100,
+            riskDistance: Math.round(risk * 100) / 100,
+            basis:
+              "1.5× ATR reference invalidation with liquidity-zone-aware target",
+          }
+        : {
+            entry,
+            stopLoss:
+              Math.round(
+                Math.max(entry + risk, above[0]?.range?.[1] ?? entry + risk) *
+                  100,
+              ) / 100,
+            takeProfit:
+              Math.round(
+                Math.min(
+                  entry - atr * 3,
+                  below[0]?.range?.[0] ?? entry - atr * 3,
+                ) * 100,
+              ) / 100,
+            riskDistance: Math.round(risk * 100) / 100,
+            basis:
+              "1.5× ATR reference invalidation with liquidity-zone-aware target",
+          };
+    if (
+      !Number.isFinite(levels.stopLoss) ||
+      !Number.isFinite(levels.takeProfit) ||
+      (action === "BUY" &&
+        (levels.stopLoss >= entry || levels.takeProfit <= entry)) ||
+      (action === "SELL" &&
+        (levels.stopLoss <= entry || levels.takeProfit >= entry))
+    )
+      return null;
+    return levels;
   }
 
   function evidenceSufficiency(technical, fundamentals) {
@@ -177,6 +198,10 @@ W.tokenAnalysis = (() => {
       reasons.push("Fundamental market data is unavailable.");
     if (!technical.multiTimeframe)
       reasons.push("Multi-timeframe confirmation is unavailable.");
+    else if (technical.multiTimeframe.degraded === true)
+      reasons.push(
+        "Multi-timeframe data is degraded; unavailable intervals remain.",
+      );
     else if (alignment < 3)
       reasons.push(
         `Only ${technical.multiTimeframe.timeframeAlignment} timeframes align.`,
@@ -188,6 +213,7 @@ W.tokenAnalysis = (() => {
       reasons.push("ATR or reference price is unavailable.");
     const status =
       technical.multiTimeframe &&
+      technical.multiTimeframe.degraded !== true &&
       alignment >= 3 &&
       fundamentals?.available &&
       reasons.length === 0
@@ -228,6 +254,8 @@ W.tokenAnalysis = (() => {
         technical?.multiTimeframe?.timeframeAlignment || "0",
         10,
       ) || 0;
+    const mtfComplete =
+      technical?.multiTimeframe && technical.multiTimeframe.degraded !== true;
     const gap = opportunityScore - riskScore,
       confidence = technical?.confidence || 0;
     const buy =
@@ -235,12 +263,14 @@ W.tokenAnalysis = (() => {
       gap >= 15 &&
       confidence >= 55 &&
       alignment >= 3 &&
+      mtfComplete &&
       (!fundamentals?.available || fundamentals.score >= 45);
     const sell =
       technical?.bias === "bearish" &&
       gap <= -15 &&
       confidence >= 55 &&
       alignment >= 3 &&
+      mtfComplete &&
       (!fundamentals?.available || fundamentals.score <= 55);
     const action = buy ? "BUY" : sell ? "SELL" : "HOLD";
     const reasons = [
@@ -302,7 +332,10 @@ W.tokenAnalysis = (() => {
     } catch (e) {
       console.warn("[TokenAnalysis] Event collection unavailable:", e.message);
     }
-    const signals = allSignals.filter((s) => s.assetId.symbol === asset.symbol);
+    const assetSymbol = String(asset.symbol || "").toUpperCase();
+    const signals = allSignals.filter(
+      (s) => String(s?.assetId?.symbol || "").toUpperCase() === assetSymbol,
+    );
 
     if (!signals.length && !technical) {
       // ── Unavailable-data path ─────────────────────────────
@@ -363,6 +396,7 @@ W.tokenAnalysis = (() => {
     // 4. Categorize evidence and detect contradictions
     const bullish = [];
     const bearish = [];
+    const unknown = [];
     const contradictions = [];
 
     for (const { signal, evidence } of evidenceList) {
@@ -372,7 +406,13 @@ W.tokenAnalysis = (() => {
         (signal.type === "OPPORTUNITY" && signal.rawData?.impactValue > 0.5) ||
         (signal.type === "REGIME_SHIFT" &&
           signal.rawData?.title?.includes("RISK-ON"));
-      const isBearish = !isBullish;
+      const isBearish =
+        (signal.type === "PRICE_MOVE" &&
+          Number(signal.rawData?.price_change_percentage_24h) < 0) ||
+        (signal.type === "OPPORTUNITY" &&
+          Number(signal.rawData?.impactValue) < -0.5) ||
+        (signal.type === "REGIME_SHIFT" &&
+          String(signal.rawData?.title || "").includes("RISK-OFF"));
       const item = {
         title: signal.rawData?.title || signal.type,
         evidence: evidence.reasoning.join("; "),
@@ -383,8 +423,12 @@ W.tokenAnalysis = (() => {
       };
       if (isBullish) {
         bullish.push(item);
-      } else {
+      } else if (isBearish) {
         bearish.push(item);
+      } else {
+        // Unknown is not bearish. Keeping it separate prevents missing or
+        // unsupported signal types from manufacturing downside evidence.
+        unknown.push({ ...item, classification: "unknown" });
       }
     }
 
@@ -683,6 +727,7 @@ W.tokenAnalysis = (() => {
       riskScore: Math.round(riskScore),
       bullishEvidence: bullish.slice(0, 5),
       bearishEvidence: bearish.slice(0, 5),
+      unknownEvidence: unknown.slice(0, 5),
       contradictions: contradictionItems,
       verdict,
       confidence:

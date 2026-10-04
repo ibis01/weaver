@@ -139,6 +139,28 @@ describe("Token Analysis action thresholds", () => {
     ).to.equal("PARTIAL");
   });
 
+  it("marks degraded multi-timeframe data as partial even when alignment is high", () => {
+    const degraded = technical("bullish");
+    degraded.multiTimeframe.degraded = true;
+    degraded.multiTimeframe.unavailableTimeframes = ["15m"];
+    expect(
+      W.tokenAnalysis.evidenceSufficiency(degraded, fundamentals).status,
+    ).to.equal("PARTIAL");
+    expect(
+      W.tokenAnalysis.decisionReport(degraded, fundamentals, 80, 50).action,
+    ).to.equal("HOLD");
+  });
+
+  it("ignores liquidity zones that overlap the reference entry", () => {
+    const levels = W.tokenAnalysis.tradeLevels("BUY", {
+      current: 100,
+      atr: 2,
+      liquidityZones: [{ level: 100, range: [99, 101] }],
+    });
+    expect(levels.stopLoss).to.equal(97);
+    expect(levels.takeProfit).to.equal(106);
+  });
+
   it("marks missing technical data as insufficient", () => {
     const quality = W.tokenAnalysis.evidenceSufficiency(null, fundamentals);
     expect(quality.status).to.equal("INSUFFICIENT");

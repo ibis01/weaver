@@ -244,20 +244,29 @@ W.technicalAnalysis = (() => {
       ([timeframe, result]) =>
         (result.liquidityZones || []).map((zone) => ({ ...zone, timeframe })),
     );
-    const tolerance = combined.length
-      ? Math.max(...combined.map((z) => Math.abs(z.range[1] - z.range[0])))
-      : 0;
     const merged = [];
     combined.forEach((zone) => {
-      const match = merged.find(
-        (z) =>
-          z.type === zone.type && Math.abs(z.level - zone.level) <= tolerance,
-      );
+      const match = merged.find((z) => {
+        if (z.type !== zone.type) return false;
+        const distance = Math.abs(z.level - zone.level);
+        const zHalfWidth = Math.abs(z.range[1] - z.range[0]) / 2;
+        const zoneHalfWidth = Math.abs(zone.range[1] - zone.range[0]) / 2;
+        const localTolerance = Math.max(zHalfWidth, zoneHalfWidth);
+        // A volatile higher timeframe may produce a wide zone. Do not let
+        // that width merge unrelated levels from another timeframe.
+        const percentageCap =
+          Math.max(Math.abs(z.level), Math.abs(zone.level)) * 0.0025;
+        return distance <= localTolerance && distance <= percentageCap;
+      });
       if (match) {
         match.timeframes = [...new Set([...match.timeframes, zone.timeframe])];
         match.touches += zone.touches;
         match.strength = clamp(match.strength + zone.strength * 0.15, 0, 100);
         match.swept ||= zone.swept;
+        match.range = [
+          Math.min(match.range[0], zone.range[0]),
+          Math.max(match.range[1], zone.range[1]),
+        ];
       } else merged.push({ ...zone, timeframes: [zone.timeframe] });
     });
     return merged.sort((a, b) => b.strength - a.strength);
@@ -300,9 +309,12 @@ W.technicalAnalysis = (() => {
           : rsiValue >= 50
             ? "bullish momentum"
             : "bearish momentum";
-    const recent = candles.slice(-20),
-      rangeHigh = Math.max(...recent.map((c) => c.high)),
-      rangeLow = Math.min(...recent.map((c) => c.low));
+    // Exclude the current candle from the comparison range. Including it
+    // makes current-high > rangeHigh and current-low < rangeLow impossible.
+    const priorRange = candles.slice(-21, -1),
+      recent = candles.slice(-20),
+      rangeHigh = Math.max(...priorRange.map((c) => c.high)),
+      rangeLow = Math.min(...priorRange.map((c) => c.low));
     const displacement =
       ((current - closes[Math.max(0, closes.length - 6)]) /
         closes[Math.max(0, closes.length - 6)]) *
@@ -320,13 +332,9 @@ W.technicalAnalysis = (() => {
       points.highs.filter((x) => x.price > current).slice(-1)[0]?.price ??
       rangeHigh;
     const sweptHigh =
-      candles[candles.length - 1].high > rangeHigh &&
-      current < rangeHigh &&
-      displacement < 0;
+      candles[candles.length - 1].high > rangeHigh && current < rangeHigh;
     const sweptLow =
-      candles[candles.length - 1].low < rangeLow &&
-      current > rangeLow &&
-      displacement > 0;
+      candles[candles.length - 1].low < rangeLow && current > rangeLow;
     const smc = {
       bias: structure.bias,
       orderBlock:
@@ -439,8 +447,7 @@ W.technicalAnalysis = (() => {
     });
     // primary is 1h when available; otherwise the first successful
     // timeframe so the caller always has a real result object.
-    const primary =
-      timeframes["1h"] || timeframes[Object.keys(timeframes)[0]];
+    const primary = timeframes["1h"] || timeframes[Object.keys(timeframes)[0]];
     const availableCount = entries.length;
     const alignmentMatch = Object.values(timeframes).filter(
       (r) => r.bias === primary.bias,
