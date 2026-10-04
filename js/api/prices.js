@@ -483,7 +483,8 @@ W.api = (() => {
   // Test-only: clear provider blocks and the circuit breaker so a
   // fresh test file starts from a known state. Not for production use.
   function resetProviderBlocks() {
-    for (const k of Object.keys(providerBlockedUntil)) delete providerBlockedUntil[k];
+    for (const k of Object.keys(providerBlockedUntil))
+      delete providerBlockedUntil[k];
     resetCircuit();
   }
 
