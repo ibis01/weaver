@@ -36345,3 +36345,24 @@ console.log("[App] Module loaded.");
   // ── Expose refresh initializer ───────────────────────────
   window._initRefresh = initRefresh;
 })();
+
+// ── Service worker registration ─────────────────────────────
+// Registers the offline-shell SW. The app works without it; the
+// SW only adds offline navigation (cache-first fallback when the
+// network is unreachable) and stale-bundle pruning on deploy.
+// Registration is deferred to window load so it never competes
+// with the initial render.
+if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("./sw.js", { scope: "./" })
+      .catch((e) => {
+        // Non-fatal. Common causes: private mode, hardened browser,
+        // or a local http:// origin where SW registration is blocked.
+        console.warn(
+          "[App] Service worker registration failed:",
+          e && e.message,
+        );
+      });
+  });
+};
