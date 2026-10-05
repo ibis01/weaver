@@ -59,7 +59,7 @@ const files = [
   //       the module graph and makes bundle inspection sane.
   "js/intelligence/evidence.js",
   "js/intelligence/evidence-builder.js",
-  "js/intelligence/intelligence-contracts.js",
+  
   "js/intelligence/meme-contracts.js",
   "js/intelligence/meme-opportunity.js",
   "js/intelligence/regime.js",
