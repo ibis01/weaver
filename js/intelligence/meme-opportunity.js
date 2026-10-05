@@ -1,255 +1,562 @@
-// ===============================================================
-// Meme Opportunity Engine
-// Purpose: rank tradable meme-token opportunities without allowing
-// momentum to override hard security or market-structure failures.
-// ===============================================================
+// js/intelligence/meme-opportunity.js
+// Consumes W.memeContracts. Delegates confidence to W.intelligence.
 window.W = window.W || {};
+
 W.memeOpportunity = (() => {
   const METHODOLOGY_VERSION = "meme-opportunity-v1";
   const clamp = (v, min = 0, max = 100) => Math.max(min, Math.min(max, v));
   const num = (v) => {
+    if (v === null || v === undefined) return null;
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
   };
-  const ratioScore = (value, low, high) => {
-    if (value === null) return null;
-    if (value <= low) return 0;
-    if (value >= high) return 100;
-    return ((value - low) / (high - low)) * 100;
+  const boolOrNull = (v) => {
+    if (v === true || v === 1 || v === "1") return true;
+    if (v === false || v === 0 || v === "0") return false;
+    return null;
   };
-  const first = (...values) => values.find((v) => v !== null) ?? null;
 
-  function securityVetoes(security = {}, shield = {}) {
-    const vetoes = [];
-    const add = (condition, message) => {
-      if (condition) vetoes.push(message);
+  // ── Scorers ───────────────────────────────────────────
+  // Each returns number in [0,100] or null.
+
+  const scoreLiquidity = (m) => {
+    const l = m?.liquidityUsd;
+    if (l === null || l === undefined) return null;
+    if (l < 25000) return 0;
+    if (l < 75000) return 35;
+    if (l < 250000) return 75;
+    return 90;
+  };
+
+  const scoreMomentum = (m) => {
+    const h1 = m?.priceChange1h,
+      h6 = m?.priceChange6h,
+      h24 = m?.priceChange24h;
+    if ([h1, h6, h24].every((v) => v === null || v === undefined)) return null;
+    return clamp(
+      clamp((h1 ?? 0) * 2 + 50) * 0.25 +
+        clamp((h6 ?? 0) * 1.5 + 50) * 0.35 +
+        clamp((h24 ?? 0) + 50) * 0.4,
+    );
+  };
+
+  const scoreParticipation = (m) => {
+    const b = m?.buys24h,
+      s = m?.sells24h;
+    if (b === null || b === undefined || s === null || s === undefined)
+      return null;
+    if (b + s === 0) return null;
+    return clamp((b / (b + s)) * 140);
+  };
+
+  const scoreVolumeQuality = (m) => {
+    const l = m?.liquidityUsd,
+      v = m?.volume24h;
+    if (!l || v === null || v === undefined) return null;
+    const r = v / l;
+    if (r > 30) return 25;
+    if (r >= 1) return 85;
+    return 35;
+  };
+
+  const scoreAge = (m) => {
+    const a = m?.pairAgeMinutes;
+    if (a === null || a === undefined) return null;
+    const h = a / 60;
+    if (h < 0.17) return 15;
+    if (h < 6) return 40;
+    if (h <= 336) return 85;
+    return 55;
+  };
+
+  const scoreExecutionRisk = (m) => {
+    const l = m?.liquidityUsd;
+    if (!l || l <= 0) return null;
+    const slip = clamp((1000 / Math.max(l, 1)) * 100 * 1.5);
+    if (slip >= 20) return 100;
+    if (slip >= 10) return 75;
+    if (slip >= 5) return 45;
+    return 20;
+  };
+
+  // ── Vetoes ────────────────────────────────────────────
+
+  function collectVetoes(security) {
+    const v = [];
+    const s = security || {};
+    const add = (code, reason, severity, cond) => {
+      if (cond) v.push({ code, reason, severity });
     };
     add(
-      security.verdict?.key === "danger",
-      "Composite security verdict is danger",
-    );
-    add(
-      security.honeypot === true || shield.honeypot === true,
+      "HONEYPOT",
       "Honeypot or sell restriction detected",
+      "block",
+      s.honeypot === true,
     );
     add(
-      security.sellBlocked === true || security.canSell === false,
+      "CANNOT_SELL",
       "Token may not be sellable",
+      "block",
+      s.canSell === false,
     );
     add(
-      security.mintAuthorityActive === true || shield.mintAuthority === true,
+      "MINT_AUTHORITY",
       "Mint authority remains active",
+      "block",
+      s.mintAuthorityActive === true,
     );
     add(
-      security.freezeAuthorityActive === true ||
-        shield.freezeAuthority === true,
+      "FREEZE_AUTHORITY",
       "Freeze authority remains active",
+      "block",
+      s.freezeAuthorityActive === true,
     );
-    add(security.ownerCanBlacklist === true, "Owner can blacklist holders");
     add(
-      security.unboundedTaxChange === true ||
-        security.taxChangeRisk === "critical",
+      "OWNER_BLACKLIST",
+      "Owner can blacklist holders",
+      "block",
+      s.ownerCanBlacklist === true,
+    );
+    add(
+      "TAX_CHANGE",
       "Unbounded transfer-tax control",
+      "block",
+      s.taxChangeRisk === "high" || s.taxChangeRisk === "critical",
     );
     add(
-      security.liquidityRemovable === true || security.liquidityLock === "none",
+      "LIQUIDITY_REMOVABLE",
       "Liquidity can be removed immediately",
+      "block",
+      s.liquidityRemovable === true,
     );
-    return [...new Set(vetoes)];
+    add(
+      "LP_UNLOCKED",
+      "Liquidity is unlocked",
+      "warn",
+      s.lpLockStatus === "unlocked",
+    );
+    add(
+      "LP_PARTIAL",
+      "Liquidity is only partially locked",
+      "warn",
+      s.lpLockStatus === "partially-locked",
+    );
+    add(
+      "LP_UNVERIFIED",
+      "Liquidity lock is provider-reported, not verified on-chain",
+      "warn",
+      s.lpLockStatus === "provider-reported" ||
+        s.lpLockStatus === "conflicting",
+    );
+    return v;
   }
 
-  function analyze(pair, context = {}) {
-    const p = pair || {};
-    const liquidity = num(p.liquidity?.usd);
-    const volume24 = num(p.volume?.h24);
-    const h1 = num(p.priceChange?.h1);
-    const h6 = num(p.priceChange?.h6);
-    const h24 = num(p.priceChange?.h24);
-    const buys = num(p.txns?.h24?.buys);
-    const sells = num(p.txns?.h24?.sells);
-    const ageHours = p.pairCreatedAt
-      ? Math.max(0, (Date.now() - Number(p.pairCreatedAt)) / 36e5)
-      : null;
-    const volumeLiquidity =
-      liquidity && volume24 !== null ? volume24 / liquidity : null;
-    const buySell =
-      buys !== null && sells !== null && buys + sells > 0
-        ? buys / (buys + sells)
-        : null;
-    const security = context.security || {};
-    const shield = context.shield || {};
-    const observation = context.observation || {};
-    const concentration = observation.concentration || {};
-    const graph = context.graphReport || {};
-    const vetoes = securityVetoes(security, shield);
+  // ── Confidence: delegated, never local ────────────────
 
-    const liquidityQuality =
-      liquidity === null
-        ? null
-        : liquidity < 25000
-          ? 0
-          : liquidity < 75000
-            ? 35
-            : liquidity < 250000
-              ? 75
-              : 90;
-    const momentum = [h1, h6, h24].filter((v) => v !== null).length
-      ? clamp(
-          clamp((h1 ?? 0) * 2 + 50) * 0.25 +
-            clamp((h6 ?? 0) * 1.5 + 50) * 0.35 +
-            clamp((h24 ?? 0) + 50) * 0.4,
-        )
-      : null;
-    const participation = buySell === null ? null : clamp(buySell * 140);
-    const volumeQuality =
-      volumeLiquidity === null
-        ? null
-        : volumeLiquidity > 30
-          ? 25
-          : volumeLiquidity >= 1
-            ? 85
-            : 35;
-    const ageQuality =
-      ageHours === null
-        ? null
-        : ageHours < 0.17
-          ? 15
-          : ageHours < 6
-            ? 40
-            : ageHours <= 336
-              ? 85
-              : 55;
-    const top10Pct = num(concentration.top10Pct);
-    const clusteredSharePct = num(graph.clusteredSharePct);
-    const estimatedSellSlippagePct =
-      liquidity === null
-        ? null
-        : clamp((1000 / Math.max(liquidity, 1)) * 100 * 1.5);
-    const executionRisk =
-      estimatedSellSlippagePct === null
-        ? null
-        : estimatedSellSlippagePct >= 20
-          ? 100
-          : estimatedSellSlippagePct >= 10
-            ? 75
-            : estimatedSellSlippagePct >= 5
-              ? 45
-              : 20;
+  function delegateConfidence({ market, security, holders, walletFlow }) {
+    if (
+      !W.intelligence ||
+      typeof W.intelligence.computeConfidence !== "function"
+    )
+      return null;
+
+    const present = [market, security, holders, walletFlow].filter(
+      (x) => x != null,
+    ).length;
+    const dataCompleteness = present / 4;
+
+    const interpretationConfidence =
+      security?.verdict === "verified-safe"
+        ? 1
+        : security?.verdict === "provider-reported-safe"
+          ? 0.7
+          : security?.verdict === "conflicting"
+            ? 0.3
+            : null;
+
+    const sourceReliability =
+      security?.provenance?.source === "goplus"
+        ? 0.7
+        : market?.provenance?.source === "dexscreener"
+          ? 0.6
+          : null;
+
+    const dataFreshness = freshnessFromTimestamps(
+      market?.observedAt,
+      security?.observedAt,
+    );
+    const corroborationCount = 1;
+
+    const factors = {
+      dataCompleteness,
+      interpretationConfidence,
+      sourceReliability,
+      dataFreshness,
+      corroborationCount,
+    };
+    if (Object.values(factors).some((v) => v === null)) return null;
+    try {
+      return W.intelligence.computeConfidence(factors);
+    } catch (e) {
+      console.warn(
+        "[MemeOpportunity] computeConfidence threw:",
+        e && e.message,
+      );
+      return null;
+    }
+  }
+
+  function freshnessFromTimestamps(...ts) {
+    const valid = ts.filter((t) => typeof t === "number" && t > 0);
+    if (!valid.length) return null;
+    const age = Date.now() - Math.min(...valid);
+    return clamp(1 - age / (24 * 60 * 60 * 1000), 0, 1);
+  }
+
+  // ── assess(): the new entry point ─────────────────────
+
+  function assess(input) {
+    const {
+      candidate,
+      market,
+      holders,
+      walletFlow,
+      security,
+      social,
+      evidence,
+    } = input || {};
+
+    const vetoes = collectVetoes(security);
+    const hasBlock = vetoes.some((v) => v.severity === "block");
+    const eligibilityStatus = hasBlock
+      ? "INELIGIBLE"
+      : !market || !security
+        ? "INSUFFICIENT_DATA"
+        : "ELIGIBLE";
+
+    const liquidityQuality = scoreLiquidity(market);
+    const momentum = scoreMomentum(market);
+    const participation = scoreParticipation(market);
+    const volumeQuality = scoreVolumeQuality(market);
+    const ageQuality = scoreAge(market);
+    const executionRisk = scoreExecutionRisk(market);
+
     const components = [
-      ["liquidityQuality", liquidityQuality, 0.3],
-      ["momentum", momentum, 0.25],
-      ["participation", participation, 0.15],
-      ["volumeQuality", volumeQuality, 0.15],
-      ["ageQuality", ageQuality, 0.15],
+      [liquidityQuality, 0.3],
+      [momentum, 0.25],
+      [participation, 0.15],
+      [volumeQuality, 0.15],
+      [ageQuality, 0.15],
     ];
-    const availableWeight = components.reduce(
-      (sum, [, value, weight]) => sum + (value === null ? 0 : weight),
-      0,
-    );
-    const weighted = components.reduce(
-      (sum, [, value, weight]) => sum + (value === null ? 0 : value * weight),
-      0,
-    );
-    let score = availableWeight ? weighted / availableWeight : 0;
-    const penalties = [];
-    if (volumeLiquidity !== null && volumeLiquidity > 30) {
-      score -= 15;
+    let aw = 0,
+      w = 0;
+    for (const [v, wt] of components) {
+      if (v === null) continue;
+      aw += wt;
+      w += v * wt;
+    }
+    let opportunityRaw = aw ? w / aw : null;
+
+    const reasons = [],
+      penalties = [];
+    const volRatio =
+      market?.liquidityUsd && market?.volume24h != null
+        ? market.volume24h / market.liquidityUsd
+        : null;
+    if (volRatio !== null && volRatio > 30) {
+      opportunityRaw = (opportunityRaw ?? 0) - 15;
       penalties.push("Extreme volume/liquidity ratio — possible wash trading");
     }
-    if (liquidity !== null && liquidity < 75000) {
-      score -= 20;
+    if (market?.liquidityUsd != null && market.liquidityUsd < 75000) {
+      opportunityRaw = (opportunityRaw ?? 0) - 20;
       penalties.push("Thin liquidity creates high exit risk");
     }
-    if (h24 !== null && h24 > 150 && (h6 ?? 0) > 50) {
-      score -= 12;
-      penalties.push("Price is likely overextended");
+    if (holders?.top10Pct != null && holders.top10Pct >= 50) {
+      opportunityRaw =
+        (opportunityRaw ?? 0) - (holders.top10Pct >= 70 ? 25 : 15);
+      penalties.push(`Top 10 holders control ${holders.top10Pct.toFixed(1)}%`);
     }
-    if (top10Pct !== null && top10Pct >= 50) {
-      score -= top10Pct >= 70 ? 25 : 15;
-      penalties.push(`Top 10 holders control ${top10Pct.toFixed(1)}%`);
-    }
-    if (clusteredSharePct !== null && clusteredSharePct >= 8) {
-      score -= clusteredSharePct >= 20 ? 20 : 10;
+    if (
+      security?.lpLockStatus === "provider-reported" ||
+      security?.lpLockStatus === "conflicting"
+    ) {
+      opportunityRaw = (opportunityRaw ?? 0) - 15;
       penalties.push(
-        `Behavioural wallet clusters control ${clusteredSharePct.toFixed(1)}%`,
+        "Liquidity lock is provider-reported, not verified on-chain",
       );
     }
-    if (executionRisk !== null && executionRisk >= 75) {
-      score -= 15;
-      penalties.push(
-        `Estimated $1,000 exit slippage is high (${estimatedSellSlippagePct.toFixed(1)}%)`,
-      );
+    if (security?.lpLockStatus === "partially-locked") {
+      opportunityRaw = (opportunityRaw ?? 0) - 20;
+      penalties.push("Liquidity is only partially locked");
     }
-    if (shield.liquidityLocked === false || shield.lpLocked === false) {
-      score -= 15;
-      penalties.push("Liquidity lock is not verified");
-    }
-    if (vetoes.length) {
-      score = Math.min(score, 15);
-      penalties.push(...vetoes);
-    }
-    score = Math.round(clamp(score));
+    if (hasBlock) opportunityRaw = Math.min(opportunityRaw ?? 0, 15);
 
-    const known = [liquidity, volume24, h1, h6, h24, ageHours, buySell].filter(
-      (v) => v !== null,
-    ).length;
-    const confidence = Math.round(
-      clamp(
-        (known / 7) * 70 +
-          (context.sourceCount > 1 ? 20 : 0) +
-          (context.observation ? 10 : 0) -
-          (vetoes.length ? 30 : 0),
-      ),
-    );
-    const verdict = vetoes.length
-      ? "SECURITY_REJECTED"
-      : confidence < 60
-        ? score >= 40
-          ? "WATCH_FOR_CONFIRMATION"
-          : "INSUFFICIENT_DATA"
-        : score >= 75
-          ? "EARLY_HIGH_QUALITY"
-          : score >= 60
-            ? "MOMENTUM_BUT_SPECULATIVE"
-            : score >= 40
-              ? "WATCH_FOR_CONFIRMATION"
-              : "INSUFFICIENT_DATA";
-    const reasons = [];
+    const opportunityScore =
+      opportunityRaw === null ? null : Math.round(clamp(opportunityRaw));
+
+    const survivability = (() => {
+      const secScore =
+        security?.verdict === "verified-safe"
+          ? 100
+          : security?.verdict === "provider-reported-safe"
+            ? 70
+            : null;
+      const parts = [
+        [liquidityQuality, 0.4],
+        [volumeQuality, 0.3],
+        [ageQuality, 0.2],
+        [secScore, 0.1],
+      ];
+      let a = 0,
+        s = 0;
+      for (const [v, wt] of parts) {
+        if (v === null) continue;
+        a += wt;
+        s += v * wt;
+      }
+      return a ? Math.round(clamp(s / a)) : null;
+    })();
+
+    const confidence = delegateConfidence({
+      market,
+      security,
+      holders,
+      walletFlow,
+    });
+
+    const category = (() => {
+      if (eligibilityStatus === "INELIGIBLE") return "AVOID";
+      if (opportunityScore === null || confidence === null) return "UNKNOWN";
+      if (confidence < 0.6)
+        return opportunityScore >= 40 ? "WATCH_FOR_CONFIRMATION" : "UNKNOWN";
+      if (opportunityScore >= 75) return "EARLY_MOMENTUM";
+      if (opportunityScore >= 60) return "ESTABLISHED";
+      if (opportunityScore >= 40) return "WATCH_FOR_CONFIRMATION";
+      return "AVOID";
+    })();
+
     if (liquidityQuality !== null)
       reasons.push(`Liquidity quality ${Math.round(liquidityQuality)}/100`);
     if (momentum !== null) reasons.push(`Momentum ${Math.round(momentum)}/100`);
-    if (buySell !== null)
-      reasons.push(`${Math.round(buySell * 100)}% of 24h trades were buys`);
-    if (ageHours !== null)
+    if (participation !== null)
       reasons.push(
-        `Pair age ${ageHours < 24 ? ageHours.toFixed(1) + "h" : (ageHours / 24).toFixed(1) + "d"}`,
+        `${Math.round(participation / 1.4)}% of 24h trades were buys`,
       );
-    reasons.push(...penalties);
-    return {
+    if (market?.pairAgeMinutes != null) {
+      const h = market.pairAgeMinutes / 60;
+      reasons.push(
+        `Pair age ${h < 24 ? h.toFixed(1) + "h" : (h / 24).toFixed(1) + "d"}`,
+      );
+    }
+    reasons.push(...penalties, ...vetoes.map((v) => v.reason));
+
+    return W.memeContracts.parse("MemeOpportunityAssessment", {
       methodologyVersion: METHODOLOGY_VERSION,
-      opportunityScore: score,
+      identity: candidate?.identity || {
+        chain: "unknown",
+        tokenAddress: "unknown",
+      },
+      eligibility: { status: eligibilityStatus, vetoes },
+      scores: { opportunity: opportunityScore, survivability, executionRisk },
       confidence,
-      verdict,
-      vetoes,
-      penalties,
-      reasons,
+      category,
       breakdown: {
         liquidityQuality,
         momentum,
         participation,
         volumeQuality,
         ageQuality,
-        volumeLiquidity,
-        buySell,
-        ageHours,
-        top10Pct,
-        clusteredSharePct,
-        estimatedSellSlippagePct,
+        volumeLiquidity: volRatio,
+        top10Pct: holders?.top10Pct ?? null,
         executionRisk,
       },
-      eligible: vetoes.length === 0 && score >= 40,
-    };
+      evidence: evidence || [],
+      freshness: {
+        market: market?.observedAt ?? null,
+        security: security?.observedAt ?? null,
+      },
+      reasons,
+    });
   }
 
-  return { METHODOLOGY_VERSION, analyze, securityVetoes };
+  // ── analyze(): back-compat wrapper for gems.js ────────
+
+  function analyze(pair, context = {}) {
+    const p = pair || {};
+    const ctx = context || {};
+    const now = Date.now();
+    const age = num(p.pairCreatedAt)
+      ? Math.max(0, (now - num(p.pairCreatedAt)) / 60000)
+      : null;
+
+    const prov = (source) => ({
+      source,
+      observedAt: now,
+      fetchedAt: now,
+      methodologyVersion: W.memeContracts.METHODOLOGY_VERSION,
+      completeness: null,
+    });
+
+    const market = W.memeContracts.parse("MarketSnapshot", {
+      observedAt: now,
+      pairAgeMinutes: age,
+      liquidityUsd: num(p.liquidity?.usd),
+      liquidityChange1h: num(p.liquidity?.change1h),
+      volume5m: num(p.volume?.m5),
+      volume1h: num(p.volume?.h1),
+      volume6h: num(p.volume?.h6),
+      volume24h: num(p.volume?.h24),
+      priceChange5m: num(p.priceChange?.m5),
+      priceChange1h: num(p.priceChange?.h1),
+      priceChange6h: num(p.priceChange?.h6),
+      priceChange24h: num(p.priceChange?.h24),
+      buys5m: num(p.txns?.m5?.buys),
+      sells5m: num(p.txns?.m5?.sells),
+      buys1h: num(p.txns?.h1?.buys),
+      sells1h: num(p.txns?.h1?.sells),
+      buys24h: num(p.txns?.h24?.buys),
+      sells24h: num(p.txns?.h24?.sells),
+      provenance: prov("dexscreener"),
+    });
+
+    const candidate = W.memeContracts.parse("Candidate", {
+      identity: {
+        chain: String(p.chainId || "unknown"),
+        tokenAddress: p.baseToken?.address || p.pairAddress || "unknown",
+      },
+      symbol: p.baseToken?.symbol || null,
+      name: p.baseToken?.name || null,
+      pairAddress: p.pairAddress || null,
+      dex: p.dexId || null,
+      discoveredAt: now,
+      discoverySource: "aggregator",
+      discoveryConfidence: null,
+      provenance: prov("dexscreener"),
+    });
+
+    const sec = ctx.security || {},
+      shield = ctx.shield || {};
+    const security = W.memeContracts.parse("SecurityAssessment", {
+      observedAt: now,
+      verdict:
+        sec.verdict?.key === "danger" || shield.honeypot === true
+          ? "conflicting"
+          : sec.verdict?.key === "safe"
+            ? "provider-reported-safe"
+            : "provider-reported-safe",
+      honeypot: boolOrNull(sec.honeypot ?? shield.honeypot),
+      canSell: boolOrNull(
+        sec.canSell ?? (shield.honeypot === true ? false : null),
+      ),
+      mintAuthorityActive: boolOrNull(
+        sec.mintAuthorityActive ?? shield.mintAuthority,
+      ),
+      freezeAuthorityActive: boolOrNull(
+        sec.freezeAuthorityActive ?? shield.freezeAuthority,
+      ),
+      ownerCanBlacklist: boolOrNull(sec.ownerCanBlacklist),
+      taxChangeRisk: normalizeTaxRisk(sec.taxChangeRisk),
+      liquidityRemovable: boolOrNull(sec.liquidityRemovable),
+      lpLockStatus: normalizeLpLock(sec, shield),
+      lpLockDetails: null,
+      simulationStatus: "not-simulated",
+      source: sec.source || "goplus",
+      freshness: null,
+      provenance: { ...prov(sec.source || "goplus"), observedAt: null },
+    });
+
+    const obs = ctx.observation || {},
+      conc = obs.concentration || {},
+      g = ctx.graphReport || {};
+    const holders = W.memeContracts.parse("HolderSnapshot", {
+      observedAt: now,
+      holderCount: null,
+      uniqueHolderCount: null,
+      holderGrowth1h: null,
+      holderGrowth6h: null,
+      holderGrowth24h: null,
+      top10Pct: num(conc.top10Pct),
+      top20Pct: num(conc.top20Pct),
+      creatorPct: null,
+      sniperPct: null,
+      freshWalletPct: null,
+      clusteredPct: num(g.clusteredSharePct),
+      provenance: { ...prov("observation"), observedAt: null },
+    });
+
+    const result = assess({
+      candidate,
+      market,
+      holders,
+      walletFlow: null,
+      security,
+      social: null,
+      evidence: [],
+    });
+
+    // Back-compat fields gems.js depends on
+    if (result) {
+      result.opportunityScore = result.scores.opportunity;
+      result.confidence = result.confidence; // already nullable
+      result.verdict = mapToLegacyVerdict(
+        result.category,
+        result.eligibility.status,
+      );
+      result.vetoes = result.eligibility.vetoes.map((v) => v.reason);
+      result.penalties = result.reasons.filter((r) =>
+        /ratio|thin|control|liquidity lock|partially|slippage/i.test(r),
+      );
+      result.eligible =
+        result.eligibility.status === "ELIGIBLE" &&
+        (result.scores.opportunity ?? 0) >= 40;
+    }
+    return result;
+  }
+
+  // ── Helpers ───────────────────────────────────────────
+
+  function normalizeTaxRisk(v) {
+    if (v === "critical") return "high";
+    return ["none", "low", "medium", "high", "unknown"].includes(v) ? v : null;
+  }
+
+  function normalizeLpLock(sec, shield) {
+    const allowed = W.memeContracts.LP_LOCK_STATUSES;
+    if (sec.lpLockStatus && allowed.includes(sec.lpLockStatus))
+      return sec.lpLockStatus;
+    if (Array.isArray(sec.lpHolders) && sec.lpHolders.length) {
+      const vals = sec.lpHolders.map((h) => boolOrNull(h.is_locked));
+      if (vals.every((v) => v === true)) return "provider-reported";
+      if (vals.every((v) => v === false)) return "unlocked";
+      if (vals.some((v) => v === true) && vals.some((v) => v === false))
+        return "partially-locked";
+      return "unknown";
+    }
+    if (shield.liquidityLocked === true || shield.lpLocked === true)
+      return "provider-reported";
+    if (shield.liquidityLocked === false || shield.lpLocked === false)
+      return "unlocked";
+    return "unknown";
+  }
+
+  function mapToLegacyVerdict(category, eligibilityStatus) {
+    if (eligibilityStatus === "INELIGIBLE") return "SECURITY_REJECTED";
+    return (
+      {
+        EARLY_MOMENTUM: "EARLY_HIGH_QUALITY",
+        ESTABLISHED: "MOMENTUM_BUT_SPECULATIVE",
+        WATCH_FOR_CONFIRMATION: "WATCH_FOR_CONFIRMATION",
+        AVOID: "INSUFFICIENT_DATA",
+        UNKNOWN: "INSUFFICIENT_DATA",
+      }[category] || "INSUFFICIENT_DATA"
+    );
+  }
+
+  return {
+    METHODOLOGY_VERSION,
+    analyze,
+    assess,
+    collectVetoes,
+    securityVetoes: collectVetoes, // legacy alias
+  };
 })();
