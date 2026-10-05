@@ -53,14 +53,19 @@ W.time = W.time || {};
 
     const cutoff = Date.now() - daysAgo * 86400000;
 
-    // Find the closest snapshot before or at the cutoff
+    // Find the most recent snapshot before or at the cutoff. Never use a
+    // later snapshot: that would leak future portfolio state into history.
     let closest = null;
-    let closestDiff = Infinity;
 
     for (const s of snapshots) {
-      const diff = Math.abs(s.timestamp - cutoff);
-      if (diff < closestDiff) {
-        closestDiff = diff;
+      if (
+        !s ||
+        !Number.isFinite(Number(s.timestamp)) ||
+        Number(s.timestamp) > cutoff
+      ) {
+        continue;
+      }
+      if (!closest || Number(s.timestamp) > Number(closest.timestamp)) {
         closest = s;
       }
     }

@@ -11,6 +11,12 @@ function loadConfig(env = process.env) {
     redisNamespace: env.REDIS_NAMESPACE || "weaver",
     rateLimitWindowMs: Number(env.RATE_LIMIT_WINDOW_MS || 60000),
     rateLimitMaxRequests: Number(env.RATE_LIMIT_MAX_REQUESTS || 30),
+    providerRateLimitWindowMs: Number(
+      env.PROVIDER_RATE_LIMIT_WINDOW_MS || 60000,
+    ),
+    providerRateLimitMaxRequests: Number(
+      env.PROVIDER_RATE_LIMIT_MAX_REQUESTS || 120,
+    ),
     failureAlertThreshold: Number(env.API_FAILURE_ALERT_THRESHOLD || 10),
     alertWebhookUrl: env.ALERT_WEBHOOK_URL || "",
     // Number of reverse-proxy hops in front of this server (Express's
@@ -45,6 +51,14 @@ function loadConfig(env = process.env) {
     config.rateLimitMaxRequests < 1
   ) {
     throw new Error("RATE_LIMIT_MAX_REQUESTS must be a positive integer");
+  }
+  if (
+    !Number.isInteger(config.providerRateLimitMaxRequests) ||
+    config.providerRateLimitMaxRequests < 1
+  ) {
+    throw new Error(
+      "PROVIDER_RATE_LIMIT_MAX_REQUESTS must be a positive integer",
+    );
   }
   if (
     production &&

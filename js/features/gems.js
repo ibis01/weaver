@@ -705,6 +705,12 @@ W.gems = (() => {
         : pairsResp && Array.isArray(pairsResp.pairs)
           ? pairsResp.pairs
           : [];
+      const discoveryObservedAt = Date.now();
+      W.dataHealth?.mark?.("gem-discovery", {
+        source: "dexscreener:aggregated-latest",
+        observedAt: discoveryObservedAt,
+        staleAfter: 5 * 60 * 1000,
+      });
       const byToken = {};
       pairs.forEach((p) => {
         const a = p.baseToken?.address;
@@ -723,7 +729,16 @@ W.gems = (() => {
       const hideRisk = view.querySelector("#g-hide-risk")?.checked || false;
 
       const results = Object.values(byToken)
-        .map((p) => ({ pair: p, analysis: score(p) }))
+        .map((p) => ({
+          pair: p,
+          analysis: score(p),
+          discovery: {
+            provider: "dexscreener",
+            sourceType: "aggregated-latest",
+            observedAt: discoveryObservedAt,
+            staleAfter: 5 * 60 * 1000,
+          },
+        }))
         .filter((g) => g.analysis.score >= minScore)
         .sort((a, b) => b.analysis.score - a.analysis.score)
         .slice(0, 24);

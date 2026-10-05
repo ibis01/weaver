@@ -67,6 +67,7 @@ const telemetry = new Telemetry({
 // In normal operation the MemoryState backend handles these.
 const memoryRateLimit = new Map();
 const memoryCircuits = new Map();
+const providerHealth = new Map();
 
 function ipv4ToNumber(ip) {
   return ip.split(".").reduce((n, octet) => n * 256 + Number(octet), 0);
@@ -150,13 +151,19 @@ function makePinnedAgent(url, addresses) {
   });
 }
 
-async function checkRateLimit(identity) {
+async function checkRateLimit(
+  identity,
+  {
+    windowMs = config.rateLimitWindowMs,
+    maxRequests = config.rateLimitMaxRequests,
+  } = {},
+) {
   // redisState is guaranteed non-null after start(). MemoryState also
   // reports connected=true, so this branch covers both backends.
   if (redisState && redisState.connected) {
     const result = await redisState.consumeRateLimit(identity, {
-      windowMs: config.rateLimitWindowMs,
-      maxRequests: config.rateLimitMaxRequests,
+      windowMs,
+      maxRequests,
     });
     if (!result.allowed) throw new Error("Rate limit exceeded");
     return;
@@ -165,15 +172,45 @@ async function checkRateLimit(identity) {
   const now = Date.now();
   const entry = memoryRateLimit.get(identity) || {
     count: 0,
-    reset: now + config.rateLimitWindowMs,
+    reset: now + windowMs,
   };
   if (now >= entry.reset) {
     entry.count = 0;
-    entry.reset = now + config.rateLimitWindowMs;
+    entry.reset = now + windowMs;
   }
-  if (++entry.count > config.rateLimitMaxRequests)
+  if (++entry.count > maxRequests)
     throw new Error("Rate limit exceeded");
   memoryRateLimit.set(identity, entry);
+}
+
+function providerRouteKey(url) {
+  return `${url.hostname}${url.pathname}`;
+}
+
+function recordProviderHealth(
+  url,
+  { status = 0, latencyMs = null, error = null } = {},
+) {
+  const key = providerRouteKey(url);
+  const previous = providerHealth.get(key) || {
+    provider: url.hostname,
+    route: url.pathname,
+    requests: 0,
+    successes: 0,
+    failures: 0,
+    lastStatus: null,
+    lastLatencyMs: null,
+    lastError: null,
+    updatedAt: null,
+  };
+  previous.requests += 1;
+  if (status >= 200 && status < 400) previous.successes += 1;
+  else previous.failures += 1;
+  previous.lastStatus = status || null;
+  previous.lastLatencyMs = Number.isFinite(latencyMs) ? latencyMs : null;
+  previous.lastError = error ? String(error).slice(0, 160) : null;
+  previous.updatedAt = Date.now();
+  providerHealth.set(key, previous);
 }
 
 async function beforeUpstream(hostname) {
@@ -239,10 +276,15 @@ app.get("/proxy", async (req, res) => {
   try {
     await checkRateLimit(req.ip || req.connection.remoteAddress || "unknown");
     let current = await validateUrl(req.query.url);
+    await checkRateLimit(`provider:${current.url.hostname}`, {
+      windowMs: config.providerRateLimitWindowMs,
+      maxRequests: config.providerRateLimitMaxRequests,
+    });
     let redirects = 0;
 
     while (true) {
       await beforeUpstream(current.url.hostname);
+      const requestStartedAt = Date.now();
       let response;
       try {
         response = await axios({
@@ -272,8 +314,17 @@ app.get("/proxy", async (req, res) => {
         if (response.status >= 500 || response.status === 429)
           await upstreamFailure(current.url.hostname, response.status);
         else await upstreamSuccess(current.url.hostname);
+        recordProviderHealth(current.url, {
+          status: response.status,
+          latencyMs: Date.now() - requestStartedAt,
+        });
       } catch (error) {
         await upstreamFailure(current.url.hostname, error.response?.status);
+        recordProviderHealth(current.url, {
+          status: error.response?.status || 0,
+          latencyMs: Date.now() - requestStartedAt,
+          error: error.message,
+        });
         throw error;
       }
 
@@ -282,6 +333,8 @@ app.get("/proxy", async (req, res) => {
           "Content-Type",
           response.headers["content-type"] || "application/json",
         );
+        if (response.headers["retry-after"])
+          res.set("Retry-After", String(response.headers["retry-after"]));
         return res.status(response.status).send(response.data);
       }
 
@@ -291,6 +344,10 @@ app.get("/proxy", async (req, res) => {
       current = await validateUrl(
         new URL(response.headers.location, current.url).href,
       );
+      await checkRateLimit(`provider:${current.url.hostname}`, {
+        windowMs: config.providerRateLimitWindowMs,
+        maxRequests: config.providerRateLimitMaxRequests,
+      });
     }
   } catch (error) {
     let status = 500;
@@ -374,6 +431,14 @@ app.get("/health", async (_req, res) => {
   }
 
   res.status(result.status === "ok" ? 200 : 503).json(result);
+});
+
+app.get("/health/providers", (_req, res) => {
+  res.json({
+    service: "weaver-proxy",
+    providers: [...providerHealth.values()],
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // ── Ready ──────────────────────────────────────────────────────

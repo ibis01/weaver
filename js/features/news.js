@@ -98,8 +98,39 @@ async function fetchSnapshot() {
 }
 
 // ── Parse RSS XML ──────────────────────────────────────────────
-function parseRSS(xml) {
-  const parser = new DOMParser();
+function normalizeArticle(article, providerId = "unknown", fetchedAt = Date.now()) {
+  const rawPublishedAt = article?.publishedAt || article?.pubDate || "";
+  const parsedPublishedAt = Date.parse(rawPublishedAt);
+  const canonicalUrl = (() => {
+    try {
+      return new URL(String(article?.canonicalUrl || article?.link || ""), window.location.href).href;
+    } catch {
+      return String(article?.canonicalUrl || article?.link || "");
+    }
+  })();
+  return {
+    ...article,
+    providerId: article?.providerId || providerId,
+    publisher: article?.publisher || providerId,
+    canonicalUrl,
+    publishedAt: Number.isFinite(parsedPublishedAt)
+      ? new Date(parsedPublishedAt).toISOString()
+      : null,
+    fetchedAt,
+    observedAt: fetchedAt,
+    provenanceConfidence:
+      (article?.publisher || providerId !== "unknown") &&
+      canonicalUrl &&
+      Number.isFinite(parsedPublishedAt)
+        ? "high"
+        : "partial",
+  };
+}
+
+function parseRSS(xml, providerId = "unknown", fetchedAt = Date.now()) {
+  const Parser = window.DOMParser || globalThis.DOMParser;
+  if (typeof Parser !== "function") throw new Error("DOMParser unavailable");
+  const parser = new Parser();
   const doc = parser.parseFromString(xml, "text/xml");
   const items = doc.querySelectorAll("item");
   const articles = [];
@@ -110,7 +141,13 @@ function parseRSS(xml) {
     const pubDate = item.querySelector("pubDate")?.textContent || "";
     // Strip HTML entities that some feeds embed in description.
     const plainDesc = description.replace(/<[^>]+>/g, "").trim();
-    articles.push({ title, link, description: plainDesc, pubDate });
+    articles.push(
+      normalizeArticle(
+        { title, link, description: plainDesc, pubDate },
+        providerId,
+        fetchedAt,
+      ),
+    );
   });
   return articles;
 }
@@ -120,14 +157,14 @@ function dedupeAndSort(articles) {
   const seen = new Set();
   const unique = [];
   for (const a of articles) {
-    const key = a.link || a.title;
+    const key = a.canonicalUrl || a.link || a.title;
     if (seen.has(key)) continue;
     seen.add(key);
     unique.push(a);
   }
   return unique.sort((a, b) => {
-    const ta = Date.parse(a.pubDate) || 0;
-    const tb = Date.parse(b.pubDate) || 0;
+    const ta = Date.parse(a.publishedAt || a.pubDate) || 0;
+    const tb = Date.parse(b.publishedAt || b.pubDate) || 0;
     return tb - ta;
   });
 }
@@ -218,9 +255,10 @@ async function render(view) {
     // 2. Fetch all feeds in parallel.
     const feedPromises = FEEDS.map(async ([name, url]) => {
       try {
+        const fetchedAt = Date.now();
         const xml = await via(url);
-        const articles = parseRSS(xml);
-        return { name, articles, error: null };
+        const articles = parseRSS(xml, name, fetchedAt);
+        return { name, articles, fetchedAt, error: null };
       } catch (err) {
         newsLog(`Failed to fetch ${name}:`, err.message);
         return { name, articles: [], error: err.message };
@@ -231,9 +269,17 @@ async function render(view) {
     if (!isCurrentRoute()) return;
     const allArticles = dedupeAndSort(results.flatMap((r) => r.articles));
 
+    const fetchedAt = results
+      .map((result) => result.fetchedAt)
+      .filter((value) => Number.isFinite(value));
     W.dataHealth?.mark?.("news", {
-      source: "rss",
-      observedAt: Date.now(),
+      source:
+        "rss:" +
+        results
+          .filter((result) => result.articles.length)
+          .map((result) => result.name)
+          .join(","),
+      observedAt: fetchedAt.length ? Math.max(...fetchedAt) : Date.now(),
       staleAfter: 60 * 60 * 1000,
     });
 
@@ -259,6 +305,9 @@ async function render(view) {
 window.W = window.W || {};
 W.features = W.features || {};
 W.features.news = { render };
-W.news = { render };
+W.news = {
+  render,
+  _internal: { normalizeArticle, parseRSS, dedupeAndSort },
+};
 
 console.log("[News] Module loaded.");

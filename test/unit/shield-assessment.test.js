@@ -126,6 +126,24 @@ describe("Shield risk assessment", () => {
     expect(assessment.riskScore).to.equal(0);
   });
 
+  it("does not classify mixed locked and unlocked LP evidence as locked", () => {
+    const assessment = W.shield.assessEvmRisk(
+      evm({
+        is_honeypot: "0",
+        is_mintable: "0",
+        is_proxy: "0",
+        owner_change: "1",
+        buy_tax: "0",
+        sell_tax: "0",
+        lp_holders: [{ is_locked: 1 }, { is_locked: 0 }],
+      }),
+    );
+    expect(assessment.flags.lpLockStatus).to.equal("unknown");
+    expect(assessment.flags.isLpLocked).to.equal(null);
+    expect(assessment.holders.hasLockedLp).to.equal(null);
+    expect(assessment.riskScore).to.equal(0);
+  });
+
   it("declares Solana LP evidence unavailable instead of implying unlocked liquidity", () => {
     const assessment = W.shield.assessSolanaRisk({});
     expect(assessment.lpLockStatus).to.equal("unknown");

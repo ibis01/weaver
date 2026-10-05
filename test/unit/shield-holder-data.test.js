@@ -30,7 +30,8 @@ describe("Shield — holder data on the assessment", () => {
     expect(a.holders.top10Pct).to.be.closeTo(25.8, 0.01);
     expect(a.holders.lpCount).to.equal(2);
     expect(a.holders.lockedLpCount).to.equal(1);
-    expect(a.holders.hasLockedLp).to.equal(true);
+    expect(a.holders.hasLockedLp).to.equal(null);
+    expect(a.holders.lpLockStatus).to.equal("unknown");
     expect(a.holders.source).to.equal("goplus-evm");
   });
 

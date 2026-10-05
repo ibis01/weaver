@@ -324,18 +324,18 @@ W.shield = (() => {
     const lpHoldersInput = Array.isArray(result.lp_holders)
       ? result.lp_holders
       : null;
-    const lpLockStatus =
-      lpHoldersInput && lpHoldersInput.length
-        ? lpHoldersInput.some(
-            (lp) => lp && (lp.is_locked === 1 || lp.is_locked === "1"),
-          )
-          ? "locked"
-          : lpHoldersInput.every(
-                (lp) => lp && (lp.is_locked === 0 || lp.is_locked === "0"),
-              )
-            ? "unlocked"
-            : "unknown"
-        : "unknown";
+    const lpLockStatus = (() => {
+      if (!lpHoldersInput || !lpHoldersInput.length) return "unknown";
+      const states = lpHoldersInput.map((lp) => {
+        if (!lp) return null;
+        if (lp.is_locked === 1 || lp.is_locked === "1") return true;
+        if (lp.is_locked === 0 || lp.is_locked === "0") return false;
+        return null;
+      });
+      if (states.every((state) => state === true)) return "locked";
+      if (states.every((state) => state === false)) return "unlocked";
+      return "unknown";
+    })();
     const isLpLocked =
       lpLockStatus === "locked"
         ? true

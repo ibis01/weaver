@@ -32,6 +32,14 @@ describe("Production configuration", () => {
     expect(config.redisUrl).to.equal("rediss://user:secret@redis.example:6380");
     expect(config.origins).to.deep.equal(["https://app.example"]);
     expect(config.trustProxyHops).to.equal(1);
+    expect(config.providerRateLimitWindowMs).to.equal(60000);
+    expect(config.providerRateLimitMaxRequests).to.equal(120);
+  });
+
+  it("rejects an invalid provider rate limit", () => {
+    expect(() =>
+      loadConfig({ PROVIDER_RATE_LIMIT_MAX_REQUESTS: "0" }),
+    ).to.throw(/PROVIDER_RATE_LIMIT_MAX_REQUESTS/);
   });
 
   it("refuses to start in production without TRUST_PROXY_HOPS configured", () => {
