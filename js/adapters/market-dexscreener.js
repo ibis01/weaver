@@ -1,15 +1,36 @@
-
+// js/adapters/market-dexscreener.js
+//
+// STATUS: NOT YET WIRED.
+//   - Not listed in concat.js — this file is not in dist/bundle.js.
+//   - No caller in js/features/gems.js or elsewhere yet.
+//   - Wire when gems.js migrates from W.memeOpportunity.analyze(pair)
+//     to the canonical assess({ market, security, holders, ... }) path.
+//
+// Converts a DexScreener pair response into a MarketSnapshot.
+// Returns null (which the engine treats as "unknown") if the input
+// is malformed.
+window.W = window.W || {};
 W.adapters = W.adapters || {};
 
 W.adapters.marketFromDexScreener = function (rawPair) {
   if (!rawPair || typeof rawPair !== "object") return null;
 
-  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+  const num = (v) => {
+    if (v === null || v === undefined) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  // Transaction counts are ints per the contract; coerce defensively.
+  const int = (v) => {
+    if (v === null || v === undefined) return null;
+    const n = Number(v);
+    return Number.isInteger(n) ? n : null;
+  };
 
-  return W.memeContracts.parseContract("MarketSnapshot", {
+  return W.memeContracts.parse("MarketSnapshot", {
     observedAt: Date.now(),
     pairAgeMinutes: rawPair.pairCreatedAt
-      ? (Date.now() - rawPair.pairCreatedAt) / 60000
+      ? (Date.now() - Number(rawPair.pairCreatedAt)) / 60000
       : null,
 
     liquidityUsd: num(rawPair.liquidity?.usd),
@@ -25,19 +46,22 @@ W.adapters.marketFromDexScreener = function (rawPair) {
     priceChange6h: num(rawPair.priceChange?.h6),
     priceChange24h: num(rawPair.priceChange?.h24),
 
-    buys5m: num(rawPair.txns?.m5?.buys),
-    sells5m: num(rawPair.txns?.m5?.sells),
-    buys1h: num(rawPair.txns?.h1?.buys),
-    sells1h: num(rawPair.txns?.h1?.sells),
-    buys24h: num(rawPair.txns?.h24?.buys),
-    sells24h: num(rawPair.txns?.h24?.sells),
+    buys5m: int(rawPair.txns?.m5?.buys),
+    sells5m: int(rawPair.txns?.m5?.sells),
+    buys1h: int(rawPair.txns?.h1?.buys),
+    sells1h: int(rawPair.txns?.h1?.sells),
+    buys24h: int(rawPair.txns?.h24?.buys),
+    sells24h: int(rawPair.txns?.h24?.sells),
 
     provenance: {
       source: "dexscreener",
       observedAt: Date.now(),
       fetchedAt: Date.now(),
-      methodologyVersion: "meme-contracts-v1",
-      completeness: completenessOfPair(rawPair),
+      methodologyVersion: W.memeContracts.METHODOLOGY_VERSION,
+      // DexScreener does not publish a "completeness" measure.
+      // The engine can compute one from null counts if needed;
+      // fabricating a number here would be worse than null.
+      completeness: null,
     },
   });
 };

@@ -1,39 +1,77 @@
+// js/adapters/security-goplus.js
+//
+// STATUS: NOT YET WIRED.
+//   - Not listed in concat.js — this file is not in dist/bundle.js.
+//   - No caller in js/features/gems.js or elsewhere yet.
+//
+// Converts a GoPlus token-security response into a SecurityAssessment.
+// Returns null on malformed input; the engine treats null as unknown.
+window.W = window.W || {};
+W.adapters = W.adapters || {};
 
 W.adapters.securityFromGoPlus = function (raw) {
-  if (!raw) return null;
+  if (!raw || typeof raw !== "object") return null;
 
-  // Correct mixed-lock semantics: locked only when EVERY material
-  // position is locked. Any unlocked holder downgrades to partial.
+  const boolOrNull = (v) => {
+    if (v === true || v === 1 || v === "1") return true;
+    if (v === false || v === 0 || v === "0") return false;
+    return null;
+  };
+
+  // ── LP lock classification ─────────────────────────────
+  // Conservative:
+  //   all locked      → provider-reported
+  //   all unlocked    → unlocked
+  //   mixed           → partially-locked
+  //   any unknown     → conflicting
+  //   no holders      → unavailable
+  // "provider-reported" deliberately does not claim on-chain
+  // verification; that requires a future RPC/locker adapter.
   const holders = Array.isArray(raw.lp_holders) ? raw.lp_holders : [];
-  let lpLockStatus = "unknown";
-  if (holders.length === 0) {
-    lpLockStatus = "unavailable";
-  } else if (holders.every((h) => h.is_locked === 1 || h.is_locked === "1")) {
-    lpLockStatus = "provider-reported"; // provider says locked; not verified on-chain
-  } else if (holders.some((h) => h.is_locked === 1 || h.is_locked === "1")) {
-    lpLockStatus = "partially-locked"; // ← the P0 fix
-  } else if (holders.every((h) => h.is_locked === 0 || h.is_locked === "0")) {
-    lpLockStatus = "unlocked";
-  } else {
-    lpLockStatus = "conflicting"; // mixed known/unknown
+  let lpLockStatus = "unavailable";
+  if (holders.length > 0) {
+    const flags = holders.map((h) => boolOrNull(h.is_locked));
+    if (flags.every((v) => v === true)) lpLockStatus = "provider-reported";
+    else if (flags.every((v) => v === false)) lpLockStatus = "unlocked";
+    else if (flags.some((v) => v === true) && flags.some((v) => v === false))
+      lpLockStatus = "partially-locked";
+    else lpLockStatus = "conflicting";
   }
 
-  return W.memeContracts.parseContract("SecurityAssessment", {
+  // ── liquidityRemovable ─────────────────────────────────
+  // GoPlus does not expose a reliable per-position "removable" flag.
+  // is_locked=1 means the LP is locked, which is evidence AGAINST
+  // removability — the opposite of what a naive mapping would suggest.
+  // Leave null (unknown) rather than guess. A future on-chain adapter
+  // (reading the locker contract, LP token holder, and expiry) is the
+  // only honest source for this field.
+  const liquidityRemovable = null;
+
+  // ── canSell ────────────────────────────────────────────
+  // GoPlus exposes "cannot_sell_all" as a string flag.
+  // Absent/malformed → null (unknown), not false.
+  const cannotSell = boolOrNull(raw.cannot_sell_all);
+
+  return W.memeContracts.parse("SecurityAssessment", {
     observedAt: Date.now(),
-    verdict: raw.is_honeypot === "1" ? "conflicting" : "provider-reported-safe",
-    honeypot:
-      raw.is_honeypot === "1" ? true : raw.is_honeypot === "0" ? false : null,
-    canSell:
-      raw.cannot_sell_all === "1"
-        ? false
-        : raw.cannot_sell_all === "0"
-          ? true
-          : null,
+
+    verdict:
+      raw.is_honeypot === "1"
+        ? "conflicting"
+        : holders.length > 0
+          ? "provider-reported-safe"
+          : "unknown",
+
+    honeypot: boolOrNull(raw.is_honeypot),
+    canSell: cannotSell === null ? null : !cannotSell,
+
     mintAuthorityActive: boolOrNull(raw.is_mintable),
     freezeAuthorityActive: boolOrNull(raw.can_freeze),
     ownerCanBlacklist: boolOrNull(raw.is_blacklisted),
-    taxChangeRisk: raw.sell_tax ? "unknown" : null,
-    liquidityRemovable: boolOrNull(raw.lp_holders?.[0]?.is_locked),
+
+    taxChangeRisk: null,
+    liquidityRemovable,
+
     lpLockStatus,
     lpLockDetails: holders.length
       ? {
@@ -42,21 +80,19 @@ W.adapters.securityFromGoPlus = function (raw) {
           unlockAt: null,
         }
       : null,
+
     simulationStatus: "not-simulated",
+
     source: "goplus",
-    freshness: raw.checkedAt || null,
+    freshness: null,
+
     provenance: {
       source: "goplus",
-      observedAt: raw.checkedAt || null,
+      // GoPlus does not reliably timestamp its responses.
+      observedAt: null,
       fetchedAt: Date.now(),
-      methodologyVersion: "meme-contracts-v1",
+      methodologyVersion: W.memeContracts.METHODOLOGY_VERSION,
       completeness: null,
     },
   });
 };
-
-function boolOrNull(v) {
-  if (v === "1" || v === true || v === 1) return true;
-  if (v === "0" || v === false || v === 0) return false;
-  return null;
-}
