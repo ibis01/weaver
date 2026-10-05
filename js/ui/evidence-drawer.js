@@ -183,7 +183,13 @@ W.ui.evidenceDrawer = (() => {
 
       if (relationship === "supporting") out.supporting.push(e);
       else if (relationship === "contradicting") out.contradicting.push(e);
-      else out.unknowns.push(e);
+      else {
+        // Unknowns must not carry the engine's eligibility string
+        // ("ELIGIBLE"/"available"). That value describes an internal
+        // gate, not the reader's evidence state.
+        e.status = "unassessed";
+        out.unknowns.push(e);
+      }
     }
 
     // Enforce the per-bucket cap after sorting. Overflow produces a
@@ -259,7 +265,14 @@ W.ui.evidenceDrawer = (() => {
             it.title || it.name || "Evidence",
             MAX_TITLE_LEN,
           );
-          const meta = capStr(it.status || "", MAX_META_LEN);
+          // "unassessed" is the unknowns-bucket sentinel set by
+          // bucket(). Rendering it is noise — the item's presence
+          // in Unknowns already communicates the same thing, and
+          // the raw engine status ("ELIGIBLE") leaked through the
+          // meta span without a separator as "signalELIGIBLE".
+          const rawStatus = String(it.status || "");
+          const meta =
+            rawStatus === "unassessed" ? "" : capStr(rawStatus, MAX_META_LEN);
           const detail = capStr(it.detail || it.evidence || "", MAX_DETAIL_LEN);
           const reasons = (Array.isArray(it.reasons) ? it.reasons : [])
             .slice(0, MAX_REASONS_PER_ITEM)
