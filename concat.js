@@ -54,7 +54,9 @@ const files = [
   //       Order is significant — evidence.js must run first.
   "js/intelligence/evidence.js",
   "js/intelligence/evidence-builder.js",
+  "js/intelligence/meme-contracts.js",
   "js/intelligence/meme-opportunity.js",
+  ,
   "js/intelligence/regime.js",
   "js/intelligence/delta.js",
   "js/intelligence/behavior.js",
