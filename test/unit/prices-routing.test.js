@@ -79,24 +79,76 @@ describe("Prices — direct-only routing", () => {
     calls.filter((u) => u.includes("weaver-proxy.ibis01-weaver.workers.dev"))
       .length;
 
-  it("routes api.coinpaprika.com direct — never hits the Worker", async () => {
+  it("prefers direct for api.coinpaprika.com, Worker available as fallback", async () => {
     try {
       await W.api.coin("bitcoin");
     } catch (_) {
       /* response shape may fail validation; the routing is what matters */
     }
+    // Direct was attempted and succeeded; Worker was not needed. The
+    // route policy is "direct first" not "direct only" — the fallback
+    // path is verified separately in the test below.
     expect(workerHitCount()).to.equal(0);
-    expect(calls.some((u) => u.includes("api.coinpaprika.com"))).to.equal(true);
+    const directIdx = calls.findIndex((u) => u.includes("api.coinpaprika.com"));
+    expect(directIdx).to.be.greaterThan(-1);
   });
 
-  it("routes api.binance.com direct — never hits the Worker", async () => {
+  it("prefers direct for api.binance.com, Worker available as fallback", async () => {
     try {
       await W.api.chart("bitcoin", 7);
     } catch (_) {
       /* same */
     }
     expect(workerHitCount()).to.equal(0);
+    const directIdx = calls.findIndex((u) => u.includes("api.binance.com"));
+    expect(directIdx).to.be.greaterThan(-1);
+  });
+
+  it("falls back to Worker for api.binance.com when direct times out", async () => {
+    // Replace the default always-success spy with one that fails every
+    // direct attempt and succeeds only via the Worker relay. This
+    // proves the fallback chain: direct → Worker → (stale cache).
+    const fallbackSpy = async (url) => {
+      const u = String(url);
+      calls.push(u);
+      if (u.includes("weaver-proxy.ibis01-weaver.workers.dev")) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          json: async () => [],
+        };
+      }
+      // Simulate a connection-level failure, which surfaces as
+      // `!response.ok` with status 0 in the fetch shim.
+      return {
+        ok: false,
+        status: 0,
+        headers: { get: () => null },
+        json: async () => {
+          throw new Error("net::ERR_TIMED_OUT");
+        },
+      };
+    };
+    global.fetch = fallbackSpy;
+    if (typeof window !== "undefined") window.fetch = fallbackSpy;
+
+    try {
+      await W.api.chart("bitcoin", 7);
+    } catch (_) {
+      /* we only care which URLs were hit */
+    }
+
+    expect(workerHitCount()).to.be.greaterThan(0);
+    // Both routes were attempted.
     expect(calls.some((u) => u.includes("api.binance.com"))).to.equal(true);
+    // Direct was tried before Worker (the ordering guarantee).
+    const directIdx = calls.findIndex((u) => u.includes("api.binance.com"));
+    const workerIdx = calls.findIndex((u) =>
+      u.includes("weaver-proxy.ibis01-weaver.workers.dev"),
+    );
+    expect(directIdx).to.be.greaterThan(-1);
+    expect(workerIdx).to.be.greaterThan(directIdx);
   });
 
   it("routes api.coinlore.net through the Worker first", async () => {

@@ -6210,6 +6210,9 @@ W.api = (() => {
   const COINLORE_API = "https://api.coinlore.net/api";
   const COINBASE_API = "https://api.coinbase.com/v2";
   const BINANCE_API = "https://api.binance.com/api/v3";
+  const KRAKEN_API = "https://api.kraken.com/0/public";
+  const COINBASE_EXCHANGE_API = "https://api.exchange.coinbase.com";
+  const BYBIT_API = "https://api.bybit.com/v5/market";
 
   const CACHE_TTL = 60000;
   const LONG_CACHE_TTL = 1800000;
@@ -6722,6 +6725,7 @@ W.api = (() => {
       );
 
     let lastRefusal = null;
+    let anyFailure = null;
 
     // Skip the Worker for hosts whose free-tier quota is per-IP.
     // Sending them through the Worker would exhaust the shared pool.
@@ -6729,7 +6733,12 @@ W.api = (() => {
     try {
       const parsed = new URL(url);
       if (DIRECT_ONLY_DOMAINS.has(parsed.hostname)) {
-        activeProxies = PROXIES.slice(1);
+        // Prefer direct (per-IP quota, avoids shared Worker pool) but
+        // keep the Worker as a fallback path. Direct-only was too
+        // strict: when Binance region-blocks a user IP and CoinPaprika
+        // rate-limits a user IP, the Worker's Cloudflare egress is a
+        // working second attempt instead of a dead end.
+        activeProxies = [PROXIES[1], PROXIES[0]];
       }
     } catch {
       /* malformed URL — leave the default proxy chain in place */
@@ -6776,11 +6785,12 @@ W.api = (() => {
           );
           continue;
         }
+        anyFailure = e;
         console.warn(`[Prices] Proxy failed: ${e.message}`);
       }
     }
 
-    if (lastRefusal) {
+    if (lastRefusal || anyFailure) {
       const stale = getCached(url, 86400000);
       if (stale !== null) {
         source = "cache (stale, provider refused)";
@@ -6790,7 +6800,7 @@ W.api = (() => {
           staleAfter: 3600000,
         });
         console.warn(
-          `[Prices] All proxies refused (${lastRefusal.message}) — serving stale cache for ${resourceForUrl(url)}`,
+          `[Prices] All proxies failed (${(lastRefusal || anyFailure).message}) — serving stale cache for ${resourceForUrl(url)}`,
         );
         return stale;
       }
@@ -6955,8 +6965,48 @@ W.api = (() => {
     },
     top: () => Promise.reject(new Error("Coinbase: no top-list endpoint")),
     global: () => Promise.reject(new Error("Coinbase: no global endpoint")),
-    chart: () => Promise.reject(new Error("Coinbase: chart not wired")),
-    ohlcv: () => Promise.reject(new Error("Coinbase: OHLCV not wired")),
+    chart: async (id, days = 30) => {
+      const pair = COINBASE_PAIRS[id];
+      if (!pair) throw new Error(`Coinbase: no pair for ${id}`);
+      const cap = Math.max(1, Math.min(days | 0, 300));
+      const url = `${COINBASE_EXCHANGE_API}/products/${pair}/candles?granularity=86400`;
+      const data = await _dedupeRequest(url, () =>
+        fetchWithProxy(url, LONG_CACHE_TTL),
+      );
+      if (!Array.isArray(data)) return [];
+      // Coinbase Exchange returns newest-first; reverse for chronological.
+      return data
+        .slice(0, cap)
+        .reverse()
+        .map((k) => [Number(k[0]) * 1000, _coerceNumber(k[4])]);
+    },
+    ohlcv: async (id, interval = "1h", limit = 500) => {
+      const pair = COINBASE_PAIRS[id];
+      if (!pair) throw new Error(`Coinbase: no pair for ${id}`);
+      const cap = Math.max(1, Math.min(limit | 0, 300));
+      const intervalMap = {
+        "1m": 60, "5m": 300, "15m": 900, "1h": 3600, "6h": 21600, "1d": 86400,
+      };
+      const gran = intervalMap[interval] || 3600;
+      const url = `${COINBASE_EXCHANGE_API}/products/${pair}/candles?granularity=${gran}`;
+      const data = await _dedupeRequest(url, () =>
+        fetchWithProxy(url, LONG_CACHE_TTL),
+      );
+      if (!Array.isArray(data)) return [];
+      // [time, low, high, open, close, volume] — newest-first.
+      return data
+        .slice(0, cap)
+        .reverse()
+        .map((k) => ({
+          timestamp: Number(k[0]) * 1000,
+          open: _coerceNumber(k[3]),
+          high: _coerceNumber(k[2]),
+          low: _coerceNumber(k[1]),
+          close: _coerceNumber(k[4]),
+          volume: _coerceNumber(k[5]),
+          quoteVolume: null,
+        }));
+    },
     search: () => Promise.reject(new Error("Coinbase: no search endpoint")),
     coin: () => Promise.reject(new Error("Coinbase: no coin-detail endpoint")),
     trending: () => Promise.reject(new Error("Coinbase: no trending endpoint")),
@@ -7189,7 +7239,159 @@ W.api = (() => {
     },
   };
 
-  const providers = { coinlore, coinbase, coinpaprika, binance };
+  // ── Kraken pair map — XBT for Bitcoin, XDG for Dogecoin ──
+  const KRAKEN_PAIRS = Object.freeze({
+    bitcoin: "XBTUSD",
+    ethereum: "ETHUSD",
+    tether: "USDTUSD",
+    "usd-coin": "USDCUSD",
+    binancecoin: "BNBUSD",
+    solana: "SOLUSD",
+    ripple: "XRPUSD",
+    cardano: "ADAUSD",
+    dogecoin: "XDGUSD",
+    litecoin: "LTCUSD",
+    tron: "TRXUSD",
+    polkadot: "DOTUSD",
+    matic: "MATICUSD",
+    cosmos: "ATOMUSD",
+    uniswap: "UNIUSD",
+    aave: "AAVEUSD",
+    dai: "DAIUSD",
+    chainlink: "LINKUSD",
+    stellar: "XLMUSD",
+    "avalanche-2": "AVAXUSD",
+  });
+
+  // ── Bybit pair map — same symbol format as Binance ──────
+  const BYBIT_PAIRS = Object.freeze({
+    bitcoin: "BTCUSDT",
+    ethereum: "ETHUSDT",
+    binancecoin: "BNBUSDT",
+    solana: "SOLUSDT",
+    ripple: "XRPUSDT",
+    cardano: "ADAUSDT",
+    dogecoin: "DOGEUSDT",
+    litecoin: "LTCUSDT",
+    tron: "TRXUSDT",
+    polkadot: "DOTUSDT",
+    matic: "MATICUSDT",
+    cosmos: "ATOMUSDT",
+    uniswap: "UNIUSDT",
+    aave: "AAVEUSDT",
+    chainlink: "LINKUSDT",
+    stellar: "XLMUSDT",
+    "avalanche-2": "AVAXUSDT",
+  });
+
+  // ── Kraken (SECONDARY for OHLCV / chart) ────────────────
+  // Different infrastructure from Binance. Free, no key, permissive
+  // CORS. A Binance region-block does not affect Kraken.
+  const kraken = {
+    markets: () => Promise.reject(new Error("Kraken: markets not wired")),
+    top: () => Promise.reject(new Error("Kraken: no top-list endpoint")),
+    global: () => Promise.reject(new Error("Kraken: no global endpoint")),
+    chart: async (id, days = 30) => {
+      const pair = KRAKEN_PAIRS[id];
+      if (!pair) throw new Error(`Kraken: no USD pair for ${id}`);
+      const cap = Math.max(1, Math.min(days | 0, 720));
+      const url = `${KRAKEN_API}/OHLC?pair=${pair}&interval=1440`;
+      const data = await _dedupeRequest(url, () =>
+        fetchWithProxy(url, LONG_CACHE_TTL),
+      );
+      const result = data?.result || {};
+      const seriesKey = Object.keys(result).find((k) => k !== "last");
+      const rows = seriesKey ? result[seriesKey] : null;
+      if (!Array.isArray(rows)) return [];
+      // [time(sec), open, high, low, close, vwap, volume, count]
+      return rows
+        .slice(-cap)
+        .map((k) => [Number(k[0]) * 1000, _coerceNumber(k[4])]);
+    },
+    ohlcv: async (id, interval = "1h", limit = 500) => {
+      const pair = KRAKEN_PAIRS[id];
+      if (!pair) throw new Error(`Kraken: no USD pair for ${id}`);
+      const cap = Math.max(1, Math.min(limit | 0, 720));
+      const intervalMap = {
+        "1m": 1, "5m": 5, "15m": 15, "30m": 30,
+        "1h": 60, "4h": 240, "1d": 1440, "1w": 10080,
+      };
+      const kInt = intervalMap[interval] || 60;
+      const url = `${KRAKEN_API}/OHLC?pair=${pair}&interval=${kInt}`;
+      const data = await _dedupeRequest(url, () =>
+        fetchWithProxy(url, LONG_CACHE_TTL),
+      );
+      const result = data?.result || {};
+      const seriesKey = Object.keys(result).find((k) => k !== "last");
+      const rows = seriesKey ? result[seriesKey] : null;
+      if (!Array.isArray(rows)) return [];
+      return rows.slice(-cap).map((k) => ({
+        timestamp: Number(k[0]) * 1000,
+        open: _coerceNumber(k[1]),
+        high: _coerceNumber(k[2]),
+        low: _coerceNumber(k[3]),
+        close: _coerceNumber(k[4]),
+        volume: _coerceNumber(k[6]),
+        quoteVolume: null,
+      }));
+    },
+    search: () => Promise.reject(new Error("Kraken: no search endpoint")),
+    coin: () => Promise.reject(new Error("Kraken: no coin-detail endpoint")),
+    trending: () => Promise.reject(new Error("Kraken: no trending endpoint")),
+  };
+
+  // ── Bybit (TERTIARY for OHLCV / chart) ──────────────────
+  // Another independent hedge. Free, no key, CORS-clean.
+  const bybit = {
+    markets: () => Promise.reject(new Error("Bybit: markets not wired")),
+    top: () => Promise.reject(new Error("Bybit: no top-list endpoint")),
+    global: () => Promise.reject(new Error("Bybit: no global endpoint")),
+    chart: async (id, days = 30) => {
+      const pair = BYBIT_PAIRS[id];
+      if (!pair) throw new Error(`Bybit: no USDT pair for ${id}`);
+      const cap = Math.max(1, Math.min(days | 0, 1000));
+      const url = `${BYBIT_API}/kline?category=spot&symbol=${pair}&interval=D&limit=${cap}`;
+      const data = await _dedupeRequest(url, () =>
+        fetchWithProxy(url, LONG_CACHE_TTL),
+      );
+      const list = data?.result?.list;
+      if (!Array.isArray(list)) return [];
+      // Bybit returns newest-first; reverse for chronological.
+      return list
+        .reverse()
+        .map((k) => [Number(k[0]), _coerceNumber(k[4])]);
+    },
+    ohlcv: async (id, interval = "1h", limit = 500) => {
+      const pair = BYBIT_PAIRS[id];
+      if (!pair) throw new Error(`Bybit: no USDT pair for ${id}`);
+      const cap = Math.max(1, Math.min(limit | 0, 1000));
+      const intervalMap = {
+        "1m": "1", "5m": "5", "15m": "15", "30m": "30",
+        "1h": "60", "4h": "240", "1d": "D", "1w": "W",
+      };
+      const bInt = intervalMap[interval] || "60";
+      const url = `${BYBIT_API}/kline?category=spot&symbol=${pair}&interval=${bInt}&limit=${cap}`;
+      const data = await _dedupeRequest(url, () =>
+        fetchWithProxy(url, LONG_CACHE_TTL),
+      );
+      const list = data?.result?.list;
+      if (!Array.isArray(list)) return [];
+      return list.reverse().map((k) => ({
+        timestamp: Number(k[0]),
+        open: _coerceNumber(k[1]),
+        high: _coerceNumber(k[2]),
+        low: _coerceNumber(k[3]),
+        close: _coerceNumber(k[4]),
+        volume: _coerceNumber(k[5]),
+        quoteVolume: _coerceNumber(k[6]),
+      }));
+    },
+    search: () => Promise.reject(new Error("Bybit: no search endpoint")),
+    coin: () => Promise.reject(new Error("Bybit: no coin-detail endpoint")),
+    trending: () => Promise.reject(new Error("Bybit: no trending endpoint")),
+  };
+
+  const providers = { coinlore, coinbase, coinpaprika, binance, kraken, bybit };
   const ORDER = ["coinlore", "coinbase", "coinpaprika"];
 
   // ── Smart failover ──────────────────────────────────
@@ -7235,7 +7437,11 @@ W.api = (() => {
     if (method === "top" || method === "global") {
       order = ["coinlore", "coinpaprika"];
     } else if (method === "ohlcv" || method === "chart") {
-      order = ["binance", "coinpaprika"];
+      // Ordered by likelihood of success and independence of infra.
+      // Binance is fastest but region-blocked often; Kraken, Coinbase,
+      // and Bybit are on different infrastructure. CoinPaprika is
+      // last because its free tier now returns 402 for chart data.
+      order = ["binance", "kraken", "coinbase", "bybit", "coinpaprika"];
     } else {
       order = ["coinpaprika"];
     }
@@ -16966,6 +17172,13 @@ W.explorer = (() => {
 
     if (chart) {
       try {
+        // Stop any running animation before destroying. chart.destroy()
+        // alone leaves an already-queued animation frame holding a
+        // reference to the instance; when that frame fires it calls
+        // _fn on a torn-down animation object and throws
+        // "this._fn is not a function" from Chart.js internals.
+        // stop() halts the animation loop cleanly.
+        if (typeof chart.stop === "function") chart.stop();
         chart.destroy();
       } catch (e) {
         console.warn("[Explorer] Chart destroy error:", e && e.message);
@@ -17067,7 +17280,9 @@ W.explorer = (() => {
             },
           },
           interaction: { intersect: false, mode: "index" },
-          animation: { duration: 800 },
+          // Short duration — long animations race with rapid
+          // day-range switching, which is a common user action here.
+          animation: { duration: 250 },
         },
       });
     } catch (e) {
