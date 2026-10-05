@@ -22549,6 +22549,224 @@ W.gems = (() => {
   const DEPLOYER_STORE_KEY = "gems.deployerHistory.v1";
   const DEPLOYER_STORE_MAX = 500;
 
+  // ── Recently-observed memes cache ──────────────────
+  // Persists a compact projection of scan results to localStorage so
+  // the Discover page can render them when the live scan fails
+  // (offline, DNS error, provider outage). Not an alternative data
+  // source — purely a memory of what this browser has seen. Entries
+  // expire after 7 days; the cache is capped at 50 entries.
+  const RECENT_KEY = "gems.recent.v1";
+  const RECENT_MAX = 50;
+  const RECENT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+  function loadRecentGems() {
+    try {
+      const raw = localStorage.getItem(RECENT_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      const cutoff = Date.now() - RECENT_TTL_MS;
+      return parsed.filter(
+        (e) =>
+          e &&
+          typeof e === "object" &&
+          Number.isFinite(e.observedAt) &&
+          e.observedAt >= cutoff &&
+          e.pair &&
+          e.pair.baseToken &&
+          typeof e.pair.baseToken.address === "string",
+      );
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function saveRecentGems(list) {
+    try {
+      localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+    } catch (e) {
+      console.warn(
+        "[Gems] Failed to write recent-gems cache:",
+        e && e.message,
+      );
+    }
+  }
+
+  function gemCacheKey(g) {
+    const addr = g && g.pair && g.pair.baseToken && g.pair.baseToken.address;
+    const chain = g && g.pair && g.pair.chainId;
+    if (typeof addr !== "string" || !addr) return null;
+    if (typeof chain !== "string" || !chain) return null;
+    return chain + ":" + addr;
+  }
+
+  function projectGemForCache(g) {
+    const p = (g && g.pair) || {};
+    const b = p.baseToken || {};
+    const a = (g && g.analysis) || {};
+    return {
+      pair: {
+        chainId: typeof p.chainId === "string" ? p.chainId : null,
+        pairAddress: typeof p.pairAddress === "string" ? p.pairAddress : null,
+        url: typeof p.url === "string" ? p.url : null,
+        priceUsd: p.priceUsd != null ? p.priceUsd : null,
+        pairCreatedAt: p.pairCreatedAt != null ? p.pairCreatedAt : null,
+        baseToken: {
+          address: typeof b.address === "string" ? b.address : null,
+          symbol: typeof b.symbol === "string" ? b.symbol : null,
+          name: typeof b.name === "string" ? b.name : null,
+        },
+        liquidity:
+          p.liquidity && typeof p.liquidity === "object" ? p.liquidity : null,
+        volume: p.volume && typeof p.volume === "object" ? p.volume : null,
+        priceChange:
+          p.priceChange && typeof p.priceChange === "object"
+            ? p.priceChange
+            : null,
+        txns: p.txns && typeof p.txns === "object" ? p.txns : null,
+        discoverySources: Array.isArray(p.discoverySources)
+          ? p.discoverySources.slice()
+          : [],
+      },
+      analysis: {
+        score: Number.isFinite(a.score) ? a.score : null,
+        verdict: Array.isArray(a.verdict)
+          ? [String(a.verdict[0] || ""), String(a.verdict[1] || "")]
+          : null,
+        reasons: Array.isArray(a.reasons) ? a.reasons.slice(0, 10) : [],
+        scoreVersion: typeof a.scoreVersion === "string" ? a.scoreVersion : null,
+        ageH: Number.isFinite(a.ageH) ? a.ageH : null,
+        liq: Number.isFinite(a.liq) ? a.liq : null,
+        vol: Number.isFinite(a.vol) ? a.vol : null,
+        h1: Number.isFinite(a.h1) ? a.h1 : null,
+        h6: Number.isFinite(a.h6) ? a.h6 : null,
+        h24: Number.isFinite(a.h24) ? a.h24 : null,
+      },
+      risk:
+        g && g.risk
+          ? {
+              risk: Number.isFinite(g.risk.risk) ? g.risk.risk : null,
+              flags: Array.isArray(g.risk.flags)
+                ? g.risk.flags.slice(0, 5).map((f) => ({
+                    weight: Number.isFinite(f.weight) ? f.weight : 0,
+                    text: typeof f.text === "string" ? f.text : "",
+                  }))
+                : [],
+              verdict:
+                g.risk.verdict && typeof g.risk.verdict === "object"
+                  ? {
+                      key: String(g.risk.verdict.key || ""),
+                      label: String(g.risk.verdict.label || ""),
+                      cls: String(g.risk.verdict.cls || ""),
+                    }
+                  : null,
+              version:
+                typeof g.risk.version === "string" ? g.risk.version : null,
+            }
+          : null,
+      observedAt: Date.now(),
+    };
+  }
+
+  function mergeRecentGems(newEntries) {
+    const existing = loadRecentGems();
+    const byKey = new Map();
+    for (const e of existing) {
+      const k = gemCacheKey(e);
+      if (k) byKey.set(k, e);
+    }
+    for (const e of newEntries) {
+      const k = gemCacheKey(e);
+      if (k) byKey.set(k, e);
+    }
+    const merged = Array.from(byKey.values());
+    merged.sort((x, y) => {
+      const sx = Number.isFinite(x && x.analysis && x.analysis.score)
+        ? x.analysis.score
+        : 0;
+      const sy = Number.isFinite(y && y.analysis && y.analysis.score)
+        ? y.analysis.score
+        : 0;
+      if (sy !== sx) return sy - sx;
+      return (y.observedAt || 0) - (x.observedAt || 0);
+    });
+    const capped = merged.slice(0, RECENT_MAX);
+    saveRecentGems(capped);
+    return capped;
+  }
+
+  function hoursAgoText(ts) {
+    const h = (Date.now() - ts) / 3.6e6;
+    if (h < 1) return "just now";
+    if (h < 48) return Math.round(h) + "h ago";
+    return Math.round(h / 24) + "d ago";
+  }
+
+  function renderCachedGems(body, filters) {
+    const cached = loadRecentGems();
+    if (!cached.length) return false;
+
+    const filtered = cached.filter((g) => {
+      if (filters.chainFilter && g.pair.chainId !== filters.chainFilter)
+        return false;
+      if (
+        filters.hideRisk &&
+        g.risk &&
+        g.risk.verdict &&
+        g.risk.verdict.key === "danger"
+      )
+        return false;
+      if (
+        filters.onlyPass &&
+        (!g.risk || !g.risk.verdict || g.risk.verdict.key !== "pass")
+      )
+        return false;
+      return true;
+    });
+
+    if (!filtered.length) return false;
+
+    console.log(
+      "[Gems] Offline — rendering " + filtered.length + " cached memes",
+    );
+
+    const banner =
+      '<div class="card cached-banner">' +
+      '<div class="watch-head"><h3>🕒 Recently observed — cached</h3></div>' +
+      '<p class="muted small">The live scan could not reach DEX Screener. ' +
+      "Showing " +
+      filtered.length +
+      " meme" +
+      (filtered.length === 1 ? "" : "s") +
+      " observed on this device within the last 7 days. Prices and scores are " +
+      "from the observation time — they may be stale. Refresh when back online " +
+      "for fresh data.</p>" +
+      "</div>";
+
+    body.innerHTML =
+      banner +
+      '<div class="grid-2">' +
+      filtered
+        .map((g) => {
+          g._cachedAt = g.observedAt;
+          return _renderGemCard(g);
+        })
+        .join("") +
+      "</div>";
+
+    // Neutralize shield-check buttons in cached cards — they would
+    // fire a doomed network request while offline.
+    body.querySelectorAll("[data-shield-check]").forEach((btn) => {
+      const row = document.createElement("div");
+      row.className = "kv-row";
+      row.innerHTML =
+        '<span class="muted">Security</span><span>🛡️ Shield: not checked (offline)</span>';
+      btn.replaceWith(row);
+    });
+
+    return true;
+  }
+
   const RISK_WEIGHTS = Object.freeze({
     honeypot: 100,
     cannotSell: 100,
@@ -23767,6 +23985,21 @@ W.gems = (() => {
       enriched.sort((a, b) => b.analysis.score - a.analysis.score);
       const results = enriched.filter((g) => g.analysis.score >= minScore);
 
+      // ══ Phase F½ — persist a projection for offline viewing ══
+      // Purely a client-side memory of what this browser has observed.
+      // No network call, no side effects on the scan. Failures are
+      // non-fatal — a full localStorage just means no cache next time.
+      try {
+        if (results.length) {
+          mergeRecentGems(results.map(projectGemForCache));
+        }
+      } catch (e) {
+        console.warn(
+          "[Gems] Recent-gems persistence failed:",
+          e && e.message,
+        );
+      }
+
       // ══ Phase G — deployer reputation bookkeeping ══
       for (const g of results) {
         if (!g.risk || !g.risk.deployerAddr) continue;
@@ -23891,6 +24124,19 @@ W.gems = (() => {
         );
       }
     } catch (e) {
+      // Live scan failed. Try to render cached memes before showing
+      // the error message. If the cache is empty or everything is
+      // filtered out, fall through to the honest error.
+      try {
+        const chainFilter = view.querySelector("#g-chain")?.value || "";
+        const hideRisk = view.querySelector("#g-hide-risk")?.checked || false;
+        const onlyPass = view.querySelector("#g-only-pass")?.checked || false;
+        if (renderCachedGems(body, { chainFilter, hideRisk, onlyPass })) {
+          return;
+        }
+      } catch (_) {
+        /* fall through */
+      }
       body.innerHTML = `<p class="muted">Gem scan failed: ${esc(e.message)} — DEX Screener unreachable on this network (try ⟳ or another network).</p>`;
     }
   }
@@ -23954,6 +24200,7 @@ W.gems = (() => {
           </div>
         </div>
         <div class="meter-bar"><div class="meter-fill meter-fill-${pctBucket(a.score)}"></div></div>
+        ${Number.isFinite(g._cachedAt) ? '<div class="muted text-2xs mt-8">cached ' + esc(hoursAgoText(g._cachedAt)) + '</div>' : ""}
         <div class="kv-row"><span class="muted">Price</span><span>$${esc(p.priceUsd)}</span></div>
         <div class="kv-row"><span class="muted">Liquidity / 24h Vol</span><span>$${esc(kfmt(a.liq))} / $${esc(kfmt(a.vol))}</span></div>
         <div class="kv-row"><span class="muted">1h / 6h / 24h</span><span>${esc(W.fmt.pct(a.h1))} ${esc(W.fmt.pct(a.h6))} ${esc(W.fmt.pct(a.h24))}</span></div>
