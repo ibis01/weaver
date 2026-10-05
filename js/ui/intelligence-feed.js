@@ -235,8 +235,18 @@ W.intelligenceFeed = (() => {
             d.recommendedAction,
             "Unclassified",
           ),
+          // evidenceQuality is derived from whether the assessment
+          // carries reasoning, not from the engine's eligibility
+          // flag. The engine's ELIGIBLE means "all four dimensions
+          // are numeric, so a score can be computed" — it is not a
+          // claim about evidence sufficiency. Reasoning length is a
+          // closer proxy: an assessment with no reasoning is an
+          // assessment with no recorded evidence.
           evidenceQuality:
-            d.eligibility === "ELIGIBLE" ? "SUFFICIENT" : "INSUFFICIENT",
+            Array.isArray(d.assessment?.reasoning) &&
+            d.assessment.reasoning.length > 0
+              ? "SUFFICIENT"
+              : "INSUFFICIENT",
         },
         reasoning: Array.isArray(d.assessment?.reasoning)
           ? d.assessment.reasoning
