@@ -2848,8 +2848,7 @@ W.vaultUnlock = (() => {
       return;
     }
     if (W.vault.isUnlocked()) {
-      const target =
-        sessionStorage.getItem("post_unlock_route") || "dashboard";
+      const target = sessionStorage.getItem("post_unlock_route") || "dashboard";
       sessionStorage.removeItem("post_unlock_route");
       location.hash = "#/" + target;
       return;
@@ -2864,6 +2863,30 @@ W.vaultUnlock = (() => {
           data cannot be recovered.
         </p>
         <form id="vault-form" autocomplete="on">
+          <!--
+            Hidden username field. Weaver has no real username — the
+            vault is keyed entirely by the passphrase. But Chrome's
+            password-manager linter and every browser password store
+            expect a (username, password) pair on a credential form.
+            Without this, Chrome warns "Password forms should have
+            (optionally hidden) username fields", and password
+            managers may fail to associate the passphrase with the
+            Weaver origin. The value is a stable constant so
+            repeat unlocks reuse the same credential entry.
+
+            aria-hidden + tabindex=-1 + hidden: invisible to screen
+            readers, unreachable via keyboard, never autofocused.
+          -->
+          <input
+            type="text"
+            name="username"
+            autocomplete="username"
+            value="weaver-vault"
+            readonly
+            hidden
+            aria-hidden="true"
+            tabindex="-1"
+          >
           <label>
             Passphrase
             <input type="password" id="vault-pw" autocomplete="current-password" spellcheck="false" class="w-100">
