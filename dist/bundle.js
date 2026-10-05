@@ -1515,6 +1515,15 @@ W.fmt = W.fmt || {};
   };
 
   W.fmt.money = function (amount, options = {}) {
+    // No false precision: a missing value is not zero.
+    if (
+      amount === null ||
+      amount === undefined ||
+      amount === "" ||
+      (typeof amount === "number" && !Number.isFinite(amount))
+    ) {
+      return "\u2014";
+    }
     if (amount === null || amount === undefined || isNaN(amount)) {
       return "$0.00";
     }
@@ -1549,6 +1558,15 @@ W.fmt = W.fmt || {};
    * Format a number as price (crypto)
    */
   W.fmt.price = function (price) {
+    // No false precision: a missing value is not zero.
+    if (
+      amount === null ||
+      amount === undefined ||
+      amount === "" ||
+      (typeof amount === "number" && !Number.isFinite(amount))
+    ) {
+      return "\u2014";
+    }
     if (price === null || price === undefined || isNaN(price)) return "$0.00";
     if (price < 0.01) return `$${price.toFixed(6)}`;
     if (price < 1) return `$${price.toFixed(4)}`;
@@ -7203,8 +7221,37 @@ W.api = (() => {
     coin: async (id) => {
       const pid = ID_TO_PAPRIKA[id];
       if (!pid) throw new Error(`CoinPaprika: no slug for ${id}`);
-      const url = `${COINPAPRIKA_API}/coins/${pid}`;
-      return _dedupeRequest(url, () => fetchWithProxy(url, LONG_CACHE_TTL));
+      // /coins/{id} returns metadata only (name, description, links).
+      // Price and market-cap live on /tickers/{id}. Without the merge,
+      // md.market_cap and md.total_volume are undefined and the stats
+      // grid renders a fabricated "$0.00" for both. Fetch in parallel;
+      // a ticker failure degrades to metadata-only, not a hard fail.
+      const coinUrl = `${COINPAPRIKA_API}/coins/${pid}`;
+      const tickerUrl = `${COINPAPRIKA_API}/tickers/${pid}?quotes=USD`;
+      const [meta, ticker] = await Promise.all([
+        _dedupeRequest(coinUrl, () =>
+          fetchWithProxy(coinUrl, LONG_CACHE_TTL),
+        ),
+        _dedupeRequest(tickerUrl, () =>
+          fetchWithProxy(tickerUrl, CACHE_TTL, TICKERS_TTL),
+        ).catch(() => null),
+      ]);
+      if (!meta || typeof meta !== "object") return meta;
+      if (ticker && ticker.quotes && ticker.quotes.USD) {
+        const q = ticker.quotes.USD;
+        meta.market_data = {
+          current_price: { usd: _coerceNumber(q.price) },
+          market_cap: { usd: _coerceNumber(q.market_cap) },
+          total_volume: { usd: _coerceNumber(q.volume_24h) },
+          price_change_percentage_24h: _coerceNumber(q.percent_change_24h),
+          ath: { usd: null },
+          ath_change_percentage: { usd: null },
+          circulating_supply: _coerceNumber(q.circulating_supply),
+          max_supply: _coerceNumber(q.max_supply),
+        };
+        meta.market_cap_rank = _coerceNumber(ticker.rank);
+      }
+      return meta;
     },
     trending: async () => {
       const url = `${COINPAPRIKA_API}/tickers?quotes=USD&limit=250`;

@@ -152,6 +152,15 @@ W.fmt = W.fmt || {};
   };
 
   W.fmt.money = function (amount, options = {}) {
+    // No false precision: a missing value is not zero.
+    if (
+      amount === null ||
+      amount === undefined ||
+      amount === "" ||
+      (typeof amount === "number" && !Number.isFinite(amount))
+    ) {
+      return "\u2014";
+    }
     if (amount === null || amount === undefined || isNaN(amount)) {
       return "$0.00";
     }
@@ -186,6 +195,15 @@ W.fmt = W.fmt || {};
    * Format a number as price (crypto)
    */
   W.fmt.price = function (price) {
+    // No false precision: a missing value is not zero.
+    if (
+      amount === null ||
+      amount === undefined ||
+      amount === "" ||
+      (typeof amount === "number" && !Number.isFinite(amount))
+    ) {
+      return "\u2014";
+    }
     if (price === null || price === undefined || isNaN(price)) return "$0.00";
     if (price < 0.01) return `$${price.toFixed(6)}`;
     if (price < 1) return `$${price.toFixed(4)}`;
