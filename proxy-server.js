@@ -36,7 +36,13 @@ if (!isProduction && !allowedOrigins.length)
 // into one shared bucket for the whole app. Config enforces this is
 // set in production (see server/config.js); 0 in dev means "no proxy
 // in front, trust nothing," matching Express's own default.
-app.set("trust proxy", config.trustProxyHops ?? 0);
+// Express 5.x crashes when `trust proxy` is set to numeric 0 — the
+// compiled trust function is not what proxy-addr expects, and every
+// access to req.ip throws "Spread syntax requires ...iterable".
+// Express 4.x treated 0 as "trust nothing" and it worked; preserve
+// that behavior by passing false when the hop count is 0. A positive
+// integer hop count still works as Express expects.
+app.set("trust proxy", config.trustProxyHops || false);
 
 const ALLOWED_DOMAINS = [
   "api.coingecko.com",
