@@ -3,15 +3,26 @@
 // observations of the same token.
 //
 // Storage: Workers KV, binding MEME_ALERTS.
-//   Key:   weaver:meme:alert:v1:<chain>:<address>:<observedAtMs>
+//   Key:   weaver:meme:alert:v2:<observedAtMs>:<chain>:<address>
+//          (timestamp-first, so lexicographic listing is chronological)
 //   TTL:   90 days (matches RETENTION_SECONDS in meme-snapshot-store.js)
 
 const RETENTION_SECONDS = 90 * 24 * 60 * 60;
-const PREFIX = "weaver:meme:alert:v1:";
+const PREFIX = "weaver:meme:alert:v2:";
 
 export async function handleMemeAlert(request, env) {
   if (request.method !== "POST")
     return json({ error: "method not allowed" }, 405);
+
+  if (!env || !env.MEME_ALERTS) {
+    return json(
+      {
+        error:
+          "Meme alert storage not configured (MEME_ALERTS binding missing)",
+      },
+      503,
+    );
+  }
 
   let body;
   try {
@@ -37,9 +48,9 @@ export async function handleMemeAlert(request, env) {
     return json({ error: "missing or invalid market.priceUsd" }, 400);
   }
 
-  const key = `${PREFIX}${chain.toLowerCase()}:${address}:${observedAtMs}`;
+  const key = `${PREFIX}${observedAtMs}:${chain.toLowerCase()}:${address}`;
   const record = {
-    schemaVersion: "meme-alert-v1",
+    schemaVersion: "meme-alert-v2",
     assessment: a,
     market: {
       priceUsd: market.priceUsd,

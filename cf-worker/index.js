@@ -7,6 +7,8 @@
 //   GET  /goplus/evm/:chainId?contract_addresses=0x...
 //   GET  /goplus/solana?contract_addresses=...
 //   POST /bitquery/deployer    body: { chain, deployerAddress }
+//   GET  /meme/alerts?since=&until=&limit=&cursor=   (calibration read)
+//   POST /meme/alert           body: { assessment, market, ... }
 //   GET/POST /proxy?url=...    host-allowlisted market/news relay
 //
 // SOLANA RPC — KEYED PROVIDER INJECTION:
@@ -111,8 +113,10 @@
 //
 // Deploy: see cf-worker/README.md in this folder.
 
-// Only these origins may call this worker from a browser.
+// ── Imports ──────────────────────────────────────────────────────
 import { handleMemeAlert } from "./src/meme-alert.js";
+
+// Only these origins may call this worker from a browser.
 const ALLOWED_ORIGINS = [
   "https://ibis01.github.io",
   "http://localhost:3000",
@@ -769,20 +773,83 @@ async function handleRequest(request, env, ctx) {
     return handleDeployerRequest(request, env, headers);
   }
 
-  // ── Generic relay — /proxy?url=… host-allowlisted, cached. ───
-  // ── Meme alert route — POST only, exact path match. ──────────
-  // Persists a browser-side gem alert to KV so the calibration job
-  // can join it with snapshot-worker observations of the same token.
+  // ── Meme alerts listing — GET only, paginated, time-filtered. ─
+  // Read-only public endpoint used by the calibration job. Returns
+  // alerts in the [since, until) window, up to `limit` (max 1000),
+  // with a continuation cursor. No secrets required.
+  if (parts.length === 2 && parts[0] === "meme" && parts[1] === "alerts") {
+    if (request.method !== "GET") {
+      return jsonResponse({ error: "Method not allowed" }, 405, headers);
+    }
+    if (!env || !env.MEME_ALERTS) {
+      return jsonResponse(
+        { error: "Meme alert storage not configured" },
+        503,
+        headers,
+      );
+    }
+
+    const since = Number(url.searchParams.get("since")) || 0;
+    const until =
+      Number(url.searchParams.get("until")) || Number.MAX_SAFE_INTEGER;
+    const limit = Math.min(1000, Number(url.searchParams.get("limit")) || 500);
+    const cursor = url.searchParams.get("cursor") || undefined;
+
+    const result = await env.MEME_ALERTS.list({
+      prefix: "weaver:meme:alert:v2:",
+      limit,
+      cursor,
+    });
+
+    const alerts = [];
+    for (const key of result.keys) {
+      const keyParts = key.name.split(":");
+      // ["weaver", "meme", "alert", "v2", "<ts>", "<chain>", "<address>"]
+      const observedAtMs = Number(keyParts[4]);
+      if (!Number.isFinite(observedAtMs)) continue;
+      if (observedAtMs < since || observedAtMs >= until) continue;
+      const value = await env.MEME_ALERTS.get(key.name);
+      if (!value) continue;
+      try {
+        alerts.push(JSON.parse(value));
+      } catch {
+        /* skip malformed records */
+      }
+    }
+
+    return jsonResponse(
+      {
+        alerts,
+        cursor: result.cursor || null,
+        list_complete: result.list_complete,
+        scanned: result.keys.length,
+        window: { since, until },
+      },
+      200,
+      headers,
+    );
+  }
+
+  // ── Meme alert persistence — POST only, exact path match. ────
+  // Persists a browser-side gem alert to KV for the calibration job.
+  // handleMemeAlert builds its own Response without CORS headers;
+  // re-emit with the headers computed at the top of handleRequest.
   if (parts.length === 2 && parts[0] === "meme" && parts[1] === "alert") {
     if (request.method !== "POST") {
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
     }
     const res = await handleMemeAlert(request, env);
-    // handleMemeAlert builds its own Response without CORS headers.
-    // Re-emit with the headers computed at the top of handleRequest.
     const merged = new Headers(res.headers);
     for (const [k, v] of Object.entries(headers)) merged.set(k, v);
     return new Response(res.body, { status: res.status, headers: merged });
+  }
+
+  // ── Generic relay — /proxy?url=… host-allowlisted, cached. ───
+  if (parts.length === 1 && parts[0] === "proxy") {
+    if (request.method !== "GET" && request.method !== "POST") {
+      return jsonResponse({ error: "Method not allowed" }, 405, headers);
+    }
+    return relayAllowedProxy(request, url, headers, ctx, env);
   }
 
   // ── GoPlus routes — GET only, path-based. ────────────────────
