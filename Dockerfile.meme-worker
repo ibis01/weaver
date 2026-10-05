@@ -1,0 +1,11 @@
+FROM node:22.22.2-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY scripts/meme-snapshot-worker.js ./scripts/meme-snapshot-worker.js
+COPY server/meme-snapshot-store.js ./server/meme-snapshot-store.js
+RUN addgroup -S weaver && adduser -S -G weaver weaver \
+  && chown -R weaver:weaver /app
+USER weaver
+CMD ["node", "scripts/meme-snapshot-worker.js"]
