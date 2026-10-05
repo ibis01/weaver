@@ -208,13 +208,14 @@ class RedisState {
     identity,
     { windowMs = 60000, maxRequests = 30 } = {},
   ) {
+    // node-redis v4 signature: arguments must be an ordered ARRAY of
+    // strings. Passing an object here causes node-redis to spread a
+    // non-iterable internally ("Spread syntax requires
+    // ...iterable[Symbol.iterator]"), which surfaced as a 500 on
+    // every rate-limited request whenever Redis was connected.
     const [count, ttl] = await this.client.eval(RATE_LIMIT_SCRIPT, {
       keys: [this.key("rate", identity)],
-      arguments: {
-        now: String(Date.now()),
-        window: String(windowMs),
-        limit: String(maxRequests),
-      },
+      arguments: [String(Date.now()), String(windowMs), String(maxRequests)],
     });
     return {
       allowed: Number(count) <= maxRequests,
@@ -241,11 +242,7 @@ class RedisState {
   ) {
     const result = await this.client.eval(CIRCUIT_SCRIPT, {
       keys: [this.key("circuit", hostname)],
-      arguments: {
-        now: String(Date.now()),
-        threshold: String(threshold),
-        cooldown: String(cooldownMs),
-      },
+      arguments: [String(Date.now()), String(threshold), String(cooldownMs)],
     });
     return {
       opened: Number(result[2]) > Date.now(),
