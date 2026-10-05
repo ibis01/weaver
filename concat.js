@@ -52,11 +52,16 @@ const files = [
   // NOTE: evidence.js defines the base API (create/validate/etc).
   //       evidence-builder.js merges `build` into that same object.
   //       Order is significant — evidence.js must run first.
+  //
+  // NOTE: meme-contracts.js must precede meme-opportunity.js.
+  //       The opportunity engine reads W.memeContracts at call
+  //       time, but keeping the dependency ordered here mirrors
+  //       the module graph and makes bundle inspection sane.
   "js/intelligence/evidence.js",
   "js/intelligence/evidence-builder.js",
+  "js/intelligence/intelligence-contracts.js",
   "js/intelligence/meme-contracts.js",
   "js/intelligence/meme-opportunity.js",
-  ,
   "js/intelligence/regime.js",
   "js/intelligence/delta.js",
   "js/intelligence/behavior.js",
