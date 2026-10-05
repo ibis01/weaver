@@ -17,27 +17,24 @@ window.W = window.W || {};
 // ═══════════════════════════════════════════════════════════════════
 
 W.walletGraph = (() => {
-  // ── Constants ───────────────────────────────────────
-  const MAX_NODES = 2000; // per token
-  const MAX_EDGES = 8000; // per token
-  const MAX_GRAPH_CACHE = 64; // session
+  const MAX_NODES = 2000;
+  const MAX_EDGES = 8000;
+  const MAX_GRAPH_CACHE = 64;
 
   const CONF = Object.freeze({
-    STRONG: 0.85, // direct funding edge, or same-tx co-buy
-    MEDIUM: 0.6, // near-identical amounts + tight timing
-    WEAK: 0.35, // shared source tag + loose timing
+    STRONG: 0.85,
+    MEDIUM: 0.6,
+    WEAK: 0.35,
   });
 
   const CO_TIMING_WINDOW_MS = 4000;
   const AMOUNT_TOLERANCE = 0.08;
   const MATERIAL_SHARE_PCT = 8;
 
-  // ── Prototype-safe map ─────────────────────────────
   function newMap() {
     return Object.create(null);
   }
 
-  // ── Normalisation ───────────────────────────────────
   function addrKey(chainKey, address) {
     if (typeof address !== "string" || !address) return null;
     if (typeof chainKey !== "string" || !chainKey) return null;
@@ -65,11 +62,10 @@ W.walletGraph = (() => {
 
   function sourceSimilarity(srcA, srcB) {
     if (!srcA || !srcB) return 0;
-    if (srcA === srcB) return 0.5; // shared CEX hot wallet is weak evidence
+    if (srcA === srcB) return 0.5;
     return 0;
   }
 
-  // ── Union-Find ─────────────────────────────────────
   function makeUF(size) {
     const parent = new Int32Array(size);
     for (let i = 0; i < size; i++) parent[i] = i;
@@ -93,7 +89,6 @@ W.walletGraph = (() => {
     return { find, union };
   }
 
-  // ── Edge builders ──────────────────────────────────
   function buildHolderEdges(holders) {
     const nodes = [];
     const edges = [];
@@ -163,7 +158,6 @@ W.walletGraph = (() => {
     }
   }
 
-  // ── Clustering ─────────────────────────────────────
   function cluster(nodes, edges) {
     const uf = makeUF(nodes.length);
     const sorted = edges.slice().sort((x, y) => y.weight - x.weight);
@@ -178,12 +172,11 @@ W.walletGraph = (() => {
       groups[r].push(i);
     }
 
-    // Strongest edge per root.
     const maxWeightByRoot = newMap();
     for (const e of edges) {
       const ra = uf.find(e.a);
       const rb = uf.find(e.b);
-      if (ra !== rb) continue; // cross-cluster edge
+      if (ra !== rb) continue;
       const rs = String(ra);
       if (!(rs in maxWeightByRoot) || e.weight > maxWeightByRoot[rs]) {
         maxWeightByRoot[rs] = e.weight;
@@ -219,7 +212,6 @@ W.walletGraph = (() => {
     return clusters;
   }
 
-  // ── Public analyse ─────────────────────────────────
   function analyse(chainKey, address, holders, fundingEdges) {
     const key = addrKey(chainKey, address);
     if (!key) return null;
@@ -242,7 +234,6 @@ W.walletGraph = (() => {
     const truncated = nodes.length >= MAX_NODES || edges.length >= MAX_EDGES;
     const clusters = cluster(nodes, edges);
 
-    // Precompute address → pct for the clustered-share calculation.
     const pctByAddr = newMap();
     for (const n of nodes) pctByAddr[n.address.toLowerCase()] = n.pct;
 
@@ -269,7 +260,6 @@ W.walletGraph = (() => {
     };
   }
 
-  // ── Cache ──────────────────────────────────────────
   let cache = newMap();
   let cacheOrder = [];
 
@@ -295,7 +285,6 @@ W.walletGraph = (() => {
     }
   }
 
-  // ── Summary & risk contribution ────────────────────
   function summarise(report) {
     if (!report) return "";
     if (!report.clusters.length) return "No behavioural clusters detected";
@@ -395,12 +384,6 @@ W.securityAdapters = (() => {
     optimism: "10",
   });
 
-  // Honeypot supports EVM chains only. An earlier version listed
-  // solana: "solana" because the docs mentioned it, but every Solana
-  // request returns HTTP 400 — Honeypot's IsHoneypot endpoint has no
-  // Solana simulation. Removing the entry makes fromHoneypotIs return
-  // { ok: false, reason: "unsupported-chain" } before firing a doomed
-  // request, and stops the console noise on every Solana gem scan.
   const HONEYPOT_CHAINS = Object.freeze({
     ethereum: "1",
     bsc: "56",
@@ -435,7 +418,6 @@ W.securityAdapters = (() => {
     return Number.isFinite(n) ? n : null;
   }
 
-  // ── GoPlus (EVM) ───────────────────────────────────
   async function fromGoPlus(chainKey, address) {
     const chainId = GOPLUS_CHAIN_IDS[chainKey];
     if (!chainId)
@@ -489,7 +471,6 @@ W.securityAdapters = (() => {
     };
   }
 
-  // ── RugCheck (Solana) ──────────────────────────────
   async function fromRugCheck(chainKey, address) {
     if (chainKey !== "solana")
       return { source: "rugcheck", ok: false, reason: "unsupported-chain" };
@@ -547,7 +528,6 @@ W.securityAdapters = (() => {
     };
   }
 
-  // ── honeypot.is (EVM + Solana) ─────────────────────
   async function fromHoneypotIs(chainKey, address) {
     const chain = HONEYPOT_CHAINS[chainKey];
     if (!chain)
@@ -599,7 +579,6 @@ W.securityAdapters = (() => {
     };
   }
 
-  // ── Merge ──────────────────────────────────────────
   function mergeAssessments(list) {
     const merged = {
       source: list.map((a) => a.source).join("+"),
@@ -618,7 +597,6 @@ W.securityAdapters = (() => {
     };
 
     for (const a of list) {
-      // Boolean OR-with-pessimism: any `true` for a risk wins.
       if (a.honeypot === true) merged.honeypot = true;
       else if (merged.honeypot === null && a.honeypot === false)
         merged.honeypot = false;
@@ -673,7 +651,6 @@ W.securityAdapters = (() => {
     return merged;
   }
 
-  // ── Router ─────────────────────────────────────────
   async function assess(chainKey, address, { merge = false } = {}) {
     const calls = [];
     if (chainKey === "solana") {
@@ -717,10 +694,27 @@ console.log(
 // MODULE 3 — W.gems
 // Scanner, composite risk engine, persistent deployer reputation,
 // UI rendering. Consumes W.walletGraph and W.securityAdapters.
+//
+// Scan pipeline (phases labeled in _scanImpl):
+//   A · coarse scoring + enrichment set selection
+//   B · shield enrichment
+//   C · observation recording
+//   D · deployer enrichment
+//   E · per-candidate risk + context-aware opportunity score
+//   F · re-rank and re-filter by authoritative score
+//   G · deployer reputation bookkeeping
+//   H · user-facing filters
+//   I · notifications, theses, alert persistence
+//   J · render stats
+//   K · render cards
+//
+// The opportunity engine is called twice per candidate: a coarse
+// pass (no security/holder/graph context) for prioritization, and a
+// context-aware pass after enrichment. The authoritative score is
+// the context-aware one; sorting and filtering use it exclusively.
 // ═══════════════════════════════════════════════════════════════════
 
 W.gems = (() => {
-  // ── Constants ──────────────────────────────────────
   const DEXSCREENER_API = "https://api.dexscreener.com";
 
   const CHAINS = Object.freeze({
@@ -739,11 +733,6 @@ W.gems = (() => {
   const MAX_FRESH_SHIELD_PER_SCAN = 12;
   const SHIELD_CONCURRENCY = 4;
   const MAX_FRESH_DEPLOYER_PER_SCAN = 6;
-  // Bitquery's free tier rate-limits concurrent queries per IP. The
-  // Worker's shared egress pool amplifies that — a scan with N=3
-  // concurrent deployer lookups reliably produced 502s on some
-  // requests. Serializing at 1 costs ~300–500ms per scan of ~10
-  // candidates and eliminates the burst entirely.
   const DEPLOYER_CONCURRENCY = 1;
   const SHIELD_CACHE_TTL = 300000;
   const FETCH_TIMEOUT_MS = 9000;
@@ -751,7 +740,6 @@ W.gems = (() => {
   const DEPLOYER_STORE_KEY = "gems.deployerHistory.v1";
   const DEPLOYER_STORE_MAX = 500;
 
-  // ── Risk weights (explicit, auditable) ─────────────
   const RISK_WEIGHTS = Object.freeze({
     honeypot: 100,
     cannotSell: 100,
@@ -926,8 +914,6 @@ W.gems = (() => {
     const chainKey = gem.pair.chainId;
     if (!chainKey || !CHAINS[chainKey]) return false;
     if (!W.shield || !W.shield.CHAINS || !W.shield.CHAINS[chainKey]) {
-      // External adapters can still cover this chain even if internal
-      // Shield can't. Treat as eligible so the fallback path runs.
       return !!W.securityAdapters;
     }
     return true;
@@ -956,13 +942,10 @@ W.gems = (() => {
     const chainKey = pair && pair.chainId;
     const baseToken = (pair && pair.baseToken) || {};
 
-    // ── Shield-derived signals ───────────────────────
     let shieldPresent = false;
     if (shield && !shield.unsupported && !shield.error && !shield.noData) {
       shieldPresent = true;
 
-      // ── Authoritative high-risk check ─────────────────────
-      // Defer to W.shield.isHighRisk as the single source of truth.
       if (isHighRisk(shield)) {
         add(RISK_WEIGHTS.honeypot, "🚩 Shield identified high risk");
       }
@@ -1023,7 +1006,6 @@ W.gems = (() => {
       }
     }
 
-    // ── Market structure signals ─────────────────────
     let structurePresent = false;
     if (observation && observation.concentration) {
       const c = observation.concentration;
@@ -1044,7 +1026,6 @@ W.gems = (() => {
       }
     }
 
-    // ── Coordination heuristic ───────────────────────
     if (
       analysis &&
       Number.isFinite(analysis.ageH) &&
@@ -1062,12 +1043,10 @@ W.gems = (() => {
       }
     }
 
-    // ── Micro-liquidity ──────────────────────────────
     if (analysis && Number.isFinite(analysis.liq) && analysis.liq < 30000) {
       add(RISK_WEIGHTS.microLiquidity, "⚠️ Micro liquidity (<$30k)");
     }
 
-    // ── New-pair momentum anomaly ────────────────────
     if (
       analysis &&
       Number.isFinite(analysis.ageH) &&
@@ -1082,7 +1061,6 @@ W.gems = (() => {
       );
     }
 
-    // ── Wallet-graph signal ──────────────────────────
     let graphPresent = false;
     if (graphReport && W.walletGraph) {
       graphPresent = true;
@@ -1095,7 +1073,6 @@ W.gems = (() => {
       }
     }
 
-    // ── Deployer reputation ──────────────────────────
     let deployerPresent = false;
     let deployerAddr = null;
     if (shield && shield.creator && typeof shield.creator === "object") {
@@ -1120,7 +1097,6 @@ W.gems = (() => {
       }
     }
 
-    // ── Verdict ──────────────────────────────────────
     const capped = Math.max(0, Math.min(100, risk));
     const anySignal =
       shieldPresent || structurePresent || deployerPresent || graphPresent;
@@ -1151,7 +1127,6 @@ W.gems = (() => {
     };
   }
 
-  // ── Risk badge / flag renderers ────────────────────
   function riskBadge(assessment) {
     const v = (assessment && assessment.verdict) || VERDICT.UNKNOWN;
     const risk = assessment ? assessment.risk : null;
@@ -1168,7 +1143,6 @@ W.gems = (() => {
     return `<div class="kv-row"><span class="muted">Risk flags</span><span></span></div><ul class="tx-list risk-flags">${items}</ul>`;
   }
 
-  // ── Market structure / trajectory / owner / deployer ──
   function buildObservation(shield, pair) {
     if (!shield || !pair) return null;
     if (!W.marketStructure || typeof W.marketStructure.observe !== "function") {
@@ -1407,6 +1381,13 @@ W.gems = (() => {
   }
 
   // ── Momentum scoring ───────────────────────────────
+  //
+  // Phase A prioritization only. The opportunity score returned here
+  // is a coarse signal (no security/holder/graph context) used solely
+  // to decide which candidates receive expensive network enrichment
+  // in phases B–D. It is NOT the authoritative score shown to the
+  // user or used for final sorting; phase E recomputes with full
+  // context and phase F re-ranks with that.
   function score(pair) {
     const liq = (pair.liquidity && pair.liquidity.usd) || 0;
     const vol = (pair.volume && pair.volume.h24) || 0;
@@ -1479,6 +1460,8 @@ W.gems = (() => {
             ? ["⚠️ Speculative / mixed", "speculative"]
             : ["🚩 Weak opportunity signals", "weak-opportunity"];
 
+    // Coarse pass — no context. Authoritative score is recomputed in
+    // phase E after enrichment and used for the final ranking.
     const opportunity =
       W.memeOpportunity && typeof W.memeOpportunity.analyze === "function"
         ? W.memeOpportunity.analyze(pair)
@@ -1535,7 +1518,6 @@ W.gems = (() => {
       return cached;
     }
 
-    // Path 1: no internal Shield for this chain → external only.
     if (!W.shield || !W.shield.CHAINS || !W.shield.CHAINS[chainKey]) {
       if (W.securityAdapters) {
         try {
@@ -1556,7 +1538,6 @@ W.gems = (() => {
       return result;
     }
 
-    // Path 2: internal Shield available → use it, merge externals if thin.
     try {
       const assessment = await W.shield.check(addr, chainKey);
       let result = assessment ? { ...assessment, ok: true } : { noData: true };
@@ -1658,6 +1639,57 @@ W.gems = (() => {
     });
   }
 
+  // ── Alert persistence (Slice 1 — calibration input) ────
+  // Fire-and-forget POST of a qualifying gem alert to the Worker so
+  // the calibration job can later join it with snapshot-worker
+  // observations of the same token. Failures never affect the scan.
+  function resolveWorkerBase() {
+    if (
+      W.config &&
+      typeof W.config.workerBase === "string" &&
+      W.config.workerBase
+    ) {
+      return W.config.workerBase;
+    }
+    if (typeof W.workerBase === "string" && W.workerBase) return W.workerBase;
+    return null;
+  }
+
+  async function persistMemeAlert(gem) {
+    const workerBase = resolveWorkerBase();
+    if (!workerBase) return;
+    const assessment = gem && gem.analysis && gem.analysis.opportunity;
+    if (!assessment) return;
+
+    const addr = gem.pair && gem.pair.baseToken && gem.pair.baseToken.address;
+    const chain = gem.pair && gem.pair.chainId;
+    if (typeof addr !== "string" || !addr || !chain) return;
+
+    const priceUsd = Number(gem.pair.priceUsd);
+    const liquidityUsd = Number(gem.pair.liquidity && gem.pair.liquidity.usd);
+
+    const payload = {
+      assessment: Object.assign({}, assessment, {
+        observedAtMs: Date.now(),
+        identity: { chain, tokenAddress: addr },
+      }),
+      market: {
+        priceUsd: Number.isFinite(priceUsd) ? priceUsd : null,
+        liquidityUsd: Number.isFinite(liquidityUsd) ? liquidityUsd : null,
+        observedAt: new Date().toISOString(),
+      },
+      pairAddress: gem.pair.pairAddress || null,
+      symbol: (gem.pair.baseToken && gem.pair.baseToken.symbol) || null,
+    };
+
+    await fetch(workerBase.replace(/\/$/, "") + "/meme/alert", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    });
+  }
+
   // ── Scan ───────────────────────────────────────────
   async function scan(view) {
     if (!view) return;
@@ -1670,6 +1702,7 @@ W.gems = (() => {
     body.innerHTML = W.ui.spinner();
 
     try {
+      // ══ Discovery: DexScreener boosts + profiles + trending ══
       const [boosts, profiles, trending] = await Promise.allSettled([
         fetchDexScreener(DEXSCREENER_API + "/token-boosts/latest/v1"),
         fetchDexScreener(DEXSCREENER_API + "/token-profiles/latest/v1"),
@@ -1753,6 +1786,7 @@ W.gems = (() => {
         );
       });
 
+      // Deduplicate by base token, keeping the deepest-liquidity pair.
       const byToken = newMap();
       discoveredPairs.forEach((p) => {
         if (!p || typeof p !== "object") return;
@@ -1786,14 +1820,18 @@ W.gems = (() => {
       const hideRisk = view.querySelector("#g-hide-risk")?.checked || false;
       const onlyPass = view.querySelector("#g-only-pass")?.checked || false;
 
-      const results = Object.values(byToken)
-        .map((p) => ({ pair: p, analysis: score(p) }))
+      // ══ Phase A — coarse scoring & enrichment set selection ══
+      const candidates = Object.values(byToken).map((p) => ({
+        pair: p,
+        analysis: score(p),
+      }));
+      candidates.sort((a, b) => b.analysis.score - a.analysis.score);
+      const enriched = candidates
         .filter((g) => g.analysis.score >= minScore)
-        .sort((a, b) => b.analysis.score - a.analysis.score)
         .slice(0, 24);
 
-      // ── Shield enrichment ──────────────────────────
-      const eligible = results.filter(isShieldEligible);
+      // ══ Phase B — shield enrichment ══
+      const eligible = enriched.filter(isShieldEligible);
       const uncached = [];
       for (const g of eligible) {
         if (uncached.length >= MAX_FRESH_SHIELD_PER_SCAN) break;
@@ -1804,16 +1842,16 @@ W.gems = (() => {
       if (uncached.length)
         await enrichShieldResults(uncached, SHIELD_CONCURRENCY);
 
-      // ── Record observations ────────────────────────
-      for (const g of results) {
+      // ══ Phase C — observation recording ══
+      for (const g of enriched) {
         recordObservation(g);
         observeOwner(g);
       }
 
-      // ── Deployer enrichment ────────────────────────
+      // ══ Phase D — deployer enrichment ══
       if (W.deployerGraph && typeof W.deployerGraph.get === "function") {
         const deployerUncached = [];
-        for (const g of results) {
+        for (const g of enriched) {
           if (deployerUncached.length >= MAX_FRESH_DEPLOYER_PER_SCAN) break;
           const addr = g.pair.baseToken.address;
           const chainKey = g.pair.chainId;
@@ -1837,15 +1875,14 @@ W.gems = (() => {
         }
       }
 
-      // ── Per-candidate risk assessment ──────────────
-      for (const g of results) {
+      // ══ Phase E — per-candidate risk + context-aware score ══
+      for (const g of enriched) {
         const addr = g.pair.baseToken.address;
         const chainKey = g.pair.chainId;
         const key = shieldCacheKey(addr, chainKey);
         const shield = key ? getCachedShield(key) : null;
         const observation = buildObservation(shield, g.pair);
 
-        // Wallet graph: build or reuse cluster report.
         let graphReport = null;
         if (
           W.walletGraph &&
@@ -1868,6 +1905,7 @@ W.gems = (() => {
         g.shield = shield;
         g.observation = observation;
         g.graphReport = graphReport;
+
         if (
           W.memeOpportunity &&
           typeof W.memeOpportunity.analyze === "function"
@@ -1892,7 +1930,16 @@ W.gems = (() => {
         }
       }
 
-      // ── Deployer reputation bookkeeping ────────────
+      // ══ Phase F — re-rank & re-filter with authoritative scores ══
+      //
+      // Sorting and filtering now use the context-aware score from
+      // phase E, so the number shown on the card matches the number
+      // that decided whether the card appears. The coarse score from
+      // phase A is no longer consulted after this point.
+      enriched.sort((a, b) => b.analysis.score - a.analysis.score);
+      const results = enriched.filter((g) => g.analysis.score >= minScore);
+
+      // ══ Phase G — deployer reputation bookkeeping ══
       for (const g of results) {
         if (!g.risk || !g.risk.deployerAddr) continue;
         recordDeployerSeen(
@@ -1902,7 +1949,7 @@ W.gems = (() => {
         );
       }
 
-      // ── Filters ────────────────────────────────────
+      // ══ Phase H — user-facing filters ══
       const shown = results.filter((g) => {
         if (chainFilter && g.pair.chainId !== chainFilter) return false;
         if (hideRisk && g.risk && g.risk.verdict.key === "danger") return false;
@@ -1911,7 +1958,7 @@ W.gems = (() => {
         return true;
       });
 
-      // ── Notifications / theses ─────────────────────
+      // ══ Phase I — notifications, theses, alert persistence ══
       for (const g of results) {
         const addr = g.pair.baseToken.address;
         const chainKey = g.pair.chainId;
@@ -1967,11 +2014,13 @@ W.gems = (() => {
               methodologyVersion: g.analysis.scoreVersion,
             });
           }
+          // Calibration input — non-blocking; failures are swallowed.
+          persistMemeAlert(g).catch(() => {});
         }
         if (cacheKey) seen[cacheKey] = 1;
       }
 
-      // ── Render stats ───────────────────────────────
+      // ══ Phase J — render stats ══
       const statsEl = view.querySelector("#g-stats");
       if (statsEl) {
         const passed = results.filter(
@@ -1988,7 +2037,7 @@ W.gems = (() => {
         `;
       }
 
-      // ── Render cards ───────────────────────────────
+      // ══ Phase K — render cards ══
       if (shown.length) {
         body.innerHTML = `<div class="grid-2">${shown.map((g) => _renderGemCard(g)).join("")}</div>`;
         body.querySelectorAll("[data-shield-check]").forEach((btn) => {
@@ -2193,6 +2242,7 @@ W.gems = (() => {
       observeOwner,
       observeDeployer,
       enrichDeployerResults,
+      persistMemeAlert,
       getShieldCache: () => shieldCache,
       resetShieldCache: () => {
         shieldCache = newMap();
