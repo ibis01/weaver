@@ -8,7 +8,12 @@ function makeEnv() {
       put: async (k, v) => {
         store.set(k, v);
       },
-      get: async (k) => store.get(k) || null,
+      get: async (k) => {
+        if (!store.has(k)) {
+          throw new Error(`Unexpected KV read for missing key: ${k}`);
+        }
+        return store.get(k);
+      },
     },
     _store: store,
   };
@@ -68,11 +73,11 @@ describe("POST /meme/alert", () => {
     const r = await handleMemeAlert(req(body), env);
     expect(r.status).toBe(200);
     const stored = await env.MEME_ALERTS.get(
-      "weaver:meme:alert:v1:ethereum:0xabc:1700000000000",
+      "weaver:meme:alert:v2:1700000000000:ethereum:0xabc",
     );
     expect(typeof stored).toBe("string");
     const parsed = JSON.parse(stored);
-    expect(parsed.schemaVersion).toBe("meme-alert-v1");
+    expect(parsed.schemaVersion).toBe("meme-alert-v2");
     expect(parsed.assessment.category).toBe("WATCH_FOR_CONFIRMATION");
     expect(parsed.market.priceUsd).toBe(1.23);
   });
