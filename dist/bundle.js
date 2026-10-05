@@ -23157,17 +23157,22 @@ W.gems = (() => {
   // Fire-and-forget POST of a qualifying gem alert to the Worker so
   // the calibration job can later join it with snapshot-worker
   // observations of the same token. Failures never affect the scan.
-  function resolveWorkerBase() {
-    if (
-      W.config &&
-      typeof W.config.workerBase === "string" &&
-      W.config.workerBase
-    ) {
-      return W.config.workerBase;
+    function resolveWorkerBase() {
+      if (
+        W.config &&
+        typeof W.config.workerBase === "string" &&
+        W.config.workerBase
+      ) {
+        return W.config.workerBase;
+      }
+      if (typeof W.workerBase === "string" && W.workerBase) return W.workerBase;
+      // Fallback: the Worker URL is a public constant. deployer-graph.js
+      // hardcodes the same value at module scope; duplicating it here
+      // makes persistMemeAlert functional without requiring a global
+      // bootstrap step to set W.workerBase. If a future config layer
+      // sets W.config.workerBase, it wins.
+      return "https://weaver-proxy.ibis01-weaver.workers.dev";
     }
-    if (typeof W.workerBase === "string" && W.workerBase) return W.workerBase;
-    return null;
-  }
 
   async function persistMemeAlert(gem) {
     const workerBase = resolveWorkerBase();

@@ -769,11 +769,19 @@ async function handleRequest(request, env, ctx) {
   }
 
   // ── Generic relay — /proxy?url=… host-allowlisted, cached. ───
-  if (parts.length === 1 && parts[0] === "proxy") {
-    if (request.method !== "GET" && request.method !== "POST") {
+  // ── Meme alert route — POST only, exact path match. ──────────
+  // Persists a browser-side gem alert to KV so the calibration job
+  // can join it with snapshot-worker observations of the same token.
+  if (parts.length === 2 && parts[0] === "meme" && parts[1] === "alert") {
+    if (request.method !== "POST") {
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
     }
-    return relayAllowedProxy(request, url, headers, ctx, env);
+    const res = await handleMemeAlert(request, env);
+    // handleMemeAlert builds its own Response without CORS headers.
+    // Re-emit with the headers computed at the top of handleRequest.
+    const merged = new Headers(res.headers);
+    for (const [k, v] of Object.entries(headers)) merged.set(k, v);
+    return new Response(res.body, { status: res.status, headers: merged });
   }
 
   // ── GoPlus routes — GET only, path-based. ────────────────────
