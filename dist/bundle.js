@@ -8621,7 +8621,6 @@ W.memeOpportunity = (() => {
   };
 
   // ── Scorers ───────────────────────────────────────────
-  // Each returns number in [0,100] or null.
 
   const scoreLiquidity = (m) => {
     const l = m?.liquidityUsd;
@@ -8673,10 +8672,19 @@ W.memeOpportunity = (() => {
     return 55;
   };
 
+  const estimateSellSlippage = (liquidityUsd) => {
+    if (
+      liquidityUsd === null ||
+      liquidityUsd === undefined ||
+      liquidityUsd <= 0
+    )
+      return null;
+    return clamp((1000 / Math.max(liquidityUsd, 1)) * 100 * 1.5);
+  };
+
   const scoreExecutionRisk = (m) => {
-    const l = m?.liquidityUsd;
-    if (!l || l <= 0) return null;
-    const slip = clamp((1000 / Math.max(l, 1)) * 100 * 1.5);
+    const slip = estimateSellSlippage(m?.liquidityUsd);
+    if (slip === null) return null;
     if (slip >= 20) return 100;
     if (slip >= 10) return 75;
     if (slip >= 5) return 45;
@@ -8763,6 +8771,9 @@ W.memeOpportunity = (() => {
       typeof W.intelligence.computeConfidence !== "function"
     )
       return null;
+    // Holder data is required to interpret participation — without it
+    // we do not fabricate a confidence number.
+    if (!market || !security || !holders) return null;
 
     const present = [market, security, holders, walletFlow].filter(
       (x) => x != null,
@@ -8817,7 +8828,7 @@ W.memeOpportunity = (() => {
     return clamp(1 - age / (24 * 60 * 60 * 1000), 0, 1);
   }
 
-  // ── assess(): the new entry point ─────────────────────
+  // ── assess(): canonical entry point ───────────────────
 
   function assess(input) {
     const {
@@ -8861,39 +8872,51 @@ W.memeOpportunity = (() => {
     }
     let opportunityRaw = aw ? w / aw : null;
 
-    const reasons = [],
-      penalties = [];
+    // Gather penalty deltas without mutating a possibly-null score.
+    const penalties = [];
+    const deltas = [];
+
     const volRatio =
       market?.liquidityUsd && market?.volume24h != null
         ? market.volume24h / market.liquidityUsd
         : null;
     if (volRatio !== null && volRatio > 30) {
-      opportunityRaw = (opportunityRaw ?? 0) - 15;
+      deltas.push(-15);
       penalties.push("Extreme volume/liquidity ratio — possible wash trading");
     }
     if (market?.liquidityUsd != null && market.liquidityUsd < 75000) {
-      opportunityRaw = (opportunityRaw ?? 0) - 20;
+      deltas.push(-20);
       penalties.push("Thin liquidity creates high exit risk");
     }
     if (holders?.top10Pct != null && holders.top10Pct >= 50) {
-      opportunityRaw =
-        (opportunityRaw ?? 0) - (holders.top10Pct >= 70 ? 25 : 15);
+      deltas.push(holders.top10Pct >= 70 ? -25 : -15);
       penalties.push(`Top 10 holders control ${holders.top10Pct.toFixed(1)}%`);
+    }
+    if (holders?.clusteredPct != null && holders.clusteredPct >= 8) {
+      deltas.push(holders.clusteredPct >= 20 ? -20 : -10);
+      penalties.push(
+        `Behavioural wallet clusters control ${holders.clusteredPct.toFixed(1)}%`,
+      );
     }
     if (
       security?.lpLockStatus === "provider-reported" ||
       security?.lpLockStatus === "conflicting"
     ) {
-      opportunityRaw = (opportunityRaw ?? 0) - 15;
+      deltas.push(-15);
       penalties.push(
         "Liquidity lock is provider-reported, not verified on-chain",
       );
     }
     if (security?.lpLockStatus === "partially-locked") {
-      opportunityRaw = (opportunityRaw ?? 0) - 20;
+      deltas.push(-20);
       penalties.push("Liquidity is only partially locked");
     }
-    if (hasBlock) opportunityRaw = Math.min(opportunityRaw ?? 0, 15);
+
+    // Apply penalties ONLY when a score exists. A null score stays null.
+    if (opportunityRaw !== null) {
+      for (const d of deltas) opportunityRaw += d;
+      if (hasBlock) opportunityRaw = Math.min(opportunityRaw, 15);
+    }
 
     const opportunityScore =
       opportunityRaw === null ? null : Math.round(clamp(opportunityRaw));
@@ -8939,19 +8962,25 @@ W.memeOpportunity = (() => {
       return "AVOID";
     })();
 
+    const buySell =
+      market?.buys24h != null &&
+      market?.sells24h != null &&
+      market.buys24h + market.sells24h > 0
+        ? market.buys24h / (market.buys24h + market.sells24h)
+        : null;
+    const ageHours =
+      market?.pairAgeMinutes != null ? market.pairAgeMinutes / 60 : null;
+
+    const reasons = [];
     if (liquidityQuality !== null)
       reasons.push(`Liquidity quality ${Math.round(liquidityQuality)}/100`);
     if (momentum !== null) reasons.push(`Momentum ${Math.round(momentum)}/100`);
-    if (participation !== null)
+    if (buySell !== null)
+      reasons.push(`${Math.round(buySell * 100)}% of 24h trades were buys`);
+    if (ageHours !== null)
       reasons.push(
-        `${Math.round(participation / 1.4)}% of 24h trades were buys`,
+        `Pair age ${ageHours < 24 ? ageHours.toFixed(1) + "h" : (ageHours / 24).toFixed(1) + "d"}`,
       );
-    if (market?.pairAgeMinutes != null) {
-      const h = market.pairAgeMinutes / 60;
-      reasons.push(
-        `Pair age ${h < 24 ? h.toFixed(1) + "h" : (h / 24).toFixed(1) + "d"}`,
-      );
-    }
     reasons.push(...penalties, ...vetoes.map((v) => v.reason));
 
     return W.memeContracts.parse("MemeOpportunityAssessment", {
@@ -8971,7 +9000,11 @@ W.memeOpportunity = (() => {
         volumeQuality,
         ageQuality,
         volumeLiquidity: volRatio,
+        buySell,
+        ageHours,
         top10Pct: holders?.top10Pct ?? null,
+        clusteredSharePct: holders?.clusteredPct ?? null,
+        estimatedSellSlippagePct: estimateSellSlippage(market?.liquidityUsd),
         executionRisk,
       },
       evidence: evidence || [],
@@ -8983,7 +9016,7 @@ W.memeOpportunity = (() => {
     });
   }
 
-  // ── analyze(): back-compat wrapper for gems.js ────────
+  // ── analyze(): back-compat wrapper ────────────────────
 
   function analyze(pair, context = {}) {
     const p = pair || {};
@@ -9097,23 +9130,21 @@ W.memeOpportunity = (() => {
       social: null,
       evidence: [],
     });
+    if (!result) return null;
 
-    // Back-compat fields gems.js depends on
-    if (result) {
-      result.opportunityScore = result.scores.opportunity;
-      result.confidence = result.confidence; // already nullable
-      result.verdict = mapToLegacyVerdict(
-        result.category,
-        result.eligibility.status,
-      );
-      result.vetoes = result.eligibility.vetoes.map((v) => v.reason);
-      result.penalties = result.reasons.filter((r) =>
-        /ratio|thin|control|liquidity lock|partially|slippage/i.test(r),
-      );
-      result.eligible =
-        result.eligibility.status === "ELIGIBLE" &&
-        (result.scores.opportunity ?? 0) >= 40;
-    }
+    // Legacy field compatibility for gems.js and legacy tests.
+    result.opportunityScore = result.scores.opportunity;
+    result.verdict = mapToLegacyVerdict(
+      result.category,
+      result.eligibility.status,
+    );
+    result.vetoes = result.eligibility.vetoes.map((v) => v.reason);
+    result.penalties = result.reasons.filter((r) =>
+      /ratio|thin|control|liquidity lock|partially|slippage|clusters/i.test(r),
+    );
+    result.eligible =
+      result.eligibility.status === "ELIGIBLE" &&
+      (result.scores.opportunity ?? 0) >= 40;
     return result;
   }
 
@@ -9161,7 +9192,7 @@ W.memeOpportunity = (() => {
     analyze,
     assess,
     collectVetoes,
-    securityVetoes: collectVetoes, // legacy alias
+    securityVetoes: collectVetoes,
   };
 })();
 // ---- js/intelligence/regime.js ----
