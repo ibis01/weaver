@@ -48,7 +48,7 @@ describe("Meme opportunity engine", () => {
       liquidity: { usd: 100000 },
       priceChange: { h24: 20 },
     });
-    expect(result.confidence).to.be.lessThan(60);
+    expect(result.confidence).to.equal(null);
     expect(result.verdict).to.be.oneOf([
       "WATCH_FOR_CONFIRMATION",
       "INSUFFICIENT_DATA",

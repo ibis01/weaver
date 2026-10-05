@@ -8600,27 +8600,204 @@ W.evidence = W.evidence || {};
 
   console.log("[EvidenceBuilder] Module loaded.");
 })();
+// ---- js/intelligence/meme-contracts.js ----
+// ===============================================================
+// Canonical Meme Intelligence Contracts
+// Contract: meme-contracts-v1
+// ===============================================================
+// All meme discovery and analysis modules exchange these shapes. The
+// identity key is chain + tokenAddress; pools are observations, not tokens.
+window.W = window.W || {};
+
+W.memeContracts = (() => {
+  const VERSION = "meme-contracts-v1";
+  const CHAINS = new Set([
+    "bitcoin", "ethereum", "bsc", "solana", "polygon", "arbitrum",
+    "optimism", "base", "avalanche", "other", "unknown",
+  ]);
+  const STATUSES = new Set([
+    "ELIGIBLE", "INSUFFICIENT_EVIDENCE", "SECURITY_REJECTED",
+  ]);
+  const CATEGORIES = new Set([
+    "EARLY_HIGH_QUALITY", "MOMENTUM_BUT_SPECULATIVE",
+    "WATCH_FOR_CONFIRMATION", "INSUFFICIENT_DATA", "SECURITY_REJECTED",
+  ]);
+  const TRADE_SIZES = Object.freeze([100, 500, 1000, 5000]);
+  const isObject = (v) => v && typeof v === "object" && !Array.isArray(v);
+  const string = (v, max = 256) => typeof v === "string" && v.trim().length > 0 && v.length <= max;
+  const finite = (v, min = -Infinity, max = Infinity) => Number.isFinite(v) && v >= min && v <= max;
+  const clone = (v) => {
+    if (!isObject(v)) return {};
+    const out = {};
+    for (const key of Object.keys(v)) {
+      if (!["__proto__", "constructor", "prototype"].includes(key)) out[key] = v[key];
+    }
+    return out;
+  };
+
+  function identityKey(candidate) {
+    if (!candidate || !string(candidate.chain) || !string(candidate.tokenAddress)) return null;
+    return `${candidate.chain.toLowerCase()}:${candidate.tokenAddress.toLowerCase()}`;
+  }
+
+  function normalizeCandidate(input = {}) {
+    const source = clone(input);
+    const chain = String(source.chain || source.chainId || "unknown").toLowerCase().trim();
+    const tokenAddress = String(source.tokenAddress || source.address || source.baseToken?.address || "").trim();
+    const candidate = Object.freeze({
+      tokenAddress,
+      chain: CHAINS.has(chain) ? chain : "unknown",
+      symbol: String(source.symbol || source.baseToken?.symbol || "").trim().slice(0, 32),
+      name: String(source.name || source.baseToken?.name || source.symbol || "").trim().slice(0, 128),
+      pairAddress: source.pairAddress || source.pair?.address || null,
+      dex: source.dex || source.dexId || null,
+      discoveredAt: Number.isFinite(source.discoveredAt) ? source.discoveredAt : Date.now(),
+      source: source.source || source.discoverySource || "unknown",
+      sourceConfidence: finite(source.sourceConfidence, 0, 1) ? source.sourceConfidence : null,
+    });
+    return candidate;
+  }
+
+  function validateCandidate(candidate) {
+    const errors = [];
+    if (!isObject(candidate)) return { ok: false, errors: ["candidate: must be an object"] };
+    if (!string(candidate.tokenAddress, 256)) errors.push("candidate.tokenAddress: required");
+    if (!string(candidate.chain, 32) || !CHAINS.has(candidate.chain)) errors.push("candidate.chain: unsupported");
+    if (!string(candidate.symbol, 32)) errors.push("candidate.symbol: required");
+    if (!string(candidate.name, 128)) errors.push("candidate.name: required");
+    if (!Number.isFinite(candidate.discoveredAt) || candidate.discoveredAt <= 0) errors.push("candidate.discoveredAt: invalid");
+    if (candidate.sourceConfidence !== null && !finite(candidate.sourceConfidence, 0, 1)) errors.push("candidate.sourceConfidence: invalid");
+    return { ok: errors.length === 0, errors };
+  }
+
+  function normalizeMarket(input = {}) {
+    const p = clone(input);
+    return Object.freeze({
+      observedAt: Number.isFinite(p.observedAt) ? p.observedAt : Date.now(),
+      pairCreatedAt: Number.isFinite(p.pairCreatedAt) ? p.pairCreatedAt : null,
+      pairAddress: p.pairAddress || null,
+      liquidityUsd: Number.isFinite(p.liquidityUsd) ? p.liquidityUsd : Number.isFinite(p.liquidity?.usd) ? p.liquidity.usd : null,
+      volume24hUsd: Number.isFinite(p.volume24hUsd) ? p.volume24hUsd : Number.isFinite(p.volume?.h24) ? p.volume.h24 : null,
+      priceUsd: Number.isFinite(p.priceUsd) ? p.priceUsd : null,
+      priceChange1hPct: Number.isFinite(p.priceChange1hPct) ? p.priceChange1hPct : Number.isFinite(p.priceChange?.h1) ? p.priceChange.h1 : null,
+      priceChange6hPct: Number.isFinite(p.priceChange6hPct) ? p.priceChange6hPct : Number.isFinite(p.priceChange?.h6) ? p.priceChange.h6 : null,
+      priceChange24hPct: Number.isFinite(p.priceChange24hPct) ? p.priceChange24hPct : Number.isFinite(p.priceChange?.h24) ? p.priceChange.h24 : null,
+      buys24h: Number.isFinite(p.buys24h) ? p.buys24h : Number.isFinite(p.txns?.h24?.buys) ? p.txns.h24.buys : null,
+      sells24h: Number.isFinite(p.sells24h) ? p.sells24h : Number.isFinite(p.txns?.h24?.sells) ? p.txns.h24.sells : null,
+    });
+  }
+
+  function validateMarket(market) {
+    if (!isObject(market)) return { ok: false, errors: ["market: must be an object"] };
+    const errors = [];
+    if (!Number.isFinite(market.observedAt) || market.observedAt <= 0) errors.push("market.observedAt: invalid");
+    for (const field of ["liquidityUsd", "volume24hUsd", "priceUsd", "priceChange1hPct", "priceChange6hPct", "priceChange24hPct", "buys24h", "sells24h"]) {
+      if (market[field] !== null && !Number.isFinite(market[field])) errors.push(`market.${field}: invalid`);
+    }
+    return { ok: errors.length === 0, errors };
+  }
+
+  function normalizeSecurity(input = {}) {
+    const value = clone(input);
+    return Object.freeze({
+      verdict: value.verdict || null,
+      honeypot: value.honeypot === true ? true : value.honeypot === false ? false : null,
+      canSell: value.canSell === true ? true : value.canSell === false ? false : null,
+      mintAuthorityActive: value.mintAuthorityActive === true ? true : value.mintAuthorityActive === false ? false : null,
+      freezeAuthorityActive: value.freezeAuthorityActive === true ? true : value.freezeAuthorityActive === false ? false : null,
+      ownerCanBlacklist: value.ownerCanBlacklist === true ? true : value.ownerCanBlacklist === false ? false : null,
+      liquidityRemovable: value.liquidityRemovable === true ? true : value.liquidityRemovable === false ? false : null,
+      liquidityLock: value.liquidityLock || null,
+      source: value.source || null,
+      observedAt: Number.isFinite(value.observedAt) ? value.observedAt : null,
+    });
+  }
+
+  function validateSecurity(security) {
+    if (!isObject(security)) return { ok: false, errors: ["security: must be an object"] };
+    const errors = [];
+    for (const field of ["honeypot", "canSell", "mintAuthorityActive", "freezeAuthorityActive", "ownerCanBlacklist", "liquidityRemovable"]) {
+      if (security[field] !== null && typeof security[field] !== "boolean") errors.push(`security.${field}: must be boolean or null`);
+    }
+    return { ok: errors.length === 0, errors };
+  }
+
+  function normalizeEvidence(input = {}) {
+    const value = clone(input);
+    return Object.freeze({
+      sourceReliability: finite(value.sourceReliability, 0, 1) ? value.sourceReliability : null,
+      dataFreshness: finite(value.dataFreshness, 0, 1) ? value.dataFreshness : null,
+      dataCompleteness: finite(value.dataCompleteness, 0, 1) ? value.dataCompleteness : null,
+      interpretationConfidence: finite(value.interpretationConfidence, 0, 1) ? value.interpretationConfidence : null,
+      corroborationCount: Number.isFinite(value.corroborationCount) ? Math.max(1, Math.floor(value.corroborationCount)) : null,
+      items: Array.isArray(value.items) ? value.items : [],
+    });
+  }
+
+  function normalizeObservation(input = {}) {
+    const value = clone(input);
+    return Object.freeze({
+      top10Pct: finite(value.top10Pct, 0, 100) ? value.top10Pct : null,
+      holderCount: finite(value.holderCount, 0) ? value.holderCount : null,
+      clusteredSharePct: finite(value.clusteredSharePct, 0, 100) ? value.clusteredSharePct : null,
+      netWalletFlowUsd: Number.isFinite(value.netWalletFlowUsd) ? value.netWalletFlowUsd : null,
+      observedAt: Number.isFinite(value.observedAt) ? value.observedAt : null,
+    });
+  }
+
+  function normalizeAssessment(input = {}) {
+    const value = clone(input);
+    const eligibility = isObject(value.eligibility) ? value.eligibility : {};
+    const scores = isObject(value.scores) ? value.scores : {};
+    return Object.freeze({
+      methodologyVersion: VERSION,
+      eligibility: Object.freeze({
+        status: STATUSES.has(eligibility.status) ? eligibility.status : "INSUFFICIENT_EVIDENCE",
+        vetoes: Array.isArray(eligibility.vetoes) ? eligibility.vetoes.map(String).slice(0, 32) : [],
+      }),
+      scores: Object.freeze({
+        opportunity: finite(scores.opportunity, 0, 100) ? scores.opportunity : null,
+        survivability: finite(scores.survivability, 0, 100) ? scores.survivability : null,
+        executionRisk: finite(scores.executionRisk, 0, 100) ? scores.executionRisk : null,
+      }),
+      confidence: finite(value.confidence, 0, 1) ? value.confidence : null,
+      category: CATEGORIES.has(value.category) ? value.category : "INSUFFICIENT_DATA",
+      breakdown: isObject(value.breakdown) ? value.breakdown : {},
+      evidence: Array.isArray(value.evidence) ? value.evidence : [],
+      freshness: isObject(value.freshness) ? value.freshness : {},
+      reasons: Array.isArray(value.reasons) ? value.reasons.map(String).slice(0, 64) : [],
+    });
+  }
+
+  return Object.freeze({
+    VERSION,
+    TRADE_SIZES,
+    identityKey,
+    normalizeCandidate,
+    validateCandidate,
+    normalizeMarket,
+    validateMarket,
+    normalizeSecurity,
+    validateSecurity,
+    normalizeEvidence,
+    normalizeObservation,
+    normalizeAssessment,
+    isCandidate: (v) => validateCandidate(v).ok,
+    isMarket: (v) => validateMarket(v).ok,
+  });
+})();
 // ---- js/intelligence/meme-opportunity.js ----
 // ===============================================================
 // Meme Opportunity Engine
-// Purpose: rank tradable meme-token opportunities without allowing
-// momentum to override hard security or market-structure failures.
+// Contract: meme-contracts-v1 / methodology: meme-opportunity-v1
 // ===============================================================
 window.W = window.W || {};
 W.memeOpportunity = (() => {
   const METHODOLOGY_VERSION = "meme-opportunity-v1";
+  const contracts = W.memeContracts;
   const clamp = (v, min = 0, max = 100) => Math.max(min, Math.min(max, v));
-  const num = (v) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  };
-  const ratioScore = (value, low, high) => {
-    if (value === null) return null;
-    if (value <= low) return 0;
-    if (value >= high) return 100;
-    return ((value - low) / (high - low)) * 100;
-  };
-  const first = (...values) => values.find((v) => v !== null) ?? null;
+  const num = (v) => v === null || v === undefined || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null;
+  const finite = (v, min = -Infinity, max = Infinity) => Number.isFinite(v) && v >= min && v <= max;
 
   function securityVetoes(security = {}, shield = {}) {
     const vetoes = [];
@@ -8636,25 +8813,80 @@ W.memeOpportunity = (() => {
     return [...new Set(vetoes)];
   }
 
-  function analyze(pair, context = {}) {
-    const p = pair || {};
-    const liquidity = num(p.liquidity?.usd);
-    const volume24 = num(p.volume?.h24);
-    const h1 = num(p.priceChange?.h1);
-    const h6 = num(p.priceChange?.h6);
-    const h24 = num(p.priceChange?.h24);
-    const buys = num(p.txns?.h24?.buys);
-    const sells = num(p.txns?.h24?.sells);
-    const ageHours = p.pairCreatedAt ? Math.max(0, (Date.now() - Number(p.pairCreatedAt)) / 36e5) : null;
+  function executionAnalysis(liquidityUsd) {
+    const sizes = contracts?.TRADE_SIZES || [100, 500, 1000, 5000];
+    if (!finite(liquidityUsd, 0)) {
+      return { reserveUsd: null, trades: sizes.map((inputUsd) => ({ inputUsd, estimatedPriceImpactPct: null, estimatedSlippagePct: null, postTradeLiquidityUsd: null, capacity: "UNKNOWN" })), tradabilityCapacityUsd: null };
+    }
+    // Constant-product approximation: reported pool liquidity is both sides,
+    // so one-sided reserve is conservatively estimated as liquidity / 2.
+    const reserveUsd = Math.max(liquidityUsd / 2, 1);
+    const trades = sizes.map((inputUsd) => {
+      const priceImpactPct = (inputUsd / (reserveUsd + inputUsd)) * 100;
+      const feePct = 0.30;
+      const slippagePct = priceImpactPct + feePct;
+      const capacity = inputUsd <= reserveUsd * 0.01 ? "GOOD" : inputUsd <= reserveUsd * 0.05 ? "LIMITED" : "POOR";
+      return {
+        inputUsd,
+        estimatedPriceImpactPct: Number(priceImpactPct.toFixed(3)),
+        estimatedSlippagePct: Number(slippagePct.toFixed(3)),
+        postTradeLiquidityUsd: Number(Math.max(liquidityUsd - inputUsd, 0).toFixed(2)),
+        capacity,
+      };
+    });
+    return {
+      reserveUsd: Number(reserveUsd.toFixed(2)),
+      trades,
+      tradabilityCapacityUsd: Number((reserveUsd * 0.05).toFixed(2)),
+    };
+  }
+
+  function confidenceFor({ candidate, market, context, knownCount }) {
+    const intel = W.intelligence || {};
+    if (typeof intel.computeConfidence !== "function") return null;
+    const observedAt = market.observedAt;
+    const freshness = typeof intel.computeFreshness === "function"
+      ? intel.computeFreshness(observedAt, "OPPORTUNITY")
+      : null;
+    const source = context.source || candidate.source || "unknown";
+    const sourceReliability = typeof intel.getSourceReliability === "function"
+      ? intel.getSourceReliability(source)
+      : null;
+    const dataCompleteness = knownCount / 8;
+    const interpretationConfidence = finite(context.interpretationConfidence, 0, 1)
+      ? context.interpretationConfidence
+      : knownCount >= 4 ? 0.8 : null;
+    return intel.computeConfidence({
+      sourceReliability,
+      dataFreshness: freshness,
+      corroborationCount: Number.isFinite(context.sourceCount) ? context.sourceCount : 1,
+      dataCompleteness,
+      interpretationConfidence,
+    });
+  }
+
+  function assess(input = {}) {
+    const candidate = contracts.normalizeCandidate(input.candidate || input.pair || {});
+    const market = contracts.normalizeMarket(input.market || input.pair || {});
+    const context = input.context || input;
+    const security = contracts.normalizeSecurity(input.security || context.security || {});
+    const shield = context.shield || {};
+    const observationInput = input.holders || input.walletFlow || {
+      ...(context.observation?.concentration || {}),
+      ...(context.graphReport || {}),
+    };
+    const observation = contracts.normalizeObservation(observationInput);
+    const vetoes = securityVetoes(security, shield);
+    const liquidity = num(market.liquidityUsd);
+    const volume24 = num(market.volume24hUsd);
+    const h1 = num(market.priceChange1hPct);
+    const h6 = num(market.priceChange6hPct);
+    const h24 = num(market.priceChange24hPct);
+    const buys = num(market.buys24h);
+    const sells = num(market.sells24h);
+    const ageHours = market.pairCreatedAt ? Math.max(0, (Date.now() - Number(market.pairCreatedAt)) / 36e5) : null;
     const volumeLiquidity = liquidity && volume24 !== null ? volume24 / liquidity : null;
     const buySell = buys !== null && sells !== null && buys + sells > 0 ? buys / (buys + sells) : null;
-    const security = context.security || {};
-    const shield = context.shield || {};
-    const observation = context.observation || {};
-    const concentration = observation.concentration || {};
-    const graph = context.graphReport || {};
-    const vetoes = securityVetoes(security, shield);
-
     const liquidityQuality = liquidity === null ? null : liquidity < 25000 ? 0 : liquidity < 75000 ? 35 : liquidity < 250000 ? 75 : 90;
     const momentum = [h1, h6, h24].filter((v) => v !== null).length
       ? clamp((clamp((h1 ?? 0) * 2 + 50) * 0.25) + (clamp((h6 ?? 0) * 1.5 + 50) * 0.35) + (clamp((h24 ?? 0) + 50) * 0.4))
@@ -8662,27 +8894,12 @@ W.memeOpportunity = (() => {
     const participation = buySell === null ? null : clamp(buySell * 140);
     const volumeQuality = volumeLiquidity === null ? null : volumeLiquidity > 30 ? 25 : volumeLiquidity >= 1 ? 85 : 35;
     const ageQuality = ageHours === null ? null : ageHours < 0.17 ? 15 : ageHours < 6 ? 40 : ageHours <= 336 ? 85 : 55;
-    const top10Pct = num(concentration.top10Pct);
-    const clusteredSharePct = num(graph.clusteredSharePct);
-    const estimatedSellSlippagePct = liquidity === null
+    const execution = executionAnalysis(liquidity);
+    const thousand = execution.trades.find((trade) => trade.inputUsd === 1000);
+    const executionRisk = thousand?.estimatedSlippagePct === null || !thousand
       ? null
-      : clamp((1000 / Math.max(liquidity, 1)) * 100 * 1.5);
-    const executionRisk = estimatedSellSlippagePct === null
-      ? null
-      : estimatedSellSlippagePct >= 20
-        ? 100
-        : estimatedSellSlippagePct >= 10
-          ? 75
-          : estimatedSellSlippagePct >= 5
-            ? 45
-            : 20;
-    const components = [
-      ["liquidityQuality", liquidityQuality, 0.30],
-      ["momentum", momentum, 0.25],
-      ["participation", participation, 0.15],
-      ["volumeQuality", volumeQuality, 0.15],
-      ["ageQuality", ageQuality, 0.15],
-    ];
+      : thousand.estimatedSlippagePct >= 20 ? 100 : thousand.estimatedSlippagePct >= 10 ? 75 : thousand.estimatedSlippagePct >= 5 ? 45 : 20;
+    const components = [["liquidityQuality", liquidityQuality, 0.30], ["momentum", momentum, 0.25], ["participation", participation, 0.15], ["volumeQuality", volumeQuality, 0.15], ["ageQuality", ageQuality, 0.15]];
     const availableWeight = components.reduce((sum, [, value, weight]) => sum + (value === null ? 0 : weight), 0);
     const weighted = components.reduce((sum, [, value, weight]) => sum + (value === null ? 0 : value * weight), 0);
     let score = availableWeight ? weighted / availableWeight : 0;
@@ -8690,73 +8907,57 @@ W.memeOpportunity = (() => {
     if (volumeLiquidity !== null && volumeLiquidity > 30) { score -= 15; penalties.push("Extreme volume/liquidity ratio — possible wash trading"); }
     if (liquidity !== null && liquidity < 75000) { score -= 20; penalties.push("Thin liquidity creates high exit risk"); }
     if (h24 !== null && h24 > 150 && (h6 ?? 0) > 50) { score -= 12; penalties.push("Price is likely overextended"); }
-    if (top10Pct !== null && top10Pct >= 50) {
-      score -= top10Pct >= 70 ? 25 : 15;
-      penalties.push(`Top 10 holders control ${top10Pct.toFixed(1)}%`);
-    }
-    if (clusteredSharePct !== null && clusteredSharePct >= 8) {
-      score -= clusteredSharePct >= 20 ? 20 : 10;
-      penalties.push(`Behavioural wallet clusters control ${clusteredSharePct.toFixed(1)}%`);
-    }
-    if (executionRisk !== null && executionRisk >= 75) {
-      score -= 15;
-      penalties.push(`Estimated $1,000 exit slippage is high (${estimatedSellSlippagePct.toFixed(1)}%)`);
-    }
-    if (shield.liquidityLocked === false || shield.lpLocked === false) {
-      score -= 15;
-      penalties.push("Liquidity lock is not verified");
-    }
+    if (observation.top10Pct !== null && observation.top10Pct >= 50) { score -= observation.top10Pct >= 70 ? 25 : 15; penalties.push(`Top 10 holders control ${observation.top10Pct.toFixed(1)}%`); }
+    if (observation.clusteredSharePct !== null && observation.clusteredSharePct >= 8) { score -= observation.clusteredSharePct >= 20 ? 20 : 10; penalties.push(`Behavioural wallet clusters control ${observation.clusteredSharePct.toFixed(1)}%`); }
+    if (executionRisk !== null && executionRisk >= 75) { score -= 15; penalties.push(`Estimated $1,000 exit slippage is high (${thousand.estimatedSlippagePct.toFixed(1)}%)`); }
+    if (shield.liquidityLocked === false || shield.lpLocked === false) { score -= 15; penalties.push("Liquidity lock is not verified"); }
     if (vetoes.length) { score = Math.min(score, 15); penalties.push(...vetoes); }
     score = Math.round(clamp(score));
-
-    const known = [liquidity, volume24, h1, h6, h24, ageHours, buySell].filter((v) => v !== null).length;
-    const confidence = Math.round(clamp((known / 7) * 70 + (context.sourceCount > 1 ? 20 : 0) + (context.observation ? 10 : 0) - (vetoes.length ? 30 : 0)));
-    const verdict = vetoes.length
-      ? "SECURITY_REJECTED"
-      : confidence < 60
-        ? score >= 40
-          ? "WATCH_FOR_CONFIRMATION"
-          : "INSUFFICIENT_DATA"
-        : score >= 75
-          ? "EARLY_HIGH_QUALITY"
-          : score >= 60
-            ? "MOMENTUM_BUT_SPECULATIVE"
-            : score >= 40
-              ? "WATCH_FOR_CONFIRMATION"
-              : "INSUFFICIENT_DATA";
+    const knownCount = [liquidity, volume24, h1, h6, h24, ageHours, buySell, market.observedAt].filter((v) => v !== null).length;
+    const confidence = confidenceFor({ candidate, market, context, knownCount });
+    const category = vetoes.length ? "SECURITY_REJECTED" : confidence === null ? (score >= 40 ? "WATCH_FOR_CONFIRMATION" : "INSUFFICIENT_DATA") : confidence < 0.6 ? (score >= 40 ? "WATCH_FOR_CONFIRMATION" : "INSUFFICIENT_DATA") : score >= 75 ? "EARLY_HIGH_QUALITY" : score >= 60 ? "MOMENTUM_BUT_SPECULATIVE" : score >= 40 ? "WATCH_FOR_CONFIRMATION" : "INSUFFICIENT_DATA";
     const reasons = [];
     if (liquidityQuality !== null) reasons.push(`Liquidity quality ${Math.round(liquidityQuality)}/100`);
     if (momentum !== null) reasons.push(`Momentum ${Math.round(momentum)}/100`);
     if (buySell !== null) reasons.push(`${Math.round(buySell * 100)}% of 24h trades were buys`);
     if (ageHours !== null) reasons.push(`Pair age ${ageHours < 24 ? ageHours.toFixed(1) + "h" : (ageHours / 24).toFixed(1) + "d"}`);
     reasons.push(...penalties);
-    return {
+    const eligibilityStatus = vetoes.length ? "SECURITY_REJECTED" : score >= 40 ? "ELIGIBLE" : "INSUFFICIENT_EVIDENCE";
+    const result = {
       methodologyVersion: METHODOLOGY_VERSION,
+      candidate,
+      market,
+      eligibility: { status: eligibilityStatus, vetoes },
+      scores: { opportunity: score, survivability: liquidityQuality, executionRisk },
       opportunityScore: score,
       confidence,
-      verdict,
+      confidencePct: confidence === null ? null : Math.round(confidence * 100),
+      verdict: category,
+      category,
       vetoes,
       penalties,
       reasons,
       breakdown: {
-        liquidityQuality,
-        momentum,
-        participation,
-        volumeQuality,
-        ageQuality,
-        volumeLiquidity,
-        buySell,
-        ageHours,
-        top10Pct,
-        clusteredSharePct,
-        estimatedSellSlippagePct,
-        executionRisk,
+        liquidityQuality, momentum, participation, volumeQuality, ageQuality,
+        volumeLiquidity, buySell, ageHours, top10Pct: observation.top10Pct,
+        clusteredSharePct: observation.clusteredSharePct, executionRisk,
+        estimatedSellSlippagePct: thousand?.estimatedSlippagePct ?? null,
+        execution,
       },
-      eligible: vetoes.length === 0 && score >= 40,
+      evidence: Array.isArray(input.evidence) ? input.evidence : [],
+      freshness: { observedAt: market.observedAt },
+      eligible: eligibilityStatus === "ELIGIBLE",
     };
+    const canonical = contracts.normalizeAssessment({ ...result, breakdown: result.breakdown, evidence: result.evidence, freshness: result.freshness, reasons: result.reasons });
+    return Object.freeze({ ...result, ...canonical, methodologyVersion: METHODOLOGY_VERSION, opportunityScore: score, confidencePct: result.confidencePct, verdict: category, eligible: eligibilityStatus === "ELIGIBLE" });
   }
 
-  return { METHODOLOGY_VERSION, analyze, securityVetoes };
+  // Backward-compatible adapter while callers migrate to assess({...}).
+  function analyze(pair, context = {}) {
+    return assess({ candidate: pair, market: pair, context, security: context.security });
+  }
+
+  return Object.freeze({ METHODOLOGY_VERSION, assess, analyze, securityVetoes, executionAnalysis });
 })();
 // ---- js/intelligence/meme-calibration.js ----
 // ===============================================================
@@ -22641,8 +22842,16 @@ W.gems = (() => {
             : ["🚩 Weak opportunity signals", "weak-opportunity"];
 
     const opportunity =
-      W.memeOpportunity && typeof W.memeOpportunity.analyze === "function"
-        ? W.memeOpportunity.analyze(pair)
+      W.memeOpportunity && typeof W.memeOpportunity.assess === "function"
+        ? W.memeOpportunity.assess({
+            candidate: {
+              ...pair,
+              chain: pair.chainId,
+              tokenAddress: pair.baseToken?.address,
+              source: "dex_screener",
+            },
+            market: pair,
+          })
         : null;
 
     return {
@@ -23030,18 +23239,28 @@ W.gems = (() => {
         g.graphReport = graphReport;
         if (
           W.memeOpportunity &&
-          typeof W.memeOpportunity.analyze === "function"
+          typeof W.memeOpportunity.assess === "function"
         ) {
-          g.analysis.opportunity = W.memeOpportunity.analyze(g.pair, {
+          g.analysis.opportunity = W.memeOpportunity.assess({
+            candidate: {
+              ...g.pair,
+              chain: g.pair.chainId,
+              tokenAddress: g.pair.baseToken?.address,
+              source: "dex_screener",
+              sourceConfidence: 0.65,
+            },
+            market: g.pair,
+            holders: observation?.concentration || {},
+            walletFlow: graphReport || {},
             security: g.risk,
-            shield,
-            observation,
-            graphReport,
-            sourceCount: Math.max(
-              1,
-              (g.pair.discoverySources || []).length +
-                (shield && !shield.error ? 1 : 0),
-            ),
+            context: {
+              shield,
+              sourceCount: Math.max(
+                1,
+                (g.pair.discoverySources || []).length +
+                  (shield && !shield.error ? 1 : 0),
+              ),
+            },
           });
           g.analysis.score = g.analysis.opportunity.opportunityScore;
           g.analysis.scoreVersion =

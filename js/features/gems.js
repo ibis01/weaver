@@ -1480,8 +1480,16 @@ W.gems = (() => {
             : ["🚩 Weak opportunity signals", "weak-opportunity"];
 
     const opportunity =
-      W.memeOpportunity && typeof W.memeOpportunity.analyze === "function"
-        ? W.memeOpportunity.analyze(pair)
+      W.memeOpportunity && typeof W.memeOpportunity.assess === "function"
+        ? W.memeOpportunity.assess({
+            candidate: {
+              ...pair,
+              chain: pair.chainId,
+              tokenAddress: pair.baseToken?.address,
+              source: "dex_screener",
+            },
+            market: pair,
+          })
         : null;
 
     return {
@@ -1869,18 +1877,28 @@ W.gems = (() => {
         g.graphReport = graphReport;
         if (
           W.memeOpportunity &&
-          typeof W.memeOpportunity.analyze === "function"
+          typeof W.memeOpportunity.assess === "function"
         ) {
-          g.analysis.opportunity = W.memeOpportunity.analyze(g.pair, {
+          g.analysis.opportunity = W.memeOpportunity.assess({
+            candidate: {
+              ...g.pair,
+              chain: g.pair.chainId,
+              tokenAddress: g.pair.baseToken?.address,
+              source: "dex_screener",
+              sourceConfidence: 0.65,
+            },
+            market: g.pair,
+            holders: observation?.concentration || {},
+            walletFlow: graphReport || {},
             security: g.risk,
-            shield,
-            observation,
-            graphReport,
-            sourceCount: Math.max(
-              1,
-              (g.pair.discoverySources || []).length +
-                (shield && !shield.error ? 1 : 0),
-            ),
+            context: {
+              shield,
+              sourceCount: Math.max(
+                1,
+                (g.pair.discoverySources || []).length +
+                  (shield && !shield.error ? 1 : 0),
+              ),
+            },
           });
           g.analysis.score = g.analysis.opportunity.opportunityScore;
           g.analysis.scoreVersion =

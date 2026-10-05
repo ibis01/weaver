@@ -88,6 +88,7 @@ require("../js/lib/crypto/secure.js");
 require("../js/lib/crypto/secure-session.js");
 require("../js/utils/logger.js");
 require("../js/intelligence/types.js");
+require("../js/intelligence/meme-contracts.js");
 require("../js/intelligence/evidence-builder.js");
 require("../js/intelligence/thesis-health.js");
 require("../js/intelligence/decision-engine.js");
