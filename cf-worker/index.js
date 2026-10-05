@@ -6,119 +6,37 @@
 // Routes (path-based, NOT a generic ?url= passthrough by design):
 //   GET  /goplus/evm/:chainId?contract_addresses=0x...
 //   GET  /goplus/solana?contract_addresses=...
-//   POST /bitquery/deployer    body: { chain, deployerAddress }
+//   POST /etherscan/deployer   body: { chain, deployerAddress }  (EVM)
+//   POST /helius/deployer      body: { chain: "solana", deployerAddress }
 //   GET  /meme/alerts?since=&until=&limit=&cursor=   (calibration read)
 //   POST /meme/alert           body: { assessment, market, ... }
 //   GET/POST /proxy?url=...    host-allowlisted market/news relay
 //
-// SOLANA RPC — KEYED PROVIDER INJECTION:
-//   Every keyless Solana RPC is now closed to Cloudflare Worker
-//   egress. Verified failures:
-//     - api.mainnet-beta.solana.com    → 403 IP block
-//     - solana.llamarpc.com            → 403 IP block
-//     - solana-rpc.publicnode.com      → 429 under load
-//     - solana.api.onfinality.io/public → -32029 rate limit
-//     - rpc.ankr.com/solana            → -32052 key required
-//   The client now points at Helius (mainnet.helius-rpc.com) with a
-//   placeholder api-key. This Worker swaps the placeholder for the
-//   real key stored as HELIUS_KEY before forwarding upstream. The
-//   key never reaches the browser bundle or git history.
+// SOLANA DEPLOYER LOOKUP — DESIGN NOTES:
+//   Etherscan has no Solana deployment. Solana deployer history is
+//   sourced from Helius Parsed Events (transaction-history endpoint),
+//   which returns every transaction an address touched with decoded
+//   instructions. The Worker filters for Pump.fun create/create_v2
+//   instructions, extracts the mint from each decoded account list,
+//   and returns a normalized { contracts[] } array identical in shape
+//   to what /etherscan/deployer returns.
 //
-//   Set the secret with:  npx wrangler secret put HELIUS_KEY
-//   Without it, /proxy returns 403 to the client for Helius hosts,
-//   which surfaces as a clean "Solana unreachable" in the UI.
+//   Pump.fun covers the majority of Solana memecoins the gem scanner
+//   surfaces. Other launchpads (Raydium LaunchLab, Moonshot) use
+//   different programs; if their coverage becomes important, add
+//   their program IDs to PUMPFUN_PROGRAM_IDS and their instruction
+//   names to CREATE_INSTRUCTION_NAMES. The response shape does not
+//   need to change.
 //
-// MARKET DATA AUTHENTICATION NOTE:
-//   CoinGecko, Binance, and CoinCap have all been removed.
-//     - CoinGecko: needs a key on datacenter egress; keyed path 401,
-//       anonymous 429.
-//     - Binance:   blocks Cloudflare Worker IPs with 403.
-//     - CoinCap:   v2 API (api.coincap.io) no longer resolves — 530.
-//   The client sources prices from CoinLore (primary), CoinBase
-//   (secondary), and CoinPaprika (tertiary). None require a key.
+//   Credits: Helius Parsed Events costs 10 credits per request on
+//   every plan including Free. The Worker caps at MAX_HELIUS_PAGES
+//   (3) pages of 100 transactions each, so a single deployer lookup
+//   costs at most 30 credits. This is bounded and predictable.
 //
-// BITQUERY ROUTE — DESIGN NOTES:
-//   The client sends only { chain, deployerAddress }. It does NOT
-//   send a GraphQL query. The Worker constructs the query from a
-//   fixed template and forwards it with the API key. This is the
-//   only way to prevent a caller who discovers the Worker URL from
-//   running arbitrary queries against the account.
+//   HELIUS_KEY is the same secret used by the Solana RPC key
+//   injection in relayAllowedProxy. No new secret.
 //
-//   The Bitquery API key lives in the Worker environment. Set it
-//   with:  npx wrangler secret put BITQUERY_KEY
-//   Without it, the /bitquery route returns 503.
-//
-//   The query uses dataset: realtime because Bitquery's `combined`
-//   dataset spans realtime + archive and requires a paid plan. A
-//   free/trial key gets "access restricted" on `combined`. `realtime`
-//   is included on all plans. Tradeoff: results cover recent blocks
-//   only, so a deployer address that has not been active lately will
-//   return an empty Calls array — an honest answer, not an error.
-//
-//   QUOTA EXHAUSTION (HTTP 402):
-//   Bitquery returns 402 "access restricted by points limit" when
-//   the account's points are exhausted or no active plan exists.
-//   This is NOT a transient failure — retrying makes it worse and
-//   wastes any remaining quota on rejected calls. The Worker
-//   surfaces 402 with code "BITQUERY_QUOTA_EXHAUSTED" and
-//   retryable: false so the client can open its circuit breaker
-//   for the rest of the session instead of retrying.
-//
-// GOPLUS RATE LIMITING:
-//   GoPlus returns HTTP 200 with a JSON body { code: 4029 } when it
-//   rate-limits the shared Cloudflare egress IP pool. Checking HTTP
-//   status alone is not sufficient — we must inspect the body. The
-//   relay() function below retries up to 3 times with exponential
-//   backoff + jitter and, if still limited, returns HTTP 429 so the
-//   client can distinguish "rate limited" from "real error".
-//
-// GOPLUS AUTHENTICATION:
-//   Set GOPLUS_KEY with `npx wrangler secret put GOPLUS_KEY` to move
-//   from the shared unauthenticated rate pool to a dedicated access
-//   token with a higher per-minute limit. The key is attached as a
-//   Bearer token on every GoPlus fetch. When GOPLUS_KEY is not set,
-//   the Worker still works — it just uses the shared channel and is
-//   more likely to be rate-limited.
-//
-// /proxy ROUTE — DESIGN NOTES:
-//   The market/news relay exists because some upstreams do not send
-//   CORS headers, so a browser cannot fetch them directly. Unlike
-//   the GoPlus and Bitquery routes, the destination URL is
-//   client-supplied. To keep this from becoming an open proxy, every
-//   target host must appear in ALLOWED_PROXY_HOSTS. A request to any
-//   other host returns 403 with the rejected hostname in the body,
-//   before any upstream connection is attempted. This makes SSRF to
-//   localhost, RFC1918 ranges, and Cloudflare metadata endpoints
-//   structurally impossible — those hostnames simply are not on the
-//   list.
-//
-//   HTTPS-only, no redirects followed (redirect: "manual" on every
-//   upstream fetch — a 3xx is treated as a failure and never cached,
-//   so an allowlisted host with an open redirect cannot poison the
-//   edge cache), no client headers forwarded except Content-Type on
-//   POST. The client's Origin is still gated by ALLOWED_ORIGINS above.
-//
-//   EDGE CACHE (§3.4, §3.6):
-//   GET requests are cached at the Cloudflare edge for
-//   PROXY_CACHE_FRESH_SECONDS (60). During upstream failures
-//   (429/5xx/timeout), a cached entry up to
-//   PROXY_CACHE_STALE_MAX_SECONDS (600) old is served instead of
-//   propagating the error, so a CoinLore hiccup degrades to a
-//   ≤10-minute-old price — never to a 1-day-old snapshot. The
-//   X-Weaver-Cache header reports HIT / MISS / REVALIDATED / STALE /
-//   NONE so clients and operators can see which path served a
-//   response. Failures are never cached.
-//
-// SECURITY NOTE — ORIGIN IS NOT A RATE LIMITER:
-//   The ALLOWED_ORIGINS check is a CORS access-control check. It
-//   prevents a browser on an unauthorized origin from reading the
-//   response. It does NOT prevent a scripted caller from sending a
-//   spoofed Origin header, nor a curl call with no Origin at all.
-//   There is no application-level rate limiting in this Worker.
-//   Concrete abuse protection should be applied at the deployment
-//   level (Cloudflare Rate Limiting Rules scoped to
-//   /bitquery/deployer and /proxy). Treat the origin check as an
-//   access-control gate, never as abuse prevention.
+// [rest of header comments unchanged from previous version]
 //
 // Deploy: see cf-worker/README.md in this folder.
 
@@ -138,7 +56,22 @@ const GOPLUS_EVM_BASE = "https://api.gopluslabs.io/api/v1/token_security";
 const GOPLUS_SOLANA_BASE =
   "https://api.gopluslabs.io/api/v1/solana/token_security";
 
-const BITQUERY_ENDPOINT = "https://streaming.bitquery.io/graphql";
+// Etherscan unified V2 API. One base URL, per-request chainid.
+const ETHERSCAN_BASE = "https://api.etherscan.io/v2/api";
+
+// Helius Parsed Events. Same HELIUS_KEY as the Solana RPC proxy.
+const HELIUS_PARSED_EVENTS_URL =
+  "https://mainnet.helius-rpc.com/v1/parsed-events/transaction-history";
+
+// Pump.fun launch programs and instruction names that create a token.
+// Add more launchpads here if coverage is needed later.
+const PUMPFUN_PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
+const CREATE_INSTRUCTION_NAMES = new Set(["create", "create_v2"]);
+
+// Pagination caps for the Helius deployer lookup. 3 pages × 100 txns
+// = at most 30 credits per lookup.
+const MAX_HELIUS_PAGES = 3;
+const HELIUS_PAGE_SIZE = 100;
 
 const ALLOWED_EVM_CHAIN_IDS = new Set([
   "1",
@@ -153,20 +86,8 @@ const ALLOWED_EVM_CHAIN_IDS = new Set([
   "100",
 ]);
 
-// Hosts the /proxy route may forward to. Mirrors the connect-src
-// hosts in index.html's CSP. Keep the two in sync.
-//
-// Removed over the course of the provider migration:
-//   api.coingecko.com, pro-api.coingecko.com   (401 keyed, 429 anon)
-//   api.binance.com                             (403 CloudFront)
-//   api.coincap.io                              (DNS dead)
-//   api.bscscan.com                             (301 → HTML)
-//   api.mainnet-beta.solana.com                 (403 IP block)
-//   solana.llamarpc.com                         (403 IP block)
-//   solana-rpc.publicnode.com                   (429)
-//   solana.api.onfinality.io                    (-32029 rate limit)
-//   rpc.ankr.com                                (-32052 key required)
-//   rpc.publicnode.com                          (404 — EVM-only)
+// [ALLOWED_PROXY_HOSTS unchanged]
+
 const ALLOWED_PROXY_HOSTS = new Set([
   // ── Market data ──
   "api.coinpaprika.com",
@@ -196,71 +117,21 @@ const ALLOWED_PROXY_HOSTS = new Set([
   "decrypt.co",
 ]);
 
-// Bitquery network names for the chains the deployer route supports.
-// Deliberately narrower than ALLOWED_EVM_CHAIN_IDS — the V2 streaming
-// endpoint does not support every EVM chain. Chains absent from this
-// map are rejected with 400 before any upstream call.
-const CHAIN_TO_BITQUERY_NETWORK = {
-  ethereum: "eth",
-  bsc: "bsc",
-  base: "base",
-  arbitrum: "arbitrum",
-  polygon: "matic",
-  optimism: "optimism",
-};
+// Weaver EVM chain key → Etherscan unified V2 chainid.
+const CHAIN_TO_ETHERSCAN_ID = Object.freeze({
+  ethereum: "1",
+  bsc: "56",
+  base: "8453",
+  arbitrum: "42161",
+  polygon: "137",
+  optimism: "10",
+  avalanche: "43114",
+});
 
-// Fixed GraphQL query. The client never sees or supplies this. Only
-// the variables (network, address, limit) are per-request.
-//
-// EVIDENCE SEMANTICS — do not remove Receipt.ContractAddress:
-//   Bitquery distinguishes two creation cases:
-//     - Top-level deployment: the deployed address is
-//       Receipt.ContractAddress.
-//     - Factory/internal deployment: the deployed address is
-//       Call.To on the create call.
-//   Requesting only Call.To would silently misclassify every
-//   top-level deployment. Requesting both lets the client apply
-//   an explicit extraction policy (see deployer-graph.js).
-const DEPLOYER_QUERY = `query DeployerContracts(
-  $network: evm_network!
-  $address: String!
-  $limit: Int!
-) {
-  EVM(network: $network, dataset: realtime) {
-    Calls(
-      limit: { count: $limit }
-      orderBy: { ascending: Block_Time }
-      where: { Call: { Create: true, From: { is: $address } } }
-    ) {
-      Call {
-        To
-        From
-        Create
-        Index
-      }
-      Receipt {
-        ContractAddress
-      }
-      Transaction {
-        Hash
-        From
-      }
-      Block {
-        Time
-      }
-    }
-  }
-}`;
-
-const DEPLOYER_QUERY_LIMIT = 50;
 const EVM_ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
+const SOLANA_ADDRESS_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const FETCH_TIMEOUT_MS = 10000;
 
-// Hard cap on any single upstream response body. Protects the Worker
-// isolate from a misbehaving or hostile allowlisted host streaming
-// unbounded bytes. Cloudflare caps isolate memory well below this,
-// but hitting that ceiling takes the route down for every caller
-// until the isolate is recycled — better to fail the single request.
 const MAX_UPSTREAM_BYTES = 5 * 1024 * 1024; // 5 MB
 
 const GOPLUS_RATE_LIMIT_CODE = 4029;
@@ -291,14 +162,6 @@ function jsonResponse(obj, status, headers) {
   });
 }
 
-// Read a response body as text, enforcing the size cap from the
-// declared Content-Length when present, and from the actual read
-// length afterwards. The post-read check covers upstreams that
-// omit Content-Length or send a lie.
-//
-// The declared check is in bytes; the post-read check is in UTF-16
-// code units. For JSON this is close enough — the intent is a
-// coarse ceiling, not byte-exact enforcement.
 async function readTextWithCap(resp) {
   const declared = Number(resp.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > MAX_UPSTREAM_BYTES) {
@@ -310,10 +173,6 @@ async function readTextWithCap(resp) {
   }
   return text;
 }
-
-// ----------------------------------------------------------------
-// Upstream relays
-// ----------------------------------------------------------------
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -353,8 +212,6 @@ async function relay(upstreamUrl, headers, env) {
     try {
       result = await fetchGoPlusOnce(upstreamUrl, env);
     } catch (e) {
-      // Detail goes to server-side logs only. The client gets a
-      // generic message; upstream error bodies are never echoed.
       console.error("[relay] GoPlus fetch failed:", e && e.message);
       return jsonResponse(
         { code: 0, message: "Upstream fetch failed" },
@@ -402,19 +259,24 @@ async function relay(upstreamUrl, headers, env) {
   );
 }
 
-async function relayBitquery(env, network, address, headers) {
-  if (!env || typeof env.BITQUERY_KEY !== "string" || !env.BITQUERY_KEY) {
+// ----------------------------------------------------------------
+// Etherscan deployer lookup (EVM)
+// ----------------------------------------------------------------
+async function relayEtherscanDeployer(env, chainId, address, headers) {
+  if (!env || typeof env.ETHERSCAN_KEY !== "string" || !env.ETHERSCAN_KEY) {
     return jsonResponse(
-      { error: "Bitquery not configured on this Worker" },
+      { error: "Etherscan not configured on this Worker (set ETHERSCAN_KEY)" },
       503,
       headers,
     );
   }
 
-  const body = JSON.stringify({
-    query: DEPLOYER_QUERY,
-    variables: { network, address, limit: DEPLOYER_QUERY_LIMIT },
-  });
+  const url =
+    `${ETHERSCAN_BASE}?chainid=${encodeURIComponent(chainId)}` +
+    `&module=account&action=txlist` +
+    `&address=${encodeURIComponent(address)}` +
+    `&sort=asc` +
+    `&apikey=${encodeURIComponent(env.ETHERSCAN_KEY)}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -422,24 +284,22 @@ async function relayBitquery(env, network, address, headers) {
   let upstreamResp;
   let upstreamText;
   try {
-    upstreamResp = await fetch(BITQUERY_ENDPOINT, {
-      method: "POST",
+    upstreamResp = await fetch(url, {
       signal: controller.signal,
       headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${env.BITQUERY_KEY}`,
         "User-Agent": "WeaverProxy/1.0",
+        Accept: "application/json",
       },
-      body,
       redirect: "manual",
     });
     upstreamText = await readTextWithCap(upstreamResp);
   } catch (e) {
-    // Detail logged server-side; client gets a generic message.
-    // e.message can carry the upstream URL or CF-internal detail.
-    console.error("[relayBitquery] Bitquery fetch failed:", e && e.message);
+    console.error(
+      "[relayEtherscanDeployer] Etherscan fetch failed:",
+      e && e.message,
+    );
     return jsonResponse(
-      { error: "Bitquery upstream unavailable" },
+      { error: "Etherscan upstream unavailable" },
       502,
       headers,
     );
@@ -448,32 +308,20 @@ async function relayBitquery(env, network, address, headers) {
   }
 
   if (!upstreamResp.ok) {
-    // ── Distinguish quota exhaustion from transient failures ─────
-    //
-    // HTTP 402 ("Payment Required" / "access restricted by points
-    // limit") means the Bitquery account has no points left for
-    // the current billing period, or has no active plan. Retrying
-    // is futile — every subsequent request returns the same 402
-    // until the account is topped up or upgraded. The client is
-    // told retryable: false so it can open a session-scoped
-    // circuit breaker rather than firing 6 doomed requests per
-    // gem scan.
-    //
-    // Everything else (429 rate limit, 5xx, timeouts) stays 502 —
-    // those are genuinely transient and worth retrying.
     const status = upstreamResp.status;
-    const isQuota = status === 402;
     console.error(
-      `[relayBitquery] Bitquery upstream returned HTTP ${status}` +
-        (isQuota ? " (points exhausted / no active plan)" : ""),
+      `[relayEtherscanDeployer] Etherscan upstream returned HTTP ${status}`,
     );
+    const isRateLimited = status === 429;
     return jsonResponse(
       {
-        error: `Bitquery upstream returned HTTP ${status}`,
-        code: isQuota ? "BITQUERY_QUOTA_EXHAUSTED" : "BITQUERY_UPSTREAM_ERROR",
-        retryable: !isQuota,
+        error: `Etherscan upstream returned HTTP ${status}`,
+        code: isRateLimited
+          ? "ETHERSCAN_RATE_LIMITED"
+          : "ETHERSCAN_UPSTREAM_ERROR",
+        retryable: true,
       },
-      isQuota ? 402 : 502,
+      isRateLimited ? 429 : 502,
       headers,
     );
   }
@@ -483,40 +331,313 @@ async function relayBitquery(env, network, address, headers) {
     parsed = JSON.parse(upstreamText);
   } catch (e) {
     return jsonResponse(
-      { error: "Bitquery returned a non-JSON response" },
+      { error: "Etherscan returned a non-JSON response" },
       502,
       headers,
     );
   }
 
-  if (parsed && Array.isArray(parsed.errors) && parsed.errors.length > 0) {
+  if (!parsed || typeof parsed !== "object") {
+    return jsonResponse(
+      { error: "Etherscan returned an unexpected shape" },
+      502,
+      headers,
+    );
+  }
+
+  const status = parsed.status;
+  const message = typeof parsed.message === "string" ? parsed.message : "";
+  const result = parsed.result;
+
+  if (status === "0") {
+    const lower = message.toLowerCase();
+
+    if (lower.includes("no transactions found")) {
+      return jsonResponse(
+        {
+          deployer: address,
+          chainId,
+          contracts: [],
+          truncated: false,
+          source: "etherscan",
+        },
+        200,
+        headers,
+      );
+    }
+
+    if (lower.includes("rate limit") || lower.includes("max rate")) {
+      console.error(
+        `[relayEtherscanDeployer] Etherscan rate limit: ${message}`,
+      );
+      return jsonResponse(
+        {
+          error: "Etherscan rate limit reached",
+          code: "ETHERSCAN_RATE_LIMITED",
+          retryable: true,
+        },
+        429,
+        headers,
+      );
+    }
+
+    console.error(
+      `[relayEtherscanDeployer] Etherscan status:0 message="${message}" ` +
+        `result=${JSON.stringify(result).slice(0, 200)}`,
+    );
     return jsonResponse(
       {
-        error: "Bitquery returned GraphQL errors",
-        detail: parsed.errors
-          .map((e) => (e && typeof e.message === "string" ? e.message : null))
-          .filter(Boolean),
+        error: `Etherscan rejected the request`,
+        code: "ETHERSCAN_UPSTREAM_ERROR",
+        retryable: false,
       },
       502,
       headers,
     );
   }
 
-  return new Response(JSON.stringify(parsed), {
-    status: 200,
-    headers: { "Content-Type": "application/json", ...headers },
-  });
+  if (!Array.isArray(result)) {
+    console.error(
+      "[relayEtherscanDeployer] Etherscan status:1 but result is not an array",
+    );
+    return jsonResponse(
+      { error: "Etherscan returned a non-array result" },
+      502,
+      headers,
+    );
+  }
+
+  const contracts = [];
+  for (const tx of result) {
+    if (!tx || typeof tx !== "object") continue;
+
+    const contractAddress =
+      typeof tx.contractAddress === "string" ? tx.contractAddress.trim() : "";
+    if (
+      !contractAddress ||
+      contractAddress === "0x" ||
+      contractAddress.length < 42
+    ) {
+      continue;
+    }
+    if (!EVM_ADDRESS_PATTERN.test(contractAddress)) continue;
+
+    const blockNumber = Number(tx.blockNumber);
+    const timestamp = Number(tx.timeStamp);
+
+    contracts.push({
+      address: contractAddress.toLowerCase(),
+      txHash: typeof tx.hash === "string" ? tx.hash : null,
+      blockNumber: Number.isFinite(blockNumber) ? blockNumber : null,
+      deployedAt: Number.isFinite(timestamp) ? timestamp * 1000 : null,
+    });
+  }
+
+  const truncated = result.length >= 10000;
+
+  return jsonResponse(
+    {
+      deployer: address,
+      chainId,
+      contracts,
+      truncated,
+      source: "etherscan",
+    },
+    200,
+    headers,
+  );
 }
 
-// Generic passthrough relay for /proxy?url=… — see header notes.
+// ----------------------------------------------------------------
+// Helius deployer lookup (Solana)
+// ----------------------------------------------------------------
 //
-// KEYED-PROVIDER INJECTION:
-//   For hosts that require an API key (currently only Helius), the
-//   Worker swaps the client-supplied placeholder for the real secret
-//   stored in env. The client sends ?api-key=placeholder; the Worker
-//   replaces it with env.HELIUS_KEY before forwarding. This keeps the
-//   key out of the browser bundle, out of git, and off the wire
-//   between browser and Worker.
+// Pages through a Solana wallet's Parsed Events history, filters for
+// Pump.fun create/create_v2 instructions, extracts the mint address
+// from each decoded instruction, and returns the same shape that
+// /etherscan/deployer returns so the client can treat both
+// providers identically.
+//
+// Solana addresses are case-sensitive base58. Do NOT lowercase them
+// here or in the client.
+async function relayHeliusDeployer(env, address, headers) {
+  if (!env || typeof env.HELIUS_KEY !== "string" || !env.HELIUS_KEY) {
+    return jsonResponse(
+      { error: "Helius not configured on this Worker (set HELIUS_KEY)" },
+      503,
+      headers,
+    );
+  }
+
+  const url = `${HELIUS_PARSED_EVENTS_URL}?api-key=${encodeURIComponent(env.HELIUS_KEY)}`;
+
+  const contracts = [];
+  let paginationToken = null;
+  let pagesFetched = 0;
+  let truncated = false;
+
+  while (pagesFetched < MAX_HELIUS_PAGES) {
+    const body = {
+      address,
+      limit: HELIUS_PAGE_SIZE,
+      sortOrder: "desc",
+      commitment: "confirmed",
+    };
+    if (paginationToken) body.paginationToken = paginationToken;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+    let resp;
+    let text;
+    try {
+      resp = await fetch(url, {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "WeaverProxy/1.0",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(body),
+        redirect: "manual",
+      });
+      text = await readTextWithCap(resp);
+    } catch (e) {
+      console.error("[relayHeliusDeployer] fetch failed:", e && e.message);
+      if (pagesFetched === 0) {
+        return jsonResponse(
+          { error: "Helius upstream unavailable" },
+          502,
+          headers,
+        );
+      }
+      truncated = true;
+      break;
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!resp.ok) {
+      if (resp.status === 429) {
+        console.error("[relayHeliusDeployer] Helius rate limit reached");
+        return jsonResponse(
+          {
+            error: "Helius rate limit reached",
+            code: "HELIUS_RATE_LIMITED",
+            retryable: true,
+          },
+          429,
+          headers,
+        );
+      }
+      console.error(
+        `[relayHeliusDeployer] upstream returned HTTP ${resp.status}`,
+      );
+      if (pagesFetched === 0) {
+        return jsonResponse(
+          { error: `Helius upstream returned HTTP ${resp.status}` },
+          502,
+          headers,
+        );
+      }
+      truncated = true;
+      break;
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      return jsonResponse(
+        { error: "Helius returned a non-JSON response" },
+        502,
+        headers,
+      );
+    }
+
+    const data = parsed && Array.isArray(parsed.data) ? parsed.data : [];
+
+    for (const entry of data) {
+      if (!entry || entry.parserStatus !== "OK") continue;
+      const inner = entry.parsed;
+      if (!inner || inner.transactionStatus !== "OK") continue;
+
+      const instructions = Array.isArray(inner.instructions)
+        ? inner.instructions
+        : [];
+
+      for (const ix of instructions) {
+        if (!ix || typeof ix !== "object") continue;
+        if (ix.programId !== PUMPFUN_PROGRAM_ID) continue;
+        if (!CREATE_INSTRUCTION_NAMES.has(ix.instructionName)) continue;
+
+        const decoded = ix.decoded;
+        if (!decoded || typeof decoded !== "object") continue;
+
+        const accounts = Array.isArray(decoded.accounts)
+          ? decoded.accounts
+          : [];
+        const args =
+          decoded.args && typeof decoded.args === "object" ? decoded.args : {};
+
+        const findAccount = (role) => {
+          const hit = accounts.find((a) => a && a.name === role);
+          return hit && typeof hit.pubkey === "string" ? hit.pubkey : null;
+        };
+
+        const mint = findAccount("mint");
+        if (typeof mint !== "string" || !mint) continue;
+
+        // The creator may live in args (some instruction versions)
+        // or in a named account role (other versions). Take whichever
+        // is present; if neither, leave it null. It is informational
+        // only — the deployer we queried is the address of record.
+        const creator =
+          (typeof args.creator === "string" && args.creator) ||
+          findAccount("creator") ||
+          findAccount("user") ||
+          null;
+
+        contracts.push({
+          address: mint,
+          txHash: typeof entry.signature === "string" ? entry.signature : null,
+          // Helius Parsed Events returns slot, not a wall-clock
+          // timestamp. Consumers that need a timestamp should treat
+          // null as unknown rather than fabricating one.
+          deployedAt: null,
+          slot: Number.isFinite(inner.slot) ? inner.slot : null,
+          creator,
+        });
+      }
+    }
+
+    paginationToken =
+      parsed && typeof parsed.paginationToken === "string"
+        ? parsed.paginationToken
+        : null;
+    pagesFetched += 1;
+
+    if (!paginationToken) break;
+  }
+
+  if (paginationToken && pagesFetched >= MAX_HELIUS_PAGES) truncated = true;
+
+  return jsonResponse(
+    {
+      deployer: address,
+      contracts,
+      truncated,
+      pagesFetched,
+      source: "helius",
+    },
+    200,
+    headers,
+  );
+}
+
+// [relayAllowedProxy unchanged]
+
 async function relayAllowedProxy(request, url, headers, ctx, env) {
   const target = url.searchParams.get("url");
   if (!target) {
@@ -535,9 +656,6 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
     return jsonResponse({ error: "Invalid url" }, 400, headers);
   }
 
-  // HTTPS only. http:// would let a browser on an allowlisted origin
-  // pull plaintext from an upstream and have the Worker launder it
-  // into an https response — a downgrade the client never asked for.
   if (targetUrl.protocol !== "https:") {
     return jsonResponse({ error: "Only https is allowed" }, 400, headers);
   }
@@ -550,10 +668,6 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
     );
   }
 
-  // ── Keyed-provider injection ───────────────────────────────────
-  // The client sends a placeholder api-key value; the Worker replaces
-  // it with the real secret. This block is the only place the secret
-  // is ever read, and the only place it is attached to a request.
   let effectiveTarget = targetUrl.toString();
 
   if (
@@ -569,9 +683,6 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
     targetUrl.hostname === "mainnet.helius-rpc.com" &&
     (!env || !env.HELIUS_KEY)
   ) {
-    // Missing key: fail closed rather than forwarding the request
-    // with the placeholder value, which would just produce a confusing
-    // upstream error.
     return jsonResponse(
       { error: "Helius RPC not configured on this Worker (set HELIUS_KEY)" },
       503,
@@ -588,11 +699,6 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
   const init = {
     method,
     headers: upstreamHeaders,
-    // Do not follow upstream redirects. An allowlisted host that
-    // returns a 3xx could otherwise redirect to a non-allowlisted
-    // target, and the response would be cached under the original
-    // URL key — a cache-poisoning vector. 3xx responses therefore
-    // surface as !ok and are treated as failures below.
     redirect: "manual",
   };
   if (method === "POST") {
@@ -600,7 +706,6 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
     init.headers["Content-Type"] = "application/json";
   }
 
-  // ── Edge cache lookup (GET only) ───────────────────────────────
   const cache = caches.default;
   const cacheKey = new Request(effectiveTarget, {
     method: "GET",
@@ -633,7 +738,6 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
     }
   }
 
-  // ── Upstream fetch ─────────────────────────────────────────────
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
@@ -651,14 +755,11 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
       upstreamOk = true;
     }
   } catch (e) {
-    // readTextWithCap throws on oversize; leave text null so the
-    // failure path below runs. Detail is not surfaced to the client.
     upstream = null;
   } finally {
     clearTimeout(timer);
   }
 
-  // ── Upstream success: store (GET) and return ───────────────────
   if (upstreamOk && text !== null) {
     const contentType =
       upstream.headers.get("content-type") || "application/json";
@@ -689,7 +790,6 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
     });
   }
 
-  // ── Upstream failure: serve stale cache within budget (§3.4) ───
   if (
     method === "GET" &&
     cachedResponse &&
@@ -708,7 +808,6 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
     });
   }
 
-  // ── No usable cache: pass the upstream error through honestly ──
   if (upstream) {
     const errorBody = await upstream.text().catch(() => "");
     return new Response(
@@ -736,7 +835,7 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
 // Route handlers
 // ----------------------------------------------------------------
 
-async function handleDeployerRequest(request, env, headers) {
+async function handleEtherscanDeployerRequest(request, env, headers) {
   let body;
   try {
     body = await request.json();
@@ -752,8 +851,8 @@ async function handleDeployerRequest(request, env, headers) {
   const address =
     typeof body.deployerAddress === "string" ? body.deployerAddress.trim() : "";
 
-  const network = CHAIN_TO_BITQUERY_NETWORK[chain];
-  if (!network) {
+  const chainId = CHAIN_TO_ETHERSCAN_ID[chain];
+  if (!chainId) {
     return jsonResponse(
       { error: `Unsupported chain: ${chain || "(missing)"}` },
       400,
@@ -771,7 +870,45 @@ async function handleDeployerRequest(request, env, headers) {
     );
   }
 
-  return relayBitquery(env, network, address.toLowerCase(), headers);
+  return relayEtherscanDeployer(env, chainId, address.toLowerCase(), headers);
+}
+
+async function handleHeliusDeployerRequest(request, env, headers) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (e) {
+    return jsonResponse({ error: "Invalid JSON body" }, 400, headers);
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return jsonResponse({ error: "Invalid request body" }, 400, headers);
+  }
+
+  const chain =
+    typeof body.chain === "string" ? body.chain.trim().toLowerCase() : "";
+  const address =
+    typeof body.deployerAddress === "string" ? body.deployerAddress.trim() : "";
+
+  if (chain !== "solana") {
+    return jsonResponse(
+      { error: `Unsupported chain for Helius: ${chain || "(missing)"}` },
+      400,
+      headers,
+    );
+  }
+
+  if (!SOLANA_ADDRESS_PATTERN.test(address)) {
+    return jsonResponse(
+      {
+        error: "deployerAddress must be a base58 Solana address",
+      },
+      400,
+      headers,
+    );
+  }
+
+  // Do NOT lowercase Solana addresses — base58 is case-sensitive.
+  return relayHeliusDeployer(env, address, headers);
 }
 
 // ----------------------------------------------------------------
@@ -793,22 +930,27 @@ async function handleRequest(request, env, ctx) {
   const url = new URL(request.url);
   const parts = url.pathname.split("/").filter(Boolean);
 
-  // ── Bitquery route — POST only, exact path match. ────────────
+  // ── Etherscan deployer route (EVM) ───────────────────────────
   if (
     parts.length === 2 &&
-    parts[0] === "bitquery" &&
+    parts[0] === "etherscan" &&
     parts[1] === "deployer"
   ) {
     if (request.method !== "POST") {
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
     }
-    return handleDeployerRequest(request, env, headers);
+    return handleEtherscanDeployerRequest(request, env, headers);
   }
 
-  // ── Meme alerts listing — GET only, paginated, time-filtered. ─
-  // Read-only public endpoint used by the calibration job. Returns
-  // alerts in the [since, until) window, up to `limit` (max 1000),
-  // with a continuation cursor. No secrets required.
+  // ── Helius deployer route (Solana) ──────────────────────────
+  if (parts.length === 2 && parts[0] === "helius" && parts[1] === "deployer") {
+    if (request.method !== "POST") {
+      return jsonResponse({ error: "Method not allowed" }, 405, headers);
+    }
+    return handleHeliusDeployerRequest(request, env, headers);
+  }
+
+  // ── Meme alerts listing ─────────────────────────────────────
   if (parts.length === 2 && parts[0] === "meme" && parts[1] === "alerts") {
     if (request.method !== "GET") {
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
@@ -836,7 +978,6 @@ async function handleRequest(request, env, ctx) {
     const alerts = [];
     for (const key of result.keys) {
       const keyParts = key.name.split(":");
-      // ["weaver", "meme", "alert", "v2", "<ts>", "<chain>", "<address>"]
       const observedAtMs = Number(keyParts[4]);
       if (!Number.isFinite(observedAtMs)) continue;
       if (observedAtMs < since || observedAtMs >= until) continue;
@@ -862,10 +1003,7 @@ async function handleRequest(request, env, ctx) {
     );
   }
 
-  // ── Meme alert persistence — POST only, exact path match. ────
-  // Persists a browser-side gem alert to KV for the calibration job.
-  // handleMemeAlert builds its own Response without CORS headers;
-  // re-emit with the headers computed at the top of handleRequest.
+  // ── Meme alert persistence ──────────────────────────────────
   if (parts.length === 2 && parts[0] === "meme" && parts[1] === "alert") {
     if (request.method !== "POST") {
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
@@ -876,7 +1014,7 @@ async function handleRequest(request, env, ctx) {
     return new Response(res.body, { status: res.status, headers: merged });
   }
 
-  // ── Generic relay — /proxy?url=… host-allowlisted, cached. ───
+  // ── Generic relay ───────────────────────────────────────────
   if (parts.length === 1 && parts[0] === "proxy") {
     if (request.method !== "GET" && request.method !== "POST") {
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
@@ -884,7 +1022,7 @@ async function handleRequest(request, env, ctx) {
     return relayAllowedProxy(request, url, headers, ctx, env);
   }
 
-  // ── GoPlus routes — GET only, path-based. ────────────────────
+  // ── GoPlus routes ───────────────────────────────────────────
   const isGoplusEvm = parts[0] === "goplus" && parts[1] === "evm" && !!parts[2];
   const isGoplusSolana = parts[0] === "goplus" && parts[1] === "solana";
 

@@ -15,49 +15,56 @@
 //     owner.address       GoPlus owner_address (owner/admin authority)
 //     creator.address     GoPlus creator_address (creator metadata)
 //     deployerAddress     address established from on-chain creation
-//                         evidence (Bitquery Call.Create Call.From)
+//                         evidence
 //
 //   This module uses `creator.address` only as the query hint to
-//   Bitquery. The Bitquery response establishes the deployer of
-//   record for the returned contracts.
+//   the upstream provider. The response establishes the deployer
+//   of record for the returned contracts.
 //
-// SCOPE — Step 4:
+// SCOPE — Step 5 (post-Bitquery migration):
 //   observe() reads the GoPlus creator address as the query hint,
-//   calls the Worker's /bitquery/deployer route, parses the
-//   response, applies the qualification step, and records the
-//   resulting profile.
+//   calls the appropriate Worker route, parses the response,
+//   applies the qualification step, and records the resulting
+//   profile.
+//
+// CHAIN COVERAGE:
+//   Etherscan (EVM): Ethereum, BSC, Base, Arbitrum, Polygon,
+//   Optimism, Avalanche. Uses account.txlist and filters for
+//   non-empty contractAddress.
+//
+//   Helius Parsed Events (Solana): pages through the deployer's
+//   transaction history, filters for Pump.fun create/create_v2
+//   instructions, extracts the mint address from each. Pump.fun
+//   covers the majority of Solana memecoins the gem scanner
+//   surfaces; other launchpads can be added to the Worker's
+//   program-ID set without changing the client.
+//
+//   Solana addresses are base58 and case-sensitive. normalizeAddress
+//   preserves case for Solana and lowercases for EVM. Cache keys
+//   and comparisons follow the same rule.
 //
 // CREATION-EVIDENCE CONTRACT:
-//   Bitquery returns two distinct creation shapes (see
-//   docs.bitquery.io/docs/blockchain/Ethereum/calls/contract-creation):
+//   Etherscan: account.txlist returns every transaction the
+//   address ever sent; contract creations are identified by a
+//   non-empty contractAddress field. Etherscan does not
+//   distinguish top-level from factory-internal deployments in
+//   this response shape; both surface as a creation by the
+//   queried address.
 //
-//     top-level deployment:
-//       Receipt.ContractAddress is the deployed contract.
-//       Call.To is null/zero for a top-level CREATE.
-//
-//     factory/internal deployment:
-//       Receipt.ContractAddress is not populated (or the zero
-//       address), and the nested CREATE call carries the deployed
-//       address in Call.To.
-//
-//   Every returned row is labelled with the callType that matches
-//   the field the address was extracted from. The literal
-//   "direct" is NO LONGER a valid callType — it overstates what
-//   the response establishes for factory/internal rows.
-//
-//   Rows where neither field yields a non-zero address are
-//   UNRESOLVED. They are dropped from tokens[] and counted in
-//   unresolvedCreationCount so the profile is honest about what
-//   was not classified.
+//   Helius Parsed Events: returns decoded instructions. We filter
+//   for Pump.fun create/create_v2 and extract the mint from each
+//   decoded account list. Helius returns slot, not wall-clock
+//   time; deployedAt is null and slot is preserved.
 //
 // QUALIFICATION — Step 4 policy:
-//   The Bitquery response identifies contracts the address created.
-//   It does NOT confirm that each contract is a fungible token.
+//   The provider response identifies contracts the address
+//   created. It does NOT confirm that each contract is a
+//   fungible token.
 //
 //   Only contracts we can independently confirm as tokens enter
-//   tokens[]. Currently the only such contract is the token Weaver
-//   is analyzing (GoPlus recognized it as a token — that is why we
-//   have a creator address to query with).
+//   tokens[]. Currently the only such contract is the token
+//   Weaver is analyzing (GoPlus recognized it as a token — that
+//   is why we have a creator address to query with).
 //
 //   All other contracts are counted in filteredContractCount.
 //   They are visible as a number, not as individual tokens, and
@@ -76,16 +83,14 @@
 //   Shield methodology change does not leave stale booleans in
 //   the cache.
 //
-// QUOTA HANDLING:
-//   When the Worker returns HTTP 402, the Bitquery account has no
-//   points left for the current billing period. Every subsequent
-//   request will also 402 until the account is topped up. Rather
-//   than firing a request per gem scan (which wastes the scan's
-//   time and clutters the network panel), the module sets a
-//   session-scoped `quotaExhausted` flag and short-circuits all
-//   further fetches. The flag is cleared by reset() — production
-//   callers should not invoke reset() while a session is live;
-//   tests use it to re-arm the fetch path.
+// TERMINAL ERROR HANDLING:
+//   Both providers signal rate limiting with HTTP 429. The module
+//   sets a session-scoped `terminalError` flag on the first 429
+//   and short-circuits further fetches for the tab's lifetime.
+//   Retrying a 429 immediately just trips the same window again.
+//   Cleared by reset() — production callers should not invoke
+//   reset() while a session is live; tests use it to re-arm the
+//   fetch path.
 //
 // NEVER THROWS:
 //   Every public function returns null or false on failure. A
@@ -96,7 +101,7 @@
 window.W = window.W || {};
 
 W.deployerGraph = (() => {
-  const METHODOLOGY_VERSION = "deployer-graph-v2";
+  const METHODOLOGY_VERSION = "deployer-graph-v4";
   const KEY_PREFIX = "deployer:";
   const INDEX_KEY = "deployer:__index__";
   const RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -104,8 +109,8 @@ W.deployerGraph = (() => {
 
   const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
-  // Worker URL. Defaults to the deployed Weaver proxy; can be overridden
-  // for testing via _internal.setWorkerBase().
+  // Worker URL. Defaults to the deployed Weaver proxy; can be
+  // overridden for testing via _internal.setWorkerBase().
   let workerBase = "https://weaver-proxy.ibis01-weaver.workers.dev";
 
   // In-memory mirror of the index. Populated on first read after
@@ -114,11 +119,11 @@ W.deployerGraph = (() => {
   let cachedIndex = null;
   const warned = new Set();
 
-  // Session-scoped quota flag. Set when the Worker reports HTTP 402
-  // (Bitquery points exhausted / no active plan). Once set, further
-  // fetch attempts are short-circuited — retrying a 402 is futile
-  // and wastes the scan's time. Cleared by reset().
-  let quotaExhausted = false;
+  // Session-scoped terminal-error flag. Set when the Worker reports
+  // a condition that will not resolve within the session (rate
+  // limit; equivalent permanent failures). Once set, further fetch
+  // attempts are short-circuited. Cleared by reset().
+  let terminalError = false;
 
   function warnOnce(tag, message) {
     if (warned.has(tag)) return;
@@ -132,10 +137,23 @@ W.deployerGraph = (() => {
 
   // ── Normalization ────────────────────────────────────────
 
-  function normalizeAddress(value) {
+  // Chain-aware address normalization.
+  //   Solana:  base58, case-sensitive — preserve as-is.
+  //   EVM:     lowercase for consistent comparison and cache keys.
+  //
+  // The single-argument form is retained for backward compatibility
+  // with existing tests and EVM-only call sites; it defaults to EVM
+  // semantics (lowercase).
+  function normalizeAddress(valueOrChain, maybeValue) {
+    const hasChain = typeof maybeValue !== "undefined";
+    const chain = hasChain ? valueOrChain : null;
+    const value = hasChain ? maybeValue : valueOrChain;
+
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
     if (!trimmed) return null;
+
+    if (chain === "solana") return trimmed;
     return trimmed.toLowerCase();
   }
 
@@ -147,7 +165,7 @@ W.deployerGraph = (() => {
   }
 
   // True only for a syntactically valid 0x-prefixed 40-hex address
-  // that is NOT the zero address. Used to decide whether a Bitquery
+  // that is NOT the zero address. Used to decide whether an EVM
   // field actually carries a deployed contract address.
   function isNonZeroAddress(value) {
     if (typeof value !== "string") return false;
@@ -158,7 +176,7 @@ W.deployerGraph = (() => {
 
   function keyFor(chainKey, deployerAddress) {
     const chain = normalizeChain(chainKey);
-    const address = normalizeAddress(deployerAddress);
+    const address = normalizeAddress(chain, deployerAddress);
     if (!chain || !address) return null;
     return KEY_PREFIX + chain + ":" + address;
   }
@@ -283,12 +301,12 @@ W.deployerGraph = (() => {
 
   // ── Public: record ───────────────────────────────────────
   // Write entry point. observe() calls this after a successful
-  // Bitquery fetch. Tests use it to prime the cache. Returns true
+  // provider fetch. Tests use it to prime the cache. Returns true
   // on success, false on any failure. Never throws.
   function record(chainKey, deployerAddress, profile) {
     try {
       const chain = normalizeChain(chainKey);
-      const address = normalizeAddress(deployerAddress);
+      const address = normalizeAddress(chain, deployerAddress);
       const key = keyFor(chain, address);
       if (!key) return false;
       if (!profile || typeof profile !== "object") return false;
@@ -309,7 +327,7 @@ W.deployerGraph = (() => {
         : Date.now();
 
       const normalizedTokens = profile.tokens.map((token) => ({
-        tokenAddress: normalizeAddress(token.tokenAddress),
+        tokenAddress: normalizeAddress(chain, token.tokenAddress),
         deployedAt: Number.isFinite(token.deployedAt) ? token.deployedAt : null,
         deploymentTxHash:
           typeof token.deploymentTxHash === "string"
@@ -336,15 +354,11 @@ W.deployerGraph = (() => {
         source:
           typeof profile.source === "string" && profile.source.trim()
             ? profile.source.trim()
-            : "bitquery",
+            : "unknown",
         filteredContractCount: Number.isFinite(profile.filteredContractCount)
           ? Math.max(0, Math.floor(profile.filteredContractCount))
           : 0,
-        unresolvedCreationCount: Number.isFinite(
-          profile.unresolvedCreationCount,
-        )
-          ? Math.max(0, Math.floor(profile.unresolvedCreationCount))
-          : 0,
+        truncated: profile.truncated === true,
         creatorMetadata:
           profile.creatorMetadata && typeof profile.creatorMetadata === "object"
             ? cloneValue(profile.creatorMetadata)
@@ -392,7 +406,7 @@ W.deployerGraph = (() => {
   function get(chainKey, tokenAddress) {
     try {
       const chain = normalizeChain(chainKey);
-      const tokenAddr = normalizeAddress(tokenAddress);
+      const tokenAddr = normalizeAddress(chain, tokenAddress);
       if (!chain || !tokenAddr) return null;
 
       const entries = readAllEntries();
@@ -464,9 +478,9 @@ W.deployerGraph = (() => {
 
   // ── Public: reset ────────────────────────────────────────
   // Test hook. Clears all cached profiles and the index, and
-  // re-arms the quota flag so a fresh test run can exercise the
-  // fetch path. Production callers should not invoke this while
-  // a session is live.
+  // re-arms the terminal-error flag so a fresh test run can
+  // exercise the fetch path. Production callers should not invoke
+  // this while a session is live.
   function reset() {
     try {
       const entries = readAllEntries();
@@ -477,143 +491,11 @@ W.deployerGraph = (() => {
     } catch (e) {
       warnOnce("reset", "reset failed: " + (e && e.message));
     }
-    // Clear the session quota flag even if cache cleanup above
-    // threw. A stuck flag would silently disable deployer
-    // enrichment for the rest of the session with no way to
-    // recover.
-    quotaExhausted = false;
+    // Clear the session flag even if cache cleanup above threw. A
+    // stuck flag would silently disable deployer enrichment for the
+    // rest of the session with no way to recover.
+    terminalError = false;
     warned.clear();
-  }
-
-  // ── Bitquery response parsing ────────────────────────────
-
-  function extractCalls(parsed) {
-    if (!parsed || typeof parsed !== "object") return null;
-    if (Array.isArray(parsed.errors) && parsed.errors.length > 0) {
-      // A GraphQL response with errors is not a valid data source.
-      return null;
-    }
-    const data = parsed.data;
-    if (!data || typeof data !== "object") return null;
-    const evm = data.EVM;
-    if (!evm || typeof evm !== "object") return null;
-    const calls = evm.Calls;
-    if (!Array.isArray(calls)) return null;
-    return calls;
-  }
-
-  // ── Creation-evidence extraction ─────────────────────────
-  //
-  // Bitquery returns two distinct creation shapes (see the header
-  // and the Worker's DEPLOYER_QUERY comment):
-  //
-  //   top-level deployment:
-  //     Receipt.ContractAddress is the deployed contract.
-  //     Call.To is null/zero for a top-level CREATE.
-  //
-  //   factory/internal deployment:
-  //     Receipt.ContractAddress is not populated (or is the zero
-  //     address), and the nested CREATE call carries the deployed
-  //     address in Call.To.
-  //
-  // This function never guesses. If neither field yields a
-  // non-zero address, it returns null and the caller counts the
-  // row as unresolved — it is NOT recorded as a deployment.
-  //
-  // The `callType` returned here is the ONLY value that should
-  // end up in deploymentEvidence. The literal "direct" is no
-  // longer a valid label.
-  function extractCreationEvidence(call) {
-    if (!call || typeof call !== "object") return null;
-
-    const receipt = call.Receipt;
-    const receiptAddress =
-      receipt && typeof receipt === "object" ? receipt.ContractAddress : null;
-
-    const inner = call.Call;
-    const callTo = inner && typeof inner === "object" ? inner.To : null;
-
-    const txHash = extractTxHash(call);
-    const blockTime = extractDeployedAt(call);
-
-    if (isNonZeroAddress(receiptAddress)) {
-      return {
-        deployedAddress: normalizeAddress(receiptAddress),
-        callType: "top-level",
-        evidenceFields: ["Receipt.ContractAddress", "Transaction.Hash"],
-        txHash,
-        deployedAt: blockTime,
-      };
-    }
-
-    if (isNonZeroAddress(callTo)) {
-      return {
-        deployedAddress: normalizeAddress(callTo),
-        callType: "factory-internal",
-        evidenceFields: ["Call.To", "Transaction.Hash"],
-        txHash,
-        deployedAt: blockTime,
-      };
-    }
-
-    // Neither field carries a usable address. Do NOT default to
-    // "direct". The caller excludes this row.
-    return null;
-  }
-
-  function extractTxHash(call) {
-    if (!call || typeof call !== "object") return null;
-    const tx = call.Transaction;
-    if (!tx || typeof tx !== "object") return null;
-    return typeof tx.Hash === "string" ? tx.Hash : null;
-  }
-
-  function extractDeployedAt(call) {
-    if (!call || typeof call !== "object") return null;
-    const b = call.Block;
-    if (!b || typeof b !== "object") return null;
-    const t = b.Time;
-    if (typeof t !== "string") return null;
-    const parsed = Date.parse(t);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  // Builds a token record from a row whose creation evidence has
-  // already been extracted. The evidence object carries the
-  // callType and the field provenance; both are persisted so a
-  // later audit can distinguish a top-level deployment from a
-  // factory-internal one without re-querying.
-  function buildTokenFromCall(evidence, deployerAddress) {
-    return {
-      tokenAddress: evidence.deployedAddress,
-      deployedAt: Number.isFinite(evidence.deployedAt)
-        ? evidence.deployedAt
-        : null,
-      deploymentTxHash:
-        typeof evidence.txHash === "string" ? evidence.txHash : null,
-      deploymentEvidence: {
-        source: "bitquery",
-        method: "evm-call-create",
-        deployerAddress: deployerAddress,
-        callType: evidence.callType, // "top-level" | "factory-internal"
-        deployedAddress: evidence.deployedAddress,
-        evidenceFields: Array.isArray(evidence.evidenceFields)
-          ? evidence.evidenceFields.slice()
-          : [],
-        // What this evidence does NOT establish:
-        //   - It does not establish that the deployer is the
-        //     current owner.
-        //   - It does not establish that the deployed contract is
-        //     a token.
-        //   - For callType "factory-internal", the `From` in the
-        //     Bitquery row is the factory address, not the EOA
-        //     that deployed the factory. Consumers must not
-        //     conflate the two.
-      },
-      riskScore: null,
-      shieldObservedAt: null,
-      shieldSource: null,
-    };
   }
 
   // ── Worker fetch ─────────────────────────────────────────
@@ -627,18 +509,23 @@ W.deployerGraph = (() => {
       return null;
     }
 
-    // Fast path: if a previous call in this session already saw a
-    // 402, the Bitquery account has no points left. Every further
-    // request would also 402 — skip the network entirely rather
-    // than waste the scan's time and clutter the network panel.
-    if (quotaExhausted) return null;
+    // Fast path: a previous 429 in this session means the provider's
+    // free-tier window has not recovered. Skip the network entirely
+    // rather than fire doomed requests.
+    if (terminalError) return null;
+
+    // Chain-appropriate provider. Both return the same normalized
+    // { contracts[] } shape; the client's parsing below is
+    // provider-agnostic.
+    const endpoint =
+      chain === "solana" ? "/helius/deployer" : "/etherscan/deployer";
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10000);
 
     let response;
     try {
-      response = await fetch(workerBase + "/bitquery/deployer", {
+      response = await fetch(workerBase + endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -654,17 +541,15 @@ W.deployerGraph = (() => {
       clearTimeout(timer);
     }
 
-    // ── Quota exhaustion ────────────────────────────────────────
-    // The Worker reports 402 (Bitquery points exhausted / no
-    // active plan) with code "BITQUERY_QUOTA_EXHAUSTED" and
-    // retryable: false. This is not a transient failure. Latch
-    // the session flag so subsequent scans do not fire doomed
-    // requests. The flag clears on reset().
-    if (response && response.status === 402) {
-      quotaExhausted = true;
+    // ── Rate limit (both providers) ────────────────────────────
+    // The Worker surfaces rate limits as HTTP 429 with code
+    // "ETHERSCAN_RATE_LIMITED" or "HELIUS_RATE_LIMITED". Latch the
+    // session flag so subsequent scans do not fire doomed requests.
+    if (response && response.status === 429) {
+      terminalError = true;
       warnOnce(
-        "quota-exhausted",
-        "Bitquery quota exhausted (HTTP 402) — deployer enrichment disabled for this session",
+        "rate-limited",
+        "Deployer provider rate limit reached — deployer enrichment disabled for this session",
       );
       return null;
     }
@@ -688,13 +573,13 @@ W.deployerGraph = (() => {
 
   // ── Public: observe ──────────────────────────────────────
   // Async orchestrator. Reads creator.address from the assessment
-  // as the Bitquery query hint, fetches the deployer profile on
+  // as the provider query hint, fetches the deployer profile on
   // cache miss, applies the qualification step, and records.
   // Returns the profile or null. Never throws.
   //
   // On success, the returned profile is read directly by deployer
   // key — not by token lookup. A profile that qualifies zero
-  // tokens (because the current token was not among the Bitquery
+  // tokens (because the current token was not among the provider's
   // creation calls) is still a valid recorded result and is
   // returned. get(chain, tokenAddress) remains a token-keyed
   // semantic lookup for render consumers and will not surface
@@ -707,12 +592,12 @@ W.deployerGraph = (() => {
       }
 
       const chain = normalizeChain(chainKey);
-      const tokenAddr = normalizeAddress(tokenAddress);
+      const tokenAddr = normalizeAddress(chain, tokenAddress);
       if (!chain || !tokenAddr) return null;
 
       const creator = assessment.creator;
       if (!creator || typeof creator !== "object") return null;
-      const creatorAddress = normalizeAddress(creator.address);
+      const creatorAddress = normalizeAddress(chain, creator.address);
       if (!creatorAddress) return null;
 
       // Cache check — return the cached profile without a network
@@ -723,28 +608,57 @@ W.deployerGraph = (() => {
       const parsed = await fetchDeployerProfile(chain, creatorAddress);
       if (!parsed) return null;
 
-      const calls = extractCalls(parsed);
-      if (calls === null) return null;
+      if (!Array.isArray(parsed.contracts)) return null;
+
+      const isSolana = chain === "solana";
+      const evidenceMethod = isSolana
+        ? "solana-parsed-events-pumpfun-create"
+        : "evm-account-txlist";
+      const evidenceSource = isSolana ? "helius" : "etherscan";
+      const profileSource =
+        typeof parsed.source === "string" ? parsed.source : evidenceSource;
 
       // Qualification: only the current token is verified as a
       // token (GoPlus recognized it — that is why we have a
       // creator address to query with). All other contracts are
-      // counted in filteredContractCount. Rows whose creation
-      // evidence cannot be resolved are counted separately in
-      // unresolvedCreationCount and never enter tokens[].
+      // counted in filteredContractCount.
       const tokens = [];
       let filteredContractCount = 0;
-      let unresolvedCreationCount = 0;
 
-      for (const call of calls) {
-        const evidence = extractCreationEvidence(call);
-        if (!evidence) {
-          unresolvedCreationCount++;
-          continue;
-        }
+      for (const contract of parsed.contracts) {
+        if (!contract || typeof contract !== "object") continue;
+        const contractAddress = normalizeAddress(chain, contract.address);
+        if (!contractAddress) continue;
 
-        if (evidence.deployedAddress === tokenAddr) {
-          tokens.push(buildTokenFromCall(evidence, creatorAddress));
+        if (contractAddress === tokenAddr) {
+          tokens.push({
+            tokenAddress: contractAddress,
+            deployedAt: Number.isFinite(contract.deployedAt)
+              ? contract.deployedAt
+              : null,
+            deploymentTxHash:
+              typeof contract.txHash === "string" ? contract.txHash : null,
+            deploymentEvidence: {
+              source: evidenceSource,
+              method: evidenceMethod,
+              deployerAddress: creatorAddress,
+              deployedAddress: contractAddress,
+              blockNumber: Number.isFinite(contract.blockNumber)
+                ? contract.blockNumber
+                : null,
+              slot: Number.isFinite(contract.slot) ? contract.slot : null,
+              // What this evidence does NOT establish:
+              //   - It does not establish that the deployer is the
+              //     current owner.
+              //   - It does not establish that the deployed contract
+              //     is a token.
+              // For Solana, Pump.fun create instructions are the
+              // source; other launchpads are not (yet) tracked.
+            },
+            riskScore: null,
+            shieldObservedAt: null,
+            shieldSource: null,
+          });
         } else {
           filteredContractCount++;
         }
@@ -753,16 +667,16 @@ W.deployerGraph = (() => {
       const profile = {
         tokens,
         filteredContractCount,
-        unresolvedCreationCount,
+        truncated: parsed.truncated === true,
         creatorMetadata: {
           goplusCreatorAddress: creatorAddress,
-          // We do not have a per-token Bitquery deployer lookup, so
-          // we cannot compare Bitquery's per-token deployer against
-          // GoPlus's creator_address. The value is honest: the
-          // comparison was not performed.
+          // We do not have a per-token provider-side deployer
+          // lookup that could be compared against GoPlus's
+          // creator_address. The value is honest: the comparison
+          // was not performed.
           agreement: "unavailable",
         },
-        source: "bitquery",
+        source: profileSource,
         observedAt: Date.now(),
       };
 
@@ -773,7 +687,7 @@ W.deployerGraph = (() => {
       // Return the stored profile by deployer key, not by token
       // lookup. get() is token-keyed and returns null when the
       // profile has no matching token — which happens when the
-      // current token is not among the Bitquery creation calls.
+      // current token is not among the provider's creation calls.
       // The profile is still recorded and should be returned.
       const storedKey = keyFor(chain, creatorAddress);
       if (!storedKey) return null;
@@ -800,13 +714,9 @@ W.deployerGraph = (() => {
       isNonZeroAddress,
       isExpired,
       pruneAndEvict,
-      extractCalls,
-      extractCreationEvidence,
-      extractTxHash,
-      extractDeployedAt,
       setWorkerBase,
       getWorkerBase: () => workerBase,
-      isQuotaExhausted: () => quotaExhausted,
+      isTerminalError: () => terminalError,
       INDEX_KEY,
       KEY_PREFIX,
       RETENTION_MS,
