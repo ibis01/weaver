@@ -99,13 +99,28 @@ W.dashboard = (() => {
         methodologyVersion: decision.methodologyVersion,
         domains: {
           signal: {
-            status: decision.eligibility || "unknown",
+            // The domain status describes the *signal as observed* —
+            // it was detected, and its provenance is available. It is
+            // NOT a claim that the signal is decision-ready. That
+            // distinction is carried by decision.eligibility, which
+            // is surfaced as a reason line below rather than as a
+            // status string. A reader seeing "signal available" reads
+            // "we have the signal"; a reader seeing "signal ELIGIBLE"
+            // reads "the signal passed a gate", which is not what the
+            // engine's eligibility value means (it means only that
+            // all four assessment dimensions are numeric).
+            status: "available",
             relationship,
             source: decision._signalType || "signal",
             reliability,
-            reasons: Array.isArray(decision.assessment?.reasoning)
-              ? decision.assessment.reasoning.slice()
-              : [],
+            reasons: [
+              decision.eligibility === "INSUFFICIENT_EVIDENCE"
+                ? "The decision engine could not compute a score: not enough evidence was available to fill all four dimensions (relevance, impact, urgency, confidence)."
+                : null,
+              ...(Array.isArray(decision.assessment?.reasoning)
+                ? decision.assessment.reasoning.slice()
+                : []),
+            ].filter(Boolean),
           },
         },
       });
