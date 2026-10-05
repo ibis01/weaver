@@ -4,6 +4,7 @@
 // This is measurement only; it never creates a trade signal.
 // ===============================================================
 window.W = window.W || {};
+
 W.memeCalibration = (() => {
   const VERSION = "meme-calibration-v1";
   const finite = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
@@ -20,6 +21,7 @@ W.memeCalibration = (() => {
         reason: "Missing alert price or timestamp",
       };
     }
+
     const rows = snapshots
       .map((s) => ({
         ...s,
@@ -29,12 +31,39 @@ W.memeCalibration = (() => {
       }))
       .filter((s) => s.at > startAt && s.price !== null)
       .sort((a, b) => a.at - b.at);
-    if (!rows.length)
+
+    if (!rows.length) {
       return {
         version: VERSION,
         valid: false,
         reason: "No future observations",
       };
+    }
+
+    const horizonHours = Number(options.horizonHours || 24);
+    const horizonMs = horizonHours * 36e5;
+
+    // Tolerance: a 24h evaluation accepts observations at >= 22.8h by
+    // default (5% short of the horizon). Anything earlier is not enough
+    // data to evaluate a 24h outcome and must NOT be substituted.
+    const tolerancePct = Number(options.horizonTolerancePct ?? 5);
+    const minAcceptableAt = startAt + horizonMs * (1 - tolerancePct / 100);
+
+    const atHorizon = rows.find((s) => s.at >= minAcceptableAt);
+    if (!atHorizon) {
+      // Do not fall back to the last row. A 2h observation is not a
+      // 24h result; treating it as one contaminates the calibration
+      // denominator with false negatives (or false positives).
+      return {
+        version: VERSION,
+        valid: false,
+        reason: "INSUFFICIENT_HORIZON_DATA",
+        horizonHours,
+        observationCount: rows.length,
+        latestAt: rows[rows.length - 1].at,
+        requiredBy: minAcceptableAt,
+      };
+    }
 
     const returns = rows.map((s) => (s.price / startPrice - 1) * 100);
     const maxReturnPct = Math.max(...returns);
@@ -44,10 +73,7 @@ W.memeCalibration = (() => {
       startLiquidity > 0 && liquidityRows.length
         ? Math.min(...liquidityRows.map((s) => s.liquidity / startLiquidity))
         : null;
-    const horizonHours = Number(options.horizonHours || 24);
-    const horizonMs = horizonHours * 36e5;
-    const atHorizon =
-      rows.find((s) => s.at - startAt >= horizonMs) || rows[rows.length - 1];
+
     const horizonReturnPct = (atHorizon.price / startPrice - 1) * 100;
     const liquidityMaintained =
       minLiquidityRatio === null || minLiquidityRatio >= 0.5;
@@ -60,6 +86,7 @@ W.memeCalibration = (() => {
       : executable
         ? "TRADABLE_BUT_UNCONFIRMED"
         : "EXECUTION_FAILURE_RISK";
+
     return {
       version: VERSION,
       valid: true,
@@ -76,6 +103,10 @@ W.memeCalibration = (() => {
   }
 
   function summarize(evaluations = []) {
+    // Invalid evaluations (including INSUFFICIENT_HORIZON_DATA) are
+    // excluded from every rate. This is deliberate: they carry no
+    // information about whether the alert was durable, and counting
+    // them as failures would bias calibration downward.
     const valid = evaluations.filter((e) => e && e.valid);
     const durable = valid.filter((e) => e.durable);
     const executable = valid.filter((e) => e.executable);

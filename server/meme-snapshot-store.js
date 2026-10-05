@@ -3,6 +3,7 @@ const { createClient } = require("redis");
 const PREFIX = "weaver:meme:snapshot:v1:";
 const INDEX_KEY = `${PREFIX}index`;
 const RETENTION_SECONDS = 90 * 24 * 60 * 60;
+const RETENTION_MS = RETENTION_SECONDS * 1000;
 
 function createMemeSnapshotStore(options = {}) {
   const url = options.url || process.env.REDIS_URL;
@@ -42,6 +43,7 @@ function createMemeSnapshotStore(options = {}) {
       observedAt: observedAt.toISOString(),
       schemaVersion: "meme-snapshot-v1",
     });
+
     await client
       .multi()
       .hSet(`${key}:records`, id, payload)
@@ -52,10 +54,31 @@ function createMemeSnapshotStore(options = {}) {
       })
       .expire(`${key}:records`, RETENTION_SECONDS)
       .expire(`${key}:timeline`, RETENTION_SECONDS)
+      // Bound the index. Without this, individual token keys expire
+      // but INDEX_KEY keeps growing indefinitely.
+      .zRemRangeByScore(INDEX_KEY, 0, Date.now() - RETENTION_MS)
+      .expire(INDEX_KEY, RETENTION_SECONDS)
       .exec();
+
     return { id, key, observedAt: observedAt.toISOString() };
   }
 
+  /**
+   * list — returns observations for a token.
+   *
+   * Contract:
+   *   - Ordering: oldest-first (ascending by observedAt).
+   *   - Default limit: 100, capped at 500.
+   *   - Only the earliest `limit` observations are returned.
+   *
+   * If a consumer needs the most recent observations, they should:
+   *   (a) reverse the array, or
+   *   (b) use a future readSnapshotsDesc sibling.
+   *
+   * We deliberately keep this ordering stable because memeCalibration
+   * iterates snapshots from the alert timestamp forward; reversing
+   * here would force every calibration caller to re-sort.
+   */
   async function list(chain, address, options = {}) {
     await connect();
     const key = tokenKey(chain, address);
