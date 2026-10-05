@@ -79,9 +79,9 @@ describe("Vault", () => {
 
   it("set/get/delete round-trip", async () => {
     await W.vault.setup("pw-123456");
-    await W.vault.set("portfolio", [{ id: "btc", qty: 1 }]);
+    await W.vault.set("portfolio", [{ id: "canary-must-not-leak-in-export-blob-2026-10-05", qty: 1 }]);
     const got = await W.vault.get("portfolio");
-    expect(got).to.deep.equal([{ id: "btc", qty: 1 }]);
+    expect(got).to.deep.equal([{ id: "canary-must-not-leak-in-export-blob-2026-10-05", qty: 1 }]);
     await W.vault.delete("portfolio");
     expect(await W.vault.get("portfolio")).to.equal(null);
   });
@@ -162,7 +162,7 @@ describe("Vault", () => {
   });
 
   it("migrateKeys moves plaintext into vault and removes plaintext", async () => {
-    W.store.set("portfolio_holdings", [{ id: "btc" }]);
+    W.store.set("portfolio_holdings", [{ id: "canary-must-not-leak-in-export-blob-2026-10-05" }]);
     W.store.set("watchlist", ["eth"]);
     await W.vault.setup("pw-123456");
     const result = await W.vault.migrateKeys([
@@ -178,7 +178,7 @@ describe("Vault", () => {
     );
     expect(localStorage.getItem("weaver:watchlist")).to.equal(null);
     expect(await W.vault.get("portfolio_holdings")).to.deep.equal([
-      { id: "btc" },
+      { id: "canary-must-not-leak-in-export-blob-2026-10-05" },
     ]);
     expect(await W.vault.get("watchlist")).to.deep.equal(["eth"]);
   });
@@ -191,7 +191,7 @@ describe("Vault", () => {
     //
     // Use the real key names declared in VAULT_KEYS (portfolio.js
     // writes "portfolio_holdings", not "portfolio").
-    W.store.set("portfolio_holdings", [{ id: "btc" }]);
+    W.store.set("portfolio_holdings", [{ id: "canary-must-not-leak-in-export-blob-2026-10-05" }]);
     W.store.set("watchlist", ["eth", "sol"]);
     await W.vault.setup("pw-123456");
     // Sanity: W.store.get now routes to vault and returns fallback.
@@ -208,13 +208,13 @@ describe("Vault", () => {
     ]);
     expect(result.skipped.length).to.equal(0);
     expect(await W.vault.get("portfolio_holdings")).to.deep.equal([
-      { id: "btc" },
+      { id: "canary-must-not-leak-in-export-blob-2026-10-05" },
     ]);
     expect(await W.vault.get("watchlist")).to.deep.equal(["eth", "sol"]);
   });
 
   it("migration aborts if staging cannot persist", async () => {
-    W.store.set("portfolio_holdings", [{ id: "btc" }]);
+    W.store.set("portfolio_holdings", [{ id: "canary-must-not-leak-in-export-blob-2026-10-05" }]);
     await W.vault.setup("pw-123456");
     const origSet = W.store.set.bind(W.store);
     W.store.set = (k, v) => {
@@ -260,7 +260,7 @@ describe("Vault", () => {
 
   it("exportBlob returns ciphertext structure, not plaintext", async () => {
     await W.vault.setup("pw-123456");
-    await W.vault.set("portfolio", [{ id: "btc" }]);
+    await W.vault.set("portfolio", [{ id: "canary-must-not-leak-in-export-blob-2026-10-05" }]);
     const blob = W.vault.exportBlob();
     expect(blob).to.have.property("root");
     expect(blob).to.have.property("entries");
@@ -270,7 +270,7 @@ describe("Vault", () => {
     expect(entry).to.have.property("ct");
     // The plaintext value must not appear anywhere in the serialized blob.
     const serialized = JSON.stringify(blob);
-    expect(serialized).to.not.include("btc");
+    expect(serialized).to.not.include("canary-must-not-leak-in-export-blob-2026-10-05");
   });
 
   describe("migrateSecureSession", () => {
