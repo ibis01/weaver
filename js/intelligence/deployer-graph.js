@@ -76,6 +76,17 @@
 //   Shield methodology change does not leave stale booleans in
 //   the cache.
 //
+// QUOTA HANDLING:
+//   When the Worker returns HTTP 402, the Bitquery account has no
+//   points left for the current billing period. Every subsequent
+//   request will also 402 until the account is topped up. Rather
+//   than firing a request per gem scan (which wastes the scan's
+//   time and clutters the network panel), the module sets a
+//   session-scoped `quotaExhausted` flag and short-circuits all
+//   further fetches. The flag is cleared by reset() — production
+//   callers should not invoke reset() while a session is live;
+//   tests use it to re-arm the fetch path.
+//
 // NEVER THROWS:
 //   Every public function returns null or false on failure. A
 //   malformed profile, a missing W.store, or a corrupt cache
@@ -102,6 +113,12 @@ W.deployerGraph = (() => {
   // reset().
   let cachedIndex = null;
   const warned = new Set();
+
+  // Session-scoped quota flag. Set when the Worker reports HTTP 402
+  // (Bitquery points exhausted / no active plan). Once set, further
+  // fetch attempts are short-circuited — retrying a 402 is futile
+  // and wastes the scan's time. Cleared by reset().
+  let quotaExhausted = false;
 
   function warnOnce(tag, message) {
     if (warned.has(tag)) return;
@@ -446,7 +463,10 @@ W.deployerGraph = (() => {
   }
 
   // ── Public: reset ────────────────────────────────────────
-  // Test hook. Clears all cached profiles and the index.
+  // Test hook. Clears all cached profiles and the index, and
+  // re-arms the quota flag so a fresh test run can exercise the
+  // fetch path. Production callers should not invoke this while
+  // a session is live.
   function reset() {
     try {
       const entries = readAllEntries();
@@ -457,6 +477,12 @@ W.deployerGraph = (() => {
     } catch (e) {
       warnOnce("reset", "reset failed: " + (e && e.message));
     }
+    // Clear the session quota flag even if cache cleanup above
+    // threw. A stuck flag would silently disable deployer
+    // enrichment for the rest of the session with no way to
+    // recover.
+    quotaExhausted = false;
+    warned.clear();
   }
 
   // ── Bitquery response parsing ────────────────────────────
@@ -601,11 +627,14 @@ W.deployerGraph = (() => {
       return null;
     }
 
+    // Fast path: if a previous call in this session already saw a
+    // 402, the Bitquery account has no points left. Every further
+    // request would also 402 — skip the network entirely rather
+    // than waste the scan's time and clutter the network panel.
+    if (quotaExhausted) return null;
+
     const controller = new AbortController();
-    const timer = setTimeout(
-      () => controller.abort(),
-      10000,
-    );
+    const timer = setTimeout(() => controller.abort(), 10000);
 
     let response;
     try {
@@ -623,6 +652,21 @@ W.deployerGraph = (() => {
       return null;
     } finally {
       clearTimeout(timer);
+    }
+
+    // ── Quota exhaustion ────────────────────────────────────────
+    // The Worker reports 402 (Bitquery points exhausted / no
+    // active plan) with code "BITQUERY_QUOTA_EXHAUSTED" and
+    // retryable: false. This is not a transient failure. Latch
+    // the session flag so subsequent scans do not fire doomed
+    // requests. The flag clears on reset().
+    if (response && response.status === 402) {
+      quotaExhausted = true;
+      warnOnce(
+        "quota-exhausted",
+        "Bitquery quota exhausted (HTTP 402) — deployer enrichment disabled for this session",
+      );
+      return null;
     }
 
     if (!response || !response.ok) {
@@ -762,6 +806,7 @@ W.deployerGraph = (() => {
       extractDeployedAt,
       setWorkerBase,
       getWorkerBase: () => workerBase,
+      isQuotaExhausted: () => quotaExhausted,
       INDEX_KEY,
       KEY_PREFIX,
       RETENTION_MS,

@@ -55,6 +55,15 @@
 //   only, so a deployer address that has not been active lately will
 //   return an empty Calls array — an honest answer, not an error.
 //
+//   QUOTA EXHAUSTION (HTTP 402):
+//   Bitquery returns 402 "access restricted by points limit" when
+//   the account's points are exhausted or no active plan exists.
+//   This is NOT a transient failure — retrying makes it worse and
+//   wastes any remaining quota on rejected calls. The Worker
+//   surfaces 402 with code "BITQUERY_QUOTA_EXHAUSTED" and
+//   retryable: false so the client can open its circuit breaker
+//   for the rest of the session instead of retrying.
+//
 // GOPLUS RATE LIMITING:
 //   GoPlus returns HTTP 200 with a JSON body { code: 4029 } when it
 //   rate-limits the shared Cloudflare egress IP pool. Checking HTTP
@@ -439,9 +448,32 @@ async function relayBitquery(env, network, address, headers) {
   }
 
   if (!upstreamResp.ok) {
+    // ── Distinguish quota exhaustion from transient failures ─────
+    //
+    // HTTP 402 ("Payment Required" / "access restricted by points
+    // limit") means the Bitquery account has no points left for
+    // the current billing period, or has no active plan. Retrying
+    // is futile — every subsequent request returns the same 402
+    // until the account is topped up or upgraded. The client is
+    // told retryable: false so it can open a session-scoped
+    // circuit breaker rather than firing 6 doomed requests per
+    // gem scan.
+    //
+    // Everything else (429 rate limit, 5xx, timeouts) stays 502 —
+    // those are genuinely transient and worth retrying.
+    const status = upstreamResp.status;
+    const isQuota = status === 402;
+    console.error(
+      `[relayBitquery] Bitquery upstream returned HTTP ${status}` +
+        (isQuota ? " (points exhausted / no active plan)" : ""),
+    );
     return jsonResponse(
-      { error: `Bitquery upstream returned HTTP ${upstreamResp.status}` },
-      502,
+      {
+        error: `Bitquery upstream returned HTTP ${status}`,
+        code: isQuota ? "BITQUERY_QUOTA_EXHAUSTED" : "BITQUERY_UPSTREAM_ERROR",
+        retryable: !isQuota,
+      },
+      isQuota ? 402 : 502,
       headers,
     );
   }
