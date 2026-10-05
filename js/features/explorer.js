@@ -679,6 +679,13 @@ W.explorer = (() => {
 
     if (chart) {
       try {
+        // Stop any running animation before destroying. chart.destroy()
+        // alone leaves an already-queued animation frame holding a
+        // reference to the instance; when that frame fires it calls
+        // _fn on a torn-down animation object and throws
+        // "this._fn is not a function" from Chart.js internals.
+        // stop() halts the animation loop cleanly.
+        if (typeof chart.stop === "function") chart.stop();
         chart.destroy();
       } catch (e) {
         console.warn("[Explorer] Chart destroy error:", e && e.message);
@@ -780,7 +787,9 @@ W.explorer = (() => {
             },
           },
           interaction: { intersect: false, mode: "index" },
-          animation: { duration: 800 },
+          // Short duration — long animations race with rapid
+          // day-range switching, which is a common user action here.
+          animation: { duration: 250 },
         },
       });
     } catch (e) {
