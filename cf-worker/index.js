@@ -112,6 +112,7 @@
 // Deploy: see cf-worker/README.md in this folder.
 
 // Only these origins may call this worker from a browser.
+import { handleMemeAlert } from "./src/meme-alert.js";
 const ALLOWED_ORIGINS = [
   "https://ibis01.github.io",
   "http://localhost:3000",
