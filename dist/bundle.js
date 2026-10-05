@@ -8600,6 +8600,248 @@ W.evidence = W.evidence || {};
 
   console.log("[EvidenceBuilder] Module loaded.");
 })();
+// ---- js/intelligence/meme-opportunity.js ----
+// ===============================================================
+// Meme Opportunity Engine
+// Purpose: rank tradable meme-token opportunities without allowing
+// momentum to override hard security or market-structure failures.
+// ===============================================================
+window.W = window.W || {};
+W.memeOpportunity = (() => {
+  const METHODOLOGY_VERSION = "meme-opportunity-v1";
+  const clamp = (v, min = 0, max = 100) => Math.max(min, Math.min(max, v));
+  const num = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const ratioScore = (value, low, high) => {
+    if (value === null) return null;
+    if (value <= low) return 0;
+    if (value >= high) return 100;
+    return ((value - low) / (high - low)) * 100;
+  };
+  const first = (...values) => values.find((v) => v !== null) ?? null;
+
+  function securityVetoes(security = {}, shield = {}) {
+    const vetoes = [];
+    const add = (condition, message) => { if (condition) vetoes.push(message); };
+    add(security.verdict?.key === "danger", "Composite security verdict is danger");
+    add(security.honeypot === true || shield.honeypot === true, "Honeypot or sell restriction detected");
+    add(security.sellBlocked === true || security.canSell === false, "Token may not be sellable");
+    add(security.mintAuthorityActive === true || shield.mintAuthority === true, "Mint authority remains active");
+    add(security.freezeAuthorityActive === true || shield.freezeAuthority === true, "Freeze authority remains active");
+    add(security.ownerCanBlacklist === true, "Owner can blacklist holders");
+    add(security.unboundedTaxChange === true || security.taxChangeRisk === "critical", "Unbounded transfer-tax control");
+    add(security.liquidityRemovable === true || security.liquidityLock === "none", "Liquidity can be removed immediately");
+    return [...new Set(vetoes)];
+  }
+
+  function analyze(pair, context = {}) {
+    const p = pair || {};
+    const liquidity = num(p.liquidity?.usd);
+    const volume24 = num(p.volume?.h24);
+    const h1 = num(p.priceChange?.h1);
+    const h6 = num(p.priceChange?.h6);
+    const h24 = num(p.priceChange?.h24);
+    const buys = num(p.txns?.h24?.buys);
+    const sells = num(p.txns?.h24?.sells);
+    const ageHours = p.pairCreatedAt ? Math.max(0, (Date.now() - Number(p.pairCreatedAt)) / 36e5) : null;
+    const volumeLiquidity = liquidity && volume24 !== null ? volume24 / liquidity : null;
+    const buySell = buys !== null && sells !== null && buys + sells > 0 ? buys / (buys + sells) : null;
+    const security = context.security || {};
+    const shield = context.shield || {};
+    const observation = context.observation || {};
+    const concentration = observation.concentration || {};
+    const graph = context.graphReport || {};
+    const vetoes = securityVetoes(security, shield);
+
+    const liquidityQuality = liquidity === null ? null : liquidity < 25000 ? 0 : liquidity < 75000 ? 35 : liquidity < 250000 ? 75 : 90;
+    const momentum = [h1, h6, h24].filter((v) => v !== null).length
+      ? clamp((clamp((h1 ?? 0) * 2 + 50) * 0.25) + (clamp((h6 ?? 0) * 1.5 + 50) * 0.35) + (clamp((h24 ?? 0) + 50) * 0.4))
+      : null;
+    const participation = buySell === null ? null : clamp(buySell * 140);
+    const volumeQuality = volumeLiquidity === null ? null : volumeLiquidity > 30 ? 25 : volumeLiquidity >= 1 ? 85 : 35;
+    const ageQuality = ageHours === null ? null : ageHours < 0.17 ? 15 : ageHours < 6 ? 40 : ageHours <= 336 ? 85 : 55;
+    const top10Pct = num(concentration.top10Pct);
+    const clusteredSharePct = num(graph.clusteredSharePct);
+    const estimatedSellSlippagePct = liquidity === null
+      ? null
+      : clamp((1000 / Math.max(liquidity, 1)) * 100 * 1.5);
+    const executionRisk = estimatedSellSlippagePct === null
+      ? null
+      : estimatedSellSlippagePct >= 20
+        ? 100
+        : estimatedSellSlippagePct >= 10
+          ? 75
+          : estimatedSellSlippagePct >= 5
+            ? 45
+            : 20;
+    const components = [
+      ["liquidityQuality", liquidityQuality, 0.30],
+      ["momentum", momentum, 0.25],
+      ["participation", participation, 0.15],
+      ["volumeQuality", volumeQuality, 0.15],
+      ["ageQuality", ageQuality, 0.15],
+    ];
+    const availableWeight = components.reduce((sum, [, value, weight]) => sum + (value === null ? 0 : weight), 0);
+    const weighted = components.reduce((sum, [, value, weight]) => sum + (value === null ? 0 : value * weight), 0);
+    let score = availableWeight ? weighted / availableWeight : 0;
+    const penalties = [];
+    if (volumeLiquidity !== null && volumeLiquidity > 30) { score -= 15; penalties.push("Extreme volume/liquidity ratio — possible wash trading"); }
+    if (liquidity !== null && liquidity < 75000) { score -= 20; penalties.push("Thin liquidity creates high exit risk"); }
+    if (h24 !== null && h24 > 150 && (h6 ?? 0) > 50) { score -= 12; penalties.push("Price is likely overextended"); }
+    if (top10Pct !== null && top10Pct >= 50) {
+      score -= top10Pct >= 70 ? 25 : 15;
+      penalties.push(`Top 10 holders control ${top10Pct.toFixed(1)}%`);
+    }
+    if (clusteredSharePct !== null && clusteredSharePct >= 8) {
+      score -= clusteredSharePct >= 20 ? 20 : 10;
+      penalties.push(`Behavioural wallet clusters control ${clusteredSharePct.toFixed(1)}%`);
+    }
+    if (executionRisk !== null && executionRisk >= 75) {
+      score -= 15;
+      penalties.push(`Estimated $1,000 exit slippage is high (${estimatedSellSlippagePct.toFixed(1)}%)`);
+    }
+    if (shield.liquidityLocked === false || shield.lpLocked === false) {
+      score -= 15;
+      penalties.push("Liquidity lock is not verified");
+    }
+    if (vetoes.length) { score = Math.min(score, 15); penalties.push(...vetoes); }
+    score = Math.round(clamp(score));
+
+    const known = [liquidity, volume24, h1, h6, h24, ageHours, buySell].filter((v) => v !== null).length;
+    const confidence = Math.round(clamp((known / 7) * 70 + (context.sourceCount > 1 ? 20 : 0) + (context.observation ? 10 : 0) - (vetoes.length ? 30 : 0)));
+    const verdict = vetoes.length
+      ? "SECURITY_REJECTED"
+      : confidence < 60
+        ? score >= 40
+          ? "WATCH_FOR_CONFIRMATION"
+          : "INSUFFICIENT_DATA"
+        : score >= 75
+          ? "EARLY_HIGH_QUALITY"
+          : score >= 60
+            ? "MOMENTUM_BUT_SPECULATIVE"
+            : score >= 40
+              ? "WATCH_FOR_CONFIRMATION"
+              : "INSUFFICIENT_DATA";
+    const reasons = [];
+    if (liquidityQuality !== null) reasons.push(`Liquidity quality ${Math.round(liquidityQuality)}/100`);
+    if (momentum !== null) reasons.push(`Momentum ${Math.round(momentum)}/100`);
+    if (buySell !== null) reasons.push(`${Math.round(buySell * 100)}% of 24h trades were buys`);
+    if (ageHours !== null) reasons.push(`Pair age ${ageHours < 24 ? ageHours.toFixed(1) + "h" : (ageHours / 24).toFixed(1) + "d"}`);
+    reasons.push(...penalties);
+    return {
+      methodologyVersion: METHODOLOGY_VERSION,
+      opportunityScore: score,
+      confidence,
+      verdict,
+      vetoes,
+      penalties,
+      reasons,
+      breakdown: {
+        liquidityQuality,
+        momentum,
+        participation,
+        volumeQuality,
+        ageQuality,
+        volumeLiquidity,
+        buySell,
+        ageHours,
+        top10Pct,
+        clusteredSharePct,
+        estimatedSellSlippagePct,
+        executionRisk,
+      },
+      eligible: vetoes.length === 0 && score >= 40,
+    };
+  }
+
+  return { METHODOLOGY_VERSION, analyze, securityVetoes };
+})();
+// ---- js/intelligence/meme-calibration.js ----
+// ===============================================================
+// Meme Alert Calibration
+// Evaluates whether an alert had a durable, executable market outcome.
+// This is measurement only; it never creates a trade signal.
+// ===============================================================
+window.W = window.W || {};
+W.memeCalibration = (() => {
+  const VERSION = "meme-calibration-v1";
+  const finite = (v) => Number.isFinite(Number(v)) ? Number(v) : null;
+  const clamp = (v, min = 0, max = 100) => Math.max(min, Math.min(max, v));
+
+  function evaluate(alert, snapshots = [], options = {}) {
+    const startPrice = finite(alert?.priceUsd);
+    const startLiquidity = finite(alert?.liquidityUsd);
+    const startAt = new Date(alert?.observedAt || 0).getTime();
+    if (!(startPrice > 0) || !Number.isFinite(startAt)) {
+      return { version: VERSION, valid: false, reason: "Missing alert price or timestamp" };
+    }
+    const rows = snapshots
+      .map((s) => ({
+        ...s,
+        at: new Date(s?.observedAt || s?.timestamp || 0).getTime(),
+        price: finite(s?.priceUsd),
+        liquidity: finite(s?.liquidityUsd),
+      }))
+      .filter((s) => s.at > startAt && s.price !== null)
+      .sort((a, b) => a.at - b.at);
+    if (!rows.length) return { version: VERSION, valid: false, reason: "No future observations" };
+
+    const returns = rows.map((s) => ((s.price / startPrice) - 1) * 100);
+    const maxReturnPct = Math.max(...returns);
+    const minReturnPct = Math.min(...returns);
+    const liquidityRows = rows.filter((s) => s.liquidity !== null);
+    const minLiquidityRatio = startLiquidity > 0 && liquidityRows.length
+      ? Math.min(...liquidityRows.map((s) => s.liquidity / startLiquidity))
+      : null;
+    const horizonHours = Number(options.horizonHours || 24);
+    const horizonMs = horizonHours * 36e5;
+    const atHorizon = rows.find((s) => s.at - startAt >= horizonMs) || rows[rows.length - 1];
+    const horizonReturnPct = ((atHorizon.price / startPrice) - 1) * 100;
+    const liquidityMaintained = minLiquidityRatio === null || minLiquidityRatio >= 0.5;
+    const executable = rows.every((s) => s.canSell !== false) && liquidityMaintained;
+    const threshold = Number(options.successReturnPct ?? 20);
+    const durable = horizonReturnPct >= threshold && executable;
+    const outcome = durable ? "DURABLE_OPPORTUNITY" : executable ? "TRADABLE_BUT_UNCONFIRMED" : "EXECUTION_FAILURE_RISK";
+    return {
+      version: VERSION,
+      valid: true,
+      outcome,
+      executable,
+      durable,
+      horizonHours,
+      horizonReturnPct,
+      maxReturnPct,
+      maxDrawdownPct: Math.abs(Math.min(0, minReturnPct)),
+      minLiquidityRatio,
+      observationCount: rows.length,
+    };
+  }
+
+  function summarize(evaluations = []) {
+    const valid = evaluations.filter((e) => e && e.valid);
+    const durable = valid.filter((e) => e.durable);
+    const executable = valid.filter((e) => e.executable);
+    const avg = (key) => {
+      const values = valid.map((e) => finite(e[key])).filter((v) => v !== null);
+      return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    };
+    return {
+      version: VERSION,
+      evaluated: valid.length,
+      durableRate: valid.length ? durable.length / valid.length : null,
+      executableRate: valid.length ? executable.length / valid.length : null,
+      averageHorizonReturnPct: avg("horizonReturnPct"),
+      averageMaxDrawdownPct: avg("maxDrawdownPct"),
+      calibrationScore: valid.length
+        ? Math.round(clamp((durable.length / valid.length) * 100))
+        : null,
+    };
+  }
+
+  return { VERSION, evaluate, summarize };
+})();
 // ---- js/intelligence/regime.js ----
 // ===============================================================
 //         Market Regime Detection Engine – Confidence Model
@@ -22398,8 +22640,13 @@ W.gems = (() => {
             ? ["⚠️ Speculative / mixed", "speculative"]
             : ["🚩 Weak opportunity signals", "weak-opportunity"];
 
+    const opportunity =
+      W.memeOpportunity && typeof W.memeOpportunity.analyze === "function"
+        ? W.memeOpportunity.analyze(pair)
+        : null;
+
     return {
-      score: s,
+      score: opportunity ? opportunity.opportunityScore : s,
       reasons,
       verdict,
       liq,
@@ -22408,7 +22655,10 @@ W.gems = (() => {
       h1,
       h6,
       h24,
-      scoreVersion: SCORE_VERSION,
+      scoreVersion: opportunity
+        ? opportunity.methodologyVersion
+        : SCORE_VERSION,
+      opportunity,
     };
   }
 
@@ -22581,30 +22831,67 @@ W.gems = (() => {
     body.innerHTML = W.ui.spinner();
 
     try {
-      const [boosts, profiles] = await Promise.allSettled([
+      const [boosts, profiles, trending] = await Promise.allSettled([
         fetchDexScreener(DEXSCREENER_API + "/token-boosts/latest/v1"),
         fetchDexScreener(DEXSCREENER_API + "/token-profiles/latest/v1"),
+        W.api && typeof W.api.trending === "function"
+          ? W.api.trending()
+          : Promise.reject(new Error("Trending provider unavailable")),
       ]);
 
       const map = newMap();
       if (boosts.status === "fulfilled" && boosts.value) {
         boosts.value.forEach((b) => {
-          if (b && b.tokenAddress) map[b.tokenAddress] = b.totalBoosts || 1;
+          if (b && b.tokenAddress) {
+            map[b.tokenAddress] = map[b.tokenAddress] || {
+              boosts: b.totalBoosts || 1,
+              sources: new Set(),
+            };
+            map[b.tokenAddress].sources.add("dex-boosts");
+          }
         });
       }
       if (profiles.status === "fulfilled" && profiles.value) {
         profiles.value.forEach((p) => {
-          if (p && p.tokenAddress && !(p.tokenAddress in map))
-            map[p.tokenAddress] = 0;
+          if (p && p.tokenAddress) {
+            map[p.tokenAddress] = map[p.tokenAddress] || {
+              boosts: 0,
+              sources: new Set(),
+            };
+            map[p.tokenAddress].sources.add("dex-profiles");
+          }
         });
       }
 
-      const addresses = Object.keys(map).slice(0, 30);
-      if (!addresses.length) throw new Error("No candidates");
-
-      const pairsResp = await fetchDexScreener(
-        DEXSCREENER_API + "/latest/dex/tokens/" + addresses.join(","),
+      const trendingCoins =
+        trending.status === "fulfilled" &&
+        Array.isArray(trending.value?.coins)
+          ? trending.value.coins.slice(0, 8)
+          : [];
+      const trendingSearches = await Promise.allSettled(
+        trendingCoins
+          .map((coin) =>
+            String(coin?.item?.symbol || coin?.symbol || coin?.name || "").trim(),
+          )
+          .filter(Boolean)
+          .map((symbol) =>
+            fetchDexScreener(
+              DEXSCREENER_API +
+                "/latest/dex/search?q=" +
+                encodeURIComponent(symbol),
+            ),
+          ),
       );
+
+      const addresses = Object.keys(map).slice(0, 30);
+      if (!addresses.length && !trendingCoins.length)
+        throw new Error("No candidates");
+
+      const pairsResp = addresses.length
+        ? await fetchDexScreener(
+            DEXSCREENER_API + "/latest/dex/tokens/" + addresses.join(","),
+          )
+        : { pairs: [] };
 
       const pairs = Array.isArray(pairsResp)
         ? pairsResp
@@ -22612,18 +22899,45 @@ W.gems = (() => {
           ? pairsResp.pairs
           : [];
 
+      const discoveredPairs = pairs.slice();
+      trendingSearches.forEach((result) => {
+        if (result.status !== "fulfilled") return;
+        const searched = Array.isArray(result.value?.pairs)
+          ? result.value.pairs
+          : [];
+        discoveredPairs.push(
+          ...searched.map((pair) => ({
+            ...pair,
+            discoverySources: ["coinpaprika-trending", "dex-search"],
+          })),
+        );
+      });
+
       const byToken = newMap();
-      pairs.forEach((p) => {
+      discoveredPairs.forEach((p) => {
         if (!p || typeof p !== "object") return;
         const a = p.baseToken && p.baseToken.address;
         if (typeof a !== "string") return;
         if (!CHAINS[p.chainId]) return;
+        const sources = new Set([
+          ...(map[a]?.sources || []),
+          ...(p.discoverySources || []),
+        ]);
+        sources.add("dex-market-pair");
+        const candidate = { ...p, discoverySources: [...sources] };
         const existing = byToken[a];
         if (
           !existing ||
-          (p.liquidity?.usd || 0) > (existing.liquidity?.usd || 0)
+          (candidate.liquidity?.usd || 0) > (existing.liquidity?.usd || 0)
         ) {
-          byToken[a] = p;
+          byToken[a] = candidate;
+        } else {
+          existing.discoverySources = [
+            ...new Set([
+              ...(existing.discoverySources || []),
+              ...candidate.discoverySources,
+            ]),
+          ];
         }
       });
 
@@ -22714,6 +23028,29 @@ W.gems = (() => {
         g.shield = shield;
         g.observation = observation;
         g.graphReport = graphReport;
+        if (
+          W.memeOpportunity &&
+          typeof W.memeOpportunity.analyze === "function"
+        ) {
+          g.analysis.opportunity = W.memeOpportunity.analyze(g.pair, {
+            security: g.risk,
+            shield,
+            observation,
+            graphReport,
+            sourceCount: Math.max(
+              1,
+              (g.pair.discoverySources || []).length +
+                (shield && !shield.error ? 1 : 0),
+            ),
+          });
+          g.analysis.score = g.analysis.opportunity.opportunityScore;
+          g.analysis.scoreVersion =
+            g.analysis.opportunity.methodologyVersion;
+          g.analysis.reasons = [
+            ...g.analysis.reasons,
+            ...g.analysis.opportunity.reasons,
+          ].slice(0, 10);
+        }
       }
 
       // ── Deployer reputation bookkeeping ────────────
@@ -22966,7 +23303,7 @@ W.gems = (() => {
             <button class="btn primary" id="g-go">▶ Scan now</button>
           </div>
         </div>
-        <p class="muted small">Crawls DEX Screener's latest boosted & newly-profiled tokens on chains with Token Shield verification (<b>${esc(chainList)}</b>). Every candidate gets <b>two independent scores</b>: a momentum score (liquidity, volume/liquidity, price action, age) and a composite risk score (honeypot, mint authority, LP lock, holder concentration, deployer reputation, wallet-graph coordination, external security APIs where available). A token must pass <b>both</b> to alert. Memecoins can still go to zero — not financial advice, always verify with a small buy/sell first.</p>
+        <p class="muted small">Crawls DEX Screener boosts, new profiles, market pairs, and CoinPaprika trending symbols across Token Shield-supported chains (<b>${esc(chainList)}</b>), then deduplicates candidates by chain and token address. Every candidate gets an opportunity score (liquidity, volume quality, price action, participation, age, and evidence confidence) plus a composite scam-risk assessment (honeypot, sellability, mint/freeze authority, LP lock, holder concentration, deployer reputation, wallet-graph coordination, and external security APIs where available). Hard security vetoes always reject a token regardless of momentum. Memecoins can still go to zero — not financial advice, always verify with a small buy/sell first.</p>
       </div>
       <div class="cards" id="g-stats"></div>
       <div id="g-body">${W.ui.spinner()}</div>

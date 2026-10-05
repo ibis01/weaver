@@ -1479,8 +1479,13 @@ W.gems = (() => {
             ? ["⚠️ Speculative / mixed", "speculative"]
             : ["🚩 Weak opportunity signals", "weak-opportunity"];
 
+    const opportunity =
+      W.memeOpportunity && typeof W.memeOpportunity.analyze === "function"
+        ? W.memeOpportunity.analyze(pair)
+        : null;
+
     return {
-      score: s,
+      score: opportunity ? opportunity.opportunityScore : s,
       reasons,
       verdict,
       liq,
@@ -1489,7 +1494,10 @@ W.gems = (() => {
       h1,
       h6,
       h24,
-      scoreVersion: SCORE_VERSION,
+      scoreVersion: opportunity
+        ? opportunity.methodologyVersion
+        : SCORE_VERSION,
+      opportunity,
     };
   }
 
@@ -1662,30 +1670,67 @@ W.gems = (() => {
     body.innerHTML = W.ui.spinner();
 
     try {
-      const [boosts, profiles] = await Promise.allSettled([
+      const [boosts, profiles, trending] = await Promise.allSettled([
         fetchDexScreener(DEXSCREENER_API + "/token-boosts/latest/v1"),
         fetchDexScreener(DEXSCREENER_API + "/token-profiles/latest/v1"),
+        W.api && typeof W.api.trending === "function"
+          ? W.api.trending()
+          : Promise.reject(new Error("Trending provider unavailable")),
       ]);
 
       const map = newMap();
       if (boosts.status === "fulfilled" && boosts.value) {
         boosts.value.forEach((b) => {
-          if (b && b.tokenAddress) map[b.tokenAddress] = b.totalBoosts || 1;
+          if (b && b.tokenAddress) {
+            map[b.tokenAddress] = map[b.tokenAddress] || {
+              boosts: b.totalBoosts || 1,
+              sources: new Set(),
+            };
+            map[b.tokenAddress].sources.add("dex-boosts");
+          }
         });
       }
       if (profiles.status === "fulfilled" && profiles.value) {
         profiles.value.forEach((p) => {
-          if (p && p.tokenAddress && !(p.tokenAddress in map))
-            map[p.tokenAddress] = 0;
+          if (p && p.tokenAddress) {
+            map[p.tokenAddress] = map[p.tokenAddress] || {
+              boosts: 0,
+              sources: new Set(),
+            };
+            map[p.tokenAddress].sources.add("dex-profiles");
+          }
         });
       }
 
-      const addresses = Object.keys(map).slice(0, 30);
-      if (!addresses.length) throw new Error("No candidates");
-
-      const pairsResp = await fetchDexScreener(
-        DEXSCREENER_API + "/latest/dex/tokens/" + addresses.join(","),
+      const trendingCoins =
+        trending.status === "fulfilled" &&
+        Array.isArray(trending.value?.coins)
+          ? trending.value.coins.slice(0, 8)
+          : [];
+      const trendingSearches = await Promise.allSettled(
+        trendingCoins
+          .map((coin) =>
+            String(coin?.item?.symbol || coin?.symbol || coin?.name || "").trim(),
+          )
+          .filter(Boolean)
+          .map((symbol) =>
+            fetchDexScreener(
+              DEXSCREENER_API +
+                "/latest/dex/search?q=" +
+                encodeURIComponent(symbol),
+            ),
+          ),
       );
+
+      const addresses = Object.keys(map).slice(0, 30);
+      if (!addresses.length && !trendingCoins.length)
+        throw new Error("No candidates");
+
+      const pairsResp = addresses.length
+        ? await fetchDexScreener(
+            DEXSCREENER_API + "/latest/dex/tokens/" + addresses.join(","),
+          )
+        : { pairs: [] };
 
       const pairs = Array.isArray(pairsResp)
         ? pairsResp
@@ -1693,18 +1738,45 @@ W.gems = (() => {
           ? pairsResp.pairs
           : [];
 
+      const discoveredPairs = pairs.slice();
+      trendingSearches.forEach((result) => {
+        if (result.status !== "fulfilled") return;
+        const searched = Array.isArray(result.value?.pairs)
+          ? result.value.pairs
+          : [];
+        discoveredPairs.push(
+          ...searched.map((pair) => ({
+            ...pair,
+            discoverySources: ["coinpaprika-trending", "dex-search"],
+          })),
+        );
+      });
+
       const byToken = newMap();
-      pairs.forEach((p) => {
+      discoveredPairs.forEach((p) => {
         if (!p || typeof p !== "object") return;
         const a = p.baseToken && p.baseToken.address;
         if (typeof a !== "string") return;
         if (!CHAINS[p.chainId]) return;
+        const sources = new Set([
+          ...(map[a]?.sources || []),
+          ...(p.discoverySources || []),
+        ]);
+        sources.add("dex-market-pair");
+        const candidate = { ...p, discoverySources: [...sources] };
         const existing = byToken[a];
         if (
           !existing ||
-          (p.liquidity?.usd || 0) > (existing.liquidity?.usd || 0)
+          (candidate.liquidity?.usd || 0) > (existing.liquidity?.usd || 0)
         ) {
-          byToken[a] = p;
+          byToken[a] = candidate;
+        } else {
+          existing.discoverySources = [
+            ...new Set([
+              ...(existing.discoverySources || []),
+              ...candidate.discoverySources,
+            ]),
+          ];
         }
       });
 
@@ -1795,6 +1867,29 @@ W.gems = (() => {
         g.shield = shield;
         g.observation = observation;
         g.graphReport = graphReport;
+        if (
+          W.memeOpportunity &&
+          typeof W.memeOpportunity.analyze === "function"
+        ) {
+          g.analysis.opportunity = W.memeOpportunity.analyze(g.pair, {
+            security: g.risk,
+            shield,
+            observation,
+            graphReport,
+            sourceCount: Math.max(
+              1,
+              (g.pair.discoverySources || []).length +
+                (shield && !shield.error ? 1 : 0),
+            ),
+          });
+          g.analysis.score = g.analysis.opportunity.opportunityScore;
+          g.analysis.scoreVersion =
+            g.analysis.opportunity.methodologyVersion;
+          g.analysis.reasons = [
+            ...g.analysis.reasons,
+            ...g.analysis.opportunity.reasons,
+          ].slice(0, 10);
+        }
       }
 
       // ── Deployer reputation bookkeeping ────────────
@@ -2047,7 +2142,7 @@ W.gems = (() => {
             <button class="btn primary" id="g-go">▶ Scan now</button>
           </div>
         </div>
-        <p class="muted small">Crawls DEX Screener's latest boosted & newly-profiled tokens on chains with Token Shield verification (<b>${esc(chainList)}</b>). Every candidate gets <b>two independent scores</b>: a momentum score (liquidity, volume/liquidity, price action, age) and a composite risk score (honeypot, mint authority, LP lock, holder concentration, deployer reputation, wallet-graph coordination, external security APIs where available). A token must pass <b>both</b> to alert. Memecoins can still go to zero — not financial advice, always verify with a small buy/sell first.</p>
+        <p class="muted small">Crawls DEX Screener boosts, new profiles, market pairs, and CoinPaprika trending symbols across Token Shield-supported chains (<b>${esc(chainList)}</b>), then deduplicates candidates by chain and token address. Every candidate gets an opportunity score (liquidity, volume quality, price action, participation, age, and evidence confidence) plus a composite scam-risk assessment (honeypot, sellability, mint/freeze authority, LP lock, holder concentration, deployer reputation, wallet-graph coordination, and external security APIs where available). Hard security vetoes always reject a token regardless of momentum. Memecoins can still go to zero — not financial advice, always verify with a small buy/sell first.</p>
       </div>
       <div class="cards" id="g-stats"></div>
       <div id="g-body">${W.ui.spinner()}</div>
