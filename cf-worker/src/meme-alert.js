@@ -45,6 +45,11 @@ export async function handleMemeAlert(request, env) {
 
   const market = (body && body.market) || {};
   if (!Number.isFinite(market.priceUsd) || market.priceUsd <= 0) {
+    console.warn("[meme/alert] rejected: invalid priceUsd", {
+      chain,
+      address,
+      received: market.priceUsd,
+    });
     return json({ error: "missing or invalid market.priceUsd" }, 400);
   }
 

@@ -23502,6 +23502,20 @@ W.gems = (() => {
     if (typeof addr !== "string" || !addr || !chain) return;
 
     const priceUsd = Number(gem.pair.priceUsd);
+    // The Worker rejects alerts without a usable price (400). A price
+    // is required by the calibration job anyway — the alert's entry
+    // price is the baseline for all future observations. If we cannot
+    // establish it, the alert is not calibratable, so skip the POST
+    // locally rather than sending a request the Worker will reject.
+    if (!Number.isFinite(priceUsd) || priceUsd <= 0) {
+      console.warn(
+        "[Gems] Skipping alert persistence: no usable priceUsd for",
+        chain,
+        addr,
+      );
+      return;
+    }
+
     const liquidityUsd = Number(gem.pair.liquidity && gem.pair.liquidity.usd);
 
     const payload = {
@@ -23510,7 +23524,7 @@ W.gems = (() => {
         identity: { chain, tokenAddress: addr },
       }),
       market: {
-        priceUsd: Number.isFinite(priceUsd) ? priceUsd : null,
+        priceUsd,
         liquidityUsd: Number.isFinite(liquidityUsd) ? liquidityUsd : null,
         observedAt: new Date().toISOString(),
       },
