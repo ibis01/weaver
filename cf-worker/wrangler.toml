@@ -13,3 +13,6 @@ compatibility_date = "2024-09-01"
 # /bitquery/deployer route returns 503 when it is missing.
 [secrets]
 required = ["BITQUERY_KEY"]
+[[kv_namespaces]]
+binding = "MEME_ALERTS"
+id = "711edb1aa070446ea6ccbf81d26135a4"
