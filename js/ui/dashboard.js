@@ -910,6 +910,16 @@ W.dashboard = (() => {
   }
 
   // ── Recent signals list ───────────────────────────────────
+  // Evidence state is derived from reasoning presence, not from the
+  // engine's eligibility flag. The engine's `confidence` is detector
+  // confidence — it says the numbers add up, not that evidence exists.
+  // The card must not present it as a quality score without that
+  // distinction.
+  function evidenceState(decision) {
+    const reasoning = decision && decision.assessment && decision.assessment.reasoning;
+    return Array.isArray(reasoning) && reasoning.length > 0 ? "present" : "none";
+  }
+
   function renderSignals(decisions) {
     if (!Array.isArray(decisions) || !decisions.length) {
       return `<p class="muted small p-16">No recent signals.</p>`;
@@ -930,6 +940,7 @@ W.dashboard = (() => {
             : null;
         const confText = conf === null ? "—" : `${Math.round(conf * 100)}%`;
         const confClass = conf === null ? "muted" : conf >= 0.6 ? "up" : "warn";
+        const evState = evidenceState(d);
 
         const type = d._signalType || "";
         const isDown =
@@ -948,6 +959,7 @@ W.dashboard = (() => {
             </span>
             <span class="signal-meta">
               <span class="signal-confidence ${confClass}">${confText}</span>
+              <span class="signal-evidence small muted">· Evidence: ${evState}</span>
             </span>
           </button>
         `;
@@ -974,7 +986,8 @@ W.dashboard = (() => {
             ? d.assessment.confidence
             : null;
         const confText =
-          conf === null ? "—" : `${Math.round(conf * 100)}% confidence`;
+          conf === null ? "—" : `${Math.round(conf * 100)}%`;
+        const evState = evidenceState(d);
         const isDown = (d._signalType || "") === "THESIS_DETERIORATION";
         const iconCls = isDown ? "signal-icon-down" : "signal-icon-up";
         const icon = isDown ? "↘" : "↗";
@@ -985,7 +998,7 @@ W.dashboard = (() => {
             <span class="signal-icon ${iconCls}" aria-hidden="true">${icon}</span>
             <span class="evidence-preview-body">
               <span class="evidence-preview-title">${sym} — ${kind}</span>
-              <span class="evidence-preview-sub">Signal: ${confText}</span>
+              <span class="evidence-preview-sub">Detector: ${confText} · Evidence: ${evState}</span>
             </span>
             <span class="evidence-preview-arrow" aria-hidden="true">›</span>
           </button>
@@ -1031,7 +1044,10 @@ W.dashboard = (() => {
         icon: "↗",
         iconCls: "insight-icon-up",
         title: `${sym} signal detected`,
-        text: `A ${kind.toLowerCase()} with ${conf}% confidence was detected. Review the evidence before deciding.`,
+        text:
+          `A ${kind.toLowerCase()} was detected with ${conf}% detector confidence, ` +
+          `and ${evidenceState(strongest) === "none" ? "no evidence is" : "evidence is"} recorded. ` +
+          `Review before deciding.`,
         signalId: strongest.signalId,
       });
     }
