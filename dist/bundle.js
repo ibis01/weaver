@@ -7367,10 +7367,16 @@ W.api = (() => {
       const data = await _dedupeRequest(url, () =>
         fetchWithProxy(url, LONG_CACHE_TTL),
       );
+      // Kraken wraps errors in a 200 response: { error: [...], result: {} }
+      // Silent [] here caused the failover to stop at Kraken instead of
+      // falling through to Coinbase/Bybit.
+      if (data && Array.isArray(data.error) && data.error.length > 0) {
+        throw new Error(`Kraken: ${data.error.join("; ")}`);
+      }
       const result = data?.result || {};
       const seriesKey = Object.keys(result).find((k) => k !== "last");
       const rows = seriesKey ? result[seriesKey] : null;
-      if (!Array.isArray(rows)) return [];
+      if (!Array.isArray(rows)) throw new Error("Kraken: no rows in response");
       // [time(sec), open, high, low, close, vwap, volume, count]
       return rows
         .slice(-cap)
@@ -7425,8 +7431,12 @@ W.api = (() => {
       const data = await _dedupeRequest(url, () =>
         fetchWithProxy(url, LONG_CACHE_TTL),
       );
+      // Bybit uses retCode !== 0 for errors, in a 200 body.
+      if (data && data.retCode !== undefined && Number(data.retCode) !== 0) {
+        throw new Error(`Bybit: ${data.retMsg || data.retCode}`);
+      }
       const list = data?.result?.list;
-      if (!Array.isArray(list)) return [];
+      if (!Array.isArray(list)) throw new Error("Bybit: no rows in response");
       // Bybit returns newest-first; reverse for chronological.
       return list
         .reverse()
@@ -7526,6 +7536,17 @@ W.api = (() => {
       }
       try {
         const result = await provider[method](...args);
+        // Empty array is a soft failure, not a success. Providers return
+        // [] when they get a valid HTTP 200 with an error body (Kraken
+        // {error:[...]}, Bybit retCode!=0, empty result shape). Returning
+        // it terminates the chain at the first provider that answered
+        // with nothing, so the next provider that has data never runs.
+        if (Array.isArray(result) && result.length === 0) {
+          console.warn(
+            `[Prices] ${name}.${method} returned no rows; trying next provider`,
+          );
+          continue;
+        }
         source = name;
         return result;
       } catch (e) {
@@ -17265,7 +17286,6 @@ W.explorer = (() => {
       if (controller.signal.aborted) return;
 
       const prices = Array.isArray(data) ? data : (data && data.prices) || [];
-      console.log("[Explorer:debug] received", typeof data, Array.isArray(data), data && data.length, "prices.len", prices.length, "first", JSON.stringify(prices[0]));
       if (!prices || prices.length < 2) {
         replaceCanvasMessage(
           canvas,
