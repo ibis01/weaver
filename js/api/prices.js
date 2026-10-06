@@ -767,8 +767,11 @@ W.api = (() => {
     chart: async (id, days = 30) => {
       const pair = COINBASE_PAIRS[id];
       if (!pair) throw new Error(`Coinbase: no pair for ${id}`);
-      const cap = Math.max(1, Math.min(days | 0, 300));
-      const url = `${COINBASE_EXCHANGE_API}/products/${pair}/candles?granularity=86400`;
+      const d = Math.max(1, days | 0);
+      const useHourly = d <= 2;
+      const cap = useHourly ? Math.max(2, d * 24) : Math.max(2, Math.min(d, 300));
+      const granularity = useHourly ? 3600 : 86400;
+      const url = `${COINBASE_EXCHANGE_API}/products/${pair}/candles?granularity=${granularity}`;
       const data = await _dedupeRequest(url, () =>
         fetchWithProxy(url, LONG_CACHE_TTL),
       );
@@ -825,8 +828,11 @@ W.api = (() => {
     chart: async (id, days = 30) => {
       const pair = binancePairFor(id);
       if (!pair) throw new Error(`Binance: no USDT pair for ${id}`);
-      const cap = Math.max(1, Math.min(days | 0, 1000));
-      const url = `${BINANCE_API}/klines?symbol=${pair}&interval=1d&limit=${cap}`;
+      const d = Math.max(1, days | 0);
+      const useHourly = d <= 2;
+      const cap = useHourly ? Math.max(2, d * 24) : Math.max(2, Math.min(d, 1000));
+      const bInt = useHourly ? "1h" : "1d";
+      const url = `${BINANCE_API}/klines?symbol=${pair}&interval=${bInt}&limit=${cap}`;
       const data = await _dedupeRequest(url, () =>
         fetchWithProxy(url, LONG_CACHE_TTL),
       );
@@ -1122,8 +1128,11 @@ W.api = (() => {
     chart: async (id, days = 30) => {
       const pair = KRAKEN_PAIRS[id];
       if (!pair) throw new Error(`Kraken: no USD pair for ${id}`);
-      const cap = Math.max(1, Math.min(days | 0, 720));
-      const url = `${KRAKEN_API}/OHLC?pair=${pair}&interval=1440`;
+      const d = Math.max(1, days | 0);
+      const useHourly = d <= 2;
+      const cap = useHourly ? Math.max(2, d * 24) : Math.max(2, Math.min(d, 720));
+      const interval = useHourly ? 60 : 1440;
+      const url = `${KRAKEN_API}/OHLC?pair=${pair}&interval=${interval}`;
       const data = await _dedupeRequest(url, () =>
         fetchWithProxy(url, LONG_CACHE_TTL),
       );
@@ -1177,8 +1186,11 @@ W.api = (() => {
     chart: async (id, days = 30) => {
       const pair = BYBIT_PAIRS[id];
       if (!pair) throw new Error(`Bybit: no USDT pair for ${id}`);
-      const cap = Math.max(1, Math.min(days | 0, 1000));
-      const url = `${BYBIT_API}/kline?category=spot&symbol=${pair}&interval=D&limit=${cap}`;
+      const d = Math.max(1, days | 0);
+      const useHourly = d <= 2;
+      const cap = useHourly ? Math.max(2, d * 24) : Math.max(2, Math.min(d, 1000));
+      const bInt = useHourly ? "60" : "D";
+      const url = `${BYBIT_API}/kline?category=spot&symbol=${pair}&interval=${bInt}&limit=${cap}`;
       const data = await _dedupeRequest(url, () =>
         fetchWithProxy(url, LONG_CACHE_TTL),
       );

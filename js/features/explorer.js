@@ -814,7 +814,7 @@ W.explorer = (() => {
     const prior = parent.querySelector(".chart-message");
     if (prior) prior.remove();
     const p = document.createElement("p");
-    p.className = "muted small center p-40-y";
+    p.className = "chart-message muted small center p-40-y";
     p.textContent = text;
     parent.appendChild(p);
   }
