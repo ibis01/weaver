@@ -17357,7 +17357,12 @@ W.explorer = (() => {
           interaction: { intersect: false, mode: "index" },
           // Short duration — long animations race with rapid
           // day-range switching, which is a common user action here.
-          animation: { duration: 250 },
+          // animation: false — Chart.js's animation ticker fires on
+          // requestAnimationFrame and can throw 'this._fn is not a
+          // function' from a frame queued before a chart.destroy().
+          // The throw kills the render loop and the chart never draws.
+          // A line chart has no information in its animation, so disable it.
+          animation: false,
         },
       });
     } catch (e) {
