@@ -3402,3 +3402,14 @@ body {
 @media (max-width: 860px) {
   .sidebar-close-btn { display: inline-flex; }
 }
+
+.chart-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 260px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 16px;
+}
