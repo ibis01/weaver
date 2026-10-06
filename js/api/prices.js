@@ -1363,9 +1363,23 @@ W.api = (() => {
         typeof ids === "string" ? ids.split(",") : ids,
       );
     },
-    chart: (id, days = 30) => withFailover("chart", id, days),
-    ohlcv: (id, interval = "1h", limit = 500) =>
-      withFailover("ohlcv", id, interval, limit),
+    chart: (id, days = 30) => {
+      // Chart fetches walk five providers, each via the same Worker
+      // origin. Page-load traffic (header coin lookup, snapshot,
+      // portfolio prices) shares that origin's RequestGuard bucket, and
+      // the chart's chain can exhaust the budget mid-walk. Reset before
+      // the walk so the chart always gets a full allocation.
+      if (W.requestGuard && typeof W.requestGuard.reset === "function") {
+        try { W.requestGuard.reset(); } catch (_) {}
+      }
+      return withFailover("chart", id, days);
+    },
+    ohlcv: (id, interval = "1h", limit = 500) => {
+      if (W.requestGuard && typeof W.requestGuard.reset === "function") {
+        try { W.requestGuard.reset(); } catch (_) {}
+      }
+      return withFailover("ohlcv", id, interval, limit);
+    },
     top: (limit = 100) =>
       limit <= 50 ? getTopCached(limit) : withFailover("top", limit),
 
