@@ -17265,6 +17265,7 @@ W.explorer = (() => {
       if (controller.signal.aborted) return;
 
       const prices = Array.isArray(data) ? data : (data && data.prices) || [];
+      console.log("[Explorer:debug] received", typeof data, Array.isArray(data), data && data.length, "prices.len", prices.length, "first", JSON.stringify(prices[0]));
       if (!prices || prices.length < 2) {
         replaceCanvasMessage(
           canvas,
