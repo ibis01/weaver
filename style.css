@@ -2318,11 +2318,18 @@ code { overflow-wrap: anywhere; }
   margin-bottom: 6px;
 }
 .kpi-value {
-  font-size: 24px;
+  /* Scale with viewport so long values ($609,469,884.55) fit inside
+     the KPI card at every width, from a 4-col dashboard down to a
+     single column on mobile. Clamp keeps the small end readable and
+     the large end unchanged on wide screens. */
+  font-size: clamp(16px, 1.6vw + 12px, 24px);
   font-weight: 700;
   letter-spacing: -0.5px;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .kpi-delta {
   font-size: 12px;
