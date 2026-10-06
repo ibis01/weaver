@@ -1524,9 +1524,6 @@ W.fmt = W.fmt || {};
     ) {
       return "\u2014";
     }
-    if (amount === null || amount === undefined || isNaN(amount)) {
-      return "$0.00";
-    }
     const numericAmount = Number(amount);
     if (!Number.isFinite(numericAmount)) {
       return "$0.00";
@@ -1560,14 +1557,13 @@ W.fmt = W.fmt || {};
   W.fmt.price = function (price) {
     // No false precision: a missing value is not zero.
     if (
-      amount === null ||
-      amount === undefined ||
-      amount === "" ||
-      (typeof amount === "number" && !Number.isFinite(amount))
+      price === null ||
+      price === undefined ||
+      price === "" ||
+      (typeof price === "number" && !Number.isFinite(price))
     ) {
       return "\u2014";
     }
-    if (price === null || price === undefined || isNaN(price)) return "$0.00";
     if (price < 0.01) return `$${price.toFixed(6)}`;
     if (price < 1) return `$${price.toFixed(4)}`;
     return `$${price.toFixed(2)}`;
