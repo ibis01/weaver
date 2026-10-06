@@ -93,9 +93,21 @@ const ALLOWED_PROXY_HOSTS = new Set([
   "api.coinpaprika.com",
   "api.coinlore.net",
   "api.coinbase.com",
+  // Coinbase Exchange (OHLCV candles) is a distinct host from
+  // api.coinbase.com (spot prices). The exchange subdomain hosts
+  // /products/{pair}/candles, which is the OHLCV fallback path.
+  "api.exchange.coinbase.com",
   "api.alternative.me",
   "api.dexscreener.com",
   "api.llama.fi",
+  // ── OHLCV providers ──
+  // Added as Worker-relay fallbacks for clients whose direct route
+  // is blocked by DNS filtering, region blocks, or CSP. Cloudflare's
+  // edge resolves these hosts even when the client cannot, which is
+  // precisely what the relay exists for.
+  "api.binance.com",
+  "api.kraken.com",
+  "api.bybit.com",
   // ── Security / analysis ──
   "api.gopluslabs.io",
   "api.etherscan.io",
