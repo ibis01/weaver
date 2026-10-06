@@ -17284,6 +17284,10 @@ W.explorer = (() => {
         canvas.height = 260;
       }
 
+      canvas.style.display = "";
+      const staleMsg = canvas.parentElement?.querySelector(".chart-message");
+      if (staleMsg) staleMsg.remove();
+
       const gradient = ctx.createLinearGradient(0, 0, 0, 260);
       const color = up ? "46,230,168" : "255,92,122";
       gradient.addColorStop(0, `rgba(${color},.32)`);
@@ -17358,7 +17362,9 @@ W.explorer = (() => {
   function replaceCanvasMessage(canvas, text) {
     const parent = canvas.parentElement;
     if (!parent) return;
-    parent.innerHTML = "";
+    canvas.style.display = "none";
+    const prior = parent.querySelector(".chart-message");
+    if (prior) prior.remove();
     const p = document.createElement("p");
     p.className = "muted small center p-40-y";
     p.textContent = text;
