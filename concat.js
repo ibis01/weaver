@@ -90,6 +90,7 @@ const files = [
   // chain: contracts → graphs → smart-money.
   "js/intelligence/smart-money/wallet-history.js",
   "js/intelligence/smart-money/wallet-profiler.js",
+  "js/intelligence/smart-money/convergence-detector.js",
 
   // ── Features ──────────────────────────────────────────────────
   "js/features/portfolio.js",
