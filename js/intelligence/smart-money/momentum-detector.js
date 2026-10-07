@@ -24,7 +24,7 @@ window.W.smartMoney = window.W.smartMoney || {};
 W.smartMoney.momentumDetector = (() => {
   "use strict";
 
-  const MODULE_VERSION = "momentum-detector-v2";
+  const MODULE_VERSION = "momentum-detector-v3";
 
   // Thresholds. Deliberately conservative for v1: PRE_MOMENTUM is
   // the narrow band. Calibration target: widen or narrow based on
@@ -186,6 +186,72 @@ W.smartMoney.momentumDetector = (() => {
     return "MOMENTUM_EMERGING"; // 5 <= magnitude < 15 falls here
   }
 
+  // Pure. Runs normalization + cadence guard + signal computation
+  // + classification on a supplied candle array. This is the exact
+  // path production detect() runs; exposing it here is what lets us
+  // test the guard deterministically without monkey-patching the
+  // frozen W.api object.
+  //
+  // Returns { state, reason, signals } — state may be "unknown"
+  // with a named reason. Never throws.
+  function classifyFromCandles(candles, asOf) {
+    if (!Number.isFinite(asOf)) {
+      return { state: "unknown", reason: "invalid-asof", signals: null };
+    }
+    if (!Array.isArray(candles) || candles.length < 2) {
+      return { state: "unknown", reason: "ohlcv-malformed", signals: null };
+    }
+    const norm = candles
+      .map((c) => {
+        if (!c || typeof c !== "object") return null;
+        const ts = Number(c.timestamp);
+        const close = Number(c.close);
+        const volume = Number(c.volume);
+        if (!Number.isFinite(ts) || !Number.isFinite(close)) return null;
+        return {
+          timestamp: ts,
+          close,
+          volume: Number.isFinite(volume) && volume >= 0 ? volume : 0,
+        };
+      })
+      .filter(Boolean);
+    if (norm.length < 2) {
+      return { state: "unknown", reason: "ohlcv-malformed", signals: null };
+    }
+
+    const gapMs = medianGapMs(norm);
+    if (
+      !Number.isFinite(gapMs) ||
+      gapMs < MIN_MEDIAN_GAP_MS ||
+      gapMs > MAX_MEDIAN_GAP_MS
+    ) {
+      return {
+        state: "unknown",
+        reason: "unexpected-candle-interval",
+        signals: null,
+        medianGapMs: gapMs,
+      };
+    }
+
+    const signals = computeSignals(norm, asOf);
+    if (!signals) {
+      return {
+        state: "unknown",
+        reason: "signals-computation-failed",
+        signals: null,
+      };
+    }
+    const state = classify(signals);
+    if (!state) {
+      return {
+        state: "unknown",
+        reason: "classification-failed",
+        signals: null,
+      };
+    }
+    return { state, reason: "ok", signals };
+  }
+
   // Public. Fetches OHLCV via W.api.ohlcv and classifies.
   //
   // input = {
@@ -222,55 +288,26 @@ W.smartMoney.momentumDetector = (() => {
       return emptyResult(input, "ohlcv-empty");
     }
 
-    // Normalize. Different providers return slightly different
-    // shapes; canonicalize to { timestamp, close, volume }.
-    const norm = candles
-      .map((c) => {
-        if (!c || typeof c !== "object") return null;
-        const ts = Number(c.timestamp);
-        const close = Number(c.close);
-        const volume = Number(c.volume);
-        if (!Number.isFinite(ts) || !Number.isFinite(close)) return null;
-        return {
-          timestamp: ts,
-          close,
-          volume: Number.isFinite(volume) && volume >= 0 ? volume : 0,
-        };
-      })
-      .filter(Boolean);
-    if (norm.length < 2) return emptyResult(input, "ohlcv-malformed");
-
-    // Cadence guard. If the provider silently returned daily (or
-    // weekly) candles for an hourly request, every downstream label
-    // would be wrong. Refuse rather than lie.
-    const gapMs = medianGapMs(norm);
-    if (
-      !Number.isFinite(gapMs) ||
-      gapMs < MIN_MEDIAN_GAP_MS ||
-      gapMs > MAX_MEDIAN_GAP_MS
-    ) {
-      console.warn(
-        "[MomentumDetector] unexpected candle interval for",
-        input.tokenId,
-        "median gap ms:",
-        gapMs,
-      );
-      return emptyResult(input, "unexpected-candle-interval");
+    const result = classifyFromCandles(candles, asOf);
+    if (result.state === "unknown") {
+      if (result.reason === "unexpected-candle-interval") {
+        console.warn(
+          "[MomentumDetector] unexpected candle interval for",
+          input.tokenId,
+          "median gap ms:",
+          result.medianGapMs,
+        );
+      }
+      return emptyResult(input, result.reason);
     }
-
-    const signals = computeSignals(norm, asOf);
-    if (!signals) return emptyResult(input, "signals-computation-failed");
-
-    const state = classify(signals);
-    if (!state) return emptyResult(input, "classification-failed");
 
     return {
       tokenAddress:
         typeof input.tokenAddress === "string" ? input.tokenAddress : null,
       asOf,
-      momentumState: state,
+      momentumState: result.state,
       reason: "ok",
-      signals,
+      signals: result.signals,
       _limitations: {
         ohlcvSource:
           "momentum state is derived from public OHLCV. When the OHLCV " +
@@ -286,6 +323,7 @@ W.smartMoney.momentumDetector = (() => {
     _internal: Object.freeze({
       computeSignals,
       classify,
+      classifyFromCandles,
       medianGapMs,
       PRICE_FLAT_PCT,
       PRICE_EMERGING_PCT,
