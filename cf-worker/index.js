@@ -987,18 +987,35 @@ async function handleRequest(request, env, ctx) {
       cursor,
     });
 
-    const alerts = [];
+    // Filter the key set in memory first, then read in batches
+    // of concurrent KV gets. A sequential await per key is O(n)
+    // round-trips to KV; with ~360 alerts at ~60ms each the
+    // response takes ~22s. Batched Promise.all collapses that
+    // to a handful of round trips. 25 is well below Cloudflare's
+    // subrequest limit on every plan (50 on free, 1000 on paid).
+    const inWindow = [];
     for (const key of result.keys) {
       const keyParts = key.name.split(":");
       const observedAtMs = Number(keyParts[4]);
       if (!Number.isFinite(observedAtMs)) continue;
       if (observedAtMs < since || observedAtMs >= until) continue;
-      const value = await env.MEME_ALERTS.get(key.name);
-      if (!value) continue;
-      try {
-        alerts.push(JSON.parse(value));
-      } catch {
-        /* skip malformed records */
+      inWindow.push(key.name);
+    }
+
+    const BATCH = 25;
+    const alerts = [];
+    for (let i = 0; i < inWindow.length; i += BATCH) {
+      const slice = inWindow.slice(i, i + BATCH);
+      const values = await Promise.all(
+        slice.map((name) => env.MEME_ALERTS.get(name)),
+      );
+      for (const value of values) {
+        if (!value) continue;
+        try {
+          alerts.push(JSON.parse(value));
+        } catch {
+          /* skip malformed records */
+        }
       }
     }
 
