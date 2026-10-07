@@ -91,6 +91,7 @@ const files = [
   "js/intelligence/smart-money/wallet-history.js",
   "js/intelligence/smart-money/wallet-profiler.js",
   "js/intelligence/smart-money/convergence-detector.js",
+  "js/intelligence/smart-money/momentum-detector.js",
 
   // ── Features ──────────────────────────────────────────────────
   "js/features/portfolio.js",
