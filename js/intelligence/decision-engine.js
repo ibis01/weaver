@@ -38,6 +38,15 @@ W.decisionEngine = (() => {
   // the environment itself, not an asset within it.
   const MARKET_WIDE_TYPES = new Set(["REGIME_SHIFT"]);
 
+  // Discovery-shaped signals: assets the user has no prior
+  // connection to. The radar's entire purpose is surfacing
+  // tokens before momentum confirms them, which is exactly
+  // when the user does not yet hold or watchlist the token.
+  // A small baseline keeps these out of the noise floor
+  // without promoting them to market-wide relevance.
+  const DISCOVERY_TYPES = new Set(["SMART_MONEY_ENTRY"]);
+  const DISCOVERY_RELEVANCE_BASELINE = 0.15;
+
   // Tier-conditional market-wide: relevant to every user *when the
   // signal is about a major-cap asset*. A 4% BTC move is market
   // news; a 4% move in a $200M token is not. The producer (see
@@ -228,6 +237,9 @@ W.decisionEngine = (() => {
     // resulting score clears the `score > 0` filter in run(), small
     // enough that a held-asset signal outranks it.
     if (isMarketWide(signal)) relevance += 0.3;
+    if (DISCOVERY_TYPES.has(signal && signal.type)) {
+      relevance += DISCOVERY_RELEVANCE_BASELINE;
+    }
 
     if (context.portfolioWeight > 0) relevance += context.portfolioWeight * 0.4;
     if (context.watchlistStatus === "WATCHING") relevance += 0.2;
