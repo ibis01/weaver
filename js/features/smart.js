@@ -761,6 +761,26 @@ W.smart = (() => {
     return value.toFixed(2);
   }
 
+  // ── Holders helper for the Smart Money Radar ──────────
+  // Small extraction of the holder fetch scanToken already
+  // performs, exposed so the radar module shares one request path.
+  async function fetchHolders(contract) {
+    if (!isValidEthAddress(contract)) return null;
+    try {
+      const h = await fetchJSON(
+        `${BLOCKSCOUT_API}/tokens/${contract}/holders`,
+        "blockscoutCollection",
+      );
+      return h && Array.isArray(h.items) ? h.items : null;
+    } catch (e) {
+      warnOnce(
+        "holders-failed",
+        `[Smart] Holder fetch failed: ${e && e.message}`,
+      );
+      return null;
+    }
+  }
+
   // ── Render ────────────────────────────────────────────
   async function render(view) {
     if (!view || !view.isConnected) {
@@ -786,6 +806,21 @@ W.smart = (() => {
         </div>
       </div>
       <div id="sm-body"></div>
+      <div class="card" id="sm-radar-card">
+        <h3>📡 Smart Money Radar</h3>
+        <p class="muted small">
+          Detects when N independent historically-early wallets are
+          accumulating the same token <b>before</b> broad momentum confirms
+          it. Uses the picked token's top holders as the candidate pool.
+          ETH-only. Bounded at ${MAX_HOLDERS} wallets per scan.
+        </p>
+        <div class="qa mt">
+          <button class="btn primary" id="sm-radar-go" type="button">
+            🎯 Scan for smart-money convergence
+          </button>
+        </div>
+        <div id="sm-radar-body"></div>
+      </div>
     `;
 
     // ── Coin picker ────────────────────────────────────
@@ -794,6 +829,12 @@ W.smart = (() => {
       try {
         W.ui.coinPicker(pickerHost, (p) => {
           scanCoin = p || null;
+          if (pickerHost && pickerHost.dataset) {
+            pickerHost.dataset.pickedId =
+              p && typeof p.id === "string" ? p.id : "";
+            pickerHost.dataset.pickedSymbol =
+              p && typeof p.symbol === "string" ? p.symbol : "";
+          }
         });
       } catch (e) {
         warnOnce(
@@ -834,12 +875,53 @@ W.smart = (() => {
     });
   }
 
+  // ── Radar delegation ──────────────────────────────────
+  // One delegated listener at module scope. Reads the picked
+  // coin from the picker host's dataset (set by the picker
+  // callback above) so it does not need render()'s closure.
+  document.addEventListener("click", (e) => {
+    const target = e && e.target;
+    if (!target || typeof target.closest !== "function") return;
+    const btn = target.closest("#sm-radar-go");
+    if (!btn || btn.disabled) return;
+
+    const view =
+      btn.closest("#view") || document.getElementById("view");
+    if (!view) return;
+    const pickerHost = view.querySelector("#sm-picker");
+    const pickedId = (pickerHost && pickerHost.dataset && pickerHost.dataset.pickedId) || "";
+    const pickedSymbol =
+      (pickerHost && pickerHost.dataset && pickerHost.dataset.pickedSymbol) || "";
+
+    if (!pickedId) {
+      W.ui?.toast?.("Pick a token first", "warn");
+      return;
+    }
+    if (!W.smartRadar || typeof W.smartRadar.scan !== "function") {
+      W.ui?.toast?.("Smart Money Radar module not loaded", "warn");
+      return;
+    }
+
+    btn.disabled = true;
+    Promise.resolve(W.smartRadar.scan({ id: pickedId, symbol: pickedSymbol }, view))
+      .catch((err) => {
+        W.ui?.toast?.(
+          "Radar scan failed: " + (err && err.message ? err.message : "unknown"),
+          "warn",
+        );
+      })
+      .finally(() => {
+        btn.disabled = false;
+      });
+  });
+
   // ── Public API ────────────────────────────────────────
   return Object.freeze({
     render,
     scanToken,
     analyzeWallet,
     buildPriceMap,
+    fetchHolders,
     version: MODULE_VERSION,
     _internal: Object.freeze({
       esc,
