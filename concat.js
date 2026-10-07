@@ -82,6 +82,14 @@ const files = [
   "js/intelligence/owner-associations.js",
   "js/intelligence/deployer-graph.js",
 
+  // ── Smart Money Radar ────────────────────────────────────────
+  // Loads after the intelligence contracts and graph modules.
+  // The profiler and convergence detector that depend on this
+  // module land in subsequent commits. Registration here is
+  // ordered so the bundle reflects the intended dependency
+  // chain: contracts → graphs → smart-money.
+  "js/intelligence/smart-money/wallet-history.js",
+
   // ── Features ──────────────────────────────────────────────────
   "js/features/portfolio.js",
   "js/features/watchlist.js",
