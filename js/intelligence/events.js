@@ -58,7 +58,7 @@
 window.W = window.W || {};
 W.events = (() => {
   const CACHE_KEY = "w_events_cache";
-  const CACHE_VERSION = 6;
+  const CACHE_VERSION = 7;
   const TTL = 5 * 60 * 1000;
   const DAY = 864e5;
   const MAX_SIGNAL_AGE_MS = 7 * DAY;
@@ -777,6 +777,39 @@ W.events = (() => {
   }
 
   // ── Deduplication ────────────────────────────────────────
+  // -- Smart Money Radar collector --
+  // Reads W.smartRadar.auto signal cache and returns every
+  // canonical SMART_MONEY_ENTRY signal that survived composition.
+  // Bounded by the auto-scan design (cycle 10 min, one token per
+  // cycle, cache max 100 results for 24h). Does NOT trigger any
+  // network activity - the scheduler already ran the pipeline.
+  function collectSmartMoneyEvents() {
+    const events = [];
+    try {
+      if (!W.smartRadar ||
+          !W.smartRadar.auto ||
+          typeof W.smartRadar.auto.listSignals !== "function") {
+        return events;
+      }
+      const cached = W.smartRadar.auto.listSignals();
+      if (!Array.isArray(cached) || !cached.length) return events;
+      for (const entry of cached) {
+        if (!entry || typeof entry !== "object") continue;
+        if (entry.ok !== true) continue;
+        const s = entry.signal;
+        if (!s || typeof s !== "object") continue;
+        if (!W.intelligence || !W.intelligence.is ||
+            typeof W.intelligence.is.signal !== "function") continue;
+        if (!W.intelligence.is.signal(s)) continue;
+        if (s.type !== "SMART_MONEY_ENTRY") continue;
+        events.push(s);
+      }
+    } catch (e) {
+      console.warn("[Events] Smart money collection failed:", e && e.message);
+    }
+    return events;
+  }
+
   function _dedupe(signals) {
     const seen = new Map();
     const DEDUP_WINDOW_MS = 10 * 60 * 1000;
@@ -873,6 +906,7 @@ W.events = (() => {
       ...collectRegimeEvents(fg, g),
       ...collectUnlockEvents(),
       ...collectOpportunityEvents(markets, regimeData),
+      ...collectSmartMoneyEvents(),
       ...(await collectThesisHealthEvents()),
     ].filter((s) => W.intelligence.is.signal(s));
 
@@ -886,6 +920,8 @@ W.events = (() => {
     collectEvents,
     _internal: Object.freeze({
       collectPriceEvents,
+      collectSmartMoneyEvents,
+      CACHE_VERSION,
       _marketCapTier,
       _thresholdForTier,
       _distribution,
@@ -905,5 +941,5 @@ W.events = (() => {
 })();
 
 console.log(
-  "[Events] Module loaded (canonical confidence enforced: no local derivation, honest null on missing inputs; v6 tiered PRICE_MOVE with major-z-bypass and symbol exclusions).",
+  "[Events] Module loaded (canonical confidence enforced: no local derivation, honest null on missing inputs; v6 tiered PRICE_MOVE with major-z-bypass and symbol exclusions; smart-money collector active).",
 );
