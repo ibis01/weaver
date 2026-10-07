@@ -10351,7 +10351,7 @@ console.log("[Behavior] Pattern detection engine loaded.");
 // from a direct, local, synchronous read of the user's own data
 // (portfolio holdings, theses, journal) — never a network call. There
 // is no meaningful estimation uncertainty in "does this holding exist
-// in the user's portfolio" the way there is for, say, a market-data
+// in the user's portfolioa" the way there is for, say, a market-data
 // API response. Confidence is therefore fixed at 1.0 for all evidence
 // here rather than an arbitrary descending sequence (0.95/0.9/0.85)
 // that previously implied a precision this data never had. If a
@@ -11568,7 +11568,7 @@ window.W = window.W || {};
 W.intelligence = W.intelligence || {};
 
 // ── Contract version ─────────────────────────────────────────
-const CONTRACT_VERSION = "intelligence-contracts-v1";
+const CONTRACT_VERSION = "intelligence-contracts-v2";
 
 // ================================================================
 // 1. PROTOTYPE-POLLUTION GUARD
@@ -11618,6 +11618,7 @@ const _SIGNAL_TYPES = [
   "OPPORTUNITY",
   "THESIS_DETERIORATION",
   "BEHAVIORAL_PATTERN",
+  "SMART_MONEY_ENTRY",
 ];
 const _THESIS_STATUSES = [
   "Healthy",
@@ -11685,6 +11686,11 @@ const SOURCE_RELIABILITY = Object.freeze({
   dex_screener: 0.65,
   rss_feed: 0.4,
   user_input: 0.5,
+  // Radar is a derived signal, not a primary source. Below
+  // dex_screener (0.65) because it composes multiple upstream
+  // reads, each of which can be individually stale or partial.
+  // Calibration target: adjust after the first backtest.
+  smart_money_radar: 0.6,
   unknown: 0.5,
 });
 
@@ -11699,6 +11705,9 @@ const FRESHNESS_WINDOWS = Object.freeze({
   OPPORTUNITY: 86400,
   THESIS_DETERIORATION: 3600,
   BEHAVIORAL_PATTERN: 86400,
+  // Smart-money convergence windows are short. A signal older
+  // than 30 minutes is no longer "pre-momentum" by construction.
+  SMART_MONEY_ENTRY: 1800,
 });
 
 // ================================================================
