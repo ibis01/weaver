@@ -89,6 +89,7 @@ const files = [
   // ordered so the bundle reflects the intended dependency
   // chain: contracts → graphs → smart-money.
   "js/intelligence/smart-money/wallet-history.js",
+  "js/intelligence/smart-money/wallet-profiler.js",
 
   // ── Features ──────────────────────────────────────────────────
   "js/features/portfolio.js",
