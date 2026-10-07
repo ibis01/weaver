@@ -1,0 +1,67 @@
+# Two long-running workers + Redis.
+#
+#   snapshot     writes pair observations to Redis every 15 min
+#   calibration  reads alerts from the Worker, joins against Redis
+#                snapshots, writes the summary every 60 min
+#
+# Bring up:  docker compose -f docker-compose.meme.yml up -d
+# Logs:      docker compose -f docker-compose.meme.yml logs -f snapshot
+#            docker compose -f docker-compose.meme.yml logs -f calibration
+# Stop:      docker compose -f docker-compose.meme.yml down
+# Nuke data: docker compose -f docker-compose.meme.yml down -v
+#
+# The Worker KV is reached outbound over HTTPS; no inbound port is
+# needed on the host. Redis is internal to the compose network.
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --save
+      - "60"
+      - "1"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  snapshot:
+    build:
+      context: .
+      dockerfile: Dockerfile.meme-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+      MEME_SNAPSHOT_INTERVAL_MS: "900000"    # 15 min
+    command: ["node", "scripts/meme-snapshot-worker.js"]
+
+  calibration:
+    build:
+      context: .
+      dockerfile: Dockerfile.meme-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+      WEAVER_WORKER_BASE: "https://weaver-proxy.ibis01-weaver.workers.dev"
+      MEME_CALIBRATION_INTERVAL_MS: "3600000"   # 60 min
+      MEME_CALIBRATION_HORIZON_HOURS: "24"
+      MEME_CALIBRATION_MAX_AGE_HOURS: "168"
+    command: ["node", "scripts/meme-calibration-worker.js"]
+
+volumes:
+  redis-data:

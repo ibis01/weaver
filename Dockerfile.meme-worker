@@ -1,11 +1,28 @@
 FROM node:22.22.2-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
-COPY scripts/meme-snapshot-worker.js ./scripts/meme-snapshot-worker.js
-COPY server/meme-snapshot-store.js ./server/meme-snapshot-store.js
+
+# Snapshot worker's dependencies.
+COPY scripts/meme-snapshot-worker.js  ./scripts/meme-snapshot-worker.js
+COPY server/meme-snapshot-store.js    ./server/meme-snapshot-store.js
+
+# Calibration worker's dependencies.
+#   - the script itself
+#   - the Redis-backed calibration store
+#   - the snapshot store (the calibration worker reads observations)
+#   - the browser-side calibration module (require()'d at runtime
+#     with a global.W shim; see the top of the worker script)
+COPY scripts/meme-calibration-worker.js ./scripts/meme-calibration-worker.js
+COPY server/meme-calibration-store.js   ./server/meme-calibration-store.js
+COPY js/intelligence/meme-calibration.js ./js/intelligence/meme-calibration.js
+
 RUN addgroup -S weaver && adduser -S -G weaver weaver \
   && chown -R weaver:weaver /app
 USER weaver
+
+# Default command is the snapshot worker. Compose overrides CMD per
+# service; running the image bare gives a live snapshot loop.
 CMD ["node", "scripts/meme-snapshot-worker.js"]
