@@ -117,7 +117,15 @@ async function evaluateBrief1h(alert, snapshotStore) {
 // Every denominator excludes invalid evaluations - a sample
 // that never reached the horizon is not a failure, it is
 // missing data. The two are never conflated.
-function bucketByScore(entries) {
+// Generalized: takes entries shaped { evaluation, [scoreField] }
+// and the name of the field to bucket on. Callers pass a
+// per-population entry list so the gems and radar distributions
+// never mix. buckets are read left to right; the last bucket is
+// inclusive of its upper bound so score 100 lands in 90-100.
+function bucketByScore(entries, scoreField) {
+  if (typeof scoreField !== "string" || !scoreField) {
+    throw new Error("bucketByScore: scoreField is required");
+  }
   const buckets = [
     { label: "<60",    min: -Infinity, max: 60 },
     { label: "60-69",  min: 60,        max: 70 },
@@ -129,9 +137,9 @@ function bucketByScore(entries) {
   for (const b of buckets) {
     const inBucket = entries.filter(
       (e) =>
-        Number.isFinite(e.smartEntryScore) &&
-        e.smartEntryScore >= b.min &&
-        e.smartEntryScore < b.max,
+        Number.isFinite(e[scoreField]) &&
+        e[scoreField] >= b.min &&
+        e[scoreField] < b.max,
     );
     const valid = inBucket.filter(
       (e) => e.evaluation && e.evaluation.valid === true,
@@ -176,6 +184,7 @@ async function runOnce() {
   const newlyEvaluated = [];
   const skipped = [];
   const briefEvaluations = [];
+  const gemsEvaluations = [];
 
   try {
     for (const alert of alerts) {
@@ -206,6 +215,34 @@ async function runOnce() {
             briefEvaluations.push({
               evaluation: null,
               smartEntryScore: score,
+            });
+          }
+        }
+      }
+
+      // Gems alerts carry an opportunityScore on the assessment
+      // itself, not on rawData. Collected in the same loop as
+      // the radar alerts so both populations share the 1h
+      // outcome evaluation. The two arrays are kept separate;
+      // bucketByScore is called twice at the end with different
+      // score fields. Gems and radar distributions never mix.
+      {
+        const opp =
+          alert.assessment &&
+          Number.isFinite(alert.assessment.opportunityScore)
+            ? alert.assessment.opportunityScore
+            : null;
+        if (opp !== null) {
+          try {
+            const brief = await evaluateBrief1h(alert, snapshotStore);
+            gemsEvaluations.push({
+              evaluation: brief,
+              opportunityScore: opp,
+            });
+          } catch (e) {
+            gemsEvaluations.push({
+              evaluation: null,
+              opportunityScore: opp,
             });
           }
         }
@@ -262,7 +299,8 @@ async function runOnce() {
     const enriched = {
       ...summary,
       alerts_fetched: alerts.length,
-      smartMoneyBuckets1h: bucketByScore(briefEvaluations),
+      smartMoneyBuckets1h: bucketByScore(briefEvaluations, "smartEntryScore"),
+      gemsBuckets1h: bucketByScore(gemsEvaluations, "opportunityScore"),
       alerts_newly_evaluated: newlyEvaluated.length,
       alerts_skipped: skipped.length,
       skip_reasons: bucketSkipReasons(skipped),
