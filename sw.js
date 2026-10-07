@@ -72,14 +72,25 @@ self.addEventListener("fetch", (e) => {
   if (isFreshRequired(url.pathname)) {
     e.respondWith(
       (async () => {
+        // A hung network fetch must not hang the page. Bounded at
+        // 8s; on expiry the cache fallback below runs. This is the
+        // behaviour the v3 SW had (5s) and that v4 dropped.
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
         try {
           // cache: "reload" bypasses the browser HTTP cache. Without
           // this, fetch() can return a disk-cached copy of index.html
           // and the SW would treat it as if it had come from the
           // server.
-          const req = new Request(e.request, { cache: "reload" });
-          return await fetch(req);
+          const req = new Request(e.request, {
+            cache: "reload",
+            signal: controller.signal,
+          });
+          const res = await fetch(req);
+          clearTimeout(timer);
+          return res;
         } catch (err) {
+          clearTimeout(timer);
           // Network is genuinely down. Fall back to cache, ignoring
           // the ?v= query so a bump does not orphan the last good copy.
           const cache = await caches.open(CACHE);
