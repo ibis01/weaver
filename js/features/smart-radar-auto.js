@@ -205,6 +205,70 @@ W.smartRadar.auto = (() => {
     return clean;
   }
 
+  // Radar alert persistence. Same payload shape as persistMemeAlert
+  // in gems.js, sourced from the radar result instead of a gem scan.
+  // Skips on every failure path: an alert with no signal, no price,
+  // or ok !== true is not a prediction and must not enter the store.
+  function resolveRadarWorkerBase() {
+    if (W.config && typeof W.config.workerBase === "string" && W.config.workerBase) {
+      return W.config.workerBase;
+    }
+    if (typeof W.workerBase === "string" && W.workerBase) return W.workerBase;
+    return "https://weaver-proxy.ibis01-weaver.workers.dev";
+  }
+
+  async function persistRadarAlert(result) {
+    if (!result || result.ok !== true) return;
+    const signal = result.signal;
+    if (!signal || typeof signal !== "object") return;
+    if (signal.type !== "SMART_MONEY_ENTRY") return;
+
+    const chain = "ethereum";
+    const tokenAddress = result.tokenAddress;
+    if (typeof tokenAddress !== "string" || !tokenAddress) return;
+
+    const priceUsd = Number(result.currentPrice);
+    if (!Number.isFinite(priceUsd) || priceUsd <= 0) {
+      console.warn(
+        "[SmartRadar.auto] Skipping alert persistence: no usable priceUsd",
+      );
+      return;
+    }
+
+    const workerBase = resolveRadarWorkerBase();
+    if (!workerBase) return;
+
+    const observedAtMs = signal.timestamp;
+    if (!Number.isFinite(observedAtMs) || observedAtMs <= 0) return;
+
+    const payload = {
+      assessment: Object.assign({}, signal, {
+        observedAtMs,
+        identity: { chain, tokenAddress },
+      }),
+      market: {
+        priceUsd,
+        liquidityUsd: null,
+        observedAt: new Date(observedAtMs).toISOString(),
+      },
+      pairAddress: null,
+      symbol:
+        result.coin && typeof result.coin.symbol === "string"
+          ? result.coin.symbol
+          : null,
+    };
+
+    const base = workerBase.endsWith("/")
+      ? workerBase.slice(0, -1)
+      : workerBase;
+    await fetch(base + "/meme/alert", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    });
+  }
+
   function recordSignal(result) {
     if (!result || typeof result !== "object") return;
     const entry = {
@@ -298,6 +362,9 @@ W.smartRadar.auto = (() => {
     }
 
     recordSignal(result);
+    // Fire-and-forget persistence. Same contract as gems.js:
+    // failures are silent and never affect the auto-scan cycle.
+    persistRadarAlert(result).catch(() => {});
     setState({
       lastRunAt: Date.now(),
       cursor: (idx + 1) % Math.max(1, watchlist.length),
@@ -541,6 +608,7 @@ W.smartRadar.auto = (() => {
       MAX_WATCHLIST,
       MAX_SIGNALS,
       recordSignal,
+      persistRadarAlert,
       ensureMounted,
     }),
   });

@@ -92,6 +92,67 @@ async function evaluateOne(alert, snapshotStore) {
   );
 }
 
+// Re-evaluates a radar alert at the brief's specific horizon
+// (1h) and success threshold (50%), independent of the primary
+// HORIZON_HOURS evaluation. Reads the snapshot store fresh on
+// every call so the bucket summary reflects the full current
+// window, not just the alerts freshly evaluated this run.
+async function evaluateBrief1h(alert, snapshotStore) {
+  const identity = alert?.assessment?.identity;
+  if (!identity?.chain || !identity?.tokenAddress) return null;
+  const rawSnapshots = await snapshotStore.list(
+    identity.chain,
+    identity.tokenAddress,
+    { limit: 500 },
+  );
+  const rows = rawSnapshots.map(snapshotToCalibrationRow);
+  return global.W.memeCalibration.evaluate(
+    alertToCalibrationInput(alert),
+    rows,
+    { horizonHours: 1, successReturnPct: 50 },
+  );
+}
+
+// Buckets calibration outcomes by the alert's smartEntryScore.
+// Every denominator excludes invalid evaluations - a sample
+// that never reached the horizon is not a failure, it is
+// missing data. The two are never conflated.
+function bucketByScore(entries) {
+  const buckets = [
+    { label: "<60",    min: -Infinity, max: 60 },
+    { label: "60-69",  min: 60,        max: 70 },
+    { label: "70-79",  min: 70,        max: 80 },
+    { label: "80-89",  min: 80,        max: 90 },
+    { label: "90-100", min: 90,        max: 101 },
+  ];
+  const out = {};
+  for (const b of buckets) {
+    const inBucket = entries.filter(
+      (e) =>
+        Number.isFinite(e.smartEntryScore) &&
+        e.smartEntryScore >= b.min &&
+        e.smartEntryScore < b.max,
+    );
+    const valid = inBucket.filter(
+      (e) => e.evaluation && e.evaluation.valid === true,
+    );
+    const durable = valid.filter((e) => e.evaluation.durable === true);
+    const avgReturn = valid.length
+      ? valid.reduce(
+          (s, e) => s + (Number(e.evaluation.horizonReturnPct) || 0),
+          0,
+        ) / valid.length
+      : null;
+    out[b.label] = {
+      samples: valid.length,
+      skipped: inBucket.length - valid.length,
+      durableRate: valid.length ? durable.length / valid.length : null,
+      averageHorizonReturnPct: avgReturn,
+    };
+  }
+  return out;
+}
+
 function bucketSkipReasons(skipped) {
   const counts = {};
   for (const s of skipped) {
@@ -114,6 +175,7 @@ async function runOnce() {
   const evaluations = [];
   const newlyEvaluated = [];
   const skipped = [];
+  const briefEvaluations = [];
 
   try {
     for (const alert of alerts) {
@@ -123,6 +185,31 @@ async function runOnce() {
         continue;
       }
       const observedAtMs = alert.assessment.observedAtMs;
+
+      // Radar alerts carry a smartEntryScore in rawData. If present,
+      // compute the 1h bucket evaluation here, fresh, every run. The
+      // 24h evaluation below is cached; the 1h one is not, so the
+      // bucket summary reflects the full current window.
+      {
+        const score =
+          alert.assessment &&
+          alert.assessment.rawData &&
+          alert.assessment.rawData.smartEntryScore;
+        if (Number.isFinite(score)) {
+          try {
+            const brief = await evaluateBrief1h(alert, snapshotStore);
+            briefEvaluations.push({
+              evaluation: brief,
+              smartEntryScore: score,
+            });
+          } catch (e) {
+            briefEvaluations.push({
+              evaluation: null,
+              smartEntryScore: score,
+            });
+          }
+        }
+      }
 
       try {
         const existing = await calibrationStore.readResult(
@@ -175,6 +262,7 @@ async function runOnce() {
     const enriched = {
       ...summary,
       alerts_fetched: alerts.length,
+      smartMoneyBuckets1h: bucketByScore(briefEvaluations),
       alerts_newly_evaluated: newlyEvaluated.length,
       alerts_skipped: skipped.length,
       skip_reasons: bucketSkipReasons(skipped),
@@ -247,4 +335,6 @@ module.exports = {
   bucketSkipReasons,
   alertToCalibrationInput,
   snapshotToCalibrationRow,
+  evaluateBrief1h,
+  bucketByScore,
 };
