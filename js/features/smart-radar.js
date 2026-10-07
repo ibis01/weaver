@@ -284,11 +284,14 @@ W.smartRadar = (() => {
     renderResult(result, body);
   }
 
-  return Object.freeze({
+  // Top level is NOT frozen: sibling modules (smart-radar-auto)
+  // attach their own namespace under W.smartRadar. Only _internal
+  // is frozen, which is where the "do not touch" contract lives.
+  return {
     scan,
     version: MODULE_VERSION,
     _internal: Object.freeze({ runPipeline, renderResult, MAX_WALLETS }),
-  });
+  };
 })();
 
 console.log("[SmartRadar] Module loaded — manual convergence scan for #/smart.");

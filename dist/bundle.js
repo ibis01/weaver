@@ -10351,7 +10351,7 @@ console.log("[Behavior] Pattern detection engine loaded.");
 // from a direct, local, synchronous read of the user's own data
 // (portfolio holdings, theses, journal) — never a network call. There
 // is no meaningful estimation uncertainty in "does this holding exist
-// in the user's portfolioa" the way there is for, say, a market-data
+// in the user's portfolio" the way there is for, say, a market-data
 // API response. Confidence is therefore fixed at 1.0 for all evidence
 // here rather than an arbitrary descending sequence (0.95/0.9/0.85)
 // that previously implied a precision this data never had. If a
@@ -30792,11 +30792,14 @@ W.smartRadar = (() => {
     renderResult(result, body);
   }
 
-  return Object.freeze({
+  // Top level is NOT frozen: sibling modules (smart-radar-auto)
+  // attach their own namespace under W.smartRadar. Only _internal
+  // is frozen, which is where the "do not touch" contract lives.
+  return {
     scan,
     version: MODULE_VERSION,
     _internal: Object.freeze({ runPipeline, renderResult, MAX_WALLETS }),
-  });
+  };
 })();
 
 console.log("[SmartRadar] Module loaded — manual convergence scan for #/smart.");
