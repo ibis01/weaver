@@ -963,6 +963,48 @@ async function handleRequest(request, env, ctx) {
   }
 
   // ── Meme alerts listing ─────────────────────────────────────
+  // ---- Weaver: generic signal bridge (Phase 1) ----
+  if (parts.length === 1 && parts[0] === "signal" && request.method === "POST") {
+    let body = null;
+    try { body = await request.json(); } catch { body = null; }
+    if (!body || !body.signal || typeof body.signal.type !== "string") {
+      return new Response(JSON.stringify({ error: "signal required" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const signal = body.signal;
+    const id = signal.id || (signal.type + ":" + signal.timestamp + ":" + Math.random().toString(36).slice(2, 10));
+    const key = "signals:v1:" + signal.type + ":" + id;
+    await env.MEME_ALERTS.put(key, JSON.stringify(signal), { expirationTtl: 60 * 60 * 24 * 7 });
+    return new Response(JSON.stringify({ ok: true, key }), {
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  if (parts.length === 1 && parts[0] === "signals" && request.method === "GET") {
+    const type = url.searchParams.get("type") || "";
+    const since = Number(url.searchParams.get("since")) || 0;
+    const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 500);
+    const prefix = type ? "signals:v1:" + type + ":" : "signals:v1:";
+    const list = await env.MEME_ALERTS.list({ prefix, limit });
+    const signals = [];
+    for (const k of list.keys) {
+      const raw = await env.MEME_ALERTS.get(k.name);
+      if (!raw) continue;
+      try {
+        const sig = JSON.parse(raw);
+        if (!sig.timestamp || sig.timestamp < since) continue;
+        signals.push(sig);
+      } catch {}
+    }
+    signals.sort((a, b) => b.timestamp - a.timestamp);
+    return new Response(JSON.stringify({ signals }), {
+      headers: { "content-type": "application/json" },
+    });
+  }
+  // ---- end signal bridge ----
+
   if (parts.length === 2 && parts[0] === "meme" && parts[1] === "alerts") {
     if (request.method !== "GET") {
       return jsonResponse({ error: "Method not allowed" }, 405, headers);

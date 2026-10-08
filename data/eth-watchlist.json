@@ -1,0 +1,7 @@
+[
+  { "id": "chainlink",   "symbol": "LINK", "name": "Chainlink",   "tokenAddress": "0x514910771af9ca656af840dff83e8264ecf986ca" },
+  { "id": "uniswap",     "symbol": "UNI",  "name": "Uniswap",     "tokenAddress": "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984" },
+  { "id": "aave",        "symbol": "AAVE", "name": "Aave",        "tokenAddress": "0x7fc66500c84a76ad7e9c93437bfc5ac33e2ddae9" },
+  { "id": "shiba-inu",   "symbol": "SHIB", "name": "Shiba Inu",   "tokenAddress": "0x95ad61b0a150d79219dcf64e1e6cc01f0b64c4ce" },
+  { "id": "dai",         "symbol": "DAI",  "name": "Dai",         "tokenAddress": "0x6b175474e89094c44da98b954eedeac495271d0f" }
+]

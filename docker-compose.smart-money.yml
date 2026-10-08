@@ -1,0 +1,23 @@
+services:
+  smart-money:
+    image: weaver-smart-money:local
+    build:
+      context: .
+      dockerfile: Dockerfile.smart-money-worker.local
+    restart: unless-stopped
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://weaver-redis-1:6379
+      WEAVER_WORKER_BASE: "https://weaver-proxy.ibis01-weaver.workers.dev"
+      SMART_MONEY_CYCLE_MS: "60000"
+      NODE_OPTIONS: "--dns-result-order=ipv4first"
+    command: ["node", "scripts/smart-money-worker.js"]
+    networks:
+      - weaver_default
+
+networks:
+  weaver_default:
+    external: true
