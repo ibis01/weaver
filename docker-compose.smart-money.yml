@@ -1,9 +1,6 @@
 services:
   smart-money:
     image: weaver-smart-money:local
-    build:
-      context: .
-      dockerfile: Dockerfile.smart-money-worker.local
     restart: unless-stopped
     dns:
       - 1.1.1.1
@@ -15,6 +12,15 @@ services:
       SMART_MONEY_CYCLE_MS: "60000"
       NODE_OPTIONS: "--dns-result-order=ipv4first"
     command: ["node", "scripts/smart-money-worker.js"]
+    volumes:
+      # Mount the host's code over the image's baked-in copies.
+      # No more docker cp, no more drift.
+      - ./dist/bundle.js:/app/dist/bundle.js:ro
+      - ./scripts/smart-money-worker.js:/app/scripts/smart-money-worker.js:ro
+      - ./server/smart-money-store.js:/app/server/smart-money-store.js:ro
+      - ./server/smart-money-shim.js:/app/server/smart-money-shim.js:ro
+      - ./server/provenance-store.js:/app/server/provenance-store.js:ro
+      - ./data/eth-watchlist.json:/app/data/eth-watchlist.json:ro
     networks:
       - weaver_default
 
