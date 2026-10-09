@@ -239,6 +239,30 @@ async function main() {
   };
   console.log("[sm.worker] W.store re-bound to Redis-backed store");
 
+  // STOP_AUTO_SCAN_MARK: the bundle's W.smartRadar.auto module starts
+  // its own 60-second pipeline loop when loaded. That would duplicate
+  // every cycle our custom tick() already runs. Stop it explicitly so
+  // only our self-scheduling loop drives the pipeline.
+  try {
+    if (global.W.smartRadar && global.W.smartRadar.auto) {
+      if (typeof global.W.smartRadar.auto.stop === "function") {
+        global.W.smartRadar.auto.stop();
+        console.log("[sm.worker] W.smartRadar.auto.stop() called");
+      }
+      if (typeof global.W.smartRadar.auto.toggle === "function") {
+        // Ensure the enabled flag is off so start() refuses if called again.
+        const state = global.W.smartRadar.auto.getState
+          ? global.W.smartRadar.auto.getState()
+          : null;
+        if (state && state.enabled) {
+          global.W.smartRadar.auto.toggle(false);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[sm.worker] could not stop auto-scan:", e.message);
+  }
+
   // Also re-bind W.schemas and W.requestGuard in case the bundle
   // overwrote them with no-ops.
   if (!global.W.schemas || typeof global.W.schemas.validate !== "function") {
