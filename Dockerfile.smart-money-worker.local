@@ -7,6 +7,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY dist/bundle.js                ./dist/bundle.js
 COPY server/smart-money-store.js   ./server/smart-money-store.js
+COPY server/provenance-store.js    ./server/provenance-store.js
 COPY server/smart-money-shim.js    ./server/smart-money-shim.js
 COPY scripts/smart-money-worker.js ./scripts/smart-money-worker.js
 COPY data/eth-watchlist.json       ./data/eth-watchlist.json

@@ -37,7 +37,9 @@ function createSmartMoneyStore(options = {}) {
 
   async function hydrate() {
     await connect();
-    const keys = await client.keys(`${PREFIX}*`);
+    const all = await client.keys(`${PREFIX}*`);
+    // Exclude append-only provenance keys — they are not store state.
+    const keys = all.filter(k => !k.startsWith(`${PREFIX}provenance.`));
     for (const k of keys) {
       const v = await client.get(k);
       if (v !== null) {
