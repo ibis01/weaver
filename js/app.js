@@ -115,6 +115,7 @@ window.W = window.W || {};
           route: "#/whales",
         },
         { id: "smart", icon: "🧠", label: "Smart Money", route: "#/smart" },
+        { id: "investigate", icon: "🔎", label: "Investigate", route: "#/investigate" },
       ],
     },
     {
@@ -198,6 +199,13 @@ window.W = window.W || {};
     sectors: (v) => safeRender(v, "sectors", () => W.sectors?.render),
     whales: (v) => safeRender(v, "whales", () => W.whales?.render),
     smart: (v) => safeRender(v, "smart", () => W.smart?.render),
+    investigate: (v) => {
+      if (W.evidenceCard && typeof W.evidenceCard.mount === "function") {
+        W.evidenceCard.mount(v);
+      } else {
+        v.innerHTML = '<div class="card"><p class="muted">Evidence Card module not loaded.</p></div>';
+      }
+    },
     unlocks: (v) => safeRender(v, "unlocks", () => W.unlocks?.render),
     learn: (v) => safeRender(v, "learn", () => W.learn?.render),
     profile: (v) => safeRender(v, "profile", () => W.misc?.renderProfile),

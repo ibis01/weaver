@@ -1,3 +1,16 @@
+function withCors(response) {
+  try {
+    const headers = new Headers(response.headers);
+    headers.set("access-control-allow-origin", "*");
+    headers.set("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
+    headers.set("access-control-allow-headers", "content-type, accept");
+    headers.set("access-control-max-age", "86400");
+    return new Response(response.body, {
+      status: response.status, statusText: response.statusText, headers,
+    });
+  } catch { return response; }
+}
+
 // ================================================================
 // cf-worker/index.js – Weaver's own CORS proxy (replaces public
 // proxies like allorigins.win / corsproxy.io / codetabs.com)
@@ -963,6 +976,71 @@ async function handleRequest(request, env, ctx) {
   }
 
   // ── Meme alerts listing ─────────────────────────────────────
+  // ---- Weaver: provenance bridge (Phase 2) ----
+  if (parts.length === 1 && parts[0] === "provenance" && request.method === "POST") {
+    let body = null;
+    try { body = await request.json(); } catch { body = null; }
+    if (!body || typeof body.symbol !== "string" || !body.result) {
+      return new Response(JSON.stringify({ error: "symbol and result required" }), {
+        status: 400, headers: { "content-type": "application/json" },
+      });
+    }
+    const ranAt = Number(body.ranAt) || Date.now();
+    const key = "provenance:v1:" + body.symbol.toLowerCase() + ":" + ranAt;
+    const payload = JSON.stringify({
+      schemaVersion: "provenance-v1",
+      symbol: body.symbol.toUpperCase(),
+      tokenAddress: typeof body.tokenAddress === "string" ? body.tokenAddress.toLowerCase() : "",
+      ranAt,
+      status: typeof body.status === "string" ? body.status : "UNKNOWN",
+      reason: typeof body.reason === "string" ? body.reason : "unknown",
+      result: body.result,
+    });
+    await env.MEME_ALERTS.put(key, payload, { expirationTtl: 7 * 24 * 60 * 60 });
+    return new Response(JSON.stringify({ ok: true, key }), {
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  if (parts.length === 1 && parts[0] === "provenance" && request.method === "GET") {
+    const symbol = (url.searchParams.get("symbol") || "").toLowerCase();
+    const limit = Math.min(Number(url.searchParams.get("limit")) || 20, 200);
+    const prefix = symbol ? "provenance:v1:" + symbol + ":" : "provenance:v1:";
+    const list = await env.MEME_ALERTS.list({ prefix, limit: limit * 3 });
+    const keys = list.keys.map(k => k.name);
+    const out = [];
+    for (const k of keys) {
+      try { const v = await env.MEME_ALERTS.get(k); if (v) out.push(JSON.parse(v)); } catch {}
+    }
+    // Dedupe by symbol+ranAt (keeps the newest write).
+    const seen = new Map();
+    for (const e of out) {
+      const k = (e.symbol || "") + ":" + (e.ranAt || 0);
+      seen.set(k, e);
+    }
+    const deduped = [...seen.values()];
+    deduped.sort((a, b) => (Number(b.ranAt) || 0) - (Number(a.ranAt) || 0));
+    const trimmed = deduped.slice(0, limit);
+    return new Response(JSON.stringify({ entries: trimmed }), {
+      headers: { "content-type": "application/json" },
+    });
+  }
+  if (parts.length === 1 && parts[0] === "provenance" && request.method === "DELETE") {
+    const prefix = "provenance:v1:";
+    let cursor;
+    let deleted = 0;
+    do {
+      const page = await env.MEME_ALERTS.list({ prefix, cursor, limit: 500 });
+      for (const k of page.keys) { await env.MEME_ALERTS.delete(k.name); deleted++; }
+      cursor = page.list_complete ? null : page.cursor;
+    } while (cursor);
+    return new Response(JSON.stringify({ ok: true, deleted }), {
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  // ---- end provenance bridge ----
+
   // ---- Weaver: generic signal bridge (Phase 1) ----
   if (parts.length === 1 && parts[0] === "signal" && request.method === "POST") {
     let body = null;
@@ -1134,5 +1212,19 @@ async function handleRequest(request, env, ctx) {
 export { handleRequest };
 
 export default {
-  fetch: (request, env, ctx) => handleRequest(request, env, ctx),
+  async fetch(request, env, ctx) {
+    if (request.method === "OPTIONS") {
+      return withCors(new Response(null, {
+        status: 204,
+        headers: {
+          "access-control-allow-origin": "*",
+          "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+          "access-control-allow-headers": "content-type, accept",
+          "access-control-max-age": "86400",
+        },
+      }));
+    }
+    const response = await handleRequest(request, env, ctx);
+    return withCors(response);
+  },
 };

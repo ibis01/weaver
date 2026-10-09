@@ -3424,3 +3424,91 @@ body {
   text-align: center;
   padding: 16px;
 }
+
+/* ── Evidence Card (Phase 2) ──────────────────────────────────── */
+.evidence-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+.evidence-card {
+  background: var(--bg-surface, #111);
+  border: 1px solid var(--border, #222);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.15s;
+}
+.evidence-card:hover {
+  border-color: var(--accent, #4ea1ff);
+}
+.ec-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.ec-symbol {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--fg, #eee);
+}
+.ec-status {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.badge-signal   { background: rgba(34,197,94,.15);  color: #22c55e; }
+.badge-refused  { background: rgba(148,163,184,.15); color: #94a3b8; }
+.badge-pipeline { background: rgba(245,158,11,.15);  color: #f59e0b; }
+.badge-unknown  { background: rgba(148,163,184,.15); color: #94a3b8; }
+.ec-time {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted, #888);
+}
+.ec-verdict {
+  font-size: 13px;
+  color: var(--fg, #eee);
+  margin: 0;
+}
+.ec-reason {
+  font-size: 12px;
+  color: var(--muted, #888);
+  margin: 0;
+}
+.ec-reason b { color: var(--fg, #eee); }
+.ec-section h4 {
+  font-size: 12px;
+  margin: 6px 0 4px;
+  color: var(--muted, #888);
+  font-weight: 600;
+}
+.ec-section ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg, #eee);
+}
+.ec-empty {
+  font-size: 12px;
+  color: var(--muted, #666);
+  font-style: italic;
+  margin: 0;
+}
+.ec-footer {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.ec-footer .btn {
+  font-size: 12px;
+  padding: 4px 10px;
+}

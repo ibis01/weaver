@@ -113,6 +113,7 @@ const files = [
   "js/features/smart.js",
   "js/features/smart-radar.js",
   "js/features/smart-radar-auto.js",
+  "js/features/evidence-card.js",
   "js/features/unlocks.js",
   "js/features/sectors.js",
   "js/features/learn.js",
