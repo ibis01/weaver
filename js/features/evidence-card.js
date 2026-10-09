@@ -1,6 +1,8 @@
 // Evidence Card — renders a single provenance entry (refusal or signal)
-// as a compact card with verdict, evidence, unknowns, and provenance.
-// Reads from /provenance on the CF Worker.
+// as a compact card. Clicking "View details" opens an in-page modal
+// with the full provenance chain, evidence sections, and raw JSON.
+//
+// Phase 2, Block 1.
 
 (function () {
   "use strict";
@@ -9,8 +11,6 @@
     if (W.config && typeof W.config.workerBase === "string" && W.config.workerBase) {
       return W.config.workerBase;
     }
-    // Local development: if the page is served from localhost, prefer the
-    // local provenance mirror on :3002 so we do not depend on Cloudflare.
     try {
       const h = location.hostname;
       if (h === "localhost" || h === "127.0.0.1" || h === "0.0.0.0") {
@@ -26,6 +26,30 @@
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
       }[c]));
 
+  // Plain-English translation of the pipeline's reason codes. Shown
+  // in the detail modal so a user does not have to read the pipeline
+  // source to understand what happened.
+  const REASON_EXPLAINERS = {
+    "insufficient-independent-wallets":
+      "Weaver found fewer than three independent historically-early wallets buying this token within the last 15 minutes. It needs at least three whose trading histories are not correlated with each other before it will call the pattern meaningful. Zero qualifying wallets is the common case.",
+    "no-holders":
+      "The on-chain indexer (Blockscout) did not return a holder list for this token. This is usually a transient issue with the indexer rather than a property of the token. Weaver will retry on the next cycle.",
+    "no-candidates-profiled":
+      "The holder list came back, but none of the eligible holders could be profiled — likely because their trade history could not be fetched within the timeout.",
+    "smart-fetchHolders-unavailable":
+      "The holder-fetch module was not loaded when this cycle ran. This is a wiring problem, not a market signal.",
+    "convergence-detector-unavailable":
+      "The convergence detector module was not loaded when this cycle ran.",
+    "momentum-detector-unavailable":
+      "The momentum detector module was not loaded when this cycle ran.",
+    "smart-entry-engine-unavailable":
+      "The signal composition module was not loaded when this cycle ran.",
+    "pipeline-error":
+      "The pipeline threw an exception while processing this token. The message field carries the specific error.",
+    "no-signal":
+      "No signal was emitted this cycle. No further detail was recorded.",
+  };
+
   function fmtTime(ms) {
     if (!Number.isFinite(ms)) return "—";
     try {
@@ -36,6 +60,11 @@
     } catch { return "—"; }
   }
 
+  function fmtDateTime(ms) {
+    if (!Number.isFinite(ms)) return "—";
+    try { return new Date(ms).toLocaleString(); } catch { return "—"; }
+  }
+
   function statusLabel(status) {
     if (status === "SIGNAL") return { text: "Signal", cls: "badge-signal" };
     if (status === "REFUSED_ANALYSIS") return { text: "No signal", cls: "badge-refused" };
@@ -43,14 +72,12 @@
     return { text: "Unknown", cls: "badge-unknown" };
   }
 
-  // Normalize the pipeline result into supporting / contradicting / unknowns.
   function extractEvidence(entry) {
     const r = entry.result || {};
     const supporting = [];
     const contradicting = [];
     const unknowns = [];
 
-    // Preferred: signal.evidence is present (signal fired)
     if (r.signal && r.signal.evidence) {
       const ev = r.signal.evidence;
       for (const s of ev.supporting || []) supporting.push(s);
@@ -58,7 +85,6 @@
       for (const u of ev.unknowns || []) unknowns.push(u);
     }
 
-    // Analysis-level: derive from convergence + momentum
     if (r.convergence) {
       const c = r.convergence;
       if (c.convergence === true) {
@@ -104,7 +130,6 @@
       }
     }
 
-    // Pipeline-level refusal (no convergence block at all)
     if (!r.convergence && entry.reason) {
       contradicting.push(`Pipeline refused: ${entry.reason}`);
     }
@@ -121,7 +146,8 @@
       .join("")}</ul></section>`;
   }
 
-  function renderCard(entry) {
+  // ── Card (compact view) ─────────────────────────────
+  function renderCard(entry, index) {
     if (!entry || typeof entry !== "object") return "";
     const s = statusLabel(entry.status);
     const ev = extractEvidence(entry);
@@ -136,7 +162,7 @@
             : "Unknown result";
 
     return `
-      <article class="evidence-card" data-symbol="${esc(entry.symbol)}">
+      <article class="evidence-card" data-index="${index}" data-symbol="${esc(entry.symbol)}">
         <header class="ec-header">
           <span class="ec-symbol">${esc(entry.symbol || "?")}</span>
           <span class="ec-status ${s.cls}">${esc(s.text)}</span>
@@ -148,11 +174,118 @@
         ${renderSection("Contradicting evidence", ev.contradicting, "None recorded.", "🔴")}
         ${renderSection("Unknowns", ev.unknowns, "No gaps recorded.", "❓")}
         <footer class="ec-footer">
-          <button class="btn ghost" data-action="inspect">Inspect source</button>
-          <button class="btn ghost" data-action="watch">Add to watchlist</button>
+          <button class="btn ghost" data-action="details" type="button">View details</button>
         </footer>
       </article>
     `;
+  }
+
+  // ── Detail modal content ────────────────────────────
+  function buildDetailModalHTML(entry) {
+    const r = entry.result || {};
+    const s = statusLabel(entry.status);
+    const ev = extractEvidence(entry);
+    const explainer = REASON_EXPLAINERS[entry.reason] || "No explanation recorded for this reason code.";
+
+    // Provenance chain — the invariant. Every Weaver claim must be
+    // traceable through this sequence.
+    const chain = [
+      "Signal (" + esc(entry.symbol || "?") + ")",
+      "Assessment",
+      "Evidence",
+      "Observation",
+      "Source",
+    ].map((step, i) => {
+      const arrow = i > 0 ? '<span class="ec-detail-chain-arrow">→</span>' : "";
+      return `${arrow}<span class="ec-detail-chain-step">${step}</span>`;
+    }).join("");
+
+    // Qualifying wallets (populated only on SIGNAL)
+    let walletsHTML = "";
+    if (r.convergence && Array.isArray(r.convergence.qualifyingWallets) && r.convergence.qualifyingWallets.length) {
+      const rows = r.convergence.qualifyingWallets.map((w) => {
+        const addr = typeof w.wallet === "string" ? w.wallet : (w.address || "");
+        const short = addr.slice(0, 8) + "…" + addr.slice(-6);
+        const link = addr
+          ? `<a class="link small" href="https://etherscan.io/address/${encodeURIComponent(addr)}" target="_blank" rel="noopener noreferrer">${esc(short)} ↗</a>`
+          : esc(short);
+        const rate = Number.isFinite(w.historicalEarlyEntryRate)
+          ? (w.historicalEarlyEntryRate * 100).toFixed(0) + "%"
+          : "—";
+        return `<li>${link} · early-entry rate ${esc(rate)} · ${esc(w.buyCount || 0)} buys</li>`;
+      }).join("");
+      walletsHTML = `<section class="ec-section"><h4>🎯 Qualifying wallets</h4><ul>${rows}</ul></section>`;
+    }
+
+    // Block explorer links
+    const tokenAddr = entry.tokenAddress || (r.tokenAddress);
+    const links = [];
+    if (tokenAddr) {
+      links.push(`<a class="link small" href="https://etherscan.io/token/${encodeURIComponent(tokenAddr)}" target="_blank" rel="noopener noreferrer">Token on Etherscan ↗</a>`);
+      links.push(`<a class="link small" href="https://eth.blockscout.com/token/${encodeURIComponent(tokenAddr)}" target="_blank" rel="noopener noreferrer">Token on Blockscout ↗</a>`);
+    }
+
+    return `
+      <div class="ec-detail">
+        <dl class="ec-detail-summary">
+          <dt>Symbol</dt><dd>${esc(entry.symbol || "?")}</dd>
+          <dt>Status</dt><dd><span class="ec-status ${s.cls}">${esc(s.text)}</span></dd>
+          <dt>Reason</dt><dd><code>${esc(entry.reason || "—")}</code></dd>
+          <dt>Ran at</dt><dd>${esc(fmtDateTime(entry.ranAt))}</dd>
+          ${tokenAddr ? `<dt>Token</dt><dd><code>${esc(tokenAddr)}</code></dd>` : ""}
+        </dl>
+
+        <div class="ec-detail-reason-explainer">
+          <b>What this means:</b> ${esc(explainer)}
+        </div>
+
+        <section class="ec-detail-chain-section">
+          <h4>🔗 Provenance chain</h4>
+          <div class="ec-detail-chain">${chain}</div>
+          <p class="muted small">Every Weaver claim traces backward through this sequence. Click through the evidence below to verify.</p>
+        </section>
+
+        ${walletsHTML}
+
+        ${renderSection("Supporting evidence", ev.supporting, "None recorded.", "🟢")}
+        ${renderSection("Contradicting evidence", ev.contradicting, "None recorded.", "🔴")}
+        ${renderSection("Unknowns", ev.unknowns, "No gaps recorded.", "❓")}
+
+        ${links.length ? `<section class="ec-detail-links">${links.join(" ")}</section>` : ""}
+
+        <details class="ec-detail-raw">
+          <summary>Raw provenance JSON</summary>
+          <pre>${esc(JSON.stringify(entry, null, 2))}</pre>
+        </details>
+      </div>
+    `;
+  }
+
+  function openDetailModal(entry) {
+    const html = buildDetailModalHTML(entry);
+    if (W.ui && typeof W.ui.modal === "function") {
+      let modal = null;
+      try {
+        modal = W.ui.modal({
+          title: `${entry.symbol || "?"} · ${statusLabel(entry.status).text}`,
+          body: html,
+          footer: '<button class="btn ghost" data-a="close" type="button">Close</button>',
+        });
+      } catch (e) {
+        console.warn("[EvidenceCard] modal failed:", e.message);
+      }
+      if (modal && modal.el) {
+        const btn = modal.el.querySelector('[data-a="close"]');
+        if (btn && modal.close) btn.onclick = modal.close;
+      }
+      return modal;
+    }
+    // Fallback: simple overlay if W.ui.modal is not available
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;padding:40px;overflow:auto;";
+    overlay.innerHTML = `<div style="max-width:760px;margin:0 auto;background:#111;border:1px solid #222;border-radius:10px;padding:20px;">${html}</div>`;
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
   }
 
   async function fetchProvenance(limit = 50) {
@@ -180,21 +313,16 @@
         '<div class="card"><p class="muted small">No investigations yet. The worker records every cycle — check back in a minute.</p></div>';
       return;
     }
-    container.innerHTML = `<div class="evidence-list">${entries.map(renderCard).join("")}</div>`;
+    container.innerHTML = `<div class="evidence-list">${entries.map((e, i) => renderCard(e, i)).join("")}</div>`;
     container.querySelectorAll(".evidence-card").forEach((el) => {
-      el.addEventListener("click", (e) => {
-        const action = e.target && e.target.dataset && e.target.dataset.action;
-        if (action === "inspect") {
-          e.stopPropagation();
-          const symbol = el.dataset.symbol;
-          const entry = entries.find((x) => x.symbol === symbol);
-          if (entry) {
-            const json = JSON.stringify(entry, null, 2);
-            const blob = new Blob([json], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            window.open(url, "_blank");
-          }
-        }
+      el.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!target || typeof target.closest !== "function") return;
+        const btn = target.closest('[data-action="details"]');
+        if (!btn) return;
+        const idx = parseInt(el.dataset.index, 10);
+        if (!Number.isInteger(idx) || idx < 0 || idx >= entries.length) return;
+        openDetailModal(entries[idx]);
       });
     });
   }
@@ -206,6 +334,15 @@
     render(container, entries);
   }
 
-  W.evidenceCard = { render, renderCard, mount, fetchProvenance, extractEvidence };
-  console.log("[EvidenceCard] Module loaded");
+  W.evidenceCard = {
+    render,
+    renderCard,
+    mount,
+    fetchProvenance,
+    extractEvidence,
+    openDetailModal,
+    buildDetailModalHTML,
+    REASON_EXPLAINERS,
+  };
+  console.log("[EvidenceCard] Module loaded (phase-2-block-1: detail modal, reason explainers)");
 })();

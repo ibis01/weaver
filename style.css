@@ -3512,3 +3512,143 @@ body {
   font-size: 12px;
   padding: 4px 10px;
 }
+
+/* ── Evidence Detail Modal (Phase 2, Block 1) ───────────────────── */
+.ec-detail {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--fg, #eee);
+  max-width: 760px;
+}
+.ec-detail-summary {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 6px 16px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  background: rgba(255,255,255,.02);
+  border-radius: 8px;
+  border: 1px solid var(--border, #222);
+}
+.ec-detail-summary dt {
+  font-weight: 600;
+  color: var(--muted, #8a8a8a);
+  font-size: 12px;
+  letter-spacing: .02em;
+}
+.ec-detail-summary dd {
+  margin: 0;
+  word-break: break-all;
+  font-size: 13px;
+}
+.ec-detail-summary dd code {
+  font-size: 12px;
+  padding: 1px 6px;
+  background: rgba(255,255,255,.05);
+  border-radius: 3px;
+}
+.ec-detail-reason-explainer {
+  background: rgba(78,161,255,.08);
+  border-left: 3px solid var(--accent, #4ea1ff);
+  padding: 12px 14px;
+  margin: 14px 0;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.ec-detail-chain-section {
+  margin: 18px 0;
+  padding: 12px 14px;
+  background: rgba(255,255,255,.02);
+  border-radius: 8px;
+}
+.ec-detail-chain-section h4 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted, #8a8a8a);
+  letter-spacing: .04em;
+}
+.ec-detail-chain {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.ec-detail-chain-step {
+  background: var(--bg-surface, #1a1a1a);
+  border: 1px solid var(--border, #222);
+  padding: 4px 10px;
+  border-radius: 12px;
+  color: var(--fg, #eee);
+  font-weight: 500;
+}
+.ec-detail-chain-arrow {
+  color: var(--muted, #8a8a8a);
+  font-weight: 700;
+}
+.ec-detail-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 12px 14px;
+  background: rgba(255,255,255,.02);
+  border-radius: 8px;
+}
+.ec-detail-links a {
+  font-size: 12px;
+  color: var(--accent, #4ea1ff);
+  text-decoration: none;
+}
+.ec-detail-links a:hover {
+  text-decoration: underline;
+}
+.ec-detail-raw {
+  margin-top: 16px;
+  border-top: 1px solid var(--border, #222);
+  padding-top: 12px;
+}
+.ec-detail-raw summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted, #8a8a8a);
+  padding: 6px 0;
+  user-select: none;
+}
+.ec-detail-raw summary:hover {
+  color: var(--fg, #eee);
+}
+.ec-detail-raw pre {
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+  background: rgba(0,0,0,.35);
+  padding: 14px;
+  border-radius: 6px;
+  margin: 10px 0 0;
+  color: #c9d1d9;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+.ec-detail .ec-section {
+  margin-top: 14px;
+}
+.ec-detail .ec-section h4 {
+  font-size: 12px;
+  margin: 0 0 6px;
+  color: var(--muted, #8a8a8a);
+  font-weight: 600;
+}
+.ec-detail .ec-section ul {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.ec-detail .ec-section li {
+  margin-bottom: 3px;
+}
