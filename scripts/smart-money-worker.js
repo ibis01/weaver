@@ -252,18 +252,35 @@ async function main() {
   const persisted = await store.setSync("sm.radar-watchlist.v1", seeded);
   console.log(persisted ? "[sm.worker] watchlist persisted" : "[sm.worker] watchlist persist FAILED");
 
+  // SELF_SCHEDULING_LOOP: cycles never overlap. A cold-cache cycle
+  // for a token with 8 eligible wallets can take 8 × 20s = 160s.
+  // A setInterval would stack cycles; a self-scheduling setTimeout
+  // waits for completion plus the configured gap before the next
+  // cycle begins.
   let i = 0;
+  let stopped = false;
   const tick = async () => {
-    try { await runCycle({ provenance, index: i }); i += 1; }
-    catch (e) { console.error("[sm.worker] cycle error:", e.message); }
+    if (stopped) return;
+    const startedAt = Date.now();
+    try {
+      await runCycle({ provenance, index: i });
+      i += 1;
+    } catch (e) {
+      console.error("[sm.worker] cycle error:", e.message);
+    }
+    if (stopped) return;
+    const elapsed = Date.now() - startedAt;
+    const wait = Math.max(1000, CYCLE_MS - elapsed);
+    console.log(`[sm.worker] cycle took ${elapsed}ms, next in ${wait}ms`);
+    setTimeout(tick, wait);
   };
 
-  console.log(`[sm.worker] starting, cycle=${CYCLE_MS}ms`);
-  await tick();
-  setInterval(tick, CYCLE_MS);
+  console.log(`[sm.worker] starting (self-scheduling), target gap=${CYCLE_MS}ms`);
+  tick();
 
   process.on("SIGTERM", async () => {
     console.log("[sm.worker] shutting down...");
+    stopped = true;
     await store.stop();
     if (redis.isOpen) await redis.quit();
     process.exit(0);

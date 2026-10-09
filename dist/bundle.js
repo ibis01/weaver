@@ -16102,7 +16102,7 @@ W.smartMoney.walletHistory = (() => {
   const CACHE_KEY = "sm.wallet-history.v1";
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   const CACHE_MAX_ENTRIES = 400;
-  const FETCH_TIMEOUT_MS = 8000;
+  const FETCH_TIMEOUT_MS = 20000;
   const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
   const MAX_TRANSFERS_PER_QUERY = 2000;
   const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
