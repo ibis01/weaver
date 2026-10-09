@@ -1,3 +1,4 @@
+// SKIP_CACHE_MARK: shorten timeout + cache failures
 // js/intelligence/smart-money/wallet-history.js
 //
 // Fetch and cache per-wallet, per-token transfer history from
@@ -28,7 +29,7 @@ W.smartMoney.walletHistory = (() => {
   const CACHE_KEY = "sm.wallet-history.v1";
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   const CACHE_MAX_ENTRIES = 400;
-  const FETCH_TIMEOUT_MS = 8000;
+  const FETCH_TIMEOUT_MS = 5000;
   const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
   const MAX_TRANSFERS_PER_QUERY = 2000;
   const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -286,6 +287,11 @@ W.smartMoney.walletHistory = (() => {
         wallet.slice(0, 6) + "…" + wallet.slice(-4),
         e && e.message,
       );
+      // Cache the failure for the standard TTL. Without this, mega-wallets
+      // (exchange hot wallets, burn addresses) time out every cycle and
+      // consume the entire wallet-history budget without producing data.
+      // Retried after the TTL expires.
+      try { setCached(wallet, token, []); } catch (_) {}
       return { trades: [], reason: "fetch-failed" };
     }
 

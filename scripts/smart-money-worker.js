@@ -19,7 +19,13 @@ function installIpv4Fetch() {
   const { URL } = require("url");
   const lookup4 = (hostname, opts, cb) => {
     if (typeof opts === "function") { cb = opts; opts = {}; }
-    return dns.lookup(hostname, { ...opts, family: 4 }, cb);
+    // undici sets all: true and expects an array back. Preserve that shape
+    // but restrict resolution to IPv4.
+    const wantAll = opts.all === true;
+    return dns.lookup(hostname, { ...opts, family: 4, all: wantAll }, (err, addr, family) => {
+      if (!err) console.log("[ipv4-lookup]", hostname, "->", Array.isArray(addr) ? addr.map(a=>a.address).join(",") : addr);
+      cb(err, addr, family);
+    });
   };
   function fetchViaLib(protocol, urlObj, init) {
     return new Promise((resolve, reject) => {
@@ -207,7 +213,37 @@ async function main() {
     process.exit(1);
   }
 
+  // Re-apply IPv4 fetch AFTER bundle load. The bundle defines its own
+  // W.requestGuard that calls window.fetch. We (a) re-install the patched
+  // global fetch and (b) force W.requestGuard.fetch to route through the
+  // patched fetch, bypassing the bundle's IPv6-first behavior.
+  installIpv4Fetch();
+  const __ipv4Fetch = global.fetch;
+  if (!global.W.requestGuard) global.W.requestGuard = {};
+  global.W.requestGuard.fetch = (url, init) => __ipv4Fetch(url, init);
+  global.W.requestGuard.reset = () => {};
+  global.W.requestGuard.before = () => {};
+  global.W.requestGuard.success = () => {};
+  global.W.requestGuard.failure = () => {};
+  console.log("[sm.worker] IPv4 fetch re-applied to W.requestGuard.fetch");
   rebuildApiWithSeedCoin();
+
+  // REBIND_STORE_MARK: the bundle overwrites global.W.store with its
+  // own localStorage-backed implementation. Re-bind to our Redis store
+  // so wallet-history.js writes actually hit Redis.
+  const _redisStore = store;
+  global.W.store = {
+    get: (k, fb) => _redisStore.get(k, fb),
+    set: (k, v) => _redisStore.set(k, v),
+    delete: (k) => _redisStore.delete(k),
+  };
+  console.log("[sm.worker] W.store re-bound to Redis-backed store");
+
+  // Also re-bind W.schemas and W.requestGuard in case the bundle
+  // overwrote them with no-ops.
+  if (!global.W.schemas || typeof global.W.schemas.validate !== "function") {
+    global.W.schemas = { validate: () => {}, SchemaValidationError: class extends Error {} };
+  }
 
   const seeded = WATCHLIST_SEED.map((t) => ({
     id: t.id, symbol: t.symbol, name: t.name,
