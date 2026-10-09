@@ -78,7 +78,21 @@ W.smartRadar = (() => {
     }
     const walletProfiler = W.smartMoney.walletProfiler;
     const candidates = [];
-    const topHolders = holders.slice(0, MAX_WALLETS);
+    // MID_TIER_SLICE_MARK: skip exchange/bridge/staking tier.
+    // The top ~20 holders of any major token are exchange hot wallets,
+    // bridge contracts, staking pools, or vesting contracts. Their
+    // transfer histories are enormous (Binance 8 has millions of
+    // transfers) and Blockscout times out fetching them, and their
+    // behavior is custody, not smart money.
+    //
+    // Skip the top TOP_SKIP holders and profile the next MAX_WALLETS.
+    // If the holder set is smaller than that, fall back to whatever
+    // is available beyond the skip.
+    const TOP_SKIP = 20;
+    const sliced = holders.length > TOP_SKIP + 3
+      ? holders.slice(TOP_SKIP, TOP_SKIP + MAX_WALLETS)
+      : holders.slice(Math.floor(holders.length / 3), Math.floor(holders.length / 3) + MAX_WALLETS);
+    const topHolders = sliced;
     const asOf = Date.now();
 
     for (const h of topHolders) {
