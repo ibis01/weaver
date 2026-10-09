@@ -78,21 +78,37 @@ W.smartRadar = (() => {
     }
     const walletProfiler = W.smartMoney.walletProfiler;
     const candidates = [];
-    // MID_TIER_SLICE_MARK: skip exchange/bridge/staking tier.
-    // The top ~20 holders of any major token are exchange hot wallets,
-    // bridge contracts, staking pools, or vesting contracts. Their
-    // transfer histories are enormous (Binance 8 has millions of
-    // transfers) and Blockscout times out fetching them, and their
-    // behavior is custody, not smart money.
+    // STRUCTURAL_FILTER_MARK: filter by Blockscout's own metadata.
     //
-    // Skip the top TOP_SKIP holders and profile the next MAX_WALLETS.
-    // If the holder set is smaller than that, fall back to whatever
-    // is available beyond the skip.
-    const TOP_SKIP = 20;
-    const sliced = holders.length > TOP_SKIP + 3
-      ? holders.slice(TOP_SKIP, TOP_SKIP + MAX_WALLETS)
-      : holders.slice(Math.floor(holders.length / 3), Math.floor(holders.length / 3) + MAX_WALLETS);
-    const topHolders = sliced;
+    // The pipeline needs individual traders (EOAs), not custody or
+    // protocol infrastructure. Blockscout tags each holder with
+    // is_contract and metadata.tags. We exclude:
+    //   1. Contracts (staking pools, gnosis safes, bridges, vesting)
+    //   2. Wallets tagged Exchange / HOT WALLET
+    //   3. Wallets whose name matches exchange patterns
+    //
+    // This is strictly better than a position-based skip because it
+    // uses actual behavioral classification, not a rank assumption.
+    const EXCHANGE_TAG_RE = /exchange|hot\s*wallet|binance|coinbase|kraken|okx|kucoin|bitfinex|gate\.io|huobi|htx|bitstamp|gemini|bittrex|poloniex/i;
+    const isInfrastructure = (h) => {
+      const a = h && h.address;
+      if (!a) return true;
+      if (a.is_contract === true) return true;
+      const tags = a.metadata && Array.isArray(a.metadata.tags)
+        ? a.metadata.tags.map((t) => (t && t.name) || "").join(" ")
+        : "";
+      if (EXCHANGE_TAG_RE.test(tags)) return true;
+      if (typeof a.name === "string" && EXCHANGE_TAG_RE.test(a.name)) return true;
+      return false;
+    };
+    const eligible = holders.filter((h) => !isInfrastructure(h));
+    const topHolders = eligible.slice(0, MAX_WALLETS);
+    if (eligible.length < MAX_WALLETS) {
+      console.warn(
+        "[SmartRadar] only", eligible.length, "non-infrastructure holders found;",
+        "profiling what is available",
+      );
+    }
     const asOf = Date.now();
 
     for (const h of topHolders) {
