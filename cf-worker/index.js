@@ -1,16 +1,3 @@
-function withCors(response) {
-  try {
-    const headers = new Headers(response.headers);
-    headers.set("access-control-allow-origin", "*");
-    headers.set("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
-    headers.set("access-control-allow-headers", "content-type, accept");
-    headers.set("access-control-max-age", "86400");
-    return new Response(response.body, {
-      status: response.status, statusText: response.statusText, headers,
-    });
-  } catch { return response; }
-}
-
 // ================================================================
 // cf-worker/index.js – Weaver's own CORS proxy (replaces public
 // proxies like allorigins.win / corsproxy.io / codetabs.com)
@@ -981,9 +968,7 @@ async function handleRequest(request, env, ctx) {
     let body = null;
     try { body = await request.json(); } catch { body = null; }
     if (!body || typeof body.symbol !== "string" || !body.result) {
-      return new Response(JSON.stringify({ error: "symbol and result required" }), {
-        status: 400, headers: { "content-type": "application/json" },
-      });
+      return jsonResponse({ error: "symbol and result required" }, 400, headers);
     }
     const ranAt = Number(body.ranAt) || Date.now();
     const key = "provenance:v1:" + body.symbol.toLowerCase() + ":" + ranAt;
@@ -997,9 +982,7 @@ async function handleRequest(request, env, ctx) {
       result: body.result,
     });
     await env.MEME_ALERTS.put(key, payload, { expirationTtl: 7 * 24 * 60 * 60 });
-    return new Response(JSON.stringify({ ok: true, key }), {
-      headers: { "content-type": "application/json" },
-    });
+    return jsonResponse({ ok: true, key }, 200, headers);
   }
 
   if (parts.length === 1 && parts[0] === "provenance" && request.method === "GET") {
@@ -1021,9 +1004,7 @@ async function handleRequest(request, env, ctx) {
     const deduped = [...seen.values()];
     deduped.sort((a, b) => (Number(b.ranAt) || 0) - (Number(a.ranAt) || 0));
     const trimmed = deduped.slice(0, limit);
-    return new Response(JSON.stringify({ entries: trimmed }), {
-      headers: { "content-type": "application/json" },
-    });
+    return jsonResponse({ entries: trimmed }, 200, headers);
   }
   if (parts.length === 1 && parts[0] === "provenance" && request.method === "DELETE") {
     const prefix = "provenance:v1:";
@@ -1212,19 +1193,5 @@ async function handleRequest(request, env, ctx) {
 export { handleRequest };
 
 export default {
-  async fetch(request, env, ctx) {
-    if (request.method === "OPTIONS") {
-      return withCors(new Response(null, {
-        status: 204,
-        headers: {
-          "access-control-allow-origin": "*",
-          "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
-          "access-control-allow-headers": "content-type, accept",
-          "access-control-max-age": "86400",
-        },
-      }));
-    }
-    const response = await handleRequest(request, env, ctx);
-    return withCors(response);
-  },
+  fetch: (request, env, ctx) => handleRequest(request, env, ctx),
 };
