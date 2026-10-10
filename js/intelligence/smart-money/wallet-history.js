@@ -271,22 +271,54 @@ W.smartMoney.walletHistory = (() => {
       return { trades: cached, cached: true };
     }
 
-    const url =
+    // PAGINATION_MARK: follow next_page_params until exhausted or
+    // MAX_TRANSFERS_PER_QUERY reached. Prior to this, only the first
+    // ~50 transfers (Blockscout default page size) were ever read,
+    // so a wallet with 500 transfers was scored on its most recent
+    // 10%. That silently disqualified historically-early buyers.
+    const baseUrl =
       BLOCKSCOUT_API +
       "/addresses/" +
       wallet.toLowerCase() +
       "/token-transfers?token=" +
       token.toLowerCase();
 
-    let data;
-    try {
-      data = await fetchJSON(url);
-    } catch (e) {
-      console.warn(
-        "[WalletHistory] Fetch failed for",
-        wallet.slice(0, 6) + "…" + wallet.slice(-4),
-        e && e.message,
-      );
+    const MAX_PAGES = 40; // safety bound: 40 x 50 = 2000 transfers
+    const allItems = [];
+    let url = baseUrl;
+    let fetchFailed = false;
+
+    for (let page = 0; page < MAX_PAGES && url; page++) {
+      let data;
+      try {
+        data = await fetchJSON(url);
+      } catch (e) {
+        if (allItems.length === 0) {
+          console.warn(
+            "[WalletHistory] Fetch failed for",
+            wallet.slice(0, 6) + "…" + wallet.slice(-4),
+            e && e.message,
+          );
+          fetchFailed = true;
+        }
+        break;
+      }
+      const items = Array.isArray(data && data.items) ? data.items : [];
+      if (items.length === 0) break;
+      allItems.push(...items);
+      if (allItems.length >= MAX_TRANSFERS_PER_QUERY) break;
+      const next = data && data.next_page_params;
+      if (!next || typeof next !== "object") break;
+      const qs = new URLSearchParams();
+      for (const k of Object.keys(next)) {
+        const v = next[k];
+        if (v === null || v === undefined) continue;
+        qs.set(k, String(v));
+      }
+      url = baseUrl + "&" + qs.toString();
+    }
+
+    if (fetchFailed && allItems.length === 0) {
       // Cache the failure for the standard TTL. Without this, mega-wallets
       // (exchange hot wallets, burn addresses) time out every cycle and
       // consume the entire wallet-history budget without producing data.
@@ -295,11 +327,8 @@ W.smartMoney.walletHistory = (() => {
       return { trades: [], reason: "fetch-failed" };
     }
 
-    const items = Array.isArray(data && data.items) ? data.items : [];
-    const capped = items.slice(0, MAX_TRANSFERS_PER_QUERY);
-
     const trades = [];
-    for (const item of capped) {
+    for (const item of allItems.slice(0, MAX_TRANSFERS_PER_QUERY)) {
       const parsed = parseTransfer(item, wallet);
       if (parsed) trades.push(parsed);
     }

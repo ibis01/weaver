@@ -30,10 +30,21 @@ function installIpv4Fetch() {
   function fetchViaLib(protocol, urlObj, init) {
     return new Promise((resolve, reject) => {
       const lib = protocol === "http:" ? http : https;
+      // SNI_FIX_MARK: https.request defaults servername to options.host,
+      // NOT options.hostname. Without `host`, SNI falls back to
+      // 'localhost' and Cloudflare-fronted hosts (CoinGecko, Etherscan)
+      // reject the handshake with 403 at the edge. `host` also sets the
+      // Host header; `servername` is explicit for TLS.
       const req = lib.request({
         protocol, hostname: urlObj.hostname, port: urlObj.port,
+        host: urlObj.hostname,
+        servername: protocol === "https:" ? urlObj.hostname : undefined,
         path: urlObj.pathname + urlObj.search,
-        method: init.method || "GET", headers: init.headers || {},
+        method: init.method || "GET",
+        headers: Object.assign(
+          { "User-Agent": "Weaver/0.1 (+https://github.com/ibis01/weaver)" },
+          init.headers || {},
+        ),
         lookup: lookup4, signal: init.signal,
       }, (res) => {
         const chunks = [];
@@ -227,6 +238,7 @@ async function main() {
   global.W.requestGuard.failure = () => {};
   console.log("[sm.worker] IPv4 fetch re-applied to W.requestGuard.fetch");
   rebuildApiWithSeedCoin();
+
 
   // REBIND_STORE_MARK: the bundle overwrites global.W.store with its
   // own localStorage-backed implementation. Re-bind to our Redis store

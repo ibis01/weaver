@@ -8,7 +8,7 @@ const { spawn } = require("child_process");
 
 describe("Proxy CORS Security", () => {
   let proxyProcess;
-  const PROXY_URL = "http://localhost:3001";
+  const PROXY_URL = "http://localhost:3031";
 
   before(function (done) {
     this.timeout(10000);
@@ -17,30 +17,32 @@ describe("Proxy CORS Security", () => {
     process.env.ALLOWED_ORIGINS = "http://localhost:8000,http://127.0.0.1:8000";
 
     proxyProcess = spawn("node", ["proxy-server.js"], {
-      env: { ...process.env, PORT: "3001" },
+      env: { ...process.env, PORT: "3031" },
     });
 
-    let isReady = false;
+    let settled = false;
+    const settle = (err) => {
+      if (settled) return;
+      settled = true;
+      done(err);
+    };
 
     proxyProcess.stdout.on("data", (data) => {
-      if (data.toString().includes("Secure proxy on")) {
-        isReady = true;
-        done();
-      }
+      if (data.toString().includes("Secure proxy listening")) settle();
     });
 
+    // stderr is logged only. proxy-server.js writes non-fatal warnings
+    // there. Startup failure surfaces as a process exit before ready.
     proxyProcess.stderr.on("data", (data) => {
-      if (!isReady) {
-        console.error("Proxy startup error:", data.toString());
-        done(new Error("Proxy failed to start"));
-      }
+      console.error("Proxy startup stderr:", data.toString());
+    });
+
+    proxyProcess.on("exit", (code) => {
+      settle(new Error("Proxy exited with code " + code + " before ready"));
     });
 
     setTimeout(() => {
-      if (!isReady) {
-        isReady = true;
-        done();
-      }
+      settle(new Error("Proxy startup timed out after 5000ms"));
     }, 5000);
   });
 

@@ -178,9 +178,19 @@ W.smart = (() => {
   // "historical prices unavailable" — the caller must surface that
   // honestly, not silently fall back to current price for every
   // transfer (which is the bug that was fixed in v2).
+  // PRICE_MAP_MEMO_MARK: collapse N identical buildPriceMap calls per cycle.
+  // wallet-profiler invokes this once per holder per token; without memo
+  // we make N identical CoinGecko requests in the same minute and get 429s.
+  const _priceMapMemo = new Map();
+  const PRICE_MAP_MEMO_TTL_MS = 60 * 60 * 1000;
+
   async function buildPriceMap(coinId, days = 365) {
+    if (typeof coinId !== "string" || !coinId) return Object.create(null);
+    const _memoKey = coinId + ":" + Math.max(1, Math.min(365, days | 0));
+    const _now = Date.now();
+    const _hit = _priceMapMemo.get(_memoKey);
+    if (_hit && _now - _hit.at < PRICE_MAP_MEMO_TTL_MS) return _hit.map;
     const map = Object.create(null);
-    if (typeof coinId !== "string" || !coinId) return map;
     if (!W.api || typeof W.api.chart !== "function") return map;
 
     const cap = Math.max(1, Math.min(365, days | 0));
@@ -224,6 +234,12 @@ W.smart = (() => {
         "empty-price-map",
         "[Smart] Price map is empty; P/L will be reported as unavailable.",
       );
+    }
+    // Do not memoize empty maps: an empty map is a transient fetch
+    // failure, not a result. Caching it for 1h poisons every wallet
+    // on that token. A non-empty map is safe to cache.
+    if (Object.keys(map).length > 0) {
+      _priceMapMemo.set(_memoKey, { map, at: _now });
     }
     return map;
   }

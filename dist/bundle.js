@@ -6275,6 +6275,10 @@ W.api = (() => {
     "api.coinpaprika.com",
   ]);
 
+  // COINGECKO_DIRECT_MARK: free tier is per-IP; never route through
+  // the shared Worker pool or we burn the quota for every client.
+  DIRECT_ONLY_DOMAINS.add("api.coingecko.com");
+
   // ── Token logo URLs ─────────────────────────────────────────
   const LOGO_MAP = Object.freeze({
     bitcoin: "https://assets.coingecko.com/coins/images/1/small/bitcoin.png",
@@ -7472,7 +7476,39 @@ W.api = (() => {
     trending: () => Promise.reject(new Error("Bybit: no trending endpoint")),
   };
 
-  const providers = { coinlore, coinbase, coinpaprika, binance, kraken, bybit };
+  // COINGECKO_PROVIDER_MARK: first-choice historical price source.
+  // Keys are CoinGecko slugs ("chainlink", "uniswap", ...), so no
+  // symbol translation is needed. Returns {prices:[[ms,price],...]},
+  // matching the shape buildPriceMap consumes.
+  const coingecko = {
+    markets: () => Promise.reject(new Error("CoinGecko: markets not wired")),
+    top: () => Promise.reject(new Error("CoinGecko: no top-list endpoint")),
+    global: () => Promise.reject(new Error("CoinGecko: no global endpoint")),
+    chart: async (id, days = 30) => {
+      const d = Math.max(1, Math.min(365, days | 0));
+      const url = "https://api.coingecko.com/api/v3/coins/" +
+        encodeURIComponent(id) + "/market_chart?vs_currency=usd&days=" + d;
+      const data = await _dedupeRequest(url, () =>
+        fetchWithProxy(url, LONG_CACHE_TTL),
+      );
+      if (!data || !Array.isArray(data.prices)) {
+        throw new Error("CoinGecko: no prices array");
+      }
+      return data.prices.map((q) => [Number(q[0]), _coerceNumber(q[1])]);
+    },
+    ohlcv: async (id, _interval = "1h", _limit = 500) => {
+      const rows = await coingecko.chart(id, 90);
+      return rows.map(([t, c]) => ({
+        timestamp: t, open: c, high: c, low: c, close: c,
+        volume: null, quoteVolume: null,
+      }));
+    },
+    search: () => Promise.reject(new Error("CoinGecko: no search endpoint")),
+    coin: () => Promise.reject(new Error("CoinGecko: no coin-detail endpoint")),
+    trending: () => Promise.reject(new Error("CoinGecko: no trending endpoint")),
+  };
+
+  const providers = { coinlore, coinbase, coinpaprika, binance, kraken, bybit, coingecko };
   const ORDER = ["coinlore", "coinbase", "coinpaprika"];
 
   // ── Smart failover ──────────────────────────────────
@@ -7522,7 +7558,7 @@ W.api = (() => {
       // Binance is fastest but region-blocked often; Kraken, Coinbase,
       // and Bybit are on different infrastructure. CoinPaprika is
       // last because its free tier now returns 402 for chart data.
-      order = ["binance", "kraken", "coinbase", "bybit", "coinpaprika"];
+      order = ["coingecko", "binance", "kraken", "coinbase", "bybit", "coinpaprika"];
     } else {
       order = ["coinpaprika"];
     }
@@ -7662,7 +7698,7 @@ W.api = (() => {
 })();
 
 console.log(
-  "[Prices] Module loaded (Binance (direct) → CoinLore → CoinBase → CoinPaprika → Cache; OHLCV via Binance direct, tickers via CoinLore, search/detail via CoinPaprika; logos for 26 tokens).",
+  "[Prices] Module loaded (CoinGecko → Binance (direct) → CoinLore → CoinBase → CoinPaprika → Cache; OHLCV via Binance direct, tickers via CoinLore, search/detail via CoinPaprika; logos for 26 tokens).",
 );
 // ---- js/api/snapshot.js ----
 // js/api/snapshot.js – Fallback Snapshot Cache
@@ -16344,22 +16380,54 @@ W.smartMoney.walletHistory = (() => {
       return { trades: cached, cached: true };
     }
 
-    const url =
+    // PAGINATION_MARK: follow next_page_params until exhausted or
+    // MAX_TRANSFERS_PER_QUERY reached. Prior to this, only the first
+    // ~50 transfers (Blockscout default page size) were ever read,
+    // so a wallet with 500 transfers was scored on its most recent
+    // 10%. That silently disqualified historically-early buyers.
+    const baseUrl =
       BLOCKSCOUT_API +
       "/addresses/" +
       wallet.toLowerCase() +
       "/token-transfers?token=" +
       token.toLowerCase();
 
-    let data;
-    try {
-      data = await fetchJSON(url);
-    } catch (e) {
-      console.warn(
-        "[WalletHistory] Fetch failed for",
-        wallet.slice(0, 6) + "…" + wallet.slice(-4),
-        e && e.message,
-      );
+    const MAX_PAGES = 40; // safety bound: 40 x 50 = 2000 transfers
+    const allItems = [];
+    let url = baseUrl;
+    let fetchFailed = false;
+
+    for (let page = 0; page < MAX_PAGES && url; page++) {
+      let data;
+      try {
+        data = await fetchJSON(url);
+      } catch (e) {
+        if (allItems.length === 0) {
+          console.warn(
+            "[WalletHistory] Fetch failed for",
+            wallet.slice(0, 6) + "…" + wallet.slice(-4),
+            e && e.message,
+          );
+          fetchFailed = true;
+        }
+        break;
+      }
+      const items = Array.isArray(data && data.items) ? data.items : [];
+      if (items.length === 0) break;
+      allItems.push(...items);
+      if (allItems.length >= MAX_TRANSFERS_PER_QUERY) break;
+      const next = data && data.next_page_params;
+      if (!next || typeof next !== "object") break;
+      const qs = new URLSearchParams();
+      for (const k of Object.keys(next)) {
+        const v = next[k];
+        if (v === null || v === undefined) continue;
+        qs.set(k, String(v));
+      }
+      url = baseUrl + "&" + qs.toString();
+    }
+
+    if (fetchFailed && allItems.length === 0) {
       // Cache the failure for the standard TTL. Without this, mega-wallets
       // (exchange hot wallets, burn addresses) time out every cycle and
       // consume the entire wallet-history budget without producing data.
@@ -16368,11 +16436,8 @@ W.smartMoney.walletHistory = (() => {
       return { trades: [], reason: "fetch-failed" };
     }
 
-    const items = Array.isArray(data && data.items) ? data.items : [];
-    const capped = items.slice(0, MAX_TRANSFERS_PER_QUERY);
-
     const trades = [];
-    for (const item of capped) {
+    for (const item of allItems.slice(0, MAX_TRANSFERS_PER_QUERY)) {
       const parsed = parseTransfer(item, wallet);
       if (parsed) trades.push(parsed);
     }
@@ -29797,9 +29862,19 @@ W.smart = (() => {
   // "historical prices unavailable" — the caller must surface that
   // honestly, not silently fall back to current price for every
   // transfer (which is the bug that was fixed in v2).
+  // PRICE_MAP_MEMO_MARK: collapse N identical buildPriceMap calls per cycle.
+  // wallet-profiler invokes this once per holder per token; without memo
+  // we make N identical CoinGecko requests in the same minute and get 429s.
+  const _priceMapMemo = new Map();
+  const PRICE_MAP_MEMO_TTL_MS = 60 * 60 * 1000;
+
   async function buildPriceMap(coinId, days = 365) {
+    if (typeof coinId !== "string" || !coinId) return Object.create(null);
+    const _memoKey = coinId + ":" + Math.max(1, Math.min(365, days | 0));
+    const _now = Date.now();
+    const _hit = _priceMapMemo.get(_memoKey);
+    if (_hit && _now - _hit.at < PRICE_MAP_MEMO_TTL_MS) return _hit.map;
     const map = Object.create(null);
-    if (typeof coinId !== "string" || !coinId) return map;
     if (!W.api || typeof W.api.chart !== "function") return map;
 
     const cap = Math.max(1, Math.min(365, days | 0));
@@ -29843,6 +29918,12 @@ W.smart = (() => {
         "empty-price-map",
         "[Smart] Price map is empty; P/L will be reported as unavailable.",
       );
+    }
+    // Do not memoize empty maps: an empty map is a transient fetch
+    // failure, not a result. Caching it for 1h poisons every wallet
+    // on that token. A non-empty map is safe to cache.
+    if (Object.keys(map).length > 0) {
+      _priceMapMemo.set(_memoKey, { map, at: _now });
     }
     return map;
   }

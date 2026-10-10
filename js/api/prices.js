@@ -44,6 +44,10 @@ W.api = (() => {
     "api.coinpaprika.com",
   ]);
 
+  // COINGECKO_DIRECT_MARK: free tier is per-IP; never route through
+  // the shared Worker pool or we burn the quota for every client.
+  DIRECT_ONLY_DOMAINS.add("api.coingecko.com");
+
   // ── Token logo URLs ─────────────────────────────────────────
   const LOGO_MAP = Object.freeze({
     bitcoin: "https://assets.coingecko.com/coins/images/1/small/bitcoin.png",
@@ -1241,7 +1245,39 @@ W.api = (() => {
     trending: () => Promise.reject(new Error("Bybit: no trending endpoint")),
   };
 
-  const providers = { coinlore, coinbase, coinpaprika, binance, kraken, bybit };
+  // COINGECKO_PROVIDER_MARK: first-choice historical price source.
+  // Keys are CoinGecko slugs ("chainlink", "uniswap", ...), so no
+  // symbol translation is needed. Returns {prices:[[ms,price],...]},
+  // matching the shape buildPriceMap consumes.
+  const coingecko = {
+    markets: () => Promise.reject(new Error("CoinGecko: markets not wired")),
+    top: () => Promise.reject(new Error("CoinGecko: no top-list endpoint")),
+    global: () => Promise.reject(new Error("CoinGecko: no global endpoint")),
+    chart: async (id, days = 30) => {
+      const d = Math.max(1, Math.min(365, days | 0));
+      const url = "https://api.coingecko.com/api/v3/coins/" +
+        encodeURIComponent(id) + "/market_chart?vs_currency=usd&days=" + d;
+      const data = await _dedupeRequest(url, () =>
+        fetchWithProxy(url, LONG_CACHE_TTL),
+      );
+      if (!data || !Array.isArray(data.prices)) {
+        throw new Error("CoinGecko: no prices array");
+      }
+      return data.prices.map((q) => [Number(q[0]), _coerceNumber(q[1])]);
+    },
+    ohlcv: async (id, _interval = "1h", _limit = 500) => {
+      const rows = await coingecko.chart(id, 90);
+      return rows.map(([t, c]) => ({
+        timestamp: t, open: c, high: c, low: c, close: c,
+        volume: null, quoteVolume: null,
+      }));
+    },
+    search: () => Promise.reject(new Error("CoinGecko: no search endpoint")),
+    coin: () => Promise.reject(new Error("CoinGecko: no coin-detail endpoint")),
+    trending: () => Promise.reject(new Error("CoinGecko: no trending endpoint")),
+  };
+
+  const providers = { coinlore, coinbase, coinpaprika, binance, kraken, bybit, coingecko };
   const ORDER = ["coinlore", "coinbase", "coinpaprika"];
 
   // ── Smart failover ──────────────────────────────────
@@ -1291,7 +1327,7 @@ W.api = (() => {
       // Binance is fastest but region-blocked often; Kraken, Coinbase,
       // and Bybit are on different infrastructure. CoinPaprika is
       // last because its free tier now returns 402 for chart data.
-      order = ["binance", "kraken", "coinbase", "bybit", "coinpaprika"];
+      order = ["coingecko", "binance", "kraken", "coinbase", "bybit", "coinpaprika"];
     } else {
       order = ["coinpaprika"];
     }
@@ -1431,5 +1467,5 @@ W.api = (() => {
 })();
 
 console.log(
-  "[Prices] Module loaded (Binance (direct) → CoinLore → CoinBase → CoinPaprika → Cache; OHLCV via Binance direct, tickers via CoinLore, search/detail via CoinPaprika; logos for 26 tokens).",
+  "[Prices] Module loaded (CoinGecko → Binance (direct) → CoinLore → CoinBase → CoinPaprika → Cache; OHLCV via Binance direct, tickers via CoinLore, search/detail via CoinPaprika; logos for 26 tokens).",
 );

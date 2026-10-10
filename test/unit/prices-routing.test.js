@@ -156,11 +156,19 @@ describe("Prices — direct-only routing", () => {
     // Both routes were attempted.
     expect(calls.some((u) => u.includes("api.binance.com"))).to.equal(true);
     // Direct was tried before Worker (the ordering guarantee).
+    // Scope to Binance's own attempt. After CoinGecko was added to the
+    // chain ahead of Binance, the *global* first-Worker-hit can belong
+    // to CoinGecko's Worker fallback, which is not what this test is
+    // about. The contract here is that Binance's direct URL is tried
+    // before Binance's Worker-wrapped URL.
     const directIdx = calls.findIndex((u) => u.includes("api.binance.com"));
-    const workerIdx = calls.findIndex((u) =>
-      u.includes("weaver-proxy.ibis01-weaver.workers.dev"),
+    const workerIdx = calls.findIndex(
+      (u) =>
+        u.includes("weaver-proxy.ibis01-weaver.workers.dev") &&
+        u.includes("binance.com"),
     );
     expect(directIdx).to.be.greaterThan(-1);
+    expect(workerIdx).to.be.greaterThan(-1);
     expect(workerIdx).to.be.greaterThan(directIdx);
   });
 
@@ -181,6 +189,7 @@ describe("Prices — direct-only routing", () => {
       expect(s).to.be.instanceOf(Set);
       expect([...s].sort()).to.deep.equal([
         "api.binance.com",
+        "api.coingecko.com",
         "api.coinpaprika.com",
       ]);
     });
