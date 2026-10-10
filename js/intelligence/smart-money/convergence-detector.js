@@ -19,6 +19,9 @@ W.smartMoney.convergenceDetector = (() => {
   const INDEPENDENCE_MIN = 0.7;
   const DEFAULT_WINDOW_MS = 15 * 60 * 1000;
   const MIN_HISTORICAL_EARLY_RATE = 0.5;
+  // Per docs/audits/smart-money-early-entry-2026-10-11.md §4:
+  // a rate computed from fewer than 10 priced buys is noise.
+  const MIN_EARLY_ENTRY_SAMPLE = 10;
   const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
   function isValidEthAddress(a) {
@@ -149,6 +152,9 @@ W.smartMoney.convergenceDetector = (() => {
       if (hp.priced !== true) continue;
       if (!Number.isFinite(hp.tokenCount) || hp.tokenCount < 1) continue;
       if (!Number.isFinite(hp.earlyEntryRate)) continue;
+      if (!Number.isFinite(hp.earlyEntrySampleCount) ||
+          hp.earlyEntrySampleCount < MIN_EARLY_ENTRY_SAMPLE)
+        continue;
       if (hp.earlyEntryRate < MIN_HISTORICAL_EARLY_RATE) continue;
 
       let trades = [];
@@ -244,6 +250,7 @@ W.smartMoney.convergenceDetector = (() => {
       INDEPENDENCE_MIN,
       DEFAULT_WINDOW_MS,
       MIN_HISTORICAL_EARLY_RATE,
+      MIN_EARLY_ENTRY_SAMPLE,
     }),
   });
 })();

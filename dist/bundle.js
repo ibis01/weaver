@@ -16507,7 +16507,8 @@ W.smartMoney.walletProfiler = (() => {
 
   const MODULE_VERSION = "wallet-profiler-v1";
   const EARLY_ENTRY_PUMP_PCT = 20;
-  const EARLY_ENTRY_LOOKAHEAD_DAYS = 1;
+  // 14-day horizon per docs/audits/smart-money-early-entry-2026-10-11.md
+  const EARLY_ENTRY_LOOKAHEAD_DAYS = 14;
   const DAY_MS = 24 * 60 * 60 * 1000;
   const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
@@ -16557,68 +16558,6 @@ W.smartMoney.walletProfiler = (() => {
       const pct = ((nextPrice - tradePrice) / tradePrice) * 100;
       if (pct >= EARLY_ENTRY_PUMP_PCT) earlyCount++;
     }
-
-    // LOOKAHEAD_DIST_MARK: also log each per-invocation rate so the audit
-    // can count how many wallets cross the 0.5 gate at each horizon.
-    try {
-      const dist = {};
-      for (const days of [1, 3, 7, 14]) {
-        const la = DAY_MS * days;
-        let buys = 0, early = 0;
-        for (const t of trades) {
-          if (!t || t.side !== "in") continue;
-          if (!Number.isFinite(t.at)) continue;
-          if (t.at > asOf) continue;
-          if (t.at + la > asOf) continue;
-          const tk = new Date(t.at).toDateString();
-          const nk = new Date(t.at + la).toDateString();
-          const tp = priceMap[tk];
-          const np = priceMap[nk];
-          if (!Number.isFinite(tp) || tp <= 0) continue;
-          if (!Number.isFinite(np)) continue;
-          buys++;
-          const pct = ((np - tp) / tp) * 100;
-          if (pct >= EARLY_ENTRY_PUMP_PCT) early++;
-        }
-        dist[days] = buys > 0 ? early / buys : null;
-      }
-      console.log("[LOOKAHEAD_DIST] " + JSON.stringify(dist));
-    } catch (_) {}
-
-    // LOOKAHEAD_DIAG_MARK: pure measurement. Computes the per-wallet early
-    // rate under lookaheads of 1, 3, 7, and 14 days without changing which
-    // value is returned. The 1-day value is what the pipeline uses today.
-    // The others are recorded so the calibration audit can decide whether
-    // the observed 1.4% base rate is an artifact of a short horizon.
-    try {
-      const diag = {};
-      for (const days of [1, 3, 7, 14]) {
-        const la = DAY_MS * days;
-        let buys = 0, early = 0;
-        for (const t of trades) {
-          if (!t || t.side !== "in") continue;
-          if (!Number.isFinite(t.at)) continue;
-          if (t.at > asOf) continue;
-          if (t.at + la > asOf) continue;
-          const tk = new Date(t.at).toDateString();
-          const nk = new Date(t.at + la).toDateString();
-          const tp = priceMap[tk];
-          const np = priceMap[nk];
-          if (!Number.isFinite(tp) || tp <= 0) continue;
-          if (!Number.isFinite(np)) continue;
-          buys++;
-          const pct = ((np - tp) / tp) * 100;
-          if (pct >= EARLY_ENTRY_PUMP_PCT) early++;
-        }
-        diag[days] = { buys, early, rate: buys > 0 ? early / buys : null };
-      }
-      console.log(
-        "[LOOKAHEAD_DIAG] 1d=" + JSON.stringify(diag[1]) +
-        " 3d=" + JSON.stringify(diag[3]) +
-        " 7d=" + JSON.stringify(diag[7]) +
-        " 14d=" + JSON.stringify(diag[14])
-      );
-    } catch (_) {}
 
     return {
       buyCount,
@@ -16801,7 +16740,7 @@ W.smartMoney.walletProfiler = (() => {
 })();
 
 console.log(
-  "[WalletProfiler] Module loaded — day-ahead early entry, no-look-ahead asOf.",
+  "[WalletProfiler] Module loaded — 14-day early entry, no-look-ahead asOf.",
 );
 // ---- js/intelligence/smart-money/convergence-detector.js ----
 // js/intelligence/smart-money/convergence-detector.js
@@ -16825,6 +16764,9 @@ W.smartMoney.convergenceDetector = (() => {
   const INDEPENDENCE_MIN = 0.7;
   const DEFAULT_WINDOW_MS = 15 * 60 * 1000;
   const MIN_HISTORICAL_EARLY_RATE = 0.5;
+  // Per docs/audits/smart-money-early-entry-2026-10-11.md §4:
+  // a rate computed from fewer than 10 priced buys is noise.
+  const MIN_EARLY_ENTRY_SAMPLE = 10;
   const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
   function isValidEthAddress(a) {
@@ -16955,6 +16897,9 @@ W.smartMoney.convergenceDetector = (() => {
       if (hp.priced !== true) continue;
       if (!Number.isFinite(hp.tokenCount) || hp.tokenCount < 1) continue;
       if (!Number.isFinite(hp.earlyEntryRate)) continue;
+      if (!Number.isFinite(hp.earlyEntrySampleCount) ||
+          hp.earlyEntrySampleCount < MIN_EARLY_ENTRY_SAMPLE)
+        continue;
       if (hp.earlyEntryRate < MIN_HISTORICAL_EARLY_RATE) continue;
 
       let trades = [];
@@ -17050,6 +16995,7 @@ W.smartMoney.convergenceDetector = (() => {
       INDEPENDENCE_MIN,
       DEFAULT_WINDOW_MS,
       MIN_HISTORICAL_EARLY_RATE,
+      MIN_EARLY_ENTRY_SAMPLE,
     }),
   });
 })();

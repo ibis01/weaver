@@ -30,7 +30,8 @@ W.smartMoney.walletProfiler = (() => {
 
   const MODULE_VERSION = "wallet-profiler-v1";
   const EARLY_ENTRY_PUMP_PCT = 20;
-  const EARLY_ENTRY_LOOKAHEAD_DAYS = 1;
+  // 14-day horizon per docs/audits/smart-money-early-entry-2026-10-11.md
+  const EARLY_ENTRY_LOOKAHEAD_DAYS = 14;
   const DAY_MS = 24 * 60 * 60 * 1000;
   const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
@@ -262,5 +263,5 @@ W.smartMoney.walletProfiler = (() => {
 })();
 
 console.log(
-  "[WalletProfiler] Module loaded — day-ahead early entry, no-look-ahead asOf.",
+  "[WalletProfiler] Module loaded — 14-day early entry, no-look-ahead asOf.",
 );
