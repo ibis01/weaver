@@ -24,37 +24,22 @@ const { expect } = require("chai");
 const axios = require("axios");
 const { spawn } = require("child_process");
 
-// TEST_DB_FLUSH_MARK: DB 9 is a test-only Redis DB. The worker and the
-// manual dev proxy both use DB 0. Rate-limit counters keyed on socket
-// peer would otherwise be shared across processes and across runs,
-// exhausting the bucket before the first request. This flush is scoped
-// to DB 9 and never touches sm.* or weaver:* keys.
-const { createClient } = require("redis");
-async function flushTestDb() {
-  const c = createClient({ url: "redis://127.0.0.1:6379/9" });
-  c.on("error", () => {});
-  try {
-    await c.connect();
-    await c.flushDb();
-  } catch (_) {
-    // Best-effort. If Redis is unreachable the DB still starts empty on
-    // a fresh container; stale counters will surface as test failures.
-  } finally {
-    try { await c.quit(); } catch (_) {}
-  }
-}
-
 function spawnProxy(port, extraEnv) {
+  // ISOLATION_FIX_MARK: strip REDIS_URL so the spawned proxy uses its
+  // in-memory rate limiter (per-process Map, naturally isolated across
+  // spawns). The prior fix inherited REDIS_URL from the shell and
+  // shared rate-limit counters with the manual dev proxy in DB 0,
+  // causing 429 on the first request. No Redis required in tests.
+  const { REDIS_URL, ...cleanEnv } = process.env;
   return new Promise((resolve, reject) => {
     const proxyProcess = spawn("node", ["proxy-server.js"], {
       env: {
-        ...process.env,
+        ...cleanEnv,
         NODE_ENV: "development",
         ALLOWED_ORIGINS: "http://localhost:8000",
         PORT: String(port),
         RATE_LIMIT_MAX_REQUESTS: "3",
         RATE_LIMIT_WINDOW_MS: "60000",
-        REDIS_URL: "redis://127.0.0.1:6379/9",
         ...extraEnv,
       },
     });
@@ -96,7 +81,6 @@ describe("Proxy rate-limit identity (trust proxy)", function () {
 
   it("VULNERABLE config: two different clients share one rate-limit bucket", async () => {
     const port = 3021;
-    await flushTestDb();
     const proc = await spawnProxy(port, {}); // no TRUST_PROXY_HOPS — reproduces the original bug
     try {
       // Client A makes 2 requests (under the limit of 3 on its own).
@@ -124,7 +108,6 @@ describe("Proxy rate-limit identity (trust proxy)", function () {
 
   it("FIXED config (TRUST_PROXY_HOPS=1): each client gets its own independent budget", async () => {
     const port = 3022;
-    await flushTestDb();
     const proc = await spawnProxy(port, { TRUST_PROXY_HOPS: "1" });
     try {
       const clientA = ["10.0.0.1", "10.0.0.1", "10.0.0.1"];
