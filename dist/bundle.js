@@ -16558,6 +16558,68 @@ W.smartMoney.walletProfiler = (() => {
       if (pct >= EARLY_ENTRY_PUMP_PCT) earlyCount++;
     }
 
+    // LOOKAHEAD_DIST_MARK: also log each per-invocation rate so the audit
+    // can count how many wallets cross the 0.5 gate at each horizon.
+    try {
+      const dist = {};
+      for (const days of [1, 3, 7, 14]) {
+        const la = DAY_MS * days;
+        let buys = 0, early = 0;
+        for (const t of trades) {
+          if (!t || t.side !== "in") continue;
+          if (!Number.isFinite(t.at)) continue;
+          if (t.at > asOf) continue;
+          if (t.at + la > asOf) continue;
+          const tk = new Date(t.at).toDateString();
+          const nk = new Date(t.at + la).toDateString();
+          const tp = priceMap[tk];
+          const np = priceMap[nk];
+          if (!Number.isFinite(tp) || tp <= 0) continue;
+          if (!Number.isFinite(np)) continue;
+          buys++;
+          const pct = ((np - tp) / tp) * 100;
+          if (pct >= EARLY_ENTRY_PUMP_PCT) early++;
+        }
+        dist[days] = buys > 0 ? early / buys : null;
+      }
+      console.log("[LOOKAHEAD_DIST] " + JSON.stringify(dist));
+    } catch (_) {}
+
+    // LOOKAHEAD_DIAG_MARK: pure measurement. Computes the per-wallet early
+    // rate under lookaheads of 1, 3, 7, and 14 days without changing which
+    // value is returned. The 1-day value is what the pipeline uses today.
+    // The others are recorded so the calibration audit can decide whether
+    // the observed 1.4% base rate is an artifact of a short horizon.
+    try {
+      const diag = {};
+      for (const days of [1, 3, 7, 14]) {
+        const la = DAY_MS * days;
+        let buys = 0, early = 0;
+        for (const t of trades) {
+          if (!t || t.side !== "in") continue;
+          if (!Number.isFinite(t.at)) continue;
+          if (t.at > asOf) continue;
+          if (t.at + la > asOf) continue;
+          const tk = new Date(t.at).toDateString();
+          const nk = new Date(t.at + la).toDateString();
+          const tp = priceMap[tk];
+          const np = priceMap[nk];
+          if (!Number.isFinite(tp) || tp <= 0) continue;
+          if (!Number.isFinite(np)) continue;
+          buys++;
+          const pct = ((np - tp) / tp) * 100;
+          if (pct >= EARLY_ENTRY_PUMP_PCT) early++;
+        }
+        diag[days] = { buys, early, rate: buys > 0 ? early / buys : null };
+      }
+      console.log(
+        "[LOOKAHEAD_DIAG] 1d=" + JSON.stringify(diag[1]) +
+        " 3d=" + JSON.stringify(diag[3]) +
+        " 7d=" + JSON.stringify(diag[7]) +
+        " 14d=" + JSON.stringify(diag[14])
+      );
+    } catch (_) {}
+
     return {
       buyCount,
       earlyCount,
