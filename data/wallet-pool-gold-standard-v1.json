@@ -1,0 +1,64 @@
+{
+  "version": "gold-standard-v1",
+  "created": "2026-10-11",
+  "method": "On-chain derived. For each watchlist token with a documented >=20% 1-day pump in the last 180 days, query Blockscout's /api?module=account&action=tokentx endpoint over the 7-day block range preceding the pump, sum PEPE inflow per unique recipient, filter to >=1B PEPE, then exclude contracts and automated wallets (tx count > 50000 or token-transfer count > 100000).",
+  "criteria": {
+    "token": "PEPE",
+    "token_address": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+    "pump_date_utc": "2026-08-22",
+    "pump_move_pct_1d": 28.63,
+    "window_start_utc": "2026-08-15",
+    "window_end_utc": "2026-08-22",
+    "block_range": [25758000, 25810000],
+    "min_buy_pepe": 1000000000,
+    "excluded_classes": ["contract", "exchange", "bot"]
+  },
+  "wallets": [
+    {
+      "address": "0x648b88823b2a21760f6a714c980b1820fdc50a71",
+      "pepe_bought": 25898889761,
+      "tx_count": 86,
+      "token_transfers_count": 88,
+      "class": "low_activity",
+      "source": "blockscout tokentx, block range 25758000-25810000"
+    },
+    {
+      "address": "0xcde5d48fca07f9c52300d2e65632dd71ed169b90",
+      "pepe_bought": 17360555242,
+      "tx_count": 28005,
+      "token_transfers_count": 50801,
+      "class": "active_trader",
+      "source": "blockscout tokentx, block range 25758000-25810000"
+    },
+    {
+      "address": "0x2ac51184e197248553827704f162234808664759",
+      "pepe_bought": 13983940721,
+      "tx_count": 2248,
+      "token_transfers_count": 7553,
+      "class": "moderate",
+      "source": "blockscout tokentx, block range 25758000-25810000"
+    },
+    {
+      "address": "0xe4aa002d49faf0e62b923c924aac54c25702332b",
+      "pepe_bought": 6062612808,
+      "tx_count": 2618,
+      "token_transfers_count": 8451,
+      "class": "moderate",
+      "source": "blockscout tokentx, block range 25758000-25810000"
+    },
+    {
+      "address": "0x3f9a8345729ea842708e080e238c92731e5699b8",
+      "pepe_bought": 4593585760,
+      "tx_count": 293,
+      "token_transfers_count": 5093,
+      "class": "low_activity",
+      "source": "blockscout tokentx, block range 25758000-25810000"
+    }
+  ],
+  "limitations": [
+    "Reverse-engineered from pump outcome. These wallets are definitionally early by construction; the metric is expected to score them high. A low score here would falsify the metric.",
+    "Single token, single pump. Generalisation to other tokens and windows is not established.",
+    "Automated wallets (MEV bots, market makers) excluded by tx-count heuristic. Some may remain if they are low-frequency.",
+    "The gold-standard set is used only as a falsification test in Gate 0b. It is not a curated list of smart money in the general sense."
+  ]
+}
