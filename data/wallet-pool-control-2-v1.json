@@ -1,0 +1,114 @@
+{
+  "version": "control-2-v1",
+  "created": "2026-10-11",
+  "method": "Outcome-free control. Wallets that bought >=1B PEPE in a pump-free 7-day window, verified against CoinGecko daily prices that no >=20% 1-day move occurred in the 14 days following the window. Contracts, exchanges, and bots excluded.",
+  "sampling": {
+    "window_start": "2025-11-29",
+    "window_end": "2025-12-05",
+    "block_range": [
+      23900602,
+      23943068
+    ],
+    "min_buy_pepe": 1000000000,
+    "pool_after_filters": 15,
+    "selected": 15,
+    "seed": "weaver-control-2-sample"
+  },
+  "wallets": [
+    {
+      "address": "0x13f27352234fafd2573e8d367a9bc3adff3de7d5",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 8786157305.701
+    },
+    {
+      "address": "0x9999f5fa7c56eabf937c06cd8f6c0c9d526cf934",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 10000000000.0
+    },
+    {
+      "address": "0x46340b20830761efd32832a74d7169b29feb9758",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 15800000000.0
+    },
+    {
+      "address": "0x193b3a19f1bfca16dea6f9b34b14db48f8a513bd",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 1999400000.0
+    },
+    {
+      "address": "0x28c6c06298d514db089934071355e5743bf21d60",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 23805698392.021812
+    },
+    {
+      "address": "0xf89d7b9c864f589bbf53a82105107622b35eaa40",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 1633830426.2443485
+    },
+    {
+      "address": "0x22f08491184f37ade8e71006eaa07906ea3e8b08",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 1280296787.0
+    },
+    {
+      "address": "0xf39335da91eda44e1998b0dee653bc2db2f52845",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 3000000000.0
+    },
+    {
+      "address": "0x841ed663f2636863d40be4ee76243377dff13a34",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 1375424564.8324027
+    },
+    {
+      "address": "0x84653c310cefb75593a16c2e794ca21fed8a68e7",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 1439694384.8400002
+    },
+    {
+      "address": "0x62b014b27a1f6054ea1800fc40ebcff6912d6d3a",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 3117795286.0318103
+    },
+    {
+      "address": "0x39e274cb173999eca1cc3daf0c3e938d2cd69a50",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 1999789585.0
+    },
+    {
+      "address": "0x744727a6fc563f54fd0f6f0442c0bd1e212011f9",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 2348774653.442037
+    },
+    {
+      "address": "0xb4a1a61ce88bd8557c5e76b4d1292c6afb08da98",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 2900344794.0
+    },
+    {
+      "address": "0x89e1be593bc206f6e600d2de79d63dded85bf58a",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 3432956465.649724
+    }
+  ],
+  "limitations": [
+    "One random window. If it precedes a pump we missed, add a second window and re-run.",
+    "Bot heuristic based on tx/transfer counts. Some fast-trading humans may be excluded; some low-frequency bots may remain.",
+    "This is the falsification target for Gate 0b v2. Gold-standard must score at least 2x this set for the metric to discriminate."
+  ]
+}
