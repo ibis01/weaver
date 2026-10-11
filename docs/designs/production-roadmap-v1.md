@@ -91,47 +91,88 @@ reconstructable.
 
 **Duration.** 3-5 days.
 
-### Gate 0b — Metric discrimination
+### Gate 0b — Metric discrimination (v2)
 
-**Purpose.** Does the metric distinguish skilled wallets from random ones?
+**Decision being tested.** Does `earlyEntryRate` distinguish wallets
+selected by *pattern* from wallets selected by *absence of pattern*, on
+a sample-matched comparison, with an outcome-free control?
+
+**Revision history.** v1 tested a gold-standard list derived from a
+single pump event and failed — see
+`docs/audits/gate-0b-attempt-1-result.md`. The failure was of the test,
+not the metric: v1 selected on the dependent variable. v2 corrects the
+population construction and adds a second control.
 
 **Work.**
 
-1. Run the pipeline for 30 days on all three frozen populations. No
-   threshold changes during the window. Metric and thresholds are frozen
-   at their current values.
-2. Record, per wallet per day: `buyCount`, `earlyEntrySampleCount`,
-   `earlyEntryRate`.
-3. At the window close, compute the distribution of `earlyEntryRate` for
-   each population.
+1. **Rebuild the gold-standard list — pattern, not event.**
+   A gold-standard wallet must have at least one of:
+   - Bought ≥3 distinct watchlist tokens before ≥3 distinct pumps
+     (window: 7 days preceding each pump)
+   - Bought the same token before ≥3 distinct pumps
+   - One documented entry, plus an external citation of the wallet
+     from a public source (Dune dashboard, published research) that
+     names it as having a track record
 
-**Exit criterion.** The metric discriminates. One of:
+   Target size: 20 wallets. If fewer than 20 meet the pattern criterion,
+   the result is INCONCLUSIVE and the criterion is loosened in a
+   documented amendment — not tightened.
 
-- Curated and gold-standard qualification rates are ≥3× the control
-  qualification rate, with non-overlapping confidence intervals, OR
-- Gold-standard wallets have median `earlyEntryRate` ≥0.3 and control
-  wallets have median ≤0.1.
+2. **Rebuild control-1 — sample-matched random.**
+   Random PEPE holders, matched to gold-standard on PEPE priced-buy
+   count within ±30%. If the gold-standard median is 500 buys, the
+   control-1 median must be 350–650. Target size: 40 wallets.
 
-**FAIL.** The curated or gold-standard list qualifies but the control does
-too, at similar rates. The metric cannot discriminate. Either the
-threshold is wrong or the metric is too coarse.
+3. **Add control-2 — outcome-free.**
+   Wallets that bought ≥1B PEPE in a *random week* between 2025-01-01
+   and 2026-06-01 that did not precede a ≥20% pump in the following
+   14 days. Same buy-size filter, same holder filter, same exclusion
+   of contracts and exchange-tagged addresses. Target size: 40 wallets.
 
-**FALSIFY.** Gold-standard wallets score at or below control, after Gate
-0a confirmed their data was adequate. Then `earlyEntryRate` does not
-measure the property its name claims. Return to the calibration audit §4
-and rewrite the metric definition, not the threshold.
+4. **Run the pipeline for 30 days with all three populations in the
+   wallet pool.** No threshold changes during the window.
 
-**INCONCLUSIVE.** Distributions overlap but the sample is too small to
-distinguish. Extend the window, or increase the population size. Do not
-loosen the criterion to force a result.
+5. **At window close, compute:**
+   - Per-wallet `earlyEntryRate` for every wallet in all three sets
+   - Median per set
+   - Mann-Whitney U test: gold vs control-2 (the outcome-free set)
+   - Report confidence intervals
 
-**Duration.** 30 days.
+**Exit criterion.** All three:
 
-**Note.** Zero qualifiers on the curated list, with gold-standard also at
-zero, is an **inconclusive** result if control is also at zero. It becomes
-**falsify** only if gold-standard wallets — whose early entries are
-documented facts — score low. Without gold-standard, zero qualifiers is
-not evidence about the metric; it is evidence about the population.
+- Gold-standard median ≥ 2× control-2 median
+- Mann-Whitney U on gold vs control-2 yields p < 0.05
+- The result holds across ≥2 independent sample draws (draw a second
+  random control-2 set from the same distribution; the direction and
+  significance must replicate)
+
+Control-1 is a sanity check. It should resemble control-2; if it does
+not, the sampling method is suspect and the test is inconclusive.
+
+**FAIL.** Gold and control-2 medians differ by less than 2×, on
+adequate sample (n≥20 gold, n≥40 control-2, sample-matched). The
+metric discriminates weakly. Return to Gate 0a and reconsider whether
+the populations are correct before deciding on metric revision.
+
+**FALSIFY.** Gold median ≤ control-2 median on adequate, sample-matched
+data. Then `earlyEntryRate` does not distinguish wallets selected by
+pattern from wallets selected by absence of pattern. Return to the
+calibration audit §4 and rewrite the metric definition, not the
+threshold.
+
+**INCONCLUSIVE.** Fewer than 20 gold-standard wallets meeting the
+pattern criterion. Extend the discovery window, or expand the watchlist
+scope, or amend the criterion with written justification.
+
+**Duration.** 30 days, plus 1-2 weeks for population construction.
+
+**Constitutional relevance.** §2.7 (evidence over fabrication). A
+metric that cannot distinguish pattern from absence-of-pattern makes
+any claim about "smart money" dishonest.
+
+**Note.** v1's failure — gold-standard scoring lower than control — is
+recorded in `docs/audits/gate-0b-attempt-1-result.md` and is not a
+result to be hidden. It is the reason v2 exists.
 
 ### Gate 0c — Integration and signal emission
 
@@ -524,6 +565,7 @@ Revised 2026-10-11:
 | No baseline population | Control group + gold-standard group |
 | No frozen populations | All three lists committed and hashed before measurement |
 | No look-ahead guard | Gold-standard wallets use documented entry dates; the metric is tested against facts, not predictions |
+| Gate 0b v1 gold-standard selected on the dependent variable | v2 requires pattern (≥3 events), sample-matched comparison, and outcome-free control-2 |
 | Gate 2 comparison unspecified | Paired test, n≥50, confidence intervals, two independent windows |
 | Gate 4 SLOs vague | Six numerical SLOs defined before the window opens |
 | Gate 5 retention undefined | Weekly active, session, useful alert, retention rate, time-to-value all defined |
