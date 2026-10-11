@@ -6,6 +6,8 @@ A PR is not ready to merge until every relevant box below is checked.
 If a box cannot be confidently answered, the PR is not ready.
 -->
 
+> Weaver does not get to become more capable by becoming less trustworthy.
+
 ## Weaver Constitution Check (§7.4)
 
 **Non-custodial**
