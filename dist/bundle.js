@@ -16888,19 +16888,41 @@ W.smartMoney.convergenceDetector = (() => {
     }
 
     const qualifyingWallets = [];
+    // POOL_DIAG_MARK: per-source drop-reason attribution for Gate 0a.
+    const __pool = {
+      bySource: {},
+      records: [],
+    };
+    const __src = (c) => (c && c._poolSource) || "holder";
+    const __bump = (source, field) => {
+      if (!__pool.bySource[source]) {
+        __pool.bySource[source] = {
+          total: 0, qualified: 0,
+          invalidAddress: 0, noHp: 0, notPriced: 0, noTokenCount: 0,
+          noEarlyRate: 0, sampleBelowMin: 0, rateBelowMin: 0,
+          fetchFailed: 0, noTrades: 0, noRecentBuys: 0, sellsGeBuys: 0,
+        };
+      }
+      __pool.bySource[source][field] = (__pool.bySource[source][field] || 0) + 1;
+    };
 
     for (const c of candidates) {
-      if (!c || !isValidEthAddress(c.wallet)) continue;
+      const __s = __src(c);
+      __bump(__s, "total");
+      if (!c || !isValidEthAddress(c.wallet)) { __bump(__s, "invalidAddress"); continue; }
 
       const hp = c.historicalProfile;
-      if (!hp || typeof hp !== "object") continue;
-      if (hp.priced !== true) continue;
-      if (!Number.isFinite(hp.tokenCount) || hp.tokenCount < 1) continue;
-      if (!Number.isFinite(hp.earlyEntryRate)) continue;
+      if (!hp || typeof hp !== "object") { __bump(__s, "noHp"); continue; }
+      if (hp.priced !== true) { __bump(__s, "notPriced"); continue; }
+      if (!Number.isFinite(hp.tokenCount) || hp.tokenCount < 1) { __bump(__s, "noTokenCount"); continue; }
+      if (!Number.isFinite(hp.earlyEntryRate)) { __bump(__s, "noEarlyRate"); continue; }
+      __pool.records.push({
+        src: __s, wallet: String(c.wallet).slice(0, 10),
+        sample: hp.earlyEntrySampleCount, rate: hp.earlyEntryRate,
+      });
       if (!Number.isFinite(hp.earlyEntrySampleCount) ||
-          hp.earlyEntrySampleCount < MIN_EARLY_ENTRY_SAMPLE)
-        continue;
-      if (hp.earlyEntryRate < MIN_HISTORICAL_EARLY_RATE) continue;
+          hp.earlyEntrySampleCount < MIN_EARLY_ENTRY_SAMPLE) { __bump(__s, "sampleBelowMin"); continue; }
+      if (hp.earlyEntryRate < MIN_HISTORICAL_EARLY_RATE) { __bump(__s, "rateBelowMin"); continue; }
 
       let trades = [];
       try {
@@ -16918,14 +16940,14 @@ W.smartMoney.convergenceDetector = (() => {
         );
         continue;
       }
-      if (!trades.length) continue;
+      if (!trades.length) { __bump(__s, "noTrades"); continue; }
 
       const recent = filterRecent(trades, asOf, windowMs);
-      if (!recent.buys.length) continue;
+      if (!recent.buys.length) { __bump(__s, "noRecentBuys"); continue; }
 
       const totalBuyAmount = recent.buys.reduce((s, t) => s + t.amount, 0);
       const totalSellAmount = recent.sells.reduce((s, t) => s + t.amount, 0);
-      if (totalSellAmount >= totalBuyAmount) continue;
+      if (totalSellAmount >= totalBuyAmount) { __bump(__s, "sellsGeBuys"); continue; }
 
       const lastBuyAt = recent.buys.reduce(
         (m, t) => (t.at > m ? t.at : m),
@@ -16940,6 +16962,20 @@ W.smartMoney.convergenceDetector = (() => {
         historicalEarlyEntryRate: hp.earlyEntryRate,
       });
     }
+
+    for (const q of qualifyingWallets) {
+      const s = __src({ _poolSource: q._poolSource }) || "holder";
+      if (!__pool.bySource[s]) {
+        __pool.bySource[s] = { total: 0, qualified: 0 };
+      }
+      __pool.bySource[s].qualified = (__pool.bySource[s].qualified || 0) + 1;
+    }
+
+    console.log("[POOL_DIAG] " + JSON.stringify({
+      token: String(input.tokenAddress || "").slice(0, 10),
+      bySource: __pool.bySource,
+      poolSampleRecords: __pool.records.filter((r) => r.src !== "holder"),
+    }));
 
     if (qualifyingWallets.length < N_MIN) {
       return {
@@ -30720,8 +30756,18 @@ W.smartRadar = (() => {
     if (!W.smart || typeof W.smart.fetchHolders !== "function") {
       return { ok: false, reason: "smart-fetchHolders-unavailable" };
     }
-    const holders = await W.smart.fetchHolders(tokenAddress);
-    if (!holders || !holders.length) {
+    // POOL_INDEPENDENT_MARK: fetch holders, but do not abandon the cycle
+    // if the fetch fails. The pool is a static list — it should be
+    // profiled even when Blockscout is unreachable.
+    let holders = [];
+    let holderFetchFailed = false;
+    try {
+      holders = (await W.smart.fetchHolders(tokenAddress)) || [];
+    } catch (e) {
+      holderFetchFailed = true;
+      console.warn("[SmartRadar] holder fetch failed:", e && e.message);
+    }
+    if (!holderFetchFailed && (!holders || !holders.length)) {
       return { ok: false, reason: "no-holders" };
     }
 
@@ -30765,15 +30811,37 @@ W.smartRadar = (() => {
     // In the worker, both files are read at boot and attached to
     // W.smartRadar._internal.walletPool. In the browser, the pool is
     // empty by default; only the worker runs the discrimination test.
-    const pool = (W.smartRadar && W.smartRadar._internal && W.smartRadar._internal.walletPool) || [];
+    const pool = (W.walletPool) || [];
+    if (!pool.length) {
+      // W.walletPool is set by the worker at boot. In the browser it is
+      // undefined, so this log fires once per cycle in dev. Harmless.
+      console.log("[SmartRadar] wallet pool empty (this is normal in browser)");
+    }
     const pooled = [];
+    const cycleToken = String(tokenAddress || "").toLowerCase();
     for (const entry of pool) {
       const addr = typeof entry === "string" ? entry : (entry && entry.address);
       if (!addr) continue;
       if (!isValidEthAddress(addr)) continue;
-      // Skip if the address is already in topHolders
-      if (topHolders.some((h) => h && h.address && h.address.hash &&
-          h.address.hash.toLowerCase() === addr.toLowerCase())) continue;
+      // Only append pool wallets whose target token matches this cycle.
+      // Without this, 35 pool wallets hit Blockscout + CoinGecko on every
+      // one of 16 tokens, blowing cycle time from 60s to 20min.
+      const target = entry && entry.target_token
+        ? String(entry.target_token).toLowerCase()
+        : null;
+      if (target && target !== cycleToken) continue;
+      // If the address is already in topHolders, upgrade its tag to the
+      // pool source. Gold-standard wallets are typically large holders
+      // too, and we want their _poolSource to reflect the pool, not the
+      // holder path, so Gate 0a attribution is correct.
+      const existing = topHolders.find((h) => h && h.address && h.address.hash &&
+          h.address.hash.toLowerCase() === addr.toLowerCase());
+      if (existing) {
+        if (!existing._poolSource || existing._poolSource === "holder") {
+          existing._poolSource = entry._source || "pool";
+        }
+        continue;
+      }
       // Synthesize the holder shape the rest of the loop expects
       pooled.push({
         address: { hash: addr, is_contract: false, metadata: { tags: [] } },
@@ -30808,7 +30876,14 @@ W.smartRadar = (() => {
           ],
           { asOf },
         );
-        candidates.push({ wallet: addr, historicalProfile: profile });
+        // POOL_SOURCE_CARRY_MARK: propagate the pool tag (gold-standard
+        // or control) into the candidate so the convergence detector's
+        // drop-reason diagnostics can attribute each drop to a source.
+        candidates.push({
+          wallet: addr,
+          historicalProfile: profile,
+          _poolSource: h && h._poolSource ? h._poolSource : "holder",
+        });
       } catch (e) {
         console.warn(
           "[SmartRadar] profile failed for",

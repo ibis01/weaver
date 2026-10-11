@@ -9,9 +9,16 @@
     "pump_move_pct_1d": 28.63,
     "window_start_utc": "2026-08-15",
     "window_end_utc": "2026-08-22",
-    "block_range": [25758000, 25810000],
+    "block_range": [
+      25758000,
+      25810000
+    ],
     "min_buy_pepe": 1000000000,
-    "excluded_classes": ["contract", "exchange", "bot"]
+    "excluded_classes": [
+      "contract",
+      "exchange",
+      "bot"
+    ]
   },
   "wallets": [
     {
@@ -20,7 +27,8 @@
       "tx_count": 86,
       "token_transfers_count": 88,
       "class": "low_activity",
-      "source": "blockscout tokentx, block range 25758000-25810000"
+      "source": "blockscout tokentx, block range 25758000-25810000",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
       "address": "0xcde5d48fca07f9c52300d2e65632dd71ed169b90",
@@ -28,7 +36,8 @@
       "tx_count": 28005,
       "token_transfers_count": 50801,
       "class": "active_trader",
-      "source": "blockscout tokentx, block range 25758000-25810000"
+      "source": "blockscout tokentx, block range 25758000-25810000",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
       "address": "0x2ac51184e197248553827704f162234808664759",
@@ -36,7 +45,8 @@
       "tx_count": 2248,
       "token_transfers_count": 7553,
       "class": "moderate",
-      "source": "blockscout tokentx, block range 25758000-25810000"
+      "source": "blockscout tokentx, block range 25758000-25810000",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
       "address": "0xe4aa002d49faf0e62b923c924aac54c25702332b",
@@ -44,7 +54,8 @@
       "tx_count": 2618,
       "token_transfers_count": 8451,
       "class": "moderate",
-      "source": "blockscout tokentx, block range 25758000-25810000"
+      "source": "blockscout tokentx, block range 25758000-25810000",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
       "address": "0x3f9a8345729ea842708e080e238c92731e5699b8",
@@ -52,7 +63,8 @@
       "tx_count": 293,
       "token_transfers_count": 5093,
       "class": "low_activity",
-      "source": "blockscout tokentx, block range 25758000-25810000"
+      "source": "blockscout tokentx, block range 25758000-25810000",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     }
   ],
   "limitations": [

@@ -273,10 +273,15 @@ async function main() {
         console.warn("[sm.worker] pool load skipped:", f[0], e && e.message);
       }
     }
-    if (!global.W.smartRadar) global.W.smartRadar = {};
-    if (!global.W.smartRadar._internal) global.W.smartRadar._internal = {};
-    global.W.smartRadar._internal.walletPool = pools;
-    console.log("[sm.worker] wallet pool loaded:", pools.length, "entries");
+    // Attach to top-level W, not W.smartRadar._internal — the latter
+    // is Object.freeze'd by the module, so property assignment no-ops
+    // silently in sloppy mode and the pipeline never sees the pool.
+    global.W.walletPool = pools;
+    console.log("[sm.worker] wallet pool loaded:", pools.length, "entries",
+      "(W.walletPool)");
+    if (global.W.walletPool !== pools) {
+      console.warn("[sm.worker] pool attach failed — W.walletPool not writable");
+    }
   } catch (e) {
     console.warn("[sm.worker] wallet pool load failed:", e && e.message);
   }

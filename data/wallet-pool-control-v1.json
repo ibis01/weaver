@@ -1,153 +1,167 @@
 {
-  "version": "control-v1",
+  "version": "control-pepe-v1",
   "created": "2026-10-11",
-  "method": "Random sample from the top holders of 14 watchlist tokens. Excluded contracts and exchange-tagged wallets. Sample seeded with sha256('weaver-control-v1') for reproducibility.",
+  "method": "Random sample of PEPE holders (top 5 pages of Blockscout holder list), excluding contracts and exchange-tagged wallets. Sample seeded with sha256('weaver-control-pepe-v1').",
   "sampling": {
-    "source": "blockscout /tokens/{addr}/holders, top page only",
-    "tokens_queried": [
-      "WOJAK",
-      "TURBO",
-      "MOG",
-      "CRV",
-      "SNX",
-      "GRT",
-      "ENS",
-      "LDO",
-      "MKR",
-      "AAVE",
-      "UNI",
-      "LINK",
-      "SHIB",
-      "DAI"
-    ],
-    "seed": "weaver-control-v1",
-    "selected": 30
+    "source": "blockscout /tokens/{pepe}/holders",
+    "pool_size": 161,
+    "selected": 30,
+    "seed": "weaver-control-pepe-v1"
   },
   "wallets": [
     {
-      "address": "0x28a55c4b4f9615fde3cdaddf6cc01fcf2e38a6b0",
-      "holder_of": "AAVE"
+      "address": "0xd4bb423838a66347f5d6860437cef53e540b5f13",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0xf152e6f0542c2a2d16057ccfa3ffa93c5cc3d341",
-      "holder_of": "MKR"
+      "address": "0x21e71b5abdaf8f6a197648fdeb62c8948eaa8f5f",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0x7f256695627c44e423139ec172393ecdc8a3de24",
-      "holder_of": "UNI"
+      "address": "0x8a78949885776208d47eb54a42caa8c320d7dda1",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0xed9e1ddbb44640638c12aa73effc2ddf2af3bd01",
-      "holder_of": "WOJAK"
+      "address": "0x21df408c3e441bbe950ae59ac85b616857bae8eb",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0x221f8e99408f730981bfc311eb9372dc353f3ac0",
-      "holder_of": "TURBO"
+      "address": "0x00a3994e482fbaeb2246656b24465986453b95f4",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0xadfffc33cdc9970349cbcea3d73ec343d6ed116d",
-      "holder_of": "LINK"
+      "address": "0xc09aadf8700408777e01ad7d32d19e7f89bc3e3c",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0x6a496c6076a1f3ca554b6f4eef81e4885a433cfe",
-      "holder_of": "ENS"
+      "address": "0x94fbdc3935b373ad2918e8aa1b42cad5217ca29d",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0xccbdf8adc81b5a0e3b07f7ec43f9e9c66698a0de",
-      "holder_of": "DAI"
+      "address": "0x75d7970c488b3b2fd58fb0022002547b469ad694",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0x3534bf2f78447c6201d8d80791cccf05fa7385d0",
-      "holder_of": "MOG"
+      "address": "0xc0b3218b16c2ec45df47422a18a5b1f6e070312f",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0xfc3d1c09509c4b03670570b5da83ac54996b868a",
-      "holder_of": "ENS"
+      "address": "0xca6feadecfa7c186e5d974cd85a4d615d059d0f1",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0x300d1a01b2c8fc34d5d15071b2611560d7ab9d61",
-      "holder_of": "CRV"
+      "address": "0x653d7e4998338677515a0edc0b97ada455a4efa0",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0x9c80d042db8cdd2586f00fa8ed47c387dfd05026",
-      "holder_of": "ENS"
+      "address": "0xe2225fb78c2f37aaea6089b24ff0c47590ce0449",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0xbe31a54c78f6e73819fff78072be1660485c8105",
-      "holder_of": "WOJAK"
+      "address": "0x6892ba7febc703d19aebb35b79846f1fe33153c8",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0xf8191d98ae98d2f7abdfb63a9b0b812b93c873aa",
-      "holder_of": "SNX"
+      "address": "0x84b2db704db34ce22b3ee38939f61e342992c4b2",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0xbf1c4b4f4c9f29f8e023547a862944a6bdd21a97",
-      "holder_of": "SHIB"
+      "address": "0x522e48ce64d357743935d932f4854b31e0928472",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0xc6ce8c2c9bc166afbde502870b117d19ce1055c1",
-      "holder_of": "MKR"
+      "address": "0x59779b3aa3540f45b3e7255b4b5b25a8764be686",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0x2ec5a24bc0089f6fdc03447a973fbad7b947654b",
-      "holder_of": "SHIB"
+      "address": "0x6df8df0863a04f16f47eacc7b6c48564eec23113",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0x788805d72d7f822efd84402ddc3163dc423b4ef0",
-      "holder_of": "MKR"
+      "address": "0xb0a3a2b60e969afd26561429aa4c1444c57e4411",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0x4c35234291cb25676e5363cff6f73f1ef545684b",
-      "holder_of": "DAI"
+      "address": "0x3691e9cd4605431f47ae031404c39ad7f7dc36d3",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0x5ec68a1a5a742b24c7b20ff19e375361a1ca279b",
-      "holder_of": "WOJAK"
+      "address": "0x000000000000000000000000000000000000dead",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0x0a86e87b1e14eaecaacadf5b8a4b591315f75799",
-      "holder_of": "WOJAK"
+      "address": "0x5828ff034d44b2f810fd679bc21304900a0ce88d",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0x504ce9e51e508c85a161058c12e970a903d482fc",
-      "holder_of": "MOG"
+      "address": "0x841f7d3457caadd2872a688c10f80062c9386b6e",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0xd1bd271b9b73d28417078ea4abedffd63cec9047",
-      "holder_of": "MKR"
+      "address": "0xf3772ab24128758cdfb9c9b7ef96ffee7b465fcc",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0x4296bfc32315ea1dab60f23d41b4408924b96cbd",
-      "holder_of": "DAI"
+      "address": "0x71956a1cd5a4233177f7bf9a2d5778851e201934",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0x8569a0f17ef60eb91f75d867aecc6a3ae02c4999",
-      "holder_of": "MKR"
+      "address": "0x50cb1557365e11f733c030e68f8b4767a675cbcc",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0xc35fff873c5751b04f64e565058acdf7f080a557",
-      "holder_of": "SHIB"
+      "address": "0x4d392f2636b97e7e39b49f476eb7ff54107cee9f",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0x76b0297c597040ff422a1be75d0bd5fbdba6b247",
-      "holder_of": "MKR"
+      "address": "0xe19ed11103265687a351662aab588a890ec598b4",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0x7d325a9c8f10758188641fe91cfd902499edc782",
-      "holder_of": "UNI"
+      "address": "0xa5f7f1dce1d1e4c59a28668c51355cda047d1459",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0x7d94077f58593f8b97c5cab56c8924e13b49946e",
-      "holder_of": "AAVE"
+      "address": "0x3f9a8345729ea842708e080e238c92731e5699b8",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     },
     {
-      "address": "0x391b37390e6e3fadc06252615e22e9c9f7e7f364",
-      "holder_of": "MKR"
+      "address": "0xb9fba6d8753aff2e73bb6bbb194eb0843d69b1e9",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
     }
   ],
   "limitations": [
-    "Top-page holders only. A wallet holding a watchlist token but not in the top page is not represented.",
-    "Exchange filtering depends on Blockscout's tagging. Untagged exchange wallets may remain.",
-    "This list is used as the discrimination baseline in Gate 0b. The metric fails if these wallets score at the same rate as the gold-standard set."
+    "Same-token control: all wallets hold PEPE, none have documented early entries.",
+    "The paired test is gold-standard (5, PEPE-derived) vs control (30, PEPE holders) on PEPE."
   ]
 }

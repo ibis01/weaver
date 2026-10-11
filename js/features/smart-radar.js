@@ -68,8 +68,18 @@ W.smartRadar = (() => {
     if (!W.smart || typeof W.smart.fetchHolders !== "function") {
       return { ok: false, reason: "smart-fetchHolders-unavailable" };
     }
-    const holders = await W.smart.fetchHolders(tokenAddress);
-    if (!holders || !holders.length) {
+    // POOL_INDEPENDENT_MARK: fetch holders, but do not abandon the cycle
+    // if the fetch fails. The pool is a static list — it should be
+    // profiled even when Blockscout is unreachable.
+    let holders = [];
+    let holderFetchFailed = false;
+    try {
+      holders = (await W.smart.fetchHolders(tokenAddress)) || [];
+    } catch (e) {
+      holderFetchFailed = true;
+      console.warn("[SmartRadar] holder fetch failed:", e && e.message);
+    }
+    if (!holderFetchFailed && (!holders || !holders.length)) {
       return { ok: false, reason: "no-holders" };
     }
 
@@ -113,15 +123,37 @@ W.smartRadar = (() => {
     // In the worker, both files are read at boot and attached to
     // W.smartRadar._internal.walletPool. In the browser, the pool is
     // empty by default; only the worker runs the discrimination test.
-    const pool = (W.smartRadar && W.smartRadar._internal && W.smartRadar._internal.walletPool) || [];
+    const pool = (W.walletPool) || [];
+    if (!pool.length) {
+      // W.walletPool is set by the worker at boot. In the browser it is
+      // undefined, so this log fires once per cycle in dev. Harmless.
+      console.log("[SmartRadar] wallet pool empty (this is normal in browser)");
+    }
     const pooled = [];
+    const cycleToken = String(tokenAddress || "").toLowerCase();
     for (const entry of pool) {
       const addr = typeof entry === "string" ? entry : (entry && entry.address);
       if (!addr) continue;
       if (!isValidEthAddress(addr)) continue;
-      // Skip if the address is already in topHolders
-      if (topHolders.some((h) => h && h.address && h.address.hash &&
-          h.address.hash.toLowerCase() === addr.toLowerCase())) continue;
+      // Only append pool wallets whose target token matches this cycle.
+      // Without this, 35 pool wallets hit Blockscout + CoinGecko on every
+      // one of 16 tokens, blowing cycle time from 60s to 20min.
+      const target = entry && entry.target_token
+        ? String(entry.target_token).toLowerCase()
+        : null;
+      if (target && target !== cycleToken) continue;
+      // If the address is already in topHolders, upgrade its tag to the
+      // pool source. Gold-standard wallets are typically large holders
+      // too, and we want their _poolSource to reflect the pool, not the
+      // holder path, so Gate 0a attribution is correct.
+      const existing = topHolders.find((h) => h && h.address && h.address.hash &&
+          h.address.hash.toLowerCase() === addr.toLowerCase());
+      if (existing) {
+        if (!existing._poolSource || existing._poolSource === "holder") {
+          existing._poolSource = entry._source || "pool";
+        }
+        continue;
+      }
       // Synthesize the holder shape the rest of the loop expects
       pooled.push({
         address: { hash: addr, is_contract: false, metadata: { tags: [] } },
@@ -156,7 +188,14 @@ W.smartRadar = (() => {
           ],
           { asOf },
         );
-        candidates.push({ wallet: addr, historicalProfile: profile });
+        // POOL_SOURCE_CARRY_MARK: propagate the pool tag (gold-standard
+        // or control) into the candidate so the convergence detector's
+        // drop-reason diagnostics can attribute each drop to a source.
+        candidates.push({
+          wallet: addr,
+          historicalProfile: profile,
+          _poolSource: h && h._poolSource ? h._poolSource : "holder",
+        });
       } catch (e) {
         console.warn(
           "[SmartRadar] profile failed for",
