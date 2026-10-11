@@ -10,9 +10,15 @@
       23943068
     ],
     "min_buy_pepe": 1000000000,
-    "pool_after_filters": 15,
+    "pool_after_filters": 33,
     "selected": 15,
-    "seed": "weaver-control-2-sample"
+    "seed": "weaver-control-2-sample",
+    "windows": [
+      "2026-05-30..2026-06-12",
+      "2026-01-10..2026-01-23",
+      "2026-01-07..2026-01-20"
+    ],
+    "expanded_at": "2026-10-11"
   },
   "wallets": [
     {
@@ -104,11 +110,138 @@
       "holder_of": "PEPE",
       "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
       "pepe_bought": 3432956465.649724
+    },
+    {
+      "address": "0xbaed34aec301d4d5606b8fec9e7988d91eb73408",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 7785516839.95,
+      "window": "2026-05-30..2026-06-12"
+    },
+    {
+      "address": "0x54e068ee3e1be98134117dba56fd81bee793dcbc",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 3583396965.58,
+      "window": "2026-05-30..2026-06-12"
+    },
+    {
+      "address": "0xe7b438ad9dfc98564cafdd9a7e41eb065deaa395",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 19805089330.0,
+      "window": "2026-05-30..2026-06-12"
+    },
+    {
+      "address": "0xadaf10bdee665cfac9c9fe48c7cdb9fa13b09d69",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 2754813637.1099997,
+      "window": "2026-05-30..2026-06-12"
+    },
+    {
+      "address": "0xdf3172f8efcccb0f84fe1ce3fd22c3fe37e0c657",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 1250000550.0,
+      "window": "2026-05-30..2026-06-12"
+    },
+    {
+      "address": "0x2a9809215f633a6ef5fcdf5d41724e4977119813",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 7000000000.0,
+      "window": "2026-05-30..2026-06-12"
+    },
+    {
+      "address": "0xd6b168fd19bfc48368f5684246e6b02119062056",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 2009486295.1274621,
+      "window": "2026-05-30..2026-06-12"
+    },
+    {
+      "address": "0x0c7e8f71ccc08385977b7a51e037acc6293c1ad2",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 1322903527.6299999,
+      "window": "2026-05-30..2026-06-12"
+    },
+    {
+      "address": "0xeb9ca8fdfac0652a97c0e1a48c1178d32d3a6b8f",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 70222497314.0,
+      "window": "2026-05-30..2026-06-12"
+    },
+    {
+      "address": "0x370f63792806dbfb0f6bbbe093745535649f8c62",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 9500000720.0,
+      "window": "2026-05-30..2026-06-12"
+    },
+    {
+      "address": "0x9b0c45d46d386cedd98873168c36efd0dcba8d46",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 6222370807.0,
+      "window": "2026-05-30..2026-06-12"
+    },
+    {
+      "address": "0xba5f711785c53b0de97333aa7bb87bbb57e549ba",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 1025777707.0775995,
+      "window": "2026-05-30..2026-06-12"
+    },
+    {
+      "address": "0xa2656d2d1f6ab1d6c9d3b92f8e4585339496f23c",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 3046499917.6354012,
+      "window": "2026-05-30..2026-06-12"
+    },
+    {
+      "address": "0xe17446bd28e5946415725357ed6eedab4fe51a67",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 2920000350.0,
+      "window": "2026-05-30..2026-06-12"
+    },
+    {
+      "address": "0xd4ade84d1e4b1015a5dda8eb6c43858a3ac905f5",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 5997914873.999999,
+      "window": "2026-05-30..2026-06-12"
+    },
+    {
+      "address": "0xa710df5a9050f1376b38611f99d485d7d6711685",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 5830888790.087463,
+      "window": "2026-05-30..2026-06-12"
+    },
+    {
+      "address": "0xd7bafbc96c99f0bd07301300516140ade8a6d68f",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 15150386822.0,
+      "window": "2026-05-30..2026-06-12"
+    },
+    {
+      "address": "0xf60c2ea62edbfe808163751dd0d8693dcb30019c",
+      "holder_of": "PEPE",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pepe_bought": 15150386822.0,
+      "window": "2026-05-30..2026-06-12"
     }
   ],
   "limitations": [
     "One random window. If it precedes a pump we missed, add a second window and re-run.",
     "Bot heuristic based on tx/transfer counts. Some fast-trading humans may be excluded; some low-frequency bots may remain.",
-    "This is the falsification target for Gate 0b v2. Gold-standard must score at least 2x this set for the metric to discriminate."
+    "This is the falsification target for Gate 0b v2. Gold-standard must score at least 2x this set for the metric to discriminate.",
+    "Expanded on 2026-10-11 to reach 40 by adding pump-free 14-day windows. Original 15 from the 7-day window 2025-11-29..2025-12-05 are retained."
   ]
 }
