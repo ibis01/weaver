@@ -16,6 +16,7 @@
     "test:e2e": "npx playwright test",
     "snapshot:meme": "node scripts/meme-snapshot-worker.js --once",
     "snapshot:meme:watch": "node scripts/meme-snapshot-worker.js",
+    "test:pattern": "mocha --ui bdd test/unit/pattern-check.test.js",
     "test": "npm run test:unit && npm run test:integration && npm run test:security && npm run test:e2e",
     "deploy": "node concat.js && wrangler deploy",
     "preview": "node concat.js && wrangler dev"
