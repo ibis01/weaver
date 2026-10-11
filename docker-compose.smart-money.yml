@@ -21,6 +21,8 @@ services:
       - ./server/smart-money-shim.js:/app/server/smart-money-shim.js:ro
       - ./server/provenance-store.js:/app/server/provenance-store.js:ro
       - ./data/eth-watchlist.json:/app/data/eth-watchlist.json:ro
+      - ./data/wallet-pool-gold-standard-v1.json:/app/data/wallet-pool-gold-standard-v1.json:ro
+      - ./data/wallet-pool-control-v1.json:/app/data/wallet-pool-control-v1.json:ro
     networks:
       - weaver_default
 

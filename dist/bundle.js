@@ -26376,7 +26376,6 @@ W.gems = (() => {
     render,
     scan,
     checkShield,
-    CHAINS,
     SCORE_VERSION,
     RISK_VERSION,
     RISK_WEIGHTS,
@@ -30756,6 +30755,35 @@ W.smartRadar = (() => {
     };
     const eligible = holders.filter((h) => !isInfrastructure(h));
     const topHolders = eligible.slice(0, MAX_WALLETS);
+
+    // WALLET_POOL_LOAD_MARK: append wallets from the frozen pools
+    // (gold-standard + control) so Gate 0a/0b can measure whether the
+    // metric discriminates. Pool membership is data, not code — the
+    // JSON files are committed under data/ and their git hash is the
+    // reproducibility anchor.
+    //
+    // In the worker, both files are read at boot and attached to
+    // W.smartRadar._internal.walletPool. In the browser, the pool is
+    // empty by default; only the worker runs the discrimination test.
+    const pool = (W.smartRadar && W.smartRadar._internal && W.smartRadar._internal.walletPool) || [];
+    const pooled = [];
+    for (const entry of pool) {
+      const addr = typeof entry === "string" ? entry : (entry && entry.address);
+      if (!addr) continue;
+      if (!isValidEthAddress(addr)) continue;
+      // Skip if the address is already in topHolders
+      if (topHolders.some((h) => h && h.address && h.address.hash &&
+          h.address.hash.toLowerCase() === addr.toLowerCase())) continue;
+      // Synthesize the holder shape the rest of the loop expects
+      pooled.push({
+        address: { hash: addr, is_contract: false, metadata: { tags: [] } },
+        _poolSource: entry._source || "pool",
+      });
+    }
+    for (const h of pooled) topHolders.push(h);
+    if (pooled.length) {
+      console.log("[SmartRadar] pool appended:", pooled.length, "wallets from", pool.length, "pool entries");
+    }
     if (eligible.length < MAX_WALLETS) {
       console.warn(
         "[SmartRadar] only", eligible.length, "non-infrastructure holders found;",

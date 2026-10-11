@@ -2488,7 +2488,6 @@ W.gems = (() => {
     render,
     scan,
     checkShield,
-    CHAINS,
     SCORE_VERSION,
     RISK_VERSION,
     RISK_WEIGHTS,

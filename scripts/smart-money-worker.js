@@ -251,6 +251,36 @@ async function main() {
   };
   console.log("[sm.worker] W.store re-bound to Redis-backed store");
 
+  // WALLET_POOL_WORKER_MARK: read the frozen pools (gold-standard +
+  // control) and attach to W.smartRadar._internal.walletPool so the
+  // pipeline appends them alongside top-holders each cycle. Pool
+  // files are committed under data/ — the git hash is the anchor.
+  try {
+    const fs = require("fs");
+    const path = require("path");
+    const pools = [];
+    for (const f of [
+      ["data/wallet-pool-gold-standard-v1.json", "gold-standard"],
+      ["data/wallet-pool-control-v1.json", "control"],
+    ]) {
+      const full = path.join(__dirname, "..", f[0]);
+      try {
+        const d = JSON.parse(fs.readFileSync(full, "utf8"));
+        for (const w of d.wallets || []) {
+          pools.push(Object.assign({ _source: f[1] }, w));
+        }
+      } catch (e) {
+        console.warn("[sm.worker] pool load skipped:", f[0], e && e.message);
+      }
+    }
+    if (!global.W.smartRadar) global.W.smartRadar = {};
+    if (!global.W.smartRadar._internal) global.W.smartRadar._internal = {};
+    global.W.smartRadar._internal.walletPool = pools;
+    console.log("[sm.worker] wallet pool loaded:", pools.length, "entries");
+  } catch (e) {
+    console.warn("[sm.worker] wallet pool load failed:", e && e.message);
+  }
+
   // STOP_AUTO_SCAN_MARK: the bundle's W.smartRadar.auto module starts
   // its own 60-second pipeline loop when loaded. That would duplicate
   // every cycle our custom tick() already runs. Stop it explicitly so
