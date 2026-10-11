@@ -117,9 +117,64 @@ require a minimum sample before the rate is treated as a measurement. The
 
 ## 5. Consequences
 
-To be recorded after the implementation PR has run for a defined window.
-Capture: qualifying wallets per cycle, reason-code distribution, any signal
-emissions, and whether a fresh lookahead diagnostic reproduces Section 1.
+Recorded 2026-10-11, after the implementation PR (`fd0c754`) had run for
+one full rotation across 11 tokens with 88 candidate wallets evaluated.
+
+### Observed drop-reasons
+
+Temporary instrumentation of `convergence-detector.js` recorded:
+
+| Gate                 | Count | Meaning                                       |
+|----------------------|-------|-----------------------------------------------|
+| notPriced            | 13    | no matching price days for this wallet/token  |
+| noEarlyRate          | 21    | zero priced buys                              |
+| sampleBelowMin (new) | 22    | 1-9 priced buys — below the new 10-buy floor  |
+| rateBelowMin         | 31    | >=10 priced buys, rate < 0.5                  |
+| noRecentBuys         | 1     | passes profile, no buy in 15-minute window    |
+| qualified            | 0     | none                                          |
+
+Sample sizes for wallets reaching the rate check: median 20 priced buys.
+Sample depth is healthy. The gate that drops wallets is `rateBelowMin`.
+
+### Interpretation
+
+One wallet out of 32 with >=10 priced buys cleared the 0.5 rate gate: 3%.
+The lookahead diagnostic in Section 2 measured 17 of 90 pairs with rate
+>= 0.5 at 14 days (19%). Applying the new minimum-sample filter drops that
+to 3%. The collapse is the audit's decision working as designed: the 19%
+figure was inflated by wallets with 2-3 lucky buys, and the minimum-sample
+gate removes precisely that population.
+
+This is not a threshold problem. It is a candidate-selection problem.
+
+The pipeline profiles the top-8 non-infrastructure EOA holders of each
+token. That selects for current holding size, not historical timing skill.
+Whales hold size; they do not necessarily buy early. Measured against a
+timing metric, the population should look close to the base rate — and it
+does. 31 of 32 wallets are below the 0.5 gate; the population base rate at
+14 days is 15.35%.
+
+No threshold adjustment addresses this. Lowering `MIN_HISTORICAL_EARLY_RATE`
+would qualify wallets whose behavior is indistinguishable from random.
+
+### Decision
+
+- Calibration change (lookahead 1 -> 14, minimum sample 10) is retained.
+  Both are correct and validated by this observation.
+- Further threshold tuning is not warranted by this data.
+- The bottleneck is candidate discovery, not classifier calibration.
+- Section 4's cost #3 (no proof of predictive value) remains unaddressed;
+  this audit does not test whether the signal predicts anything.
+
+### Not in scope
+
+- Broader candidate discovery (wallet-first, not token-first).
+- Cross-token wallet profiling (Section 1's cross-token gap).
+- Out-of-sample evaluation of signal predictive value.
+- Any threshold change based on this observation.
+
+The calibration audit is closed. Its finding — the candidate universe is
+not enriched for the metric — becomes an input to the next phase.
 
 ## 6. Related
 
