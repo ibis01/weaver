@@ -2483,6 +2483,8 @@ W.gems = (() => {
   }
 
   return {
+    // Exported for the §3.3 invariant test (constitution compliance).
+    CHAINS,
     render,
     scan,
     checkShield,

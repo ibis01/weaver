@@ -247,8 +247,14 @@ Evidence for §3.4 (graceful degradation):
   `data/fng.json` as fallback and marks them stale.
 
 Evidence for §3.3 (chain parity):
-- Gem Agent `CHAINS` allowlist is enforced by a behavioral test
-  (`test/unit/gems-chain-filter.test.js`).
+- Gem Agent `CHAINS` allowlist is defined at `js/features/gems.js:720`
+  with 7 entries: solana, ethereum, base, bsc, arbitrum, polygon,
+  avalanche.
+- **Correction (2026-10-11):** the audit initially claimed a behavioral
+  test existed at `test/unit/gems-chain-filter.test.js`. That file does
+  not exist. The S1 finding is therefore stronger than first recorded:
+  the §3.3 invariant is entirely untested. This is closed in the same
+  commit by adding `test/unit/chain-parity.test.js`.
 - Token Shield supports EVM (GoPlus + honeypot.is) and Solana (RugCheck).
 - Smart Money is explicitly ETH-only (`walletHistory.fetchTrades` refuses
   non-`ethereum` chains with `unsupported-chain`).
