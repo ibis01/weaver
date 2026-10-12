@@ -8,7 +8,7 @@ The verifier is deliberately Ethereum-specific and fails closed when block looku
 node scripts/pattern-check-v2.js --output gold-pattern-check-v2.json
 ```
 
-The default dates are only placeholders for the original study. Always confirm that the selected wallet inflows and the token price event actually fall inside the requested window. Override them when the documented event uses different dates:
+The default dates target the August 2026 PEPE rally: `2026-08-12` through `2026-08-19` UTC. The pump-onset date is treated as exclusive. Always confirm that the selected wallet inflows and the token price event actually fall inside the requested window. Override them when the documented event uses different dates:
 
 ```bash
 node scripts/pattern-check-v2.js \

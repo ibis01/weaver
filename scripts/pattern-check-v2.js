@@ -13,8 +13,8 @@ const WALLETS = [
   "0x3f9a8345729ea842708e080e238c92731e5699b8",
 ];
 const PEPE = "0x6982508145454ce325ddbe47a25d4ec3d2311933";
-const PUMP_DAY = "2026-08-22";
-const WINDOW_START = "2026-08-15";
+const PUMP_DAY = "2026-08-19";
+const WINDOW_START = "2026-08-12";
 const BLOCKSCOUT = "https://eth.blockscout.com/api";
 const BLOCKSCOUT_V2 = "https://eth.blockscout.com/api/v2";
 const HEADERS = {
