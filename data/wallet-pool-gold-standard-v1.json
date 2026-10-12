@@ -72,5 +72,11 @@
     "Single token, single pump. Generalisation to other tokens and windows is not established.",
     "Automated wallets (MEV bots, market makers) excluded by tx-count heuristic. Some may remain if they are low-frequency.",
     "The gold-standard set is used only as a falsification test in Gate 0b. It is not a curated list of smart money in the general sense."
-  ]
+  ],
+  "deprecated": {
+    "at": "2026-10-12",
+    "reason": "0 of 5 wallets confirmed as DEX buyers under v2 verification",
+    "evidence": "docs/audits/stage1-verification-2026-10-12.md",
+    "replacement": "pending \u2014 rebuild from confirmed-buy source"
+  }
 }
