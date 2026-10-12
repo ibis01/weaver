@@ -1,0 +1,6 @@
+# Replace these lines with independently sampled Ethereum EOA control wallets.
+# Do not copy wallets from gold-pattern-check-v2.json.
+# One checksummed address per line; comments and blank lines are ignored.
+REPLACE_WITH_CONTROL_WALLET_1
+REPLACE_WITH_CONTROL_WALLET_2
+REPLACE_WITH_CONTROL_WALLET_3

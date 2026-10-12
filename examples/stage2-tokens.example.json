@@ -1,0 +1,10 @@
+[
+  {
+    "symbol": "REPLACE_WITH_TOKEN_SYMBOL",
+    "address": "REPLACE_WITH_CHECKSUMMED_ETHEREUM_TOKEN_ADDRESS",
+    "windowStart": "YYYY-MM-DD",
+    "windowEnd": "YYYY-MM-DD",
+    "pumpDay": "YYYY-MM-DD",
+    "source": "document_the_price_and_liquidity_source"
+  }
+]

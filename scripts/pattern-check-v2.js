@@ -17,7 +17,11 @@ const PUMP_DAY = "2026-08-22";
 const WINDOW_START = "2026-08-15";
 const BLOCKSCOUT = "https://eth.blockscout.com/api";
 const BLOCKSCOUT_V2 = "https://eth.blockscout.com/api/v2";
-const HEADERS = { accept: "application/json", "user-agent": "weaver-pattern-check/2.0" };
+const HEADERS = {
+  accept: "application/json",
+  "user-agent": "weaver-pattern-check/2.0",
+  ...(process.env.BLOCKSCOUT_API_KEY ? { "x-api-key": process.env.BLOCKSCOUT_API_KEY } : {}),
+};
 
 const ROUTERS = Object.freeze({
   "0x7a250d5630b4cf539739df2c5dacb4c659f2488d": "Uniswap V2 Router",
@@ -81,10 +85,13 @@ async function fetchJson(url, { timeoutMs = 25000, maxTries = 4, sleepFn = sleep
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(url, { headers: HEADERS, signal: controller.signal });
-      if (response.status === 429 || response.status >= 500) {
+      if (response.status === 403 || response.status === 429 || response.status >= 500) {
         if (attempt + 1 < maxTries) { await sleepFn(Math.min(60000, 5000 * 2 ** attempt)); continue; }
       }
-      if (!response.ok) return null;
+      if (!response.ok) {
+        log(`provider HTTP ${response.status}: ${url.slice(0, 140)}`);
+        return null;
+      }
       return await response.json();
     } catch (error) {
       if (attempt + 1 === maxTries) { log(`request failed: ${error.message}`); return null; }
@@ -118,6 +125,20 @@ async function pagesOf(startUrl, { fetcher = fetchJson, maxPages = 50, sleepFn =
   }
   failedPages.push(maxPages + 1);
   return { items, complete: false, failedPages };
+}
+
+async function mapLimit(items, limit, mapper) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (true) {
+      const index = next++;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 async function classifyTx(txHash, wallet, tokenAddr, fetcher = fetchJson) {
@@ -168,9 +189,15 @@ async function classifyTx(txHash, wallet, tokenAddr, fetcher = fetchJson) {
 
 async function reVerifyWallet(wallet, tokenAddr, windowStart, windowEnd, options = {}) {
   const fetcher = options.fetcher || fetchJson; const sleepFn = options.sleepFn || sleep;
-  const [start, end] = await Promise.all([exactBlockAt(windowStart, fetcher), exactBlockAt(windowEnd, fetcher)]);
+  const blockCache = options.blockCache || new Map();
+  const getBlock = async (date) => {
+    if (!blockCache.has(date)) blockCache.set(date, exactBlockAt(date, fetcher));
+    return blockCache.get(date);
+  };
+  const [start, end] = await Promise.all([getBlock(windowStart), getBlock(windowEnd)]);
   if (start.block === null || end.block === null) return { wallet, status: "ERROR", reason: "block_lookup_failed", blockRangeExact: false };
-  const url = `${BLOCKSCOUT_V2}/addresses/${wallet}/token-transfers?token=${encodeURIComponent(tokenAddr)}`;
+  const query = new URLSearchParams({ type: "ERC-20", filter: "to", token: tokenAddr });
+  const url = `${BLOCKSCOUT_V2}/addresses/${wallet}/token-transfers?${query}`;
   const pages = await pagesOf(url, { fetcher, sleepFn, pageSleepMs: options.pageSleepMs ?? 0 });
   if (!pages.complete) return { wallet, status: "DATA_INCOMPLETE", reason: "token_transfer_pagination_failed", failedPages: pages.failedPages, blockRangeExact: start.exact && end.exact };
   const startMs = dayStart(windowStart); const endMs = dayStart(windowEnd); const walletLower = lower(wallet); const tokenLower = lower(tokenAddr);
@@ -178,33 +205,46 @@ async function reVerifyWallet(wallet, tokenAddr, windowStart, windowEnd, options
     const timestamp = Date.parse(transfer.timestamp || "");
     return Number.isFinite(timestamp) && timestamp >= startMs && timestamp < endMs && lower(transfer?.token?.address) === tokenLower && hash(transfer.to) === walletLower;
   });
-  const graded = [];
+  if (inflows.length > (options.maxInflows ?? 100)) return { wallet, status: "DATA_INCOMPLETE", reason: "too_many_inflows_for_bounded_audit", transfersInWindow: inflows.length, blockRangeExact: start.exact && end.exact };
+  const seenTransactions = new Set();
+  const uniqueInflows = [];
   for (const transfer of inflows) {
+    const txHash = transfer.transaction_hash || transfer.tx_hash;
+    if (txHash && seenTransactions.has(txHash)) continue;
+    if (txHash) seenTransactions.add(txHash);
+    uniqueInflows.push(transfer);
+  }
+  log(`  ${wallet.slice(0, 10)}... ${inflows.length} inflows, ${uniqueInflows.length} unique transactions`);
+  const graded = await mapLimit(uniqueInflows, options.concurrency ?? 4, async (transfer, index) => {
     const txHash = transfer.transaction_hash || transfer.tx_hash;
     const result = txHash ? await classifyTx(txHash, wallet, tokenAddr, fetcher) : { classification: "UNCLASSIFIED", evidence: ["missing transaction hash"], detail: {} };
     const leadTimeHours = txHash && transfer.timestamp ? (endMs - Date.parse(transfer.timestamp)) / 3600000 : null;
-    graded.push({ txHash, timestamp: transfer.timestamp, leadTimeHours, amountRaw: String(transfer?.total?.value || "0"), classification: result.classification, evidence: result.evidence, detail: result.detail });
-    await sleepFn(options.txSleepMs ?? 0);
-  }
+    if ((index + 1) % 10 === 0 || index + 1 === uniqueInflows.length) log(`  ${wallet.slice(0, 10)}... inspected ${index + 1}/${uniqueInflows.length}`);
+    return { txHash, timestamp: transfer.timestamp, leadTimeHours, amountRaw: String(transfer?.total?.value || "0"), classification: result.classification, evidence: result.evidence, detail: result.detail };
+  });
   return { wallet, token: tokenAddr, windowStart, windowEnd, blockRange: [start.block, end.block], blockRangeExact: start.exact && end.exact, status: "COMPLETE", transfersInWindow: inflows.length, graded };
 }
 
-function buildOutput(results) {
+function buildOutput(results, metadata = {}) {
   const summary = results.map((result) => {
     if (result.status !== "COMPLETE") return { wallet: result.wallet, status: result.status, reason: result.reason, verifiedBuyer: false };
     const classifications = Object.groupBy ? Object.groupBy(result.graded, (item) => item.classification) : result.graded.reduce((out, item) => ((out[item.classification] ||= []).push(item), out), {});
     const counts = Object.fromEntries(Object.entries(classifications).map(([key, value]) => [key, value.length]));
     return { wallet: result.wallet, status: "COMPLETE", blockRangeExact: result.blockRangeExact, classifications: counts, verifiedBuyer: counts.CONFIRMED_DEX_BUY > 0, probableBuyer: (counts.CONFIRMED_DEX_BUY || 0) + (counts.LIKELY_DEX_BUY || 0) > 0 };
   });
-  return { version: "gold-pattern-check-v2", ranAt: nowIso(), targetToken: { symbol: "PEPE", address: PEPE }, window: { start: WINDOW_START, end: PUMP_DAY }, walletsSummary: summary, details: results, verifiedWallets: summary.filter((item) => item.verifiedBuyer).map((item) => item.wallet), verdict: `${summary.filter((item) => item.verifiedBuyer).length} of ${summary.length} wallets have at least one CONFIRMED_DEX_BUY.` };
+  return { version: "gold-pattern-check-v2", ranAt: nowIso(), targetToken: { symbol: "PEPE", address: PEPE }, window: { start: metadata.windowStart || WINDOW_START, end: metadata.pumpDay || PUMP_DAY }, walletsSummary: summary, details: results, verifiedWallets: summary.filter((item) => item.verifiedBuyer).map((item) => item.wallet), verdict: `${summary.filter((item) => item.verifiedBuyer).length} of ${summary.length} wallets have at least one CONFIRMED_DEX_BUY.` };
 }
 
 async function main() {
-  const outputPath = process.argv[process.argv.indexOf("--output") + 1] || path.join(process.cwd(), "gold-pattern-check-v2.json");
+  const arg = (name, fallback) => { const index = process.argv.indexOf(name); return index >= 0 ? process.argv[index + 1] : fallback; };
+  const outputPath = arg("--output", path.join(process.cwd(), "gold-pattern-check-v2.json"));
+  const windowStart = arg("--window-start", WINDOW_START);
+  const pumpDay = arg("--pump-day", PUMP_DAY);
+  const blockCache = new Map();
   const results = [];
-  for (const wallet of WALLETS) { log(`verifying ${wallet}`); results.push(await reVerifyWallet(wallet, PEPE, WINDOW_START, PUMP_DAY)); }
-  const output = buildOutput(results); fs.writeFileSync(outputPath, `${JSON.stringify(output, null, 2)}\n`); console.log(JSON.stringify(output, null, 2));
+  for (const wallet of WALLETS) { log(`verifying ${wallet}`); results.push(await reVerifyWallet(wallet, PEPE, windowStart, pumpDay, { blockCache })); }
+  const output = buildOutput(results, { windowStart, pumpDay }); fs.writeFileSync(outputPath, `${JSON.stringify(output, null, 2)}\n`); console.log(JSON.stringify(output, null, 2));
 }
 
-module.exports = { WALLETS, PEPE, ROUTERS, QUOTES, fetchJson, exactBlockAt, pagesOf, classifyTx, reVerifyWallet, buildOutput, formatUnits };
+module.exports = { WALLETS, PEPE, ROUTERS, QUOTES, fetchJson, exactBlockAt, pagesOf, mapLimit, classifyTx, reVerifyWallet, buildOutput, formatUnits };
 if (require.main === module) main().catch((error) => { console.error(error.stack || error); process.exitCode = 1; });

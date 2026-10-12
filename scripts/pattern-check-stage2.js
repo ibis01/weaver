@@ -5,9 +5,17 @@ const fs = require("node:fs");
 const path = require("node:path");
 const v2 = require("./pattern-check-v2.js");
 
-function readJson(file) { return JSON.parse(fs.readFileSync(file, "utf8")); }
+function readJson(file) {
+  try { return JSON.parse(fs.readFileSync(file, "utf8")); }
+  catch (error) {
+    if (error.code === "ENOENT") throw new Error(`missing input file: ${file}. Copy the example manifest, edit it, then rerun.`);
+    throw new Error(`cannot read JSON input ${file}: ${error.message}`);
+  }
+}
 function readWallets(file) {
-  const value = file.endsWith(".json") ? readJson(file) : fs.readFileSync(file, "utf8").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  let value;
+  try { value = file.endsWith(".json") ? readJson(file) : fs.readFileSync(file, "utf8").split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith("#")); }
+  catch (error) { if (error.code === "ENOENT") throw new Error(`missing control-wallet file: ${file}. Copy examples/control-wallets.example.txt and curate an independent control group.`); throw error; }
   if (!Array.isArray(value)) throw new Error("control wallets must be a JSON array or newline-delimited file");
   return value.map(String);
 }
@@ -16,6 +24,7 @@ function validateTokens(tokens) {
   if (!Array.isArray(tokens) || tokens.length === 0) return ["tokens must be a non-empty array"];
   for (const [index, token] of tokens.entries()) {
     for (const field of ["symbol", "address", "windowStart", "windowEnd", "pumpDay"]) if (!token || typeof token[field] !== "string" || !token[field].trim()) errors.push(`tokens[${index}].${field} is required`);
+    if (!/^0x[0-9a-fA-F]{40}$/.test(String(token?.address || ""))) errors.push(`tokens[${index}].address must be a 20-byte Ethereum address`);
     if (String(token?.address || "").toLowerCase() === v2.PEPE.toLowerCase()) errors.push(`tokens[${index}] must exclude PEPE`);
   }
   return errors;
@@ -50,6 +59,7 @@ async function main() {
   const verified = readJson(verifiedOutput); const tokens = readJson(tokensPath); const gold = verified.verifiedWallets || []; const controls = readWallets(controlsPath); const errors = validateTokens(tokens);
   if (!gold.length) errors.push("verified output contains no CONFIRMED_DEX_BUY wallets");
   if (!controls.length) errors.push("control wallet set is empty");
+  if (controls.some((wallet) => !/^0x[0-9a-fA-F]{40}$/.test(wallet))) errors.push("all control wallets must be 20-byte Ethereum addresses");
   const goldSet = new Set(gold.map((wallet) => wallet.toLowerCase())); if (controls.some((wallet) => goldSet.has(wallet.toLowerCase()))) errors.push("gold and control wallet sets overlap");
   if (errors.length) throw new Error(`invalid Stage 2 inputs:\n- ${errors.join("\n- ")}`);
   const records = [...await scanGroup(gold, "gold", tokens), ...await scanGroup(controls, "control", tokens)];
