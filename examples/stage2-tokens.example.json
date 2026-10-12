@@ -1,0 +1,16 @@
+[
+  {
+    "symbol": "LINK",
+    "address": "0x514910771af9ca656af840dff83e8264ecf986ca",
+    "windowStart": "2026-01-01",
+    "windowEnd": "2026-01-08",
+    "pumpDay": "2026-01-08"
+  },
+  {
+    "symbol": "UNI",
+    "address": "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984",
+    "windowStart": "2026-01-01",
+    "windowEnd": "2026-01-08",
+    "pumpDay": "2026-01-08"
+  }
+]

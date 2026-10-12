@@ -1,0 +1,9 @@
+# Weaver control wallet template.
+# One 20-byte Ethereum address per line. Lines starting with # are ignored.
+# These must be independently selected and must NOT overlap the verified
+# gold-standard wallets from Stage 1.
+#
+# Replace the placeholder below with real addresses before running Stage 2.
+# The validator rejects 0x0000000000000000000000000000000000000000.
+
+0x0000000000000000000000000000000000000000
