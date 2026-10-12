@@ -1,0 +1,491 @@
+{
+  "version": "gold-pattern-check-v2",
+  "ranAt": "2026-10-12T20:31:58.456Z",
+  "targetToken": {
+    "symbol": "PEPE",
+    "address": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
+  },
+  "window": {
+    "start": "2026-08-12",
+    "end": "2026-08-19"
+  },
+  "walletsSummary": [
+    {
+      "wallet": "0x648b88823b2a21760f6a714c980b1820fdc50a71",
+      "status": "COMPLETE",
+      "blockRangeExact": true,
+      "classifications": {
+        "UNCLASSIFIED": 2
+      },
+      "verifiedBuyer": false,
+      "probableBuyer": false
+    },
+    {
+      "wallet": "0xcde5d48fca07f9c52300d2e65632dd71ed169b90",
+      "status": "COMPLETE",
+      "blockRangeExact": true,
+      "classifications": {
+        "UNCLASSIFIED": 2
+      },
+      "verifiedBuyer": false,
+      "probableBuyer": false
+    },
+    {
+      "wallet": "0x2ac51184e197248553827704f162234808664759",
+      "status": "DATA_INCOMPLETE",
+      "reason": "token_transfer_pagination_failed",
+      "verifiedBuyer": false
+    },
+    {
+      "wallet": "0xe4aa002d49faf0e62b923c924aac54c25702332b",
+      "status": "COMPLETE",
+      "blockRangeExact": true,
+      "classifications": {
+        "UNCLASSIFIED": 12
+      },
+      "verifiedBuyer": false,
+      "probableBuyer": false
+    },
+    {
+      "wallet": "0x3f9a8345729ea842708e080e238c92731e5699b8",
+      "status": "DATA_INCOMPLETE",
+      "reason": "token_transfer_pagination_failed",
+      "verifiedBuyer": false
+    }
+  ],
+  "details": [
+    {
+      "wallet": "0x648b88823b2a21760f6a714c980b1820fdc50a71",
+      "token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "windowStart": "2026-08-12",
+      "windowEnd": "2026-08-19",
+      "blockRange": [
+        25735200,
+        25785424
+      ],
+      "blockRangeExact": true,
+      "status": "COMPLETE",
+      "transfersInWindow": 2,
+      "graded": [
+        {
+          "txHash": "0x6165050aba0e123c7eb0291c8b19d973b43d225fa73cfe888208416bd13baf78",
+          "timestamp": "2026-08-15T12:26:11.000000Z",
+          "leadTimeHours": 83.56361111111111,
+          "amountRaw": "23898889761369074872967922202",
+          "classification": "UNCLASSIFIED",
+          "evidence": [
+            "wallet was not transaction originator"
+          ],
+          "detail": {
+            "txHash": "0x6165050aba0e123c7eb0291c8b19d973b43d225fa73cfe888208416bd13baf78",
+            "router": null,
+            "quoteAsset": null,
+            "tokenAmountRaw": "0",
+            "tokenAmount": "0",
+            "quoteAmountRaw": "0",
+            "quoteAmount": "0",
+            "transactionSucceeded": false,
+            "walletWasSender": false,
+            "swapEventDetected": false,
+            "minimumSizeMet": false
+          }
+        },
+        {
+          "txHash": "0x3d30de22271509adfb5270482938170c09c60f6c572f6bfd9896ab64b5a0c8f3",
+          "timestamp": "2026-08-15T12:12:47.000000Z",
+          "leadTimeHours": 83.78694444444444,
+          "amountRaw": "2000000000000000000000000000",
+          "classification": "UNCLASSIFIED",
+          "evidence": [
+            "wallet was not transaction originator"
+          ],
+          "detail": {
+            "txHash": "0x3d30de22271509adfb5270482938170c09c60f6c572f6bfd9896ab64b5a0c8f3",
+            "router": null,
+            "quoteAsset": null,
+            "tokenAmountRaw": "0",
+            "tokenAmount": "0",
+            "quoteAmountRaw": "0",
+            "quoteAmount": "0",
+            "transactionSucceeded": false,
+            "walletWasSender": false,
+            "swapEventDetected": false,
+            "minimumSizeMet": false
+          }
+        }
+      ]
+    },
+    {
+      "wallet": "0xcde5d48fca07f9c52300d2e65632dd71ed169b90",
+      "token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "windowStart": "2026-08-12",
+      "windowEnd": "2026-08-19",
+      "blockRange": [
+        25735200,
+        25785424
+      ],
+      "blockRangeExact": true,
+      "status": "COMPLETE",
+      "transfersInWindow": 2,
+      "graded": [
+        {
+          "txHash": "0xe4a0e561344d7027b5cc8d57314cfb81495b6f8356f94672a530c86b72a9eb84",
+          "timestamp": "2026-08-18T10:09:11.000000Z",
+          "leadTimeHours": 13.846944444444444,
+          "amountRaw": "7140363717480000000000000000",
+          "classification": "UNCLASSIFIED",
+          "evidence": [
+            "wallet was not transaction originator"
+          ],
+          "detail": {
+            "txHash": "0xe4a0e561344d7027b5cc8d57314cfb81495b6f8356f94672a530c86b72a9eb84",
+            "router": null,
+            "quoteAsset": null,
+            "tokenAmountRaw": "0",
+            "tokenAmount": "0",
+            "quoteAmountRaw": "0",
+            "quoteAmount": "0",
+            "transactionSucceeded": false,
+            "walletWasSender": false,
+            "swapEventDetected": false,
+            "minimumSizeMet": false
+          }
+        },
+        {
+          "txHash": "0x1b06402f7966b757c890b472030daa9610949e3208fe2828571b6eb1d2f38e63",
+          "timestamp": "2026-08-15T11:59:47.000000Z",
+          "leadTimeHours": 84.00361111111111,
+          "amountRaw": "17360555242260000000000000000",
+          "classification": "UNCLASSIFIED",
+          "evidence": [
+            "wallet was not transaction originator"
+          ],
+          "detail": {
+            "txHash": "0x1b06402f7966b757c890b472030daa9610949e3208fe2828571b6eb1d2f38e63",
+            "router": null,
+            "quoteAsset": null,
+            "tokenAmountRaw": "0",
+            "tokenAmount": "0",
+            "quoteAmountRaw": "0",
+            "quoteAmount": "0",
+            "transactionSucceeded": false,
+            "walletWasSender": false,
+            "swapEventDetected": false,
+            "minimumSizeMet": false
+          }
+        }
+      ]
+    },
+    {
+      "wallet": "0x2ac51184e197248553827704f162234808664759",
+      "status": "DATA_INCOMPLETE",
+      "reason": "token_transfer_pagination_failed",
+      "failedPages": [
+        51
+      ],
+      "blockRangeExact": true
+    },
+    {
+      "wallet": "0xe4aa002d49faf0e62b923c924aac54c25702332b",
+      "token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "windowStart": "2026-08-12",
+      "windowEnd": "2026-08-19",
+      "blockRange": [
+        25735200,
+        25785424
+      ],
+      "blockRangeExact": true,
+      "status": "COMPLETE",
+      "transfersInWindow": 12,
+      "graded": [
+        {
+          "txHash": "0xf53b4a3786cd6004bc273d44a50988a9da46380c3b936a1ea2c571150b48d87f",
+          "timestamp": "2026-08-18T06:14:11.000000Z",
+          "leadTimeHours": 17.76361111111111,
+          "amountRaw": "5777932706000000000000000000",
+          "classification": "UNCLASSIFIED",
+          "evidence": [
+            "wallet was not transaction originator"
+          ],
+          "detail": {
+            "txHash": "0xf53b4a3786cd6004bc273d44a50988a9da46380c3b936a1ea2c571150b48d87f",
+            "router": null,
+            "quoteAsset": null,
+            "tokenAmountRaw": "0",
+            "tokenAmount": "0",
+            "quoteAmountRaw": "0",
+            "quoteAmount": "0",
+            "transactionSucceeded": false,
+            "walletWasSender": false,
+            "swapEventDetected": false,
+            "minimumSizeMet": false
+          }
+        },
+        {
+          "txHash": "0x820568adedacd9003d7983e2ba8f58791f732a7e1277981aa55977b12b8d3d7d",
+          "timestamp": "2026-08-18T01:54:11.000000Z",
+          "leadTimeHours": 22.096944444444443,
+          "amountRaw": "6595162341000000000000000000",
+          "classification": "UNCLASSIFIED",
+          "evidence": [
+            "wallet was not transaction originator"
+          ],
+          "detail": {
+            "txHash": "0x820568adedacd9003d7983e2ba8f58791f732a7e1277981aa55977b12b8d3d7d",
+            "router": null,
+            "quoteAsset": null,
+            "tokenAmountRaw": "0",
+            "tokenAmount": "0",
+            "quoteAmountRaw": "0",
+            "quoteAmount": "0",
+            "transactionSucceeded": false,
+            "walletWasSender": false,
+            "swapEventDetected": false,
+            "minimumSizeMet": false
+          }
+        },
+        {
+          "txHash": "0x1e571c000e9dcd0ba6ec5b0ff61f95502a7bab108ef37b6d52cc5e6108278c95",
+          "timestamp": "2026-08-17T05:14:11.000000Z",
+          "leadTimeHours": 42.76361111111111,
+          "amountRaw": "5733226132000000000000000000",
+          "classification": "UNCLASSIFIED",
+          "evidence": [
+            "wallet was not transaction originator"
+          ],
+          "detail": {
+            "txHash": "0x1e571c000e9dcd0ba6ec5b0ff61f95502a7bab108ef37b6d52cc5e6108278c95",
+            "router": null,
+            "quoteAsset": null,
+            "tokenAmountRaw": "0",
+            "tokenAmount": "0",
+            "quoteAmountRaw": "0",
+            "quoteAmount": "0",
+            "transactionSucceeded": false,
+            "walletWasSender": false,
+            "swapEventDetected": false,
+            "minimumSizeMet": false
+          }
+        },
+        {
+          "txHash": "0x47957ea813272eeafce920daebccc1dc9f13dbc6a41c7163fd614e9a28e73a7f",
+          "timestamp": "2026-08-16T19:14:11.000000Z",
+          "leadTimeHours": 52.76361111111111,
+          "amountRaw": "5743550222000000000000000000",
+          "classification": "UNCLASSIFIED",
+          "evidence": [
+            "wallet was not transaction originator"
+          ],
+          "detail": {
+            "txHash": "0x47957ea813272eeafce920daebccc1dc9f13dbc6a41c7163fd614e9a28e73a7f",
+            "router": null,
+            "quoteAsset": null,
+            "tokenAmountRaw": "0",
+            "tokenAmount": "0",
+            "quoteAmountRaw": "0",
+            "quoteAmount": "0",
+            "transactionSucceeded": false,
+            "walletWasSender": false,
+            "swapEventDetected": false,
+            "minimumSizeMet": false
+          }
+        },
+        {
+          "txHash": "0xdb0d2ceeecb78e4725d03cc3c3f2cd43a4ee649a92be3c5272edec6c9743e90a",
+          "timestamp": "2026-08-16T06:44:47.000000Z",
+          "leadTimeHours": 65.25361111111111,
+          "amountRaw": "2346118008700000000",
+          "classification": "UNCLASSIFIED",
+          "evidence": [
+            "wallet was not transaction originator"
+          ],
+          "detail": {
+            "txHash": "0xdb0d2ceeecb78e4725d03cc3c3f2cd43a4ee649a92be3c5272edec6c9743e90a",
+            "router": null,
+            "quoteAsset": null,
+            "tokenAmountRaw": "0",
+            "tokenAmount": "0",
+            "quoteAmountRaw": "0",
+            "quoteAmount": "0",
+            "transactionSucceeded": false,
+            "walletWasSender": false,
+            "swapEventDetected": false,
+            "minimumSizeMet": false
+          }
+        },
+        {
+          "txHash": "0xe7d3d443af796cdd5727e8d10f46bace0d4d71f93ed7edf0ed8f036e74ce7efe",
+          "timestamp": "2026-08-16T06:44:11.000000Z",
+          "leadTimeHours": 65.26361111111112,
+          "amountRaw": "5830219017000000000000000000",
+          "classification": "UNCLASSIFIED",
+          "evidence": [
+            "wallet was not transaction originator"
+          ],
+          "detail": {
+            "txHash": "0xe7d3d443af796cdd5727e8d10f46bace0d4d71f93ed7edf0ed8f036e74ce7efe",
+            "router": null,
+            "quoteAsset": null,
+            "tokenAmountRaw": "0",
+            "tokenAmount": "0",
+            "quoteAmountRaw": "0",
+            "quoteAmount": "0",
+            "transactionSucceeded": false,
+            "walletWasSender": false,
+            "swapEventDetected": false,
+            "minimumSizeMet": false
+          }
+        },
+        {
+          "txHash": "0xfac94fa5cb12eda3e8adac1b9f4fd7cf9e7f9bba9da5fddfafbc032c562cc36f",
+          "timestamp": "2026-08-16T01:34:11.000000Z",
+          "leadTimeHours": 70.43027777777777,
+          "amountRaw": "5798030717000000000000000000",
+          "classification": "UNCLASSIFIED",
+          "evidence": [
+            "wallet was not transaction originator"
+          ],
+          "detail": {
+            "txHash": "0xfac94fa5cb12eda3e8adac1b9f4fd7cf9e7f9bba9da5fddfafbc032c562cc36f",
+            "router": null,
+            "quoteAsset": null,
+            "tokenAmountRaw": "0",
+            "tokenAmount": "0",
+            "quoteAmountRaw": "0",
+            "quoteAmount": "0",
+            "transactionSucceeded": false,
+            "walletWasSender": false,
+            "swapEventDetected": false,
+            "minimumSizeMet": false
+          }
+        },
+        {
+          "txHash": "0xe05211c631431976f065a882f62d6bd004643f62c5ccd18d212a8cdeb8d9ddfe",
+          "timestamp": "2026-08-15T11:54:11.000000Z",
+          "leadTimeHours": 84.09694444444445,
+          "amountRaw": "6062612808000000000000000000",
+          "classification": "UNCLASSIFIED",
+          "evidence": [
+            "wallet was not transaction originator"
+          ],
+          "detail": {
+            "txHash": "0xe05211c631431976f065a882f62d6bd004643f62c5ccd18d212a8cdeb8d9ddfe",
+            "router": null,
+            "quoteAsset": null,
+            "tokenAmountRaw": "0",
+            "tokenAmount": "0",
+            "quoteAmountRaw": "0",
+            "quoteAmount": "0",
+            "transactionSucceeded": false,
+            "walletWasSender": false,
+            "swapEventDetected": false,
+            "minimumSizeMet": false
+          }
+        },
+        {
+          "txHash": "0x46f70b3c7daca08c959954728ba9b68d821a08b24c0e3a7e9b4c18ef1622411f",
+          "timestamp": "2026-08-14T15:04:11.000000Z",
+          "leadTimeHours": 104.93027777777777,
+          "amountRaw": "5883613735000000000000000000",
+          "classification": "UNCLASSIFIED",
+          "evidence": [
+            "wallet was not transaction originator"
+          ],
+          "detail": {
+            "txHash": "0x46f70b3c7daca08c959954728ba9b68d821a08b24c0e3a7e9b4c18ef1622411f",
+            "router": null,
+            "quoteAsset": null,
+            "tokenAmountRaw": "0",
+            "tokenAmount": "0",
+            "quoteAmountRaw": "0",
+            "quoteAmount": "0",
+            "transactionSucceeded": false,
+            "walletWasSender": false,
+            "swapEventDetected": false,
+            "minimumSizeMet": false
+          }
+        },
+        {
+          "txHash": "0x824faf2dfa5325208e892a68329056143e9d940bf7b73535f894264de74d6163",
+          "timestamp": "2026-08-14T12:34:11.000000Z",
+          "leadTimeHours": 107.43027777777777,
+          "amountRaw": "5716922827000000000000000000",
+          "classification": "UNCLASSIFIED",
+          "evidence": [
+            "wallet was not transaction originator"
+          ],
+          "detail": {
+            "txHash": "0x824faf2dfa5325208e892a68329056143e9d940bf7b73535f894264de74d6163",
+            "router": null,
+            "quoteAsset": null,
+            "tokenAmountRaw": "0",
+            "tokenAmount": "0",
+            "quoteAmountRaw": "0",
+            "quoteAmount": "0",
+            "transactionSucceeded": false,
+            "walletWasSender": false,
+            "swapEventDetected": false,
+            "minimumSizeMet": false
+          }
+        },
+        {
+          "txHash": "0x977faedddaf27241e2eacf307873ec72e9ae58bdc0e3886107e03934ec3f623f",
+          "timestamp": "2026-08-13T21:04:11.000000Z",
+          "leadTimeHours": 122.93027777777777,
+          "amountRaw": "5714937549000000000000000000",
+          "classification": "UNCLASSIFIED",
+          "evidence": [
+            "wallet was not transaction originator"
+          ],
+          "detail": {
+            "txHash": "0x977faedddaf27241e2eacf307873ec72e9ae58bdc0e3886107e03934ec3f623f",
+            "router": null,
+            "quoteAsset": null,
+            "tokenAmountRaw": "0",
+            "tokenAmount": "0",
+            "quoteAmountRaw": "0",
+            "quoteAmount": "0",
+            "transactionSucceeded": false,
+            "walletWasSender": false,
+            "swapEventDetected": false,
+            "minimumSizeMet": false
+          }
+        },
+        {
+          "txHash": "0x4b6fc42987cb99e113993bfd865de1c4c36b7f984b18c6419325e50ca1709090",
+          "timestamp": "2026-08-13T13:24:11.000000Z",
+          "leadTimeHours": 130.59694444444443,
+          "amountRaw": "5837670090000000000000000000",
+          "classification": "UNCLASSIFIED",
+          "evidence": [
+            "wallet was not transaction originator"
+          ],
+          "detail": {
+            "txHash": "0x4b6fc42987cb99e113993bfd865de1c4c36b7f984b18c6419325e50ca1709090",
+            "router": null,
+            "quoteAsset": null,
+            "tokenAmountRaw": "0",
+            "tokenAmount": "0",
+            "quoteAmountRaw": "0",
+            "quoteAmount": "0",
+            "transactionSucceeded": false,
+            "walletWasSender": false,
+            "swapEventDetected": false,
+            "minimumSizeMet": false
+          }
+        }
+      ]
+    },
+    {
+      "wallet": "0x3f9a8345729ea842708e080e238c92731e5699b8",
+      "status": "DATA_INCOMPLETE",
+      "reason": "token_transfer_pagination_failed",
+      "failedPages": [
+        51
+      ],
+      "blockRangeExact": true
+    }
+  ],
+  "verifiedWallets": [],
+  "verdict": "0 of 5 wallets have at least one CONFIRMED_DEX_BUY."
+}
