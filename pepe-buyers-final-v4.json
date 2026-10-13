@@ -1,0 +1,2520 @@
+{
+  "version": "pepe-buyers-final-v4",
+  "ranAt": "2026-10-13T16:40:48.698Z",
+  "method": "chunked Swap event extraction with truncation splitting",
+  "pair": "0xa43fe16908251ee70ef74718545e4fe6c5ccec9f",
+  "token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+  "swapTopic": "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822",
+  "window": {
+    "start": "2026-08-12",
+    "end": "2026-08-19",
+    "startBlock": 25735200,
+    "endBlock": 25785424
+  },
+  "minPepe": "1000000000",
+  "swapEventCount": 3699,
+  "uniqueBuyers": 1132,
+  "candidateCount": 1132,
+  "candidates": [
+    {
+      "address": "0x51c72848c68a965f66fa7a88855f9f7784502a7f",
+      "amountRaw": "180940265823731412070354124800",
+      "amountFormatted": "180940265823.7314120703541248"
+    },
+    {
+      "address": "0xbdb3ba9ffe392549e1f8658dd2630c141fdf47b6",
+      "amountRaw": "68336948255932574318706917125",
+      "amountFormatted": "68336948255.932574318706917125"
+    },
+    {
+      "address": "0x522ae68380ca52b02d3b19042e51e63b805f6cb9",
+      "amountRaw": "10090700941333445080434882379",
+      "amountFormatted": "10090700941.333445080434882379"
+    },
+    {
+      "address": "0x111111125421ca6dc452d289314280a0f8842a65",
+      "amountRaw": "8028166852359922932925177965",
+      "amountFormatted": "8028166852.359922932925177965"
+    },
+    {
+      "address": "0xd9c26c77d63e7b6183c572924416816e1268cc28",
+      "amountRaw": "6341404490843851623624568576",
+      "amountFormatted": "6341404490.843851623624568576"
+    },
+    {
+      "address": "0x9008d19f58aabd9ed0d60971565aa8510560ab41",
+      "amountRaw": "5222049087855371377332610776",
+      "amountFormatted": "5222049087.855371377332610776"
+    },
+    {
+      "address": "0xbdfa9c5f270c23ca659bf01f11317891dd8a026a",
+      "amountRaw": "4571637792058147507356276707",
+      "amountFormatted": "4571637792.058147507356276707"
+    },
+    {
+      "address": "0xee0ca621c24bac5ba83491b8dd404c57909d5249",
+      "amountRaw": "3246343633348077381213130738",
+      "amountFormatted": "3246343633.348077381213130738"
+    },
+    {
+      "address": "0xe3ef474805c96ac7edae891a8dc50f644d2cac3e",
+      "amountRaw": "3170084166849858691883439303",
+      "amountFormatted": "3170084166.849858691883439303"
+    },
+    {
+      "address": "0xdbe325de32033a39edcb792d1264f9e40351000d",
+      "amountRaw": "2902880122752336873190830741",
+      "amountFormatted": "2902880122.752336873190830741"
+    },
+    {
+      "address": "0xaa71667e3d15f5f0321f3008fa73060ed589f05d",
+      "amountRaw": "2878960667077817698697039327",
+      "amountFormatted": "2878960667.077817698697039327"
+    },
+    {
+      "address": "0xfeb44e5f9d001e84815b8debbc32afdd9fb32e4e",
+      "amountRaw": "2261918462961746747339625609",
+      "amountFormatted": "2261918462.961746747339625609"
+    },
+    {
+      "address": "0x983edb2c9a31c2549fb8d8b33b5724a85ae99423",
+      "amountRaw": "2142103536295654400270746527",
+      "amountFormatted": "2142103536.295654400270746527"
+    },
+    {
+      "address": "0x359fc1162bea5ffbe52dc1879110dae8c70fa3b1",
+      "amountRaw": "2133950718857409282067271407",
+      "amountFormatted": "2133950718.857409282067271407"
+    },
+    {
+      "address": "0x223edcebf2baadff1a85469019e26234ff67ff48",
+      "amountRaw": "1935241335676656389459585492",
+      "amountFormatted": "1935241335.676656389459585492"
+    },
+    {
+      "address": "0x128d29008b0b0c6a64fc6e6743091c4a4f23c61b",
+      "amountRaw": "1833894940387855554006770810",
+      "amountFormatted": "1833894940.38785555400677081"
+    },
+    {
+      "address": "0xd19ff8508307e17ea079533adc9f12864ef557e2",
+      "amountRaw": "1757153688833179360892947653",
+      "amountFormatted": "1757153688.833179360892947653"
+    },
+    {
+      "address": "0x6364b188d52e2c6483d435a4fb716123c7299bc4",
+      "amountRaw": "1623717573621087591064127833",
+      "amountFormatted": "1623717573.621087591064127833"
+    },
+    {
+      "address": "0x4b31042f9639639d49bd491a773f931b9740ee35",
+      "amountRaw": "1382893360623249858680758020",
+      "amountFormatted": "1382893360.62324985868075802"
+    },
+    {
+      "address": "0xaf2e428a0c17ba8fc940918b2482227dacb5ae89",
+      "amountRaw": "1286818734236486862059965844",
+      "amountFormatted": "1286818734.236486862059965844"
+    },
+    {
+      "address": "0x11111605b53ecef22726df86881e4d6d40b5ca11",
+      "amountRaw": "1154404827612510047232547475",
+      "amountFormatted": "1154404827.612510047232547475"
+    },
+    {
+      "address": "0xbf6acd523318af24764be44ab5b99381ac9053da",
+      "amountRaw": "1119789671327542362203083191",
+      "amountFormatted": "1119789671.327542362203083191"
+    },
+    {
+      "address": "0x84cab37995229530d9e6e5cff2f8f4ebe4517d66",
+      "amountRaw": "1070444265701327932727900304",
+      "amountFormatted": "1070444265.701327932727900304"
+    },
+    {
+      "address": "0xf486852b0085af4d4ba1e020d7dcf6c6ea108293",
+      "amountRaw": "1036490431250062897356664760",
+      "amountFormatted": "1036490431.25006289735666476"
+    },
+    {
+      "address": "0xcbfefaafacf7822458250c19755401edb1875710",
+      "amountRaw": "1014942893460849444037323695",
+      "amountFormatted": "1014942893.460849444037323695"
+    },
+    {
+      "address": "0x83562f40e366747ecade8f9b6619385c42b3763d",
+      "amountRaw": "970722666092705589429004196",
+      "amountFormatted": "970722666.092705589429004196"
+    },
+    {
+      "address": "0xaca1c156d89d658c245969027a7f5654e0e3e941",
+      "amountRaw": "962296726530512829452064503",
+      "amountFormatted": "962296726.530512829452064503"
+    },
+    {
+      "address": "0xb8e1f5b27ba910b8e0a7673d3827e5c52df18785",
+      "amountRaw": "953588454070538984196128884",
+      "amountFormatted": "953588454.070538984196128884"
+    },
+    {
+      "address": "0xd4e85a6ff0345a7c563a2a1d665f74d90a5d19cc",
+      "amountRaw": "943609020178554540949190257",
+      "amountFormatted": "943609020.178554540949190257"
+    },
+    {
+      "address": "0x18b7392814b06474de07aafcc674afc57a23c8b8",
+      "amountRaw": "943343965308847307875331941",
+      "amountFormatted": "943343965.308847307875331941"
+    },
+    {
+      "address": "0x61a2896caea8c5e307096ad512875918ca1fc56f",
+      "amountRaw": "941108186157212870275466363",
+      "amountFormatted": "941108186.157212870275466363"
+    },
+    {
+      "address": "0x792762019d15f00f41ea5e432fd86b7a92b6a236",
+      "amountRaw": "940975371832342361749602041",
+      "amountFormatted": "940975371.832342361749602041"
+    },
+    {
+      "address": "0xbe0497b8206c8330c031b833414058828f38e941",
+      "amountRaw": "940907592107651365479846487",
+      "amountFormatted": "940907592.107651365479846487"
+    },
+    {
+      "address": "0xa0aa230f13082bf0e9cd265971eea05c65c5f67b",
+      "amountRaw": "940331283958153013431994428",
+      "amountFormatted": "940331283.958153013431994428"
+    },
+    {
+      "address": "0x6eeb450002c9dc5fc4a3309e4996c0ed0096fba2",
+      "amountRaw": "940163275938682958657353853",
+      "amountFormatted": "940163275.938682958657353853"
+    },
+    {
+      "address": "0x6487986a78b126538746937fbd25516971129b3a",
+      "amountRaw": "939745800971887564128941229",
+      "amountFormatted": "939745800.971887564128941229"
+    },
+    {
+      "address": "0x13da01881fe2f343a9ffa6b1c4b81e355233f414",
+      "amountRaw": "924337034566446842145939666",
+      "amountFormatted": "924337034.566446842145939666"
+    },
+    {
+      "address": "0x5aa831007db9ce5a46fac2ad4f413cf6b5b16a8c",
+      "amountRaw": "922483420872308511503569493",
+      "amountFormatted": "922483420.872308511503569493"
+    },
+    {
+      "address": "0x9954fb4a6fd93743395d2af83017d98f884d82a8",
+      "amountRaw": "911207118722745462756376393",
+      "amountFormatted": "911207118.722745462756376393"
+    },
+    {
+      "address": "0x34930b98430a806bde6014c6114c4335f62af5de",
+      "amountRaw": "906679742550849600108142106",
+      "amountFormatted": "906679742.550849600108142106"
+    },
+    {
+      "address": "0x3997cba1d030718bd79bc57920325f0a8ad1fa57",
+      "amountRaw": "905170657077675770602495481",
+      "amountFormatted": "905170657.077675770602495481"
+    },
+    {
+      "address": "0x6dfd1998c702984ee26f768db7a851022a2f331d",
+      "amountRaw": "898539352168379409156774571",
+      "amountFormatted": "898539352.168379409156774571"
+    },
+    {
+      "address": "0x08ec055d593c353612b576d41f144fa0a4865a2d",
+      "amountRaw": "885441392936627375305636454",
+      "amountFormatted": "885441392.936627375305636454"
+    },
+    {
+      "address": "0x93f76d1be08fca32ae1d07513467e351c4b2a65a",
+      "amountRaw": "860389045093786885151271626",
+      "amountFormatted": "860389045.093786885151271626"
+    },
+    {
+      "address": "0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f",
+      "amountRaw": "846097860107889820985910338",
+      "amountFormatted": "846097860.107889820985910338"
+    },
+    {
+      "address": "0x73442eec60a4516e9215a2edb6558b41556488ae",
+      "amountRaw": "797029596046376679503773232",
+      "amountFormatted": "797029596.046376679503773232"
+    },
+    {
+      "address": "0x74de5d4fcbf63e00296fd95d33236b9794016631",
+      "amountRaw": "792248725577571429876492243",
+      "amountFormatted": "792248725.577571429876492243"
+    },
+    {
+      "address": "0xab8dc085a1dcaca488a4836dcdb4ae2bb953d867",
+      "amountRaw": "789094173787664233175833753",
+      "amountFormatted": "789094173.787664233175833753"
+    },
+    {
+      "address": "0x28bf6006d87de7f44445905aa4f5cb8c0d8cba02",
+      "amountRaw": "782510039912582234710089180",
+      "amountFormatted": "782510039.91258223471008918"
+    },
+    {
+      "address": "0x0c5ce01793ea538dd988594af2d3f580c6d67cdf",
+      "amountRaw": "743815472684833262267875853",
+      "amountFormatted": "743815472.684833262267875853"
+    },
+    {
+      "address": "0x78ec245e59af5deab96165648aad1d8bc04d4335",
+      "amountRaw": "726064986421966820153320349",
+      "amountFormatted": "726064986.421966820153320349"
+    },
+    {
+      "address": "0x48bfdb75c0a5305e3d94d9661bac6852a72d0d19",
+      "amountRaw": "696205384730793374219740900",
+      "amountFormatted": "696205384.7307933742197409"
+    },
+    {
+      "address": "0x0102577d3552ef6f64eefa4d297610e5e780456d",
+      "amountRaw": "691953041679557516348257538",
+      "amountFormatted": "691953041.679557516348257538"
+    },
+    {
+      "address": "0x1a1100cb4b037998f28c40b76268fd33b2fd6794",
+      "amountRaw": "688761136468573999150834596",
+      "amountFormatted": "688761136.468573999150834596"
+    },
+    {
+      "address": "0x10f4c55aa15bf3ddcb3b8ac621a8db2649799da3",
+      "amountRaw": "669109385609151526545905153",
+      "amountFormatted": "669109385.609151526545905153"
+    },
+    {
+      "address": "0x503972ee3a62480f66e7a1bd485dd5f7da754bec",
+      "amountRaw": "666361110978992940733950985",
+      "amountFormatted": "666361110.978992940733950985"
+    },
+    {
+      "address": "0x38583e92eaaae241bde8b5a10f23cea253d21b1b",
+      "amountRaw": "628731858469643311114814506",
+      "amountFormatted": "628731858.469643311114814506"
+    },
+    {
+      "address": "0xa6fc8502b3a7f93180b6e960f48c4556c2beb0b8",
+      "amountRaw": "607411790497588198936689470",
+      "amountFormatted": "607411790.49758819893668947"
+    },
+    {
+      "address": "0xd753e5e6856d633c8eabd12fc41566436d1cc57b",
+      "amountRaw": "606875863052557994777538028",
+      "amountFormatted": "606875863.052557994777538028"
+    },
+    {
+      "address": "0x4313c378cc91ea583c91387b9216e2c03096b27f",
+      "amountRaw": "605907875604699658828357562",
+      "amountFormatted": "605907875.604699658828357562"
+    },
+    {
+      "address": "0x000000000004444c5dc75cb358380d2e3de08a90",
+      "amountRaw": "597383398313884179978786938",
+      "amountFormatted": "597383398.313884179978786938"
+    },
+    {
+      "address": "0x60e1b2e2a8dfed101cb514f7baca98ae76bd1986",
+      "amountRaw": "574324772964512973456630299",
+      "amountFormatted": "574324772.964512973456630299"
+    },
+    {
+      "address": "0xf9f3b647d2a869e697d90775a0d125e0374b55c6",
+      "amountRaw": "566961133247371240660557804",
+      "amountFormatted": "566961133.247371240660557804"
+    },
+    {
+      "address": "0x2bdb00f440ae2a098df16130814942d5a0de0f60",
+      "amountRaw": "542802914561332019675253639",
+      "amountFormatted": "542802914.561332019675253639"
+    },
+    {
+      "address": "0xf1a88da6cbb9835d8447c0a06223dc4ecc431f1f",
+      "amountRaw": "541966134050981480473736102",
+      "amountFormatted": "541966134.050981480473736102"
+    },
+    {
+      "address": "0xe1a71818918ff327ef4d2e8234fac0a8777ca4fe",
+      "amountRaw": "505829638845503320965755000",
+      "amountFormatted": "505829638.845503320965755"
+    },
+    {
+      "address": "0x85371d2a5e80c9e68fae3ec91ad950970be17a8b",
+      "amountRaw": "504027560252822125407838451",
+      "amountFormatted": "504027560.252822125407838451"
+    },
+    {
+      "address": "0xa8944792800e181d6f854f2dcd5f27be4fd99559",
+      "amountRaw": "483891360736392244983557149",
+      "amountFormatted": "483891360.736392244983557149"
+    },
+    {
+      "address": "0x2632da4a279081ae984fdafd23d33cc8aa3c2645",
+      "amountRaw": "478805011410002312274970994",
+      "amountFormatted": "478805011.410002312274970994"
+    },
+    {
+      "address": "0x0c3effd5b82176f73381b05c449a555b8463dae1",
+      "amountRaw": "469472350175350656623981406",
+      "amountFormatted": "469472350.175350656623981406"
+    },
+    {
+      "address": "0x107f17fd6ac45b4c9c3f2701c8b656fdddf4cb3b",
+      "amountRaw": "454548133168343469813769899",
+      "amountFormatted": "454548133.168343469813769899"
+    },
+    {
+      "address": "0x981d7265cbdf5ff5e2012ecbfe9606bac4c5b6c5",
+      "amountRaw": "452196554840912677499416488",
+      "amountFormatted": "452196554.840912677499416488"
+    },
+    {
+      "address": "0xde9d9fbd796c275383c200929af7e3639afe9402",
+      "amountRaw": "448931730370796651292749471",
+      "amountFormatted": "448931730.370796651292749471"
+    },
+    {
+      "address": "0x103dad3f08c9c9131f20c6ef646611340ed79600",
+      "amountRaw": "443285234878066703515139794",
+      "amountFormatted": "443285234.878066703515139794"
+    },
+    {
+      "address": "0x3ba9958a04e8c88e0593e1a78cee2a05d30b7022",
+      "amountRaw": "440383780956386770655260523",
+      "amountFormatted": "440383780.956386770655260523"
+    },
+    {
+      "address": "0x02511a4102ddae1d66b80a36cfbfddc1c5820771",
+      "amountRaw": "432660568620474475617724219",
+      "amountFormatted": "432660568.620474475617724219"
+    },
+    {
+      "address": "0x5635432ee1fe96aef3f226ac91221c71e5d43b2f",
+      "amountRaw": "404014892611322428660688060",
+      "amountFormatted": "404014892.61132242866068806"
+    },
+    {
+      "address": "0x031eb1c14002398f05a7ad6d13c45a519b33b299",
+      "amountRaw": "387314476932407758488410623",
+      "amountFormatted": "387314476.932407758488410623"
+    },
+    {
+      "address": "0xf9280799c85d376e0425f6fb38e4a674e8bedb56",
+      "amountRaw": "383762700581537113035904025",
+      "amountFormatted": "383762700.581537113035904025"
+    },
+    {
+      "address": "0x4618fa37195a12bc5e06f3d3884b4a3f22cf2d7f",
+      "amountRaw": "375519071692032856600251997",
+      "amountFormatted": "375519071.692032856600251997"
+    },
+    {
+      "address": "0x5d0c5d3589b5be528e9f7d4775c46f87bf3e3703",
+      "amountRaw": "361612668723283000058601472",
+      "amountFormatted": "361612668.723283000058601472"
+    },
+    {
+      "address": "0x556c6cd12fff4e55dbfe3268f37da3fdde7efc21",
+      "amountRaw": "358895297253356882287809926",
+      "amountFormatted": "358895297.253356882287809926"
+    },
+    {
+      "address": "0xf5ff3968ccc18b21015b8c9853a3627c9c67eced",
+      "amountRaw": "355462177231624994701873567",
+      "amountFormatted": "355462177.231624994701873567"
+    },
+    {
+      "address": "0x44c5a509d0f857b5b5919e8f4126f8b0f6824410",
+      "amountRaw": "349779566931148186550824473",
+      "amountFormatted": "349779566.931148186550824473"
+    },
+    {
+      "address": "0xb234ba03447eee545baadd0d76c4c7044317e1ab",
+      "amountRaw": "349065063743756937735955146",
+      "amountFormatted": "349065063.743756937735955146"
+    },
+    {
+      "address": "0x76711d3f71d6829a13ecd3475cd4c16fa1b46c59",
+      "amountRaw": "343952240858715379961917984",
+      "amountFormatted": "343952240.858715379961917984"
+    },
+    {
+      "address": "0x80b4a27276d0c9cce34bf984877c5c9ed5982a9f",
+      "amountRaw": "323766121538580314711834704",
+      "amountFormatted": "323766121.538580314711834704"
+    },
+    {
+      "address": "0xca9209c6525e92c09a1cb18589e04734958da4fa",
+      "amountRaw": "315478195898622101523363140",
+      "amountFormatted": "315478195.89862210152336314"
+    },
+    {
+      "address": "0xf65b771469615213bee1ed788694a15d7c50326b",
+      "amountRaw": "306907857635708817107013934",
+      "amountFormatted": "306907857.635708817107013934"
+    },
+    {
+      "address": "0x14d9df496beb7a0e04c98af8e4fd78b426c1d1a2",
+      "amountRaw": "304027841086229776030058202",
+      "amountFormatted": "304027841.086229776030058202"
+    },
+    {
+      "address": "0x0889e9327b98d7d1be3c301a4585ff3330502c9a",
+      "amountRaw": "300348333479789739274284158",
+      "amountFormatted": "300348333.479789739274284158"
+    },
+    {
+      "address": "0x6a000f20005980200259b80c5102003040001068",
+      "amountRaw": "296828927990705237629504612",
+      "amountFormatted": "296828927.990705237629504612"
+    },
+    {
+      "address": "0x84a260fd2be522f1384fba4a678555b99cbb288a",
+      "amountRaw": "288784864059982012120191322",
+      "amountFormatted": "288784864.059982012120191322"
+    },
+    {
+      "address": "0xf5a937fb5591e47799a1004a55846dac41252216",
+      "amountRaw": "281684495758961597220792461",
+      "amountFormatted": "281684495.758961597220792461"
+    },
+    {
+      "address": "0x11e82f8ba2fe5165f9b613eacd03de743913dbf4",
+      "amountRaw": "275715022770843939897686711",
+      "amountFormatted": "275715022.770843939897686711"
+    },
+    {
+      "address": "0xb77e4dd0e97d889f6b023139d605113c98b5aabe",
+      "amountRaw": "273883646130742681245936742",
+      "amountFormatted": "273883646.130742681245936742"
+    },
+    {
+      "address": "0x66a9893cc07d91d95644aedd05d03f95e1dba8af",
+      "amountRaw": "265398174534081846690635759",
+      "amountFormatted": "265398174.534081846690635759"
+    },
+    {
+      "address": "0x2ab77db681251cce5a38cd255effe009c2c83622",
+      "amountRaw": "263414748271439986032724654",
+      "amountFormatted": "263414748.271439986032724654"
+    },
+    {
+      "address": "0x169f3b21e9efb563d55f3a0572bbfd7e28139389",
+      "amountRaw": "256905892814832401250824601",
+      "amountFormatted": "256905892.814832401250824601"
+    },
+    {
+      "address": "0x5a9e3d9b5ef520db59430a7d305c4afc9b84fcdf",
+      "amountRaw": "255067208825487132690710208",
+      "amountFormatted": "255067208.825487132690710208"
+    },
+    {
+      "address": "0xe10eb3848e7d88302e863d5989da2a50e7cb63b3",
+      "amountRaw": "254177556407900202671957528",
+      "amountFormatted": "254177556.407900202671957528"
+    },
+    {
+      "address": "0x2d068da2ae2422108507ae81b9d888bf68065020",
+      "amountRaw": "247506101735234289782476467",
+      "amountFormatted": "247506101.735234289782476467"
+    },
+    {
+      "address": "0xc9cd245a9aad4741a4a9fc07f164179777b376cf",
+      "amountRaw": "243233453732026693198250744",
+      "amountFormatted": "243233453.732026693198250744"
+    },
+    {
+      "address": "0x4865d09bcffdda510123e00a26d7bfb209fc8c17",
+      "amountRaw": "240347326146438897009260132",
+      "amountFormatted": "240347326.146438897009260132"
+    },
+    {
+      "address": "0xfb758d3dd99d6efcf7d5fe1ad7b3896ba427be6c",
+      "amountRaw": "238701838216727199256856854",
+      "amountFormatted": "238701838.216727199256856854"
+    },
+    {
+      "address": "0xd92a27e21c0fbc717d096e86c638c08dc61b2af6",
+      "amountRaw": "234223570343613342605140471",
+      "amountFormatted": "234223570.343613342605140471"
+    },
+    {
+      "address": "0x8f10b468b06c6fd214b65f87778827f7d113f996",
+      "amountRaw": "233571362702263936570671312",
+      "amountFormatted": "233571362.702263936570671312"
+    },
+    {
+      "address": "0x2acae2ae699174b8be560126a6d33d03943c9f82",
+      "amountRaw": "230998866090945015113712811",
+      "amountFormatted": "230998866.090945015113712811"
+    },
+    {
+      "address": "0xd0792eb7efa43021b5c44be937f244a4b8110b8e",
+      "amountRaw": "229910131184877849464397735",
+      "amountFormatted": "229910131.184877849464397735"
+    },
+    {
+      "address": "0xd7ca08ec1aee9cce8a8eda9365343ef197674e1a",
+      "amountRaw": "229202177043422290684899597",
+      "amountFormatted": "229202177.043422290684899597"
+    },
+    {
+      "address": "0xf3924e64efdb566cfa5b11b577f3b17887c1eb7f",
+      "amountRaw": "229134552020969929769614507",
+      "amountFormatted": "229134552.020969929769614507"
+    },
+    {
+      "address": "0x0b6e826b81d6d6220f6925d2528426b2a05b961e",
+      "amountRaw": "227886365750861216593788150",
+      "amountFormatted": "227886365.75086121659378815"
+    },
+    {
+      "address": "0x42836aa13345e4e9da74226a3654c0a35947ab21",
+      "amountRaw": "227172339346592059315019072",
+      "amountFormatted": "227172339.346592059315019072"
+    },
+    {
+      "address": "0xe6ba0dd41e31e34c9dc4887a79ade396a1efb9c6",
+      "amountRaw": "215745015910432624171717880",
+      "amountFormatted": "215745015.91043262417171788"
+    },
+    {
+      "address": "0x2d9433305dd71a3b8774a9bb483ef13b90b28de2",
+      "amountRaw": "212404250442057801594893014",
+      "amountFormatted": "212404250.442057801594893014"
+    },
+    {
+      "address": "0xe4fff50a762ae9fffd2b72c82257a41fe309f3bd",
+      "amountRaw": "211552373072570572812127884",
+      "amountFormatted": "211552373.072570572812127884"
+    },
+    {
+      "address": "0x1f2f10d1c40777ae1da742455c65828ff36df387",
+      "amountRaw": "201080400301550828404080640",
+      "amountFormatted": "201080400.30155082840408064"
+    },
+    {
+      "address": "0xfd9991fe6215daf99c83814a438a0c1e7785d1ce",
+      "amountRaw": "198057155090030974973206841",
+      "amountFormatted": "198057155.090030974973206841"
+    },
+    {
+      "address": "0xd0d35a3c3028eabfabc4dd76b32bdf5e3c1ba5bc",
+      "amountRaw": "194919922477625400800622911",
+      "amountFormatted": "194919922.477625400800622911"
+    },
+    {
+      "address": "0xbb5260d553c13479fd61c39ab1f01f291d3a8067",
+      "amountRaw": "193973493825070697186469009",
+      "amountFormatted": "193973493.825070697186469009"
+    },
+    {
+      "address": "0x6e1ea2510af82e5df5cf233fa47bf9a400f17a95",
+      "amountRaw": "191178056179824875180175524",
+      "amountFormatted": "191178056.179824875180175524"
+    },
+    {
+      "address": "0x387362b42f31ba5e27bd60423dd9da98858844aa",
+      "amountRaw": "188361939672909237141818933",
+      "amountFormatted": "188361939.672909237141818933"
+    },
+    {
+      "address": "0x56bd30dea98b50fa68f95bd6c3bfef2302b20c8e",
+      "amountRaw": "188161695827108149330186458",
+      "amountFormatted": "188161695.827108149330186458"
+    },
+    {
+      "address": "0xbde3b5e962cbc2e7c23c140f974092c3c47b6e5e",
+      "amountRaw": "187237181310156078857328468",
+      "amountFormatted": "187237181.310156078857328468"
+    },
+    {
+      "address": "0x1b1d8b13dcd6a01fdb4864d85d96f3ee0503b967",
+      "amountRaw": "183098452891810005381449497",
+      "amountFormatted": "183098452.891810005381449497"
+    },
+    {
+      "address": "0x383fa6d9069e2d1cce8a33ca9bf26b1a670fed8b",
+      "amountRaw": "180031746590022564840023142",
+      "amountFormatted": "180031746.590022564840023142"
+    },
+    {
+      "address": "0xeee9c3876d3e1fb789ced5cf31961d072d37c531",
+      "amountRaw": "179287430418800319362452128",
+      "amountFormatted": "179287430.418800319362452128"
+    },
+    {
+      "address": "0xe1ab05dc1347d64075ae8c105c11af2dc30b53c2",
+      "amountRaw": "177409529331372030138846941",
+      "amountFormatted": "177409529.331372030138846941"
+    },
+    {
+      "address": "0x673838bc8dfd6232a214944370e908e705c16836",
+      "amountRaw": "176898017890270331037165742",
+      "amountFormatted": "176898017.890270331037165742"
+    },
+    {
+      "address": "0xc9f16b6cc9cadb7b81e020b94e5ab72acf6b9748",
+      "amountRaw": "176710946800511659926483541",
+      "amountFormatted": "176710946.800511659926483541"
+    },
+    {
+      "address": "0x13ae031c9e3de1e70b42dfb00fa793cdd357f08c",
+      "amountRaw": "175583346115389424914835015",
+      "amountFormatted": "175583346.115389424914835015"
+    },
+    {
+      "address": "0xdbc1a6a96ea830d455a6a8591b6df5076ae24a40",
+      "amountRaw": "174084259692550897712610140",
+      "amountFormatted": "174084259.69255089771261014"
+    },
+    {
+      "address": "0x7905199e2781a641ccc0fe1855d590202cdac249",
+      "amountRaw": "173610764106680973683276785",
+      "amountFormatted": "173610764.106680973683276785"
+    },
+    {
+      "address": "0xd9f449ebd2e67144e311ca161e61af4ff8a67759",
+      "amountRaw": "170791265667466969086444374",
+      "amountFormatted": "170791265.667466969086444374"
+    },
+    {
+      "address": "0xfba9bcac82f9e78d477c9445efa6e3b0eeef0e7a",
+      "amountRaw": "167983056432839914992286269",
+      "amountFormatted": "167983056.432839914992286269"
+    },
+    {
+      "address": "0xe425b08074a35bb889cdd9bb578be89564f09d82",
+      "amountRaw": "167613818063001685267159719",
+      "amountFormatted": "167613818.063001685267159719"
+    },
+    {
+      "address": "0xbc11f410d93e44091a9e8a7157add7eefae8c3e3",
+      "amountRaw": "164158978094364587472535245",
+      "amountFormatted": "164158978.094364587472535245"
+    },
+    {
+      "address": "0x5de2baf58e58c1e4f4d2653bc45d4c74d30525c8",
+      "amountRaw": "158511643289072102196777191",
+      "amountFormatted": "158511643.289072102196777191"
+    },
+    {
+      "address": "0xfc6ade4a8669df666fd9fe6c3c3c2c8d52268d7a",
+      "amountRaw": "148228655574941661728665317",
+      "amountFormatted": "148228655.574941661728665317"
+    },
+    {
+      "address": "0x0d91a9e776d793f87399c317d58a6fcfbc5f1ae8",
+      "amountRaw": "144849473737571838564505664",
+      "amountFormatted": "144849473.737571838564505664"
+    },
+    {
+      "address": "0x36d47a08d1e3264ae26050f714b84942884acd63",
+      "amountRaw": "143867126465634604625261322",
+      "amountFormatted": "143867126.465634604625261322"
+    },
+    {
+      "address": "0x3d87884e9b6a2bace655ba38c81fb91f66871157",
+      "amountRaw": "143402567174857838419279401",
+      "amountFormatted": "143402567.174857838419279401"
+    },
+    {
+      "address": "0x6c00bfa7db41e88bd0866981b22792e33f9fbbae",
+      "amountRaw": "140402479137382582812292941",
+      "amountFormatted": "140402479.137382582812292941"
+    },
+    {
+      "address": "0x10e48121d0a9ff0aa522659996a518e6e57e6484",
+      "amountRaw": "140187922195445180966737583",
+      "amountFormatted": "140187922.195445180966737583"
+    },
+    {
+      "address": "0x3342963010cf03d5673e159fb2cb3aa93ceecaf0",
+      "amountRaw": "137973268932203004417754763",
+      "amountFormatted": "137973268.932203004417754763"
+    },
+    {
+      "address": "0x7bfc0f0511b9ab6660a82e6984ce40fee0e100f0",
+      "amountRaw": "127753591806977545103724094",
+      "amountFormatted": "127753591.806977545103724094"
+    },
+    {
+      "address": "0x6a9b4bd87aa49574e107556fdeb9c7eb1c5f03f5",
+      "amountRaw": "127000000000000001025214458",
+      "amountFormatted": "127000000.000000001025214458"
+    },
+    {
+      "address": "0xbd0da52f790a248fc528982bfdd434a3eb645f2b",
+      "amountRaw": "126406506743871822722158526",
+      "amountFormatted": "126406506.743871822722158526"
+    },
+    {
+      "address": "0x28b1dc1a5e3699a428bc51d234dfab7c9cb2a183",
+      "amountRaw": "123412148414879524370583808",
+      "amountFormatted": "123412148.414879524370583808"
+    },
+    {
+      "address": "0xcf845faab029df30a9879dc6c99e8659271803db",
+      "amountRaw": "122239868944370288494082235",
+      "amountFormatted": "122239868.944370288494082235"
+    },
+    {
+      "address": "0x2068f55a256a48f0f27c47e54218b041a85bb102",
+      "amountRaw": "121704653569881098564182414",
+      "amountFormatted": "121704653.569881098564182414"
+    },
+    {
+      "address": "0x09ad820aac5779683b481c4674208a4e1b024afa",
+      "amountRaw": "118730903509867127367652440",
+      "amountFormatted": "118730903.50986712736765244"
+    },
+    {
+      "address": "0xbb5bdbebebdd3a51774d3ab274b6201b75a39875",
+      "amountRaw": "117267352738758647692281408",
+      "amountFormatted": "117267352.738758647692281408"
+    },
+    {
+      "address": "0x2b20943e9d8c1787f4a03d5a68d5cd54eac306f4",
+      "amountRaw": "117250538533581044730992149",
+      "amountFormatted": "117250538.533581044730992149"
+    },
+    {
+      "address": "0xebd83ca98a45850c3507d8488c238aa3bad4dcf3",
+      "amountRaw": "116776171069526024782892735",
+      "amountFormatted": "116776171.069526024782892735"
+    },
+    {
+      "address": "0x13c10a31addcbcb1b5e0e18816b663f7e1019168",
+      "amountRaw": "112915802491514272804133268",
+      "amountFormatted": "112915802.491514272804133268"
+    },
+    {
+      "address": "0x8665912c7310e4ab94af43ade9e583052fc99586",
+      "amountRaw": "109440750626266890406437971",
+      "amountFormatted": "109440750.626266890406437971"
+    },
+    {
+      "address": "0x4e820111df86e8ec7b8f54843084f49c01df3d0d",
+      "amountRaw": "108544880704490915136857114",
+      "amountFormatted": "108544880.704490915136857114"
+    },
+    {
+      "address": "0x4dbe1ea62a84f446fb3176c4de070b69d62954d3",
+      "amountRaw": "108544158657986577426577055",
+      "amountFormatted": "108544158.657986577426577055"
+    },
+    {
+      "address": "0x14dc24c3fbb8958bd26c71a32143b67144e7b8f2",
+      "amountRaw": "108534135254557149478248813",
+      "amountFormatted": "108534135.254557149478248813"
+    },
+    {
+      "address": "0x4cd65adda830000d47bb40819d8102be1f3f769a",
+      "amountRaw": "108303018464713799788979067",
+      "amountFormatted": "108303018.464713799788979067"
+    },
+    {
+      "address": "0x97f073380c1e2c8a0f8e73756cf138b3a5579763",
+      "amountRaw": "108066394883495581776796436",
+      "amountFormatted": "108066394.883495581776796436"
+    },
+    {
+      "address": "0xb3ede012785f9dea32bff10e30a2f77a984344a4",
+      "amountRaw": "105868050292434140199776106",
+      "amountFormatted": "105868050.292434140199776106"
+    },
+    {
+      "address": "0xd9d199792b0198a18deb4b8f8991a41f2adcdf32",
+      "amountRaw": "104120428766439612801148903",
+      "amountFormatted": "104120428.766439612801148903"
+    },
+    {
+      "address": "0xa82135df5851437938bb66a307f6398679f633a3",
+      "amountRaw": "104086807281350930719986518",
+      "amountFormatted": "104086807.281350930719986518"
+    },
+    {
+      "address": "0x32fa09cc2d3f3e0a1a2418c40b1761e1361e98d8",
+      "amountRaw": "100387324944052837967555931",
+      "amountFormatted": "100387324.944052837967555931"
+    },
+    {
+      "address": "0x3f6732ea4eedab1ee1b9a3f9fe4013736656f980",
+      "amountRaw": "100000000000000000383113283",
+      "amountFormatted": "100000000.000000000383113283"
+    },
+    {
+      "address": "0xedd5c22bf56f0fa245d004cc83ce2a7081966664",
+      "amountRaw": "100000000000000000054610379",
+      "amountFormatted": "100000000.000000000054610379"
+    },
+    {
+      "address": "0x4711a9061e3da8a1503fdf080f5dc9eb22758f75",
+      "amountRaw": "99923444901976022559664551",
+      "amountFormatted": "99923444.901976022559664551"
+    },
+    {
+      "address": "0x57a2c4d6a1445912a24fd5867d4bdc2b72b8a259",
+      "amountRaw": "95337412286087368865213709",
+      "amountFormatted": "95337412.286087368865213709"
+    },
+    {
+      "address": "0xea0ba73c1b715aaa8a9f6db7fd9670507616d1d7",
+      "amountRaw": "95023271241160707816475813",
+      "amountFormatted": "95023271.241160707816475813"
+    },
+    {
+      "address": "0xabe4967d1fa2eab5cb160fcf22589adfeb821094",
+      "amountRaw": "93635346495165331043946880",
+      "amountFormatted": "93635346.49516533104394688"
+    },
+    {
+      "address": "0xc694720e1ad6a013a201ecc89f4cd669ec0a5ccf",
+      "amountRaw": "91565060790273043246396198",
+      "amountFormatted": "91565060.790273043246396198"
+    },
+    {
+      "address": "0x11e1fa8671cc70ea6eeb0bf1a7ba5db12fac0f27",
+      "amountRaw": "90644116008341737011644239",
+      "amountFormatted": "90644116.008341737011644239"
+    },
+    {
+      "address": "0xc70dce3443d66381ead01abd0b44694cd9db9631",
+      "amountRaw": "90341841467938995747212967",
+      "amountFormatted": "90341841.467938995747212967"
+    },
+    {
+      "address": "0xad7a884357992c443f8810a67ca3a2ade899d6b4",
+      "amountRaw": "90318598865040976568737519",
+      "amountFormatted": "90318598.865040976568737519"
+    },
+    {
+      "address": "0xe04ff8bba6e5368da492725f753076625884424a",
+      "amountRaw": "90291752501485400135971790",
+      "amountFormatted": "90291752.50148540013597179"
+    },
+    {
+      "address": "0xfa42c7f8322163c4a1341af82947d5be483fca5e",
+      "amountRaw": "90224908141673645393575195",
+      "amountFormatted": "90224908.141673645393575195"
+    },
+    {
+      "address": "0xe4c19e73770fe133fd0ad41b1885dfeae3f99e72",
+      "amountRaw": "90026085101828999911300093",
+      "amountFormatted": "90026085.101828999911300093"
+    },
+    {
+      "address": "0xe7f979be21137744861638d0cdc4f16012bd528b",
+      "amountRaw": "89232143768226931307139354",
+      "amountFormatted": "89232143.768226931307139354"
+    },
+    {
+      "address": "0xfed09f81ebd745c6c97c39e481f4e0eb6d2ad389",
+      "amountRaw": "88347242449350093079310560",
+      "amountFormatted": "88347242.44935009307931056"
+    },
+    {
+      "address": "0x2e7711d2eb4de7d50bf5c145dd20b83bbfda382e",
+      "amountRaw": "88213892645960738338955333",
+      "amountFormatted": "88213892.645960738338955333"
+    },
+    {
+      "address": "0x11c2406327ef2e723a4d6cd8846c3d208d3d248c",
+      "amountRaw": "87826750710771398832906920",
+      "amountFormatted": "87826750.71077139883290692"
+    },
+    {
+      "address": "0x1100c9e9008d5a721ba75b61f70e8a60763e9d61",
+      "amountRaw": "87354362726784151281418428",
+      "amountFormatted": "87354362.726784151281418428"
+    },
+    {
+      "address": "0x402ccb238f91ea9c3af31f3f85d7612fbe938797",
+      "amountRaw": "86691909756017743680441251",
+      "amountFormatted": "86691909.756017743680441251"
+    },
+    {
+      "address": "0x651effd72d4199b9b753d4479a33aef784148491",
+      "amountRaw": "86325329047961855547732871",
+      "amountFormatted": "86325329.047961855547732871"
+    },
+    {
+      "address": "0xf1067cbd04a438e74eecd69c2d1e74f47a2199c0",
+      "amountRaw": "85991789014277204227170726",
+      "amountFormatted": "85991789.014277204227170726"
+    },
+    {
+      "address": "0xa4c8d9523a85c48422f592c0d537bd2c7196dda6",
+      "amountRaw": "85922665481924151371899224",
+      "amountFormatted": "85922665.481924151371899224"
+    },
+    {
+      "address": "0x5111d849168e0179e4a184c1c8806d3d9f779df3",
+      "amountRaw": "79638374299390976140064678",
+      "amountFormatted": "79638374.299390976140064678"
+    },
+    {
+      "address": "0xa4742eb19499d0325ba3439e5212c953dbdef9d3",
+      "amountRaw": "79469746435767129121491286",
+      "amountFormatted": "79469746.435767129121491286"
+    },
+    {
+      "address": "0xda16004b6638112d187376b9af63e8ba6981fce0",
+      "amountRaw": "79324675801367429075205006",
+      "amountFormatted": "79324675.801367429075205006"
+    },
+    {
+      "address": "0x84fdacd6a951385c0dae7c0b4c2a0c73e9afb73f",
+      "amountRaw": "79041662460063380230716524",
+      "amountFormatted": "79041662.460063380230716524"
+    },
+    {
+      "address": "0x0cac8e5b235544dd7225e77af170a8b6bdcd9d6b",
+      "amountRaw": "78991694081149353779879804",
+      "amountFormatted": "78991694.081149353779879804"
+    },
+    {
+      "address": "0xc55e2c023a2c9eed4b32b42d1fe219c3e2d50539",
+      "amountRaw": "77837336352919240938562319",
+      "amountFormatted": "77837336.352919240938562319"
+    },
+    {
+      "address": "0xbecfe1abf46fb5d06e432a7ed5d92eda5d197d97",
+      "amountRaw": "77746183429801206505761692",
+      "amountFormatted": "77746183.429801206505761692"
+    },
+    {
+      "address": "0x23b50fbea75765e1f8036ba45bc6c7882cfee77b",
+      "amountRaw": "77262841833531853341290690",
+      "amountFormatted": "77262841.83353185334129069"
+    },
+    {
+      "address": "0x2f572a7d90b9705c069f7bd0d518d3ed10faca03",
+      "amountRaw": "77022206541580315640671445",
+      "amountFormatted": "77022206.541580315640671445"
+    },
+    {
+      "address": "0x5992d731a8e99e88c210b123bf77aadf941450ab",
+      "amountRaw": "76905204018621870963437296",
+      "amountFormatted": "76905204.018621870963437296"
+    },
+    {
+      "address": "0xb58c13d47c1d78c4a4ba2bc7878012e6f958439e",
+      "amountRaw": "76676004537957591506023737",
+      "amountFormatted": "76676004.537957591506023737"
+    },
+    {
+      "address": "0xb7f937433a0ab1667034a25a65898300392436e8",
+      "amountRaw": "76328385296463683263436597",
+      "amountFormatted": "76328385.296463683263436597"
+    },
+    {
+      "address": "0x2695b8d18ffeb99b2803b4ae031c49411eff6e4e",
+      "amountRaw": "75862805548556790726933041",
+      "amountFormatted": "75862805.548556790726933041"
+    },
+    {
+      "address": "0x3a6d31cdb0333b1446514a76394165565a112047",
+      "amountRaw": "75559579143513564643595485",
+      "amountFormatted": "75559579.143513564643595485"
+    },
+    {
+      "address": "0x4b4f4edba166e81ef722132d45daa8386ac2d758",
+      "amountRaw": "75364798084530976787089276",
+      "amountFormatted": "75364798.084530976787089276"
+    },
+    {
+      "address": "0xe859992fdb55fea5919613586cb25a8b08041a1f",
+      "amountRaw": "75353665315737972609397852",
+      "amountFormatted": "75353665.315737972609397852"
+    },
+    {
+      "address": "0x587de1c12772ff00af52da118bfa3fd27a85075f",
+      "amountRaw": "75315192572943104176444766",
+      "amountFormatted": "75315192.572943104176444766"
+    },
+    {
+      "address": "0x699cea53e0767b821b09bfe6525d6a3866cf03d3",
+      "amountRaw": "73843111395258045340439255",
+      "amountFormatted": "73843111.395258045340439255"
+    },
+    {
+      "address": "0xfef2282448276d523e9ff93258903de4398a96a7",
+      "amountRaw": "73783654051837317382370537",
+      "amountFormatted": "73783654.051837317382370537"
+    },
+    {
+      "address": "0x4144d6d455c0902b8667a138b9b01c7f7b79e544",
+      "amountRaw": "73366986983556126532302072",
+      "amountFormatted": "73366986.983556126532302072"
+    },
+    {
+      "address": "0xd31069b744cf5d77327244e01ae22cca2f9ffb3a",
+      "amountRaw": "73128262851551316427460264",
+      "amountFormatted": "73128262.851551316427460264"
+    },
+    {
+      "address": "0x22ec88b9ff78c6f2458ab1a7aa8bb99d84bd4b86",
+      "amountRaw": "73019404063059453383040038",
+      "amountFormatted": "73019404.063059453383040038"
+    },
+    {
+      "address": "0x85c85c415ebc34755133bf30b0e6f18f85b58671",
+      "amountRaw": "72892022998158460624420407",
+      "amountFormatted": "72892022.998158460624420407"
+    },
+    {
+      "address": "0x9221b2c9e45a090b3e16f5e8a0f7613840c024cd",
+      "amountRaw": "72406703532861917631585384",
+      "amountFormatted": "72406703.532861917631585384"
+    },
+    {
+      "address": "0x1e467dfde1d23b54d74333fbade18b1902f07412",
+      "amountRaw": "72371625399847726799335430",
+      "amountFormatted": "72371625.39984772679933543"
+    },
+    {
+      "address": "0x7aeb03c154bcd7f3c944ea146b84b43cccacadd0",
+      "amountRaw": "72368957157809244956464867",
+      "amountFormatted": "72368957.157809244956464867"
+    },
+    {
+      "address": "0x190d3c077b8f698d5b735e550630ac0c271295dd",
+      "amountRaw": "72121500306465977382435099",
+      "amountFormatted": "72121500.306465977382435099"
+    },
+    {
+      "address": "0x97b917c62c563b215c960a2f6b651abb21a932f0",
+      "amountRaw": "72070994786969542636825868",
+      "amountFormatted": "72070994.786969542636825868"
+    },
+    {
+      "address": "0x83721108913410aea6055f193e5e61d34b048201",
+      "amountRaw": "72006806930383509505419315",
+      "amountFormatted": "72006806.930383509505419315"
+    },
+    {
+      "address": "0xe8ce973cb61f7fe02078cb456742cf46d86c46a3",
+      "amountRaw": "71893742108045803669830061",
+      "amountFormatted": "71893742.108045803669830061"
+    },
+    {
+      "address": "0xf2018004116637685d8c1ea0b11af99a3f3ddba6",
+      "amountRaw": "71736003992365194628292178",
+      "amountFormatted": "71736003.992365194628292178"
+    },
+    {
+      "address": "0x196c6de36cfa0c37bef5e6ec97070a6fcca6643a",
+      "amountRaw": "71733776916037685397336582",
+      "amountFormatted": "71733776.916037685397336582"
+    },
+    {
+      "address": "0x3dbd7e1e6f95a337f670d2056e1adfa6aaf43833",
+      "amountRaw": "71546569921467138707325279",
+      "amountFormatted": "71546569.921467138707325279"
+    },
+    {
+      "address": "0x54105a9ec11d1fa41a23b19b3b14aedd85405b2a",
+      "amountRaw": "71428704120419678258977676",
+      "amountFormatted": "71428704.120419678258977676"
+    },
+    {
+      "address": "0x461c895b69602ccfaa686cac5738121049c0d64e",
+      "amountRaw": "71399850676573066747711952",
+      "amountFormatted": "71399850.676573066747711952"
+    },
+    {
+      "address": "0x50ec1b6bf4f29de83739117d035ca1fd41d30fb2",
+      "amountRaw": "71370059329335597334983098",
+      "amountFormatted": "71370059.329335597334983098"
+    },
+    {
+      "address": "0x2850bb37fd2333a3b2487aa508877ddcc3e1687e",
+      "amountRaw": "71268391856445048124311148",
+      "amountFormatted": "71268391.856445048124311148"
+    },
+    {
+      "address": "0x001ebd52af0a71048dc76b80b522315e73ad040f",
+      "amountRaw": "70730477397995238253885804",
+      "amountFormatted": "70730477.397995238253885804"
+    },
+    {
+      "address": "0x90be910e18ffe955fdec8b29b535c8697ef62939",
+      "amountRaw": "70728588110363217553183417",
+      "amountFormatted": "70728588.110363217553183417"
+    },
+    {
+      "address": "0x327b1cc9b71bd92b2b1a145afa5202e04ba23b80",
+      "amountRaw": "70688435008361084622867168",
+      "amountFormatted": "70688435.008361084622867168"
+    },
+    {
+      "address": "0xe68e72bd29eab54c140a0e2eeb0f689b64c15160",
+      "amountRaw": "70667260311278040149049926",
+      "amountFormatted": "70667260.311278040149049926"
+    },
+    {
+      "address": "0x8e22732f3253a1b655231934d3dc8274e6241970",
+      "amountRaw": "70589631272373618840723654",
+      "amountFormatted": "70589631.272373618840723654"
+    },
+    {
+      "address": "0x98d1a00357ad1ee7e8abbd3d30d092ce3318c29e",
+      "amountRaw": "70555840419792430919368424",
+      "amountFormatted": "70555840.419792430919368424"
+    },
+    {
+      "address": "0x553452207df68020b30ae53bcab22f6be4dc04e3",
+      "amountRaw": "70520907688631419660204070",
+      "amountFormatted": "70520907.68863141966020407"
+    },
+    {
+      "address": "0x30718502a9d0abe246bac5ac040dd0b1dd35a358",
+      "amountRaw": "70259371582766364443164714",
+      "amountFormatted": "70259371.582766364443164714"
+    },
+    {
+      "address": "0x547445e29f7ce0f32e0c43fe9ff16f126545cf0a",
+      "amountRaw": "70200148267273789222577367",
+      "amountFormatted": "70200148.267273789222577367"
+    },
+    {
+      "address": "0x77a57fe9e64551e1ed66c110195fd7a7974305de",
+      "amountRaw": "70043436014354855576431371",
+      "amountFormatted": "70043436.014354855576431371"
+    },
+    {
+      "address": "0x63b2d3b0a26c1938bb0ae9779b96073946d4e4af",
+      "amountRaw": "70014393488598966351172592",
+      "amountFormatted": "70014393.488598966351172592"
+    },
+    {
+      "address": "0x898e5fd573a8bc19f3ed4c2cdb62bcf103d106e2",
+      "amountRaw": "68874451833097738720137847",
+      "amountFormatted": "68874451.833097738720137847"
+    },
+    {
+      "address": "0x1111111254eeb25477b68fb85ed929f73a960582",
+      "amountRaw": "67957271942240602678923670",
+      "amountFormatted": "67957271.94224060267892367"
+    },
+    {
+      "address": "0xfdeb8e6a2e6a5d505b84f74962d2d7363a7c9441",
+      "amountRaw": "67412697924762810381065814",
+      "amountFormatted": "67412697.924762810381065814"
+    },
+    {
+      "address": "0xb300000b72deaeb607a12d5f54773d1c19c7028d",
+      "amountRaw": "65944379711382373794385903",
+      "amountFormatted": "65944379.711382373794385903"
+    },
+    {
+      "address": "0x87e198adb0f356e44cd05165faa9edb01465a7db",
+      "amountRaw": "64269730605929511921763596",
+      "amountFormatted": "64269730.605929511921763596"
+    },
+    {
+      "address": "0xed0b7a10c627b8720a5af35553730b4573cba2fa",
+      "amountRaw": "62505000645218538701966105",
+      "amountFormatted": "62505000.645218538701966105"
+    },
+    {
+      "address": "0x0a01db93faecfb655f2007b2c4b82224f578ffc6",
+      "amountRaw": "62339339390214902300374599",
+      "amountFormatted": "62339339.390214902300374599"
+    },
+    {
+      "address": "0xd8f375658dd201e9bc9b4470c702c714726ce98f",
+      "amountRaw": "59078826002573062298215198",
+      "amountFormatted": "59078826.002573062298215198"
+    },
+    {
+      "address": "0xda892c989d07a18b5dd3f392d949f00df15c5736",
+      "amountRaw": "58139828608900903571705167",
+      "amountFormatted": "58139828.608900903571705167"
+    },
+    {
+      "address": "0x9f9820e58342286584481e20e631088cc5643208",
+      "amountRaw": "56930684515545666768942232",
+      "amountFormatted": "56930684.515545666768942232"
+    },
+    {
+      "address": "0x56d30d7daa21be2f8caffd1a5d1617e242f5e18f",
+      "amountRaw": "54663282298784203113514518",
+      "amountFormatted": "54663282.298784203113514518"
+    },
+    {
+      "address": "0xff0bf597adbc8c878416def6d5315100e95521c9",
+      "amountRaw": "54539336235300418411934366",
+      "amountFormatted": "54539336.235300418411934366"
+    },
+    {
+      "address": "0x5d1954744ae788bd8926c3da0db30a0dc6240dd9",
+      "amountRaw": "54151063113533235675962151",
+      "amountFormatted": "54151063.113533235675962151"
+    },
+    {
+      "address": "0x6d4d0d3aa9a2129a5aae918c1b91a8b25f58415d",
+      "amountRaw": "54150222728387748193981034",
+      "amountFormatted": "54150222.728387748193981034"
+    },
+    {
+      "address": "0x752d1563c3c3bfa2dd697ebaffbccff799e58a84",
+      "amountRaw": "53931876837598259231649804",
+      "amountFormatted": "53931876.837598259231649804"
+    },
+    {
+      "address": "0xcdd5f0867c0dc4ad38b5e5e6509ad99e04e66d1e",
+      "amountRaw": "53781254333261064685844970",
+      "amountFormatted": "53781254.33326106468584497"
+    },
+    {
+      "address": "0x2110f35935d043b2844812421debf13f1b38b75f",
+      "amountRaw": "53647295323312995548196757",
+      "amountFormatted": "53647295.323312995548196757"
+    },
+    {
+      "address": "0x894b6af7c00acd3f418090c0edb066f647967731",
+      "amountRaw": "52975263325870666227980631",
+      "amountFormatted": "52975263.325870666227980631"
+    },
+    {
+      "address": "0x80ebfab6c88d7c270a89e997f9aa0816e4b3b160",
+      "amountRaw": "52715154708182801068141034",
+      "amountFormatted": "52715154.708182801068141034"
+    },
+    {
+      "address": "0xbbf30135965a44fd07665d1b8e370fbace50e275",
+      "amountRaw": "52684006192700487985783722",
+      "amountFormatted": "52684006.192700487985783722"
+    },
+    {
+      "address": "0xca0963afae0bc5556382189b0ed4a1c3da3441f4",
+      "amountRaw": "52470075870355100597248496",
+      "amountFormatted": "52470075.870355100597248496"
+    },
+    {
+      "address": "0x540bdbae38203264942d192f9a0e9836fb95c150",
+      "amountRaw": "52399907710396389567700987",
+      "amountFormatted": "52399907.710396389567700987"
+    },
+    {
+      "address": "0x25ea4fb8496d24b66bb1ea45a0be9be0bd06476d",
+      "amountRaw": "52042427369860903606842377",
+      "amountFormatted": "52042427.369860903606842377"
+    },
+    {
+      "address": "0x70dfa2ca7ba6451ab075a42b916a4ac2e3c030ff",
+      "amountRaw": "51900300263785087638778161",
+      "amountFormatted": "51900300.263785087638778161"
+    },
+    {
+      "address": "0x14ef617d895489d882b666cd367145e7396ebd5e",
+      "amountRaw": "51799709132816157117992944",
+      "amountFormatted": "51799709.132816157117992944"
+    },
+    {
+      "address": "0x1b1aeced207d7c4cd61214d0f9ded4b00ec1d473",
+      "amountRaw": "51500185639402779075285629",
+      "amountFormatted": "51500185.639402779075285629"
+    },
+    {
+      "address": "0x045d21b97747686c4b4f8d70e6feeadcb3f6d345",
+      "amountRaw": "50925407762877109057083695",
+      "amountFormatted": "50925407.762877109057083695"
+    },
+    {
+      "address": "0x8df9cc2bf0646f77fbf60d3ea5d40a95b46d7527",
+      "amountRaw": "50381291357074921780533552",
+      "amountFormatted": "50381291.357074921780533552"
+    },
+    {
+      "address": "0x9cf88cacf276b501bf9cd236b54df059c0b76f71",
+      "amountRaw": "49986109544102117958905299",
+      "amountFormatted": "49986109.544102117958905299"
+    },
+    {
+      "address": "0x8226cd2e2f378698a5961e4dfb772f1e48190847",
+      "amountRaw": "49828407352706070382179374",
+      "amountFormatted": "49828407.352706070382179374"
+    },
+    {
+      "address": "0xc5e9f816994d3eb91b556bc8d0a0cbe44a674909",
+      "amountRaw": "49704038962317847866302624",
+      "amountFormatted": "49704038.962317847866302624"
+    },
+    {
+      "address": "0x79d8637f8924e2e7658cd85d60dcdf281f9379e3",
+      "amountRaw": "46588895384302316565438614",
+      "amountFormatted": "46588895.384302316565438614"
+    },
+    {
+      "address": "0x6bf6a4b174842c87c724533a33c9cee5eb509c15",
+      "amountRaw": "46430177214805666253882276",
+      "amountFormatted": "46430177.214805666253882276"
+    },
+    {
+      "address": "0xf25aac3ccf32794d7ca6d92f11adb27aac2e5928",
+      "amountRaw": "46370014702683227803241705",
+      "amountFormatted": "46370014.702683227803241705"
+    },
+    {
+      "address": "0x44eb9dba41f98425c0576fdd510d7c429cec6e93",
+      "amountRaw": "46234913553655747569978544",
+      "amountFormatted": "46234913.553655747569978544"
+    },
+    {
+      "address": "0x0b3961d307222d9dfce56cf7389f0192b4232555",
+      "amountRaw": "45242594869907762394273999",
+      "amountFormatted": "45242594.869907762394273999"
+    },
+    {
+      "address": "0x806090301dbab43388aac2b2e3cc3bb23d216d8a",
+      "amountRaw": "45182157539285668860096592",
+      "amountFormatted": "45182157.539285668860096592"
+    },
+    {
+      "address": "0x8f6f98ef665136627a6480609f991ffde0c2c56c",
+      "amountRaw": "45065918718779171139345874",
+      "amountFormatted": "45065918.718779171139345874"
+    },
+    {
+      "address": "0x953c7b06411c819b551d7c36fcb18497b7b8fa6b",
+      "amountRaw": "44340154367366184523695682",
+      "amountFormatted": "44340154.367366184523695682"
+    },
+    {
+      "address": "0x949c89981024737ef43b00759a8dc4ae21aa12b3",
+      "amountRaw": "44150061381828637864234586",
+      "amountFormatted": "44150061.381828637864234586"
+    },
+    {
+      "address": "0x759121ac9db94088b17755a0666171487dd1deb7",
+      "amountRaw": "43893163121915426469756646",
+      "amountFormatted": "43893163.121915426469756646"
+    },
+    {
+      "address": "0x06f027fcd7cb1b27fff6244e238a31cacfac9e9b",
+      "amountRaw": "43478229564240307588497416",
+      "amountFormatted": "43478229.564240307588497416"
+    },
+    {
+      "address": "0xa6229d19859a97cce74b56d239a14f34c7b8ebe2",
+      "amountRaw": "43392681805249703789876190",
+      "amountFormatted": "43392681.80524970378987619"
+    },
+    {
+      "address": "0x288ba5b45885a2d668cafee2cef5dbae29469ac1",
+      "amountRaw": "43238726874034919787088797",
+      "amountFormatted": "43238726.874034919787088797"
+    },
+    {
+      "address": "0x7d7e8b7c20154b05b4902a3388ba614ef582bfae",
+      "amountRaw": "42428080319855867573132436",
+      "amountFormatted": "42428080.319855867573132436"
+    },
+    {
+      "address": "0xcdceb3b458d8f07720f91199ead927cbc955372d",
+      "amountRaw": "42259872367257847895281949",
+      "amountFormatted": "42259872.367257847895281949"
+    },
+    {
+      "address": "0x7100138a385ec80161da89ae1f93447636ff424c",
+      "amountRaw": "41998126495124596863517401",
+      "amountFormatted": "41998126.495124596863517401"
+    },
+    {
+      "address": "0xf5539ca501a2ca93bf11f2a5f4af5bf90062c142",
+      "amountRaw": "41717037056772513992776554",
+      "amountFormatted": "41717037.056772513992776554"
+    },
+    {
+      "address": "0x2ef9b118c1278ed37ee49534a400f1519d257e1a",
+      "amountRaw": "40747836913971990770403429",
+      "amountFormatted": "40747836.913971990770403429"
+    },
+    {
+      "address": "0xe810d82251683eda52c86e399fb737b975ffe736",
+      "amountRaw": "39884085829117038704435393",
+      "amountFormatted": "39884085.829117038704435393"
+    },
+    {
+      "address": "0x3816a5abe62ee81ffa51ec5b5b18bcd6141edbaf",
+      "amountRaw": "39551656604938566132454437",
+      "amountFormatted": "39551656.604938566132454437"
+    },
+    {
+      "address": "0x9785d44dab0a5853f29f03b8bf36345b8c1d8871",
+      "amountRaw": "39021887352380560921659519",
+      "amountFormatted": "39021887.352380560921659519"
+    },
+    {
+      "address": "0x50a84c5c2b2bae8c8fcb52ae45c3e277c7f853f3",
+      "amountRaw": "39012404113636511339277398",
+      "amountFormatted": "39012404.113636511339277398"
+    },
+    {
+      "address": "0xb811d48c087cca26e2a0cf393a64f67114f5ce0f",
+      "amountRaw": "38865841892613680769777894",
+      "amountFormatted": "38865841.892613680769777894"
+    },
+    {
+      "address": "0xc81c084af1998acf1c28cf4c0a8f546fa0aea208",
+      "amountRaw": "38703162865616078121995096",
+      "amountFormatted": "38703162.865616078121995096"
+    },
+    {
+      "address": "0x79d359c21fb9e8c3fa421c20fb809263af5da283",
+      "amountRaw": "38658388701448224564528338",
+      "amountFormatted": "38658388.701448224564528338"
+    },
+    {
+      "address": "0x88c5191ba626ea528a22a4f4dbe6ab140f730e6e",
+      "amountRaw": "38499154899561480657783324",
+      "amountFormatted": "38499154.899561480657783324"
+    },
+    {
+      "address": "0xe852b0aa942998145073eaa8bb66f1cc0cb3863d",
+      "amountRaw": "38442765465460200041690611",
+      "amountFormatted": "38442765.465460200041690611"
+    },
+    {
+      "address": "0x201a82e79074a3f5c3a4def37a907e3608990aa2",
+      "amountRaw": "38440471006285971868031342",
+      "amountFormatted": "38440471.006285971868031342"
+    },
+    {
+      "address": "0x4ddb4c36aa35eefa67f9b267be12581c9b77fdd6",
+      "amountRaw": "38424396482237642091538267",
+      "amountFormatted": "38424396.482237642091538267"
+    },
+    {
+      "address": "0xe098f53739cebc25a9985a3fbb197e5791ee1cd4",
+      "amountRaw": "38410122368316727084473567",
+      "amountFormatted": "38410122.368316727084473567"
+    },
+    {
+      "address": "0x69aa23feb60ee3dcfd0d347845b9eaadd704ea53",
+      "amountRaw": "38407018769175564738766998",
+      "amountFormatted": "38407018.769175564738766998"
+    },
+    {
+      "address": "0x0619db48de163a51e7f762880e130774996f1cb1",
+      "amountRaw": "38397457377148096522955578",
+      "amountFormatted": "38397457.377148096522955578"
+    },
+    {
+      "address": "0xcbde6f6cc414071c79331354a7b85ab094ec40d1",
+      "amountRaw": "38395851931002991962095810",
+      "amountFormatted": "38395851.93100299196209581"
+    },
+    {
+      "address": "0xb14523c623f9ebe9765c887215fd2ade0be016a3",
+      "amountRaw": "38352848075734678521522188",
+      "amountFormatted": "38352848.075734678521522188"
+    },
+    {
+      "address": "0x412ee75451bb11b781a99b54cbc8efd21f47cbdf",
+      "amountRaw": "38318473781872206936760117",
+      "amountFormatted": "38318473.781872206936760117"
+    },
+    {
+      "address": "0xaec4ae28f6d8d2da4701e0dee5b385b2419e7077",
+      "amountRaw": "38299629126085691529587662",
+      "amountFormatted": "38299629.126085691529587662"
+    },
+    {
+      "address": "0x3256a80a817f753ef6ae02705bbbd89f826ed3a4",
+      "amountRaw": "38224422146451725436352578",
+      "amountFormatted": "38224422.146451725436352578"
+    },
+    {
+      "address": "0x07de39dd6ea6701efbbd5e92c0850c753c4c54f9",
+      "amountRaw": "38191013386430853065045133",
+      "amountFormatted": "38191013.386430853065045133"
+    },
+    {
+      "address": "0x1a70132a0560c7aad24ef5067dbcf1e7bf0cb519",
+      "amountRaw": "38187184130985070984549609",
+      "amountFormatted": "38187184.130985070984549609"
+    },
+    {
+      "address": "0xc2de0d6a8cfc992ffd1c5a4669dc3cceb47168aa",
+      "amountRaw": "38186579675601574897699513",
+      "amountFormatted": "38186579.675601574897699513"
+    },
+    {
+      "address": "0x13d8e8dc2186bbcde69f1af5aadda35fd563759e",
+      "amountRaw": "38091595165253499650896389",
+      "amountFormatted": "38091595.165253499650896389"
+    },
+    {
+      "address": "0xa852d48804f027840aaff2862e1608a44d912ffa",
+      "amountRaw": "38031051048367082746060494",
+      "amountFormatted": "38031051.048367082746060494"
+    },
+    {
+      "address": "0x293942b2f89fa6a296f9d685ed21ecc65f06111a",
+      "amountRaw": "38017813065545737280699251",
+      "amountFormatted": "38017813.065545737280699251"
+    },
+    {
+      "address": "0x1a724d21e90e6914d1c5aa32cba90b5925b68ac5",
+      "amountRaw": "37934123329419788550722511",
+      "amountFormatted": "37934123.329419788550722511"
+    },
+    {
+      "address": "0x573b22ff24b4534682d28ba0ff37ae16c3129954",
+      "amountRaw": "37856805374351802425577426",
+      "amountFormatted": "37856805.374351802425577426"
+    },
+    {
+      "address": "0xa4a82592752998b4b52cdc7fb05adb68322afc93",
+      "amountRaw": "37760274732049158585439789",
+      "amountFormatted": "37760274.732049158585439789"
+    },
+    {
+      "address": "0x3c183ff164248cd0d1f9d1cc187045757011d54a",
+      "amountRaw": "37609314398139862997128533",
+      "amountFormatted": "37609314.398139862997128533"
+    },
+    {
+      "address": "0x4ab2dc792edc9576f64e1357e602cee2f29e40d7",
+      "amountRaw": "37579218773595846047046082",
+      "amountFormatted": "37579218.773595846047046082"
+    },
+    {
+      "address": "0xadaac1ac16818328fda481f4b47810453af83257",
+      "amountRaw": "37572399820295394842163511",
+      "amountFormatted": "37572399.820295394842163511"
+    },
+    {
+      "address": "0x4724319e3fa47d618fa3a82eb87dca365cc3ba32",
+      "amountRaw": "37497589864101870611441229",
+      "amountFormatted": "37497589.864101870611441229"
+    },
+    {
+      "address": "0x7bc03577da383f3bd8ad561bf3b441fddfd77888",
+      "amountRaw": "37472593475120520527392739",
+      "amountFormatted": "37472593.475120520527392739"
+    },
+    {
+      "address": "0x1139996be3d00f1107fa3566cb7acf95a0701225",
+      "amountRaw": "37389869473002614917420992",
+      "amountFormatted": "37389869.473002614917420992"
+    },
+    {
+      "address": "0x366359deaa28f6153db364bffbc54626fde98a4b",
+      "amountRaw": "37176210841813369678561554",
+      "amountFormatted": "37176210.841813369678561554"
+    },
+    {
+      "address": "0xe5fa224562dcd5052e734101c0cdf0f2e7c68ced",
+      "amountRaw": "37169466753574115812862515",
+      "amountFormatted": "37169466.753574115812862515"
+    },
+    {
+      "address": "0xdcc127f5a50e75fe6714b16ee3ec47fe7d6ca724",
+      "amountRaw": "37163593771280378857140362",
+      "amountFormatted": "37163593.771280378857140362"
+    },
+    {
+      "address": "0xae82eb70294cfd0680f6a98ea737380cc204e00d",
+      "amountRaw": "37121025268268642913098033",
+      "amountFormatted": "37121025.268268642913098033"
+    },
+    {
+      "address": "0x036264d5aa9ff6310dec0894b7f0e4d75fc7f425",
+      "amountRaw": "37110314075898312144832197",
+      "amountFormatted": "37110314.075898312144832197"
+    },
+    {
+      "address": "0x2fd95b647c7ff966057a3a9a0717a7c49bb96724",
+      "amountRaw": "37086891352836677166183475",
+      "amountFormatted": "37086891.352836677166183475"
+    },
+    {
+      "address": "0x8bc1e6ff49a7d8769271c8f5abb23d2857523a5c",
+      "amountRaw": "36824383584901029148548565",
+      "amountFormatted": "36824383.584901029148548565"
+    },
+    {
+      "address": "0x590286f624ec718a6c7000506394cafebf12d232",
+      "amountRaw": "36622992261176095470308603",
+      "amountFormatted": "36622992.261176095470308603"
+    },
+    {
+      "address": "0x05bdca98c24ab502889d44afa8178901ec10ca03",
+      "amountRaw": "36551055261691221376692358",
+      "amountFormatted": "36551055.261691221376692358"
+    },
+    {
+      "address": "0x490ee9f0e74178130cf181eb24cdcb8a483e1b0e",
+      "amountRaw": "36493254322310078170580503",
+      "amountFormatted": "36493254.322310078170580503"
+    },
+    {
+      "address": "0x1132240e25cda6120bf8d2d104284c0428716322",
+      "amountRaw": "36413773651882643761565966",
+      "amountFormatted": "36413773.651882643761565966"
+    },
+    {
+      "address": "0xe22f00f77ec90528797f69bf58672187ed063b4b",
+      "amountRaw": "36412265611333866002923183",
+      "amountFormatted": "36412265.611333866002923183"
+    },
+    {
+      "address": "0xd70a4bff57196be21beed91cf59228979358f4b6",
+      "amountRaw": "36352522297342619381174892",
+      "amountFormatted": "36352522.297342619381174892"
+    },
+    {
+      "address": "0x4df58fe321a15b3048b11c3b4459c8a061f57344",
+      "amountRaw": "36306510412290904409223092",
+      "amountFormatted": "36306510.412290904409223092"
+    },
+    {
+      "address": "0x2600a64e1276bf01200ee65791cdee7ec31eaa85",
+      "amountRaw": "36144232578486705524603118",
+      "amountFormatted": "36144232.578486705524603118"
+    },
+    {
+      "address": "0x472b0d888d7ac40df648971448454a4d192334f3",
+      "amountRaw": "36082726620679138786617971",
+      "amountFormatted": "36082726.620679138786617971"
+    },
+    {
+      "address": "0x9007ff9d0ae9a0a7f025f6b10c5316df4af41c92",
+      "amountRaw": "36028654306284503784512526",
+      "amountFormatted": "36028654.306284503784512526"
+    },
+    {
+      "address": "0x0aa513a466f29028c641458653c50c17fbb22ff0",
+      "amountRaw": "36016102600871733437221504",
+      "amountFormatted": "36016102.600871733437221504"
+    },
+    {
+      "address": "0x4a8109834ef7d01acdf2de0716ee74b9422107f1",
+      "amountRaw": "36000619285543172759889186",
+      "amountFormatted": "36000619.285543172759889186"
+    },
+    {
+      "address": "0x1a51a5c68c368a817d1cd5cc232908189383f1f4",
+      "amountRaw": "35984921492321919627785304",
+      "amountFormatted": "35984921.492321919627785304"
+    },
+    {
+      "address": "0x627d60ec21f61d3562b2b3d5be07042102640d3d",
+      "amountRaw": "35974526731622996660258241",
+      "amountFormatted": "35974526.731622996660258241"
+    },
+    {
+      "address": "0xd853b30852844599ef5cc1b1fc7e917c1c66131d",
+      "amountRaw": "35955326350616702353767595",
+      "amountFormatted": "35955326.350616702353767595"
+    },
+    {
+      "address": "0x18e63c527347e9dc8176fcbb031de597b83f9a94",
+      "amountRaw": "35952292663320737844604808",
+      "amountFormatted": "35952292.663320737844604808"
+    },
+    {
+      "address": "0x1edee3bae892ebee05ebf3d94f2f146816c1a1b9",
+      "amountRaw": "35949474592322538567041181",
+      "amountFormatted": "35949474.592322538567041181"
+    },
+    {
+      "address": "0x88dd85bdbd68e7813e86784b2a7cf91101e8218c",
+      "amountRaw": "35903353711605441750013801",
+      "amountFormatted": "35903353.711605441750013801"
+    },
+    {
+      "address": "0x07f7cd001d13caf88360452afc493be67aee7ce4",
+      "amountRaw": "35873236110775043141036810",
+      "amountFormatted": "35873236.11077504314103681"
+    },
+    {
+      "address": "0x8f0aeb8aa5349c1c19c8c74085e73be0a0a60ce8",
+      "amountRaw": "35849803166387579326947738",
+      "amountFormatted": "35849803.166387579326947738"
+    },
+    {
+      "address": "0x10a323a99e423248d5a03d33b6a3eadafb0cff0b",
+      "amountRaw": "35839347820847155575015484",
+      "amountFormatted": "35839347.820847155575015484"
+    },
+    {
+      "address": "0x2b282245423b48c1f451df6ccad28999935c3560",
+      "amountRaw": "35807194978796225439714979",
+      "amountFormatted": "35807194.978796225439714979"
+    },
+    {
+      "address": "0xb5561d48e3ab720043ed56ac01590222f1659ff8",
+      "amountRaw": "35800212729596238657206545",
+      "amountFormatted": "35800212.729596238657206545"
+    },
+    {
+      "address": "0xa0b3d03fba11a8432a9f6eb6108df6b1e38a57c8",
+      "amountRaw": "35782025155956763058405828",
+      "amountFormatted": "35782025.155956763058405828"
+    },
+    {
+      "address": "0xabae9ef681c8d152c74653b3a941c74f202a166a",
+      "amountRaw": "35751961040056843164769095",
+      "amountFormatted": "35751961.040056843164769095"
+    },
+    {
+      "address": "0xc6c304a949bed62aefc9f4e2726f24a720a5a386",
+      "amountRaw": "35735880728540248032934097",
+      "amountFormatted": "35735880.728540248032934097"
+    },
+    {
+      "address": "0x011c2cbda3eb125addf02a3d4605a15ec71b226a",
+      "amountRaw": "35734656410354112518976823",
+      "amountFormatted": "35734656.410354112518976823"
+    },
+    {
+      "address": "0xa87ebf8dcf08344281f96d1e9567195c5e20f865",
+      "amountRaw": "35713934775712952094548412",
+      "amountFormatted": "35713934.775712952094548412"
+    },
+    {
+      "address": "0xbebf4e985214f9bfd24f20720f9cb01e95ae607b",
+      "amountRaw": "35680687297151371593424609",
+      "amountFormatted": "35680687.297151371593424609"
+    },
+    {
+      "address": "0x66e0c041549d693265ca44a3505b43b0d8768e45",
+      "amountRaw": "35680525414261584175147301",
+      "amountFormatted": "35680525.414261584175147301"
+    },
+    {
+      "address": "0xcf3f7dbf26fc029af1690f00d3cf9c0a0579567e",
+      "amountRaw": "35665048935212683455414187",
+      "amountFormatted": "35665048.935212683455414187"
+    },
+    {
+      "address": "0xd0998690812396c0224dc45840965a698be0d160",
+      "amountRaw": "35660473386586275494396748",
+      "amountFormatted": "35660473.386586275494396748"
+    },
+    {
+      "address": "0x0ce9a058647e6819053c9cc92ae43d540a207e87",
+      "amountRaw": "35648276614670197174463008",
+      "amountFormatted": "35648276.614670197174463008"
+    },
+    {
+      "address": "0x6ee0c91da5d10cef283bfcf5488d67b6798c37ba",
+      "amountRaw": "35643721220613320340769195",
+      "amountFormatted": "35643721.220613320340769195"
+    },
+    {
+      "address": "0x03614c51a864a150a7d3d23c4b6c8fb5a1d9145f",
+      "amountRaw": "35618697824156675589734236",
+      "amountFormatted": "35618697.824156675589734236"
+    },
+    {
+      "address": "0x50bf2caf4585403db60d125b9a65c6e63c53eda2",
+      "amountRaw": "35436907817148104483616155",
+      "amountFormatted": "35436907.817148104483616155"
+    },
+    {
+      "address": "0x8e7d308f5936efea374bf966fb44e49ccbca0f94",
+      "amountRaw": "35250911372879092136772367",
+      "amountFormatted": "35250911.372879092136772367"
+    },
+    {
+      "address": "0xd1a6fc6f2a3091263e953af5f0d8c0e91904d85e",
+      "amountRaw": "35226146293579437723170650",
+      "amountFormatted": "35226146.29357943772317065"
+    },
+    {
+      "address": "0x70d568b7241878d1570376b70957290a884ff53e",
+      "amountRaw": "35187829158855456192397755",
+      "amountFormatted": "35187829.158855456192397755"
+    },
+    {
+      "address": "0xadc75e2dc4b5ba0aeeef6f238e2274e97eff9532",
+      "amountRaw": "35185890968447272434865353",
+      "amountFormatted": "35185890.968447272434865353"
+    },
+    {
+      "address": "0x87ac1611d71c2d320403cfd241f0176000dca423",
+      "amountRaw": "35176436202235272667569577",
+      "amountFormatted": "35176436.202235272667569577"
+    },
+    {
+      "address": "0xa00f74552b9c56837247093e6e2215cb22deb606",
+      "amountRaw": "35152474359427179726967834",
+      "amountFormatted": "35152474.359427179726967834"
+    },
+    {
+      "address": "0x7ebb4d00825500cccbfcdfcf013dad65ba100c93",
+      "amountRaw": "35131283990853374473020056",
+      "amountFormatted": "35131283.990853374473020056"
+    },
+    {
+      "address": "0xb730e746268efa9a1c3c22d0aa3bd906f5af4091",
+      "amountRaw": "35114905397186686175408005",
+      "amountFormatted": "35114905.397186686175408005"
+    },
+    {
+      "address": "0x346060983ce40cb4bcdc387e0c70a2aaa3c2e079",
+      "amountRaw": "34995735411906921989889272",
+      "amountFormatted": "34995735.411906921989889272"
+    },
+    {
+      "address": "0xf0b4537010cd7b6abc5feff743fdc040a4a169a0",
+      "amountRaw": "34990314128496360831529730",
+      "amountFormatted": "34990314.12849636083152973"
+    },
+    {
+      "address": "0x22a11b4305e7154777566fc1b576efce81ad6bd1",
+      "amountRaw": "34937411258507761716391866",
+      "amountFormatted": "34937411.258507761716391866"
+    },
+    {
+      "address": "0xee0850c9ecfa64bc82d6e9b8328940f5c62ba975",
+      "amountRaw": "34935029334473305281169133",
+      "amountFormatted": "34935029.334473305281169133"
+    },
+    {
+      "address": "0xac925de9e589c41c4df2820c0123571102dd286a",
+      "amountRaw": "34918434134151334785021659",
+      "amountFormatted": "34918434.134151334785021659"
+    },
+    {
+      "address": "0x8e0e3bb60ff0545daecb67a8ab858b361679ee4d",
+      "amountRaw": "34832867800930714822167747",
+      "amountFormatted": "34832867.800930714822167747"
+    },
+    {
+      "address": "0xa3bd62b00b293d8953f8cb030f16b2b3d1e42bcf",
+      "amountRaw": "34770364260215103244927027",
+      "amountFormatted": "34770364.260215103244927027"
+    },
+    {
+      "address": "0x7d3f6ab8416280dc49e03cec37650763ce954bfd",
+      "amountRaw": "34737842567469686016687112",
+      "amountFormatted": "34737842.567469686016687112"
+    },
+    {
+      "address": "0x2c9e0a2ff3ac90e85c9b7c71f8e9aea602ef5b95",
+      "amountRaw": "34725781565266191590833485",
+      "amountFormatted": "34725781.565266191590833485"
+    },
+    {
+      "address": "0x81e1ba2b42672213d7800a8f31670e6a50c45f37",
+      "amountRaw": "34720383668037681485520161",
+      "amountFormatted": "34720383.668037681485520161"
+    },
+    {
+      "address": "0xf8da5e042809f6508e06c6c97c9e683cef7b9706",
+      "amountRaw": "34687762987531934956084661",
+      "amountFormatted": "34687762.987531934956084661"
+    },
+    {
+      "address": "0x47c81c57d51de78dd08bc387d1e1de662484ee44",
+      "amountRaw": "34674730582806224516560302",
+      "amountFormatted": "34674730.582806224516560302"
+    },
+    {
+      "address": "0xa8c58aaeb313c7523086f76f809a542e8b2a5aa1",
+      "amountRaw": "34538061135154028846646870",
+      "amountFormatted": "34538061.13515402884664687"
+    },
+    {
+      "address": "0xbbda11a6d82cdd054e9dc50feae48c3542343330",
+      "amountRaw": "34523592594895029670795977",
+      "amountFormatted": "34523592.594895029670795977"
+    },
+    {
+      "address": "0x42d2b5ba66b25e2e2f7b1efa98be04c3ce19b506",
+      "amountRaw": "34521462340720623169290376",
+      "amountFormatted": "34521462.340720623169290376"
+    },
+    {
+      "address": "0xed09fcb7c67f90a2c2f933ba7fdeb807a507611d",
+      "amountRaw": "34515517004771009039104969",
+      "amountFormatted": "34515517.004771009039104969"
+    },
+    {
+      "address": "0x49373f0516a31dce34ae90af1e845716ca172708",
+      "amountRaw": "34345314558504830771144203",
+      "amountFormatted": "34345314.558504830771144203"
+    },
+    {
+      "address": "0xa0f1c3ad83e07d97b5e7030e177718be175275ea",
+      "amountRaw": "34133060619927663787603115",
+      "amountFormatted": "34133060.619927663787603115"
+    },
+    {
+      "address": "0x2b8511bbb1662c3563b00a3e12ba128e13cca85d",
+      "amountRaw": "33750283671298328160367675",
+      "amountFormatted": "33750283.671298328160367675"
+    },
+    {
+      "address": "0x68f4565a7c7d0b15668f8bd4b054a28712e1e8aa",
+      "amountRaw": "33614627437706328182904154",
+      "amountFormatted": "33614627.437706328182904154"
+    },
+    {
+      "address": "0xaafcc71a42ab23f01a8b5ebb5fb49cb96c3960ed",
+      "amountRaw": "33432851585548564984765632",
+      "amountFormatted": "33432851.585548564984765632"
+    },
+    {
+      "address": "0xbc018bebbcd97d6f1df3a4837247f51f46a00abd",
+      "amountRaw": "33376426185211008350332448",
+      "amountFormatted": "33376426.185211008350332448"
+    },
+    {
+      "address": "0x0d4f19f36fffbcfa64bb53400976f764545ded6a",
+      "amountRaw": "32502166875333072948570149",
+      "amountFormatted": "32502166.875333072948570149"
+    },
+    {
+      "address": "0x1a4611a3f1e418060cd7929e45ddfcd4b8f874c8",
+      "amountRaw": "31937899871905365190607892",
+      "amountFormatted": "31937899.871905365190607892"
+    },
+    {
+      "address": "0xcc6623269abfa9b0ecc4885c5c95d32c2d8bc0b9",
+      "amountRaw": "31649753971010118917586623",
+      "amountFormatted": "31649753.971010118917586623"
+    },
+    {
+      "address": "0xf201c217e580da1e89ff6b782a2c1a12d5a94487",
+      "amountRaw": "31275238745496050646928920",
+      "amountFormatted": "31275238.74549605064692892"
+    },
+    {
+      "address": "0xf02b98415c9192a3c59abe6b81da94ca3478d13d",
+      "amountRaw": "31232280819011867326054875",
+      "amountFormatted": "31232280.819011867326054875"
+    },
+    {
+      "address": "0xc9ae891b8b0abe37003e811d109c03e4d74a730c",
+      "amountRaw": "30987612427064659861842076",
+      "amountFormatted": "30987612.427064659861842076"
+    },
+    {
+      "address": "0x50e2c585cfb06dff7f98cb365af6eb57e5e7a219",
+      "amountRaw": "30496942487376470302770469",
+      "amountFormatted": "30496942.487376470302770469"
+    },
+    {
+      "address": "0xe0d3eacc9d35748d14b50267202ebf8d2f7684e0",
+      "amountRaw": "30200786717824254063245031",
+      "amountFormatted": "30200786.717824254063245031"
+    },
+    {
+      "address": "0xabee945970befbac7cec224b72bec58d79551319",
+      "amountRaw": "29978153731473869013153416",
+      "amountFormatted": "29978153.731473869013153416"
+    },
+    {
+      "address": "0x605fba01c9f1343748f5013e6c10fa3c70e24b6c",
+      "amountRaw": "29482313462891400099651545",
+      "amountFormatted": "29482313.462891400099651545"
+    },
+    {
+      "address": "0xb81c8fdb6eb588c20b4d0e0b846d9e1cff87acd3",
+      "amountRaw": "28956867149787464797893107",
+      "amountFormatted": "28956867.149787464797893107"
+    },
+    {
+      "address": "0xeec2fbf5a73ea061bf4cb67d70cfd2d1bed3fab9",
+      "amountRaw": "28764716104529454329542445",
+      "amountFormatted": "28764716.104529454329542445"
+    },
+    {
+      "address": "0x072391ef098e55971de12242de826efb63139451",
+      "amountRaw": "28743955773976434488692958",
+      "amountFormatted": "28743955.773976434488692958"
+    },
+    {
+      "address": "0x0537f3004e893305a27fb015f69c92b55d12fe17",
+      "amountRaw": "28728086009785393755356365",
+      "amountFormatted": "28728086.009785393755356365"
+    },
+    {
+      "address": "0x1c910709fd6097ccc83b953749bb55503babc93b",
+      "amountRaw": "28403349773777864358791945",
+      "amountFormatted": "28403349.773777864358791945"
+    },
+    {
+      "address": "0xc165c9a4db89aa72b23f66b96731a960084a1fe2",
+      "amountRaw": "28145368307203730111064441",
+      "amountFormatted": "28145368.307203730111064441"
+    },
+    {
+      "address": "0xf3d20f66be71654be29ad282141e6ab54d3333ca",
+      "amountRaw": "28046648366133098613933413",
+      "amountFormatted": "28046648.366133098613933413"
+    },
+    {
+      "address": "0xa0b93b5872bc0014ca80b6b257dfe3309c01bfa4",
+      "amountRaw": "27673110082257908598825978",
+      "amountFormatted": "27673110.082257908598825978"
+    },
+    {
+      "address": "0x23900d8cee2a2a0c5c686e1c223e3d9646b924e9",
+      "amountRaw": "27244289657206854004084004",
+      "amountFormatted": "27244289.657206854004084004"
+    },
+    {
+      "address": "0xe6f71851d94b1e30c897fe7b3726179437403d9f",
+      "amountRaw": "27139874185795426266862976",
+      "amountFormatted": "27139874.185795426266862976"
+    },
+    {
+      "address": "0xdb9e3e9e6f545197c952a22c55be7ca8f49c6535",
+      "amountRaw": "26945766352324404718960145",
+      "amountFormatted": "26945766.352324404718960145"
+    },
+    {
+      "address": "0xc10ee9031f2a0b84766a86b55a8d90f357910fb4",
+      "amountRaw": "26895807698739664412377407",
+      "amountFormatted": "26895807.698739664412377407"
+    },
+    {
+      "address": "0xc8e1f75bf377bc8c0a9ff21fc3aeb11a1ae85b7f",
+      "amountRaw": "26888878302956937756566811",
+      "amountFormatted": "26888878.302956937756566811"
+    },
+    {
+      "address": "0x0da7fe32edc2db4aeb7365bc6b90d06b518f30db",
+      "amountRaw": "26858097978664554707205894",
+      "amountFormatted": "26858097.978664554707205894"
+    },
+    {
+      "address": "0x9b88a8d7848b14d7277acf40eae4ec7432d3c1eb",
+      "amountRaw": "26725295069660184716831703",
+      "amountFormatted": "26725295.069660184716831703"
+    },
+    {
+      "address": "0x19b6f56a89f35b99ac154982c00336d7722d1bb4",
+      "amountRaw": "26496761969345088483416523",
+      "amountFormatted": "26496761.969345088483416523"
+    },
+    {
+      "address": "0x823fbd833b5a4b33480107f425a19c0f780f2edd",
+      "amountRaw": "26401449183338429276230209",
+      "amountFormatted": "26401449.183338429276230209"
+    },
+    {
+      "address": "0x498a5747530ebc6d34ae85379f3657b3e25adddd",
+      "amountRaw": "26326429189832386504835376",
+      "amountFormatted": "26326429.189832386504835376"
+    },
+    {
+      "address": "0x931572bff4d735451116a9d5d35ba5ca6414b7c7",
+      "amountRaw": "26310950589947088101676102",
+      "amountFormatted": "26310950.589947088101676102"
+    },
+    {
+      "address": "0xa7785a3ef07d841cdc094fee9ef47deb16fe4778",
+      "amountRaw": "26306553113056314761501348",
+      "amountFormatted": "26306553.113056314761501348"
+    },
+    {
+      "address": "0xce5f79230a95ddfc237ed157d767010c7561b50f",
+      "amountRaw": "26242519213556618533490981",
+      "amountFormatted": "26242519.213556618533490981"
+    },
+    {
+      "address": "0x56c2c87f42a66c41334e7fa743b0eed26be5f1a0",
+      "amountRaw": "25942584642772191664529075",
+      "amountFormatted": "25942584.642772191664529075"
+    },
+    {
+      "address": "0xcc1874358760590b26588f414860ba52c9e02e39",
+      "amountRaw": "25402500103376132631865293",
+      "amountFormatted": "25402500.103376132631865293"
+    },
+    {
+      "address": "0xf2a944c0d9ca9c478ea63ba8212baf2e688aafa0",
+      "amountRaw": "25324380081852469953360779",
+      "amountFormatted": "25324380.081852469953360779"
+    },
+    {
+      "address": "0xdb0f01bac7fde48af7c79802bd0daaeb3edbd8e9",
+      "amountRaw": "25038426178850137613331791",
+      "amountFormatted": "25038426.178850137613331791"
+    },
+    {
+      "address": "0x3a4459ac702c6679feedf2b80ac06580bc687643",
+      "amountRaw": "24912900318167137926977697",
+      "amountFormatted": "24912900.318167137926977697"
+    },
+    {
+      "address": "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45",
+      "amountRaw": "24712229507057973073677154",
+      "amountFormatted": "24712229.507057973073677154"
+    },
+    {
+      "address": "0xcd2461f37e6f6b9ef73496f0d1f9d78d4f7e276a",
+      "amountRaw": "24635808166461280317872101",
+      "amountFormatted": "24635808.166461280317872101"
+    },
+    {
+      "address": "0x92fbd6d351e7f8b9a8ae33679f49667cfebd6c16",
+      "amountRaw": "24394341202173674125092009",
+      "amountFormatted": "24394341.202173674125092009"
+    },
+    {
+      "address": "0xe37489dcda973b1d904036e5af7354d9406a1a5b",
+      "amountRaw": "24228685923705256443567198",
+      "amountFormatted": "24228685.923705256443567198"
+    },
+    {
+      "address": "0x950fbb8b935402b78aa8e0020aaaa364c7c2eabf",
+      "amountRaw": "23536792719245728566030150",
+      "amountFormatted": "23536792.71924572856603015"
+    },
+    {
+      "address": "0x8a23110d3f9ad0ae642abacd55c2da70e7e1f098",
+      "amountRaw": "22666878991624616750048337",
+      "amountFormatted": "22666878.991624616750048337"
+    },
+    {
+      "address": "0x421bd7a5a883023320d872a63649aa249abe9ae3",
+      "amountRaw": "22502414421687026695734995",
+      "amountFormatted": "22502414.421687026695734995"
+    },
+    {
+      "address": "0x00000f91109c4d0007e90000d9facad5298a0cac",
+      "amountRaw": "22433730825737314396295697",
+      "amountFormatted": "22433730.825737314396295697"
+    },
+    {
+      "address": "0x713181cf18f47f6e6781627112fe5756f257ae4e",
+      "amountRaw": "22164798975236707435012858",
+      "amountFormatted": "22164798.975236707435012858"
+    },
+    {
+      "address": "0x77d159968a9d456fa75ad587365f1310b09199c1",
+      "amountRaw": "21833945520214091636255241",
+      "amountFormatted": "21833945.520214091636255241"
+    },
+    {
+      "address": "0x1f6b8de8b2f1b6a39dbeef1c32facddbc87ca037",
+      "amountRaw": "21679940739295245887075157",
+      "amountFormatted": "21679940.739295245887075157"
+    },
+    {
+      "address": "0x7ded76126f472c07eaab9394c588b1e0763237b2",
+      "amountRaw": "21599161691471138155010598",
+      "amountFormatted": "21599161.691471138155010598"
+    },
+    {
+      "address": "0x73fdc931e4557553a5273104dbc0265b4ad5a1a5",
+      "amountRaw": "21518443273179826848940463",
+      "amountFormatted": "21518443.273179826848940463"
+    },
+    {
+      "address": "0xaf6442f0f5095c7be1d0af0aaec32e2ef9f84a50",
+      "amountRaw": "21462639205948863825288868",
+      "amountFormatted": "21462639.205948863825288868"
+    },
+    {
+      "address": "0xc2c51daa1d8224e265eb875a58542e24ad65a851",
+      "amountRaw": "21364791412108955158039327",
+      "amountFormatted": "21364791.412108955158039327"
+    },
+    {
+      "address": "0x2638581c505c31a3b5da7ee096c6a6c8a900df8d",
+      "amountRaw": "21266656074896431015648240",
+      "amountFormatted": "21266656.07489643101564824"
+    },
+    {
+      "address": "0x81dd57114d376a271aadd3f622fb21079333de4d",
+      "amountRaw": "21198805861439015691494438",
+      "amountFormatted": "21198805.861439015691494438"
+    },
+    {
+      "address": "0xd09f294f1f5fd7c6e0d1a0834dd39e9d965e5cb3",
+      "amountRaw": "20723199854210173326209434",
+      "amountFormatted": "20723199.854210173326209434"
+    },
+    {
+      "address": "0xf8c4f5fa3316de001ae6b10c173dac96db3b0ba7",
+      "amountRaw": "20714221999003878820873856",
+      "amountFormatted": "20714221.999003878820873856"
+    },
+    {
+      "address": "0xb3e34f372067650776d6d9ba1379e2891e505e60",
+      "amountRaw": "20497704656453963680147146",
+      "amountFormatted": "20497704.656453963680147146"
+    },
+    {
+      "address": "0x6f2e7b613f576dec83ed055a17ab8af7a3a24ca3",
+      "amountRaw": "20496239051151970877337135",
+      "amountFormatted": "20496239.051151970877337135"
+    },
+    {
+      "address": "0xc272c2866d4fb815aa361ed2d86deba77436bc50",
+      "amountRaw": "20349695390595788349257456",
+      "amountFormatted": "20349695.390595788349257456"
+    },
+    {
+      "address": "0x65188fb29043b1f67063eeed196711e6f36db161",
+      "amountRaw": "20293726172229279751930612",
+      "amountFormatted": "20293726.172229279751930612"
+    },
+    {
+      "address": "0x16ac9f870b4a33c75a6b55d01242f4f68499a30c",
+      "amountRaw": "19676374972140610329541568",
+      "amountFormatted": "19676374.972140610329541568"
+    },
+    {
+      "address": "0xa775754861d47bd129e56a191b6c8b3a73282855",
+      "amountRaw": "19645344887588883310663489",
+      "amountFormatted": "19645344.887588883310663489"
+    },
+    {
+      "address": "0x9c9c6fd5d421da90b8405777799f40b7c3959036",
+      "amountRaw": "19632119902867779815032359",
+      "amountFormatted": "19632119.902867779815032359"
+    },
+    {
+      "address": "0xd226997439ecfbeff8e110c8c78c8a7eefd19f89",
+      "amountRaw": "19591400002574507549725607",
+      "amountFormatted": "19591400.002574507549725607"
+    },
+    {
+      "address": "0x09e2971579fb141ba8344af13d9da57e2cab0f46",
+      "amountRaw": "19526155509927629943590324",
+      "amountFormatted": "19526155.509927629943590324"
+    },
+    {
+      "address": "0xa6de3ec08ad49da95efdacba0b5d55bf33897687",
+      "amountRaw": "19509138702991182426397212",
+      "amountFormatted": "19509138.702991182426397212"
+    },
+    {
+      "address": "0x496782a68ecd374b8f75b1c92dba6e5ddd4ddc80",
+      "amountRaw": "19489610064975807545341249",
+      "amountFormatted": "19489610.064975807545341249"
+    },
+    {
+      "address": "0xe7d21d2de9c6585707989f8ea9940b26689b6adf",
+      "amountRaw": "19486339402556218273087112",
+      "amountFormatted": "19486339.402556218273087112"
+    },
+    {
+      "address": "0xbf63c154eb5f96a2cead5c54835618fdcfb5311d",
+      "amountRaw": "19477251859605346475529975",
+      "amountFormatted": "19477251.859605346475529975"
+    },
+    {
+      "address": "0x8e86949277613492567a59b5c03ac4887425ebd6",
+      "amountRaw": "19433855058547083095265331",
+      "amountFormatted": "19433855.058547083095265331"
+    },
+    {
+      "address": "0xdf8369183a1d59c37b54ca178984ff2824f208fe",
+      "amountRaw": "19432779638861437595680493",
+      "amountFormatted": "19432779.638861437595680493"
+    },
+    {
+      "address": "0xbdf00a3b587a43c50f94f68b1036af6ac9e11ae0",
+      "amountRaw": "19431098345995291746904362",
+      "amountFormatted": "19431098.345995291746904362"
+    },
+    {
+      "address": "0x85d8cc544d4990fc00d0a12263c2b8ce94984cf5",
+      "amountRaw": "19423687109163637709644017",
+      "amountFormatted": "19423687.109163637709644017"
+    },
+    {
+      "address": "0x1b58715b211352b13a682c5491f67f1dd0c709f3",
+      "amountRaw": "19396626915460725391988109",
+      "amountFormatted": "19396626.915460725391988109"
+    },
+    {
+      "address": "0xef5a7d2144bd813c906f0afb5447597148a99a4a",
+      "amountRaw": "19356151163448518077450458",
+      "amountFormatted": "19356151.163448518077450458"
+    },
+    {
+      "address": "0xb5dcd76a21e2af116b72641354718fcef5cb62ef",
+      "amountRaw": "19344298361368121122865322",
+      "amountFormatted": "19344298.361368121122865322"
+    },
+    {
+      "address": "0x0b8b895173c015be1cd96f94b3bc9f5ed53a76f0",
+      "amountRaw": "19343922646213847982813222",
+      "amountFormatted": "19343922.646213847982813222"
+    },
+    {
+      "address": "0xea387efc24c8bf4fd2230c961386dd88ad517bf2",
+      "amountRaw": "19314049034208816002195226",
+      "amountFormatted": "19314049.034208816002195226"
+    },
+    {
+      "address": "0x9e56638b83184fe17a9e1237259915ae7c57f957",
+      "amountRaw": "19265705233079706714965460",
+      "amountFormatted": "19265705.23307970671496546"
+    },
+    {
+      "address": "0x9e212cab6f2d90a7023fbc3bc6373269c00f733c",
+      "amountRaw": "19259383855283584624916835",
+      "amountFormatted": "19259383.855283584624916835"
+    },
+    {
+      "address": "0x1c5246c62334ce4fe7580064495af79247ee8650",
+      "amountRaw": "19255902749416382028690762",
+      "amountFormatted": "19255902.749416382028690762"
+    },
+    {
+      "address": "0x10e0189bd7c24be9990c9ace40da2230b356e11d",
+      "amountRaw": "19232375919068293732204897",
+      "amountFormatted": "19232375.919068293732204897"
+    },
+    {
+      "address": "0x1b587946b761fc1f6dc5b12cc99b8a6ba3e4bfb9",
+      "amountRaw": "19231308875983821283345905",
+      "amountFormatted": "19231308.875983821283345905"
+    },
+    {
+      "address": "0x65aeb3685f765824735f0ee697e4465bb0cce1f1",
+      "amountRaw": "19210933911822790632232440",
+      "amountFormatted": "19210933.91182279063223244"
+    },
+    {
+      "address": "0xccb242d0878c781be583ba916c2aecb9c2a54fe1",
+      "amountRaw": "19207413071481291446486227",
+      "amountFormatted": "19207413.071481291446486227"
+    },
+    {
+      "address": "0x699340d6bd2010e743a566184365ec205ba39c0b",
+      "amountRaw": "19191363506266132974720964",
+      "amountFormatted": "19191363.506266132974720964"
+    },
+    {
+      "address": "0x52527cf4cf7b89add6436dfdf7496f5ef7166143",
+      "amountRaw": "19188836081086169287185612",
+      "amountFormatted": "19188836.081086169287185612"
+    },
+    {
+      "address": "0x8dc38ff92b4e8b200aa21ef1572b160e756ad2b5",
+      "amountRaw": "19186915065737901852611593",
+      "amountFormatted": "19186915.065737901852611593"
+    },
+    {
+      "address": "0x63b286cdcf881c11befac96068d09225af87dfba",
+      "amountRaw": "19186476808696333171774357",
+      "amountFormatted": "19186476.808696333171774357"
+    },
+    {
+      "address": "0xae523328ee6c360c7f50c97aa816493053ef71e8",
+      "amountRaw": "19185892199288283614760625",
+      "amountFormatted": "19185892.199288283614760625"
+    },
+    {
+      "address": "0xf20f9294869dd48a0338b2ce4e92aad5f7338ce7",
+      "amountRaw": "19174729288971996856067066",
+      "amountFormatted": "19174729.288971996856067066"
+    },
+    {
+      "address": "0x8286ec67bd2391e45b35667d41a35e52c8549040",
+      "amountRaw": "19122881735967517897192630",
+      "amountFormatted": "19122881.73596751789719263"
+    },
+    {
+      "address": "0x364f4a91b639c38d541aca4a2c9e3f88acbf7dcd",
+      "amountRaw": "19114721715784882268803775",
+      "amountFormatted": "19114721.715784882268803775"
+    },
+    {
+      "address": "0xd56fca51b9f22414379a805cb45ab5b404e34023",
+      "amountRaw": "19052459290041146283028912",
+      "amountFormatted": "19052459.290041146283028912"
+    },
+    {
+      "address": "0x565fd83e504c05e35935885d9bd8f99c2752e29c",
+      "amountRaw": "19035751717191949360573663",
+      "amountFormatted": "19035751.717191949360573663"
+    },
+    {
+      "address": "0xb26b9631207c4e845d5bda7175d7721e82b395a5",
+      "amountRaw": "19032461261928113170851292",
+      "amountFormatted": "19032461.261928113170851292"
+    },
+    {
+      "address": "0x0f9d3d07f84a7d7bbf9c3897eaeb6737ad5f6b20",
+      "amountRaw": "19025648775871510993179579",
+      "amountFormatted": "19025648.775871510993179579"
+    },
+    {
+      "address": "0x43ab1bb4fae4c6cfcb00089beb596ae97f85b7be",
+      "amountRaw": "18972719665831338626254126",
+      "amountFormatted": "18972719.665831338626254126"
+    },
+    {
+      "address": "0x54ab36f10c95259bd0d978600df80106437d27c7",
+      "amountRaw": "18937314615609017916501447",
+      "amountFormatted": "18937314.615609017916501447"
+    },
+    {
+      "address": "0x5fcef10ed513ffa71b736c54e9caf2d3a3d46439",
+      "amountRaw": "18835906287801931312110192",
+      "amountFormatted": "18835906.287801931312110192"
+    },
+    {
+      "address": "0x935c573028093e2419b674d5598e407b990019e0",
+      "amountRaw": "18817650753167837723669406",
+      "amountFormatted": "18817650.753167837723669406"
+    },
+    {
+      "address": "0xd66ecfc68e9d3f053ae525d7768628129f530860",
+      "amountRaw": "18781203034471305187604793",
+      "amountFormatted": "18781203.034471305187604793"
+    },
+    {
+      "address": "0x10bab126d8bcb8406fa8aea514fcd8311425e642",
+      "amountRaw": "18756981292705845180748674",
+      "amountFormatted": "18756981.292705845180748674"
+    },
+    {
+      "address": "0xacc60ee7b39ca780806b91445747437dee63e771",
+      "amountRaw": "18737178778035946022857871",
+      "amountFormatted": "18737178.778035946022857871"
+    },
+    {
+      "address": "0x95150060e274db40b8ecd137e1627ad7396a3e30",
+      "amountRaw": "18700421319438017608730086",
+      "amountFormatted": "18700421.319438017608730086"
+    },
+    {
+      "address": "0x43fc329ef55cb74eafaf7d87cc836abf905968ec",
+      "amountRaw": "18654441327987980304313935",
+      "amountFormatted": "18654441.327987980304313935"
+    },
+    {
+      "address": "0xb0e1f4962a7af41063e197fd178018c76a4a8381",
+      "amountRaw": "18588719205835366058743898",
+      "amountFormatted": "18588719.205835366058743898"
+    },
+    {
+      "address": "0xb7463e77e9138ebad0e6df472debe5ff7586b7d9",
+      "amountRaw": "18567496778736558582388207",
+      "amountFormatted": "18567496.778736558582388207"
+    },
+    {
+      "address": "0x23147add724fb96e1b781b50de9cfe8df22f2178",
+      "amountRaw": "18481632282272163711031150",
+      "amountFormatted": "18481632.28227216371103115"
+    }
+  ]
+}

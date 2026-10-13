@@ -1,0 +1,206 @@
+{
+  "version": "gold-standard-v2",
+  "created": "2026-10-13T17:28:41.129Z",
+  "method": "Structural extraction via Uniswap V2 Swap events. Every address listed received PEPE directly from the PEPE/WETH pair 0xa43fe16908251ee70ef74718545e4fe6c5ccec9f during the primary window. Classification is by on-chain event emission, not transfer-received heuristic.",
+  "swapTopic": "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822",
+  "pair": "0xa43fe16908251ee70ef74718545e4fe6c5ccec9f",
+  "token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+  "window": {
+    "start": "2026-08-12",
+    "end": "2026-08-19",
+    "startBlock": 25735200,
+    "endBlock": 25785424
+  },
+  "minPepe": "1000000000",
+  "totalSwapEvents": 3699,
+  "totalUniqueBuyers": 1132,
+  "totalCleanCandidates": 496,
+  "selection": "top 20 clean candidates by PEPE amount, after excluding known routers (1inch, CoW Settlement, Universal Router, etc.)",
+  "wallets": [
+    {
+      "address": "0x51c72848c68a965f66fa7a88855f9f7784502a7f",
+      "rank": 1,
+      "pepe_received": "180940265823.7314120703541248",
+      "pepe_received_raw": "180940265823731412070354124800",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0xbdb3ba9ffe392549e1f8658dd2630c141fdf47b6",
+      "rank": 2,
+      "pepe_received": "68336948255.932574318706917125",
+      "pepe_received_raw": "68336948255932574318706917125",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0x522ae68380ca52b02d3b19042e51e63b805f6cb9",
+      "rank": 3,
+      "pepe_received": "10090700941.333445080434882379",
+      "pepe_received_raw": "10090700941333445080434882379",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0xd9c26c77d63e7b6183c572924416816e1268cc28",
+      "rank": 4,
+      "pepe_received": "6341404490.843851623624568576",
+      "pepe_received_raw": "6341404490843851623624568576",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0xbdfa9c5f270c23ca659bf01f11317891dd8a026a",
+      "rank": 5,
+      "pepe_received": "4571637792.058147507356276707",
+      "pepe_received_raw": "4571637792058147507356276707",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0xee0ca621c24bac5ba83491b8dd404c57909d5249",
+      "rank": 6,
+      "pepe_received": "3246343633.348077381213130738",
+      "pepe_received_raw": "3246343633348077381213130738",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0xe3ef474805c96ac7edae891a8dc50f644d2cac3e",
+      "rank": 7,
+      "pepe_received": "3170084166.849858691883439303",
+      "pepe_received_raw": "3170084166849858691883439303",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0xdbe325de32033a39edcb792d1264f9e40351000d",
+      "rank": 8,
+      "pepe_received": "2902880122.752336873190830741",
+      "pepe_received_raw": "2902880122752336873190830741",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0xaa71667e3d15f5f0321f3008fa73060ed589f05d",
+      "rank": 9,
+      "pepe_received": "2878960667.077817698697039327",
+      "pepe_received_raw": "2878960667077817698697039327",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0xfeb44e5f9d001e84815b8debbc32afdd9fb32e4e",
+      "rank": 10,
+      "pepe_received": "2261918462.961746747339625609",
+      "pepe_received_raw": "2261918462961746747339625609",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0x983edb2c9a31c2549fb8d8b33b5724a85ae99423",
+      "rank": 11,
+      "pepe_received": "2142103536.295654400270746527",
+      "pepe_received_raw": "2142103536295654400270746527",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0x359fc1162bea5ffbe52dc1879110dae8c70fa3b1",
+      "rank": 12,
+      "pepe_received": "2133950718.857409282067271407",
+      "pepe_received_raw": "2133950718857409282067271407",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0x223edcebf2baadff1a85469019e26234ff67ff48",
+      "rank": 13,
+      "pepe_received": "1935241335.676656389459585492",
+      "pepe_received_raw": "1935241335676656389459585492",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0x128d29008b0b0c6a64fc6e6743091c4a4f23c61b",
+      "rank": 14,
+      "pepe_received": "1833894940.38785555400677081",
+      "pepe_received_raw": "1833894940387855554006770810",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0xd19ff8508307e17ea079533adc9f12864ef557e2",
+      "rank": 15,
+      "pepe_received": "1757153688.833179360892947653",
+      "pepe_received_raw": "1757153688833179360892947653",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0x6364b188d52e2c6483d435a4fb716123c7299bc4",
+      "rank": 16,
+      "pepe_received": "1623717573.621087591064127833",
+      "pepe_received_raw": "1623717573621087591064127833",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0x4b31042f9639639d49bd491a773f931b9740ee35",
+      "rank": 17,
+      "pepe_received": "1382893360.62324985868075802",
+      "pepe_received_raw": "1382893360623249858680758020",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0xaf2e428a0c17ba8fc940918b2482227dacb5ae89",
+      "rank": 18,
+      "pepe_received": "1286818734.236486862059965844",
+      "pepe_received_raw": "1286818734236486862059965844",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0x11111605b53ecef22726df86881e4d6d40b5ca11",
+      "rank": 19,
+      "pepe_received": "1154404827.612510047232547475",
+      "pepe_received_raw": "1154404827612510047232547475",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    },
+    {
+      "address": "0xbf6acd523318af24764be44ab5b99381ac9053da",
+      "rank": 20,
+      "pepe_received": "1119789671.327542362203083191",
+      "pepe_received_raw": "1119789671327542362203083191",
+      "target_token": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "source": "uniswap_v2_swap_event",
+      "verified_by": "on-chain event emission, pair=0xa43fe16908251ee70ef74718545e4fe6c5ccec9f"
+    }
+  ],
+  "limitations": [
+    "Captures wallets that received PEPE as the direct `to` in a Swap event. Wallets buying via routers that forward internally (rare) may appear under the router's address instead.",
+    "The Swap event is definitive: the pair emitted it. Not a heuristic.",
+    "Top 20 by PEPE amount. Larger wallets dominate; smaller buyers exist in the 496-wallet clean set."
+  ]
+}
