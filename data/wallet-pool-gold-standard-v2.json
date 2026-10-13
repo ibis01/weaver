@@ -1,6 +1,6 @@
 {
   "version": "gold-standard-v2",
-  "created": "2026-10-13T17:29:14.545Z",
+  "created": "2026-10-13T17:29:39.017Z",
   "method": "Structural extraction via Uniswap V2 Swap events. Every address listed received PEPE directly from the PEPE/WETH pair 0xa43fe16908251ee70ef74718545e4fe6c5ccec9f during the primary window. Classification is by on-chain event emission, not transfer-received heuristic.",
   "swapTopic": "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822",
   "pair": "0xa43fe16908251ee70ef74718545e4fe6c5ccec9f",
