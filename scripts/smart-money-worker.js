@@ -260,7 +260,7 @@ async function main() {
     const path = require("path");
     const pools = [];
     for (const f of [
-      ["data/wallet-pool-gold-standard-v1.json", "gold-standard"],
+      ["data/wallet-pool-gold-standard-v2.json", "gold-standard"],
       ["data/wallet-pool-control-v1.json", "control"],
     ]) {
       const full = path.join(__dirname, "..", f[0]);
