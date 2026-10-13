@@ -3,7 +3,12 @@ const { expect } = require("chai");
 require("../../js/intelligence/unified-verdict.js");
 require("../../js/features/token-analysis.js");
 
-describe("Gem → Shield → Token Analysis → Unified Verdict", () => {
+describe("Gem → Shield → Token Analysis → Unified Verdict", function () {
+  // This suite makes real network calls (Shield, TokenAnalysis). Under
+  // full-suite load those calls exceed the 5s default; in isolation they
+  // complete in ~1s. 15s gives headroom without masking real failures.
+  this.timeout(15000);
+
   it("carries a verified Shield assessment into the Token Analysis verdict", async () => {
     const originalCheck = W.shield.check;
     const originalResolve = W.asset.resolve;
