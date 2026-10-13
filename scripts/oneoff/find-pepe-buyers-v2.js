@@ -15,7 +15,13 @@ const HEADERS = {
   accept: "application/json",
   "user-agent": "weaver-find-pepe-buyers/2.0",
 };
-if (API_KEY) HEADERS["x-api-key"] = API_KEY;
+
+// Blockscout PRO authenticates via query parameter, not header.
+function authUrl(url) {
+  if (!API_KEY) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return url + sep + "apikey=" + encodeURIComponent(API_KEY);
+}
 
 // Uniswap V2 method IDs — the classification table.
 const SWAP_METHODS = new Set([
@@ -63,7 +69,7 @@ async function fetchJson(url, tries) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 30000);
     try {
-      const res = await fetch(url, { headers: HEADERS, signal: ctrl.signal });
+      const res = await fetch(authUrl(url), { headers: HEADERS, signal: ctrl.signal });
       clearTimeout(timer);
       // Read rate-limit headers if present
       const remain = res.headers.get("x-ratelimit-remaining");
