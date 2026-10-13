@@ -16,3 +16,4 @@ playwright-report/
 test-results/
 gold-pattern-check-v2.json
 gold-pattern-check-stage2.json
+pepe-buyers-candidates*.json
