@@ -1059,7 +1059,12 @@ async function handleRequest(request, env, ctx) {
     }
     signals.sort((a, b) => b.timestamp - a.timestamp);
     return new Response(JSON.stringify({ signals }), {
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "GET, OPTIONS",
+        "access-control-allow-headers": "content-type",
+      },
     });
   }
   // ---- end signal bridge ----
