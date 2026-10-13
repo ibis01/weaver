@@ -1,5 +1,16 @@
 # Gate 0b — Discrimination Test Result
 
+> **RETRACTED 2026-10-13.** The population this result was measured on
+> has been invalidated. See
+> `docs/audits/windowed-net-check-2026-10-13.md`. Every gold-standard
+> candidate is a pass-through or trader; none is a buyer. The
+> discrimination test measured "trading infrastructure vs random
+> holders," not "skilled traders vs random holders." The metric
+> remains untested. This document is retained for audit-trail
+> continuity.
+
+# Gate 0b — Discrimination Test Result
+
 **Date:** 2026-10-13
 **Population:** 5 gold-standard wallets (Swap-event-derived PEPE buyers)
 **Control:** 5 sample-matched PEPE holders
