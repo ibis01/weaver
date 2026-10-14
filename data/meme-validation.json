@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "meme-validation-manifest-v1",
+  "generatedAt": "2026-10-13T08:44:07.000Z",
+  "status": "DISCOVERED_NOT_VERIFIED",
+  "method": "Structural PEPE ERC-20 outflows from the canonical Uniswap V2 PEPE/WETH pair, followed by Ethereum bytecode checks",
+  "historicalCohorts": [
+    {
+      "symbol": "PEPE",
+      "chain": "ethereum",
+      "tokenAddress": "0x6982508145454ce325ddbe47a25d4ec3d2311933",
+      "pairAddress": "0xa43fe16908251ee70ef74718545e4fe6c5ccec9f",
+      "windowStart": "2026-08-12",
+      "windowEnd": "2026-08-19",
+      "windowEndExclusive": true,
+      "rawRecipientCount": 16,
+      "eoaCandidateCount": 8,
+      "rowsScanned": 2287,
+      "pages": 4,
+      "complete": true,
+      "source": "Blockscout legacy token-transfer API + Ethereum JSON-RPC eth_getCode",
+      "interpretation": "Historical structural buyer-discovery evidence only; not a verified predictive signal and not a trading recommendation."
+    }
+  ]
+}

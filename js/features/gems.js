@@ -1760,6 +1760,40 @@ W.gems = (() => {
         );
       });
 
+      // Include explicitly validated historical cohorts even when they are
+      // absent from the current boost/profile feed. This is evidence only;
+      // it never overrides the live opportunity score.
+      if (W.memeEvidence && typeof W.memeEvidence.load === "function") {
+        try {
+          const manifest = await W.memeEvidence.load();
+          const validationPairs = await Promise.allSettled(
+            manifest.historicalCohorts
+              .filter((cohort) => cohort.complete === true && cohort.chain === "ethereum")
+              .map((cohort) =>
+                fetchDexScreener(
+                  DEXSCREENER_API +
+                    "/latest/dex/tokens/" +
+                    encodeURIComponent(cohort.tokenAddress),
+                ),
+              ),
+          );
+          validationPairs.forEach((result) => {
+            if (result.status !== "fulfilled") return;
+            const validation = Array.isArray(result.value?.pairs)
+              ? result.value.pairs
+              : [];
+            discoveredPairs.push(
+              ...validation.map((pair) => ({
+                ...pair,
+                discoverySources: ["historical-validation"],
+              })),
+            );
+          });
+        } catch (error) {
+          console.warn("[Gems] Historical validation source unavailable:", error.message);
+        }
+      }
+
       const byToken = newMap();
       discoveredPairs.forEach((p) => {
         if (!p || typeof p !== "object") return;
@@ -1848,6 +1882,9 @@ W.gems = (() => {
       for (const g of results) {
         const addr = g.pair.baseToken.address;
         const chainKey = g.pair.chainId;
+        g.historicalEvidence = W.memeEvidence && typeof W.memeEvidence.forPair === "function"
+          ? await W.memeEvidence.forPair(g.pair)
+          : null;
         const key = shieldCacheKey(addr, chainKey);
         const shield = key ? getCachedShield(key) : null;
         const observation = buildObservation(shield, g.pair);
@@ -1906,6 +1943,12 @@ W.gems = (() => {
           g.analysis.reasons = [
             ...g.analysis.reasons,
             ...g.analysis.opportunity.reasons,
+          ].slice(0, 10);
+        }
+        if (g.historicalEvidence) {
+          g.analysis.reasons = [
+            ...g.analysis.reasons,
+            `Historical validation cohort: ${g.historicalEvidence.eoaCandidateCount} EOA candidates (${g.historicalEvidence.windowStart}–${g.historicalEvidence.windowEnd})`,
           ].slice(0, 10);
         }
       }
@@ -2048,6 +2091,9 @@ W.gems = (() => {
     const shieldSection = shield
       ? `<div class="kv-row"><span class="muted">Security</span><span>${esc(shieldSummary(shield))}</span></div>`
       : `<button class="btn tiny mt" data-shield-check data-addr="${esc(addr)}" data-symbol="${esc(t.symbol)}" data-chain="${esc(p.chainId)}">🛡️ Verify Security</button>`;
+    const historicalEvidenceSection = g.historicalEvidence
+      ? `<div class="kv-row"><span class="muted">Historical validation</span><span>PEPE cohort: ${esc(g.historicalEvidence.eoaCandidateCount)} EOA candidates · ${esc(g.historicalEvidence.rowsScanned)} transfers</span></div><p class="small muted">Historical discovery evidence only; not a verified predictive signal and not included as a live score boost.</p>`
+      : "";
 
     const observation = g.observation;
     const structureSection = marketStructureLine(observation);
@@ -2099,6 +2145,7 @@ W.gems = (() => {
         <div class="kv-row"><span class="muted">Liquidity / 24h Vol</span><span>$${esc(kfmt(a.liq))} / $${esc(kfmt(a.vol))}</span></div>
         <div class="kv-row"><span class="muted">1h / 6h / 24h</span><span>${esc(W.fmt.pct(a.h1))} ${esc(W.fmt.pct(a.h6))} ${esc(W.fmt.pct(a.h24))}</span></div>
         <div class="shield-slot">${shieldSection}</div>
+        ${historicalEvidenceSection}
         ${riskFlagsBlock(assessment)}
         ${structureSection}
         ${graphSection}
