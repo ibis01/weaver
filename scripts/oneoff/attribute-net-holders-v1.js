@@ -26,8 +26,8 @@
 const fs = require("node:fs");
 
 const PEPE = "0x6982508145454ce325ddbe47a25d4ec3d2311933";
-const API = "https://eth.blockscout.com/api";
-const V2 = "https://eth.blockscout.com/api/v2";
+const API = "https://api.blockscout.com/1/api";
+const V2 = "https://api.blockscout.com/1/api/v2";
 const KEY = process.env.BLOCKSCOUT_API_KEY || "";
 const HEADERS = { accept: "application/json", "user-agent": "weaver-attr/1.0" };
 
@@ -194,7 +194,29 @@ async function classifyAcquisition(txHash, candidate) {
   return { classification: "UNRESOLVED", reason: "no-swap-evidence" };
 }
 
-async function processCandidate(candidate) {
+
+function passesHoldCheck(n) {
+  if (!n) return { pass: true, reason: "no-net-data" };
+  const netWei = BigInt(n.netRaw ?? n.netWei ?? n.net ?? "0");
+  const inCount = Number(n.inflowCount ?? n.inCount ?? 0);
+  const outCount = Number(n.outflowCount ?? n.outCount ?? 0);
+  const MIN_NET_WEI = 10n ** 24n;   // 1M PEPE floor
+  const MAX_OUT_IN_RATIO = 0.5;
+  if (netWei < MIN_NET_WEI) return { pass: false, reason: "net-below-floor:" + netWei.toString() };
+  if (inCount > 0 && outCount / inCount > MAX_OUT_IN_RATIO) {
+    return { pass: false, reason: "out-in-ratio:" + outCount + "/" + inCount };
+  }
+  return { pass: true, reason: "ok" };
+}
+
+function loadNetInfo() {
+  const src = JSON.parse(fs.readFileSync("data/pepe-net-holders-v1.json", "utf8"));
+  const m = new Map();
+  for (const c of src.candidates) m.set(lower(c.address), c);
+  return m;
+}
+
+async function processCandidate(candidate, netInfo) {
   // Fetch PEPE transfers in the window
   const START_BLOCK = 25710000;
   const END_BLOCK   = 25820000;
@@ -211,7 +233,11 @@ async function processCandidate(candidate) {
 
   const rows = d.result || [];
   const c = lower(candidate);
-  const inflows = rows.filter(r => lower(r.to) === c);
+  const allInflows = rows.filter(r => lower(r.to) === c);
+  // Cap: candidates with hundreds of inflows are traders, not buyers.
+  // Sampling the first 10 is enough to detect any legitimate acquisition.
+  const MAX_INFLOWS_PER_CANDIDATE = 10;
+  const inflows = allInflows.slice(0, MAX_INFLOWS_PER_CANDIDATE);
   const acquisitions = [];
 
   for (const inflow of inflows) {
@@ -224,41 +250,54 @@ async function processCandidate(candidate) {
       amountRaw: inflow.value,
       ...classification,
     });
-    await sleep(300);
+    await sleep(1500);
   }
 
   const confirmed = acquisitions.filter(
     a => a.classification === "DIRECT_ORIGINATOR" || a.classification === "TRACED_ECONOMIC_RECIPIENT"
   );
 
+  const hold = passesHoldCheck(netInfo);
+  const isBuyer = confirmed.length > 0 && hold.pass;
+
   return {
     address: candidate,
     status: "COMPLETE",
-    totalAcquisitions: acquisitions.length,
+    totalInflowsInWindow: allInflows.length,
+    sampledInflows: inflows.length,
     confirmed: confirmed.length,
-    classification: confirmed.length > 0 ? "BUYER" : "NOT_BUYER",
+    holdCheck: hold,
+    classification: isBuyer ? "BUYER" : "NOT_BUYER",
     acquisitions,
   };
 }
 
 async function main() {
-  const src = JSON.parse(fs.readFileSync("data/pepe-net-holders-v1.json", "utf8"));
-  const candidates = src.candidates.map(c => c.address);
-  log("processing " + candidates.length + " NET_HOLDER candidates");
+  const netInfo = loadNetInfo();
+  const argv = process.argv.slice(2);
+  const idx = argv.indexOf("--candidates");
+  let candidates;
+  if (idx !== -1 && argv[idx + 1]) {
+    candidates = argv[idx + 1].split(",").map(x => x.trim()).filter(Boolean);
+    log("filtered to " + candidates.length + " candidates from argv");
+  } else {
+    candidates = [...netInfo.keys()];
+    log("processing " + candidates.length + " NET_HOLDER candidates");
+  }
 
   const results = [];
   for (let i = 0; i < candidates.length; i++) {
     const c = candidates[i];
     log(`[${i + 1}/${candidates.length}] ${c.slice(0, 10)}...`);
     try {
-      const r = await processCandidate(c);
+      const r = await processCandidate(c, netInfo.get(lower(c)));
       results.push(r);
-      log(`  → ${r.classification || r.reason} (${r.confirmed || 0}/${r.totalAcquisitions || 0} confirmed)`);
+      log(`  → ${r.classification || r.reason} (${r.confirmed || 0}/${r.sampledInflows || 0} confirmed)${r.holdCheck && !r.holdCheck.pass ? " [hold: " + r.holdCheck.reason + "]" : ""}`);
     } catch (e) {
       log(`  → ERROR ${e.message}`);
       results.push({ address: c, status: "ERROR", reason: e.message });
     }
-    await sleep(400);
+    await sleep(2500);
   }
 
   const buyers = results.filter(r => r.classification === "BUYER");
@@ -275,12 +314,13 @@ async function main() {
     results,
   };
 
-  fs.writeFileSync("/tmp/net-holder-attribution.json", JSON.stringify(out, null, 2));
+  const outPath = "data/attribution-runs/run-" + new Date().toISOString().replace(/[:.]/g,"-") + "-v5.json";
+  fs.writeFileSync(outPath, JSON.stringify(out, null, 2));
   log("\n=== summary ===");
   log("  BUYER:      " + buyers.length);
   log("  NOT_BUYER:  " + notBuyers.length);
   log("  ERROR:      " + errors.length);
-  log("\nwritten: /tmp/net-holder-attribution.json");
+  log("\nwritten: " + outPath);
 
   console.log(JSON.stringify({
     buyers: buyers.length,

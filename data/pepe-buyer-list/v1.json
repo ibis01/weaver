@@ -1,0 +1,202 @@
+{
+  "version": "pepe-buyer-list-v1",
+  "derived": "2026-10-15",
+  "method": "net-holder extraction v1 + acquisition confirmation (v4) + hold check (net floor 1M PEPE, out/in <= 0.5)",
+  "source": "data/pepe-net-holders-v1.json",
+  "filters": {
+    "minNetWei": "1000000000000000000000000",
+    "maxOutInRatio": 0.5
+  },
+  "count": 27,
+  "buyers": [
+    {
+      "address": "0x522ae68380ca52b02d3b19042e51e63b805f6cb9",
+      "netRaw": "10090700941333445080434882379",
+      "netFormatted": "10090700941",
+      "inCount": 5,
+      "outCount": 0
+    },
+    {
+      "address": "0x983edb2c9a31c2549fb8d8b33b5724a85ae99423",
+      "netRaw": "1500000000641057306987624638",
+      "netFormatted": "1500000000",
+      "inCount": 4,
+      "outCount": 1
+    },
+    {
+      "address": "0xc9f16b6cc9cadb7b81e020b94e5ab72acf6b9748",
+      "netRaw": "992095936554257965113739861",
+      "netFormatted": "992095936",
+      "inCount": 16,
+      "outCount": 2
+    },
+    {
+      "address": "0x18b7392814b06474de07aafcc674afc57a23c8b8",
+      "netRaw": "943343965308847307875331941",
+      "netFormatted": "943343965",
+      "inCount": 1,
+      "outCount": 0
+    },
+    {
+      "address": "0x1b1d8b13dcd6a01fdb4864d85d96f3ee0503b967",
+      "netRaw": "814099496582198216544762333",
+      "netFormatted": "814099496",
+      "inCount": 5,
+      "outCount": 0
+    },
+    {
+      "address": "0x38583e92eaaae241bde8b5a10f23cea253d21b1b",
+      "netRaw": "628731858469643311114814506",
+      "netFormatted": "628731858",
+      "inCount": 1,
+      "outCount": 0
+    },
+    {
+      "address": "0x60e1b2e2a8dfed101cb514f7baca98ae76bd1986",
+      "netRaw": "574324772964512973456630299",
+      "netFormatted": "574324772",
+      "inCount": 1,
+      "outCount": 0
+    },
+    {
+      "address": "0x3f6732ea4eedab1ee1b9a3f9fe4013736656f980",
+      "netRaw": "230000000000000000643648623",
+      "netFormatted": "230000000",
+      "inCount": 2,
+      "outCount": 0
+    },
+    {
+      "address": "0xedd5c22bf56f0fa245d004cc83ce2a7081966664",
+      "netRaw": "200000000000000000547748098",
+      "netFormatted": "200000000",
+      "inCount": 2,
+      "outCount": 0
+    },
+    {
+      "address": "0x9f9820e58342286584481e20e631088cc5643208",
+      "netRaw": "177069850321827419579209053",
+      "netFormatted": "177069850",
+      "inCount": 18,
+      "outCount": 0
+    },
+    {
+      "address": "0x6a9b4bd87aa49574e107556fdeb9c7eb1c5f03f5",
+      "netRaw": "155000000000000001025214458",
+      "netFormatted": "155000000",
+      "inCount": 3,
+      "outCount": 0
+    },
+    {
+      "address": "0xe859992fdb55fea5919613586cb25a8b08041a1f",
+      "netRaw": "75353665315737972609397852",
+      "netFormatted": "75353665",
+      "inCount": 3,
+      "outCount": 0
+    },
+    {
+      "address": "0xe68e72bd29eab54c140a0e2eeb0f689b64c15160",
+      "netRaw": "70667260311278040149049926",
+      "netFormatted": "70667260",
+      "inCount": 1,
+      "outCount": 0
+    },
+    {
+      "address": "0x4ddb4c36aa35eefa67f9b267be12581c9b77fdd6",
+      "netRaw": "38424396482237642091538267",
+      "netFormatted": "38424396",
+      "inCount": 1,
+      "outCount": 0
+    },
+    {
+      "address": "0x69aa23feb60ee3dcfd0d347845b9eaadd704ea53",
+      "netRaw": "38407018769175564738766998",
+      "netFormatted": "38407018",
+      "inCount": 1,
+      "outCount": 0
+    },
+    {
+      "address": "0x42d2b5ba66b25e2e2f7b1efa98be04c3ce19b506",
+      "netRaw": "38328415434340323736397243",
+      "netFormatted": "38328415",
+      "inCount": 2,
+      "outCount": 0
+    },
+    {
+      "address": "0xa4a82592752998b4b52cdc7fb05adb68322afc93",
+      "netRaw": "37760274732049158585439789",
+      "netFormatted": "37760274",
+      "inCount": 1,
+      "outCount": 0
+    },
+    {
+      "address": "0xd853b30852844599ef5cc1b1fc7e917c1c66131d",
+      "netRaw": "35955326350616702353767595",
+      "netFormatted": "35955326",
+      "inCount": 1,
+      "outCount": 0
+    },
+    {
+      "address": "0x8f0aeb8aa5349c1c19c8c74085e73be0a0a60ce8",
+      "netRaw": "35849803166387579326947738",
+      "netFormatted": "35849803",
+      "inCount": 1,
+      "outCount": 0
+    },
+    {
+      "address": "0x8e86949277613492567a59b5c03ac4887425ebd6",
+      "netRaw": "35261419879535227095270668",
+      "netFormatted": "35261419",
+      "inCount": 2,
+      "outCount": 0
+    },
+    {
+      "address": "0x8a23110d3f9ad0ae642abacd55c2da70e7e1f098",
+      "netRaw": "26080113993333913839502309",
+      "netFormatted": "26080113",
+      "inCount": 2,
+      "outCount": 0
+    },
+    {
+      "address": "0xef5a7d2144bd813c906f0afb5447597148a99a4a",
+      "netRaw": "20255838891670070004101052",
+      "netFormatted": "20255838",
+      "inCount": 2,
+      "outCount": 1
+    },
+    {
+      "address": "0x9e56638b83184fe17a9e1237259915ae7c57f957",
+      "netRaw": "19265705233079706714965460",
+      "netFormatted": "19265705",
+      "inCount": 3,
+      "outCount": 0
+    },
+    {
+      "address": "0x699340d6bd2010e743a566184365ec205ba39c0b",
+      "netRaw": "19191363506266132974720964",
+      "netFormatted": "19191363",
+      "inCount": 1,
+      "outCount": 0
+    },
+    {
+      "address": "0x364f4a91b639c38d541aca4a2c9e3f88acbf7dcd",
+      "netRaw": "19114721715784882268803775",
+      "netFormatted": "19114721",
+      "inCount": 1,
+      "outCount": 0
+    },
+    {
+      "address": "0x43ab1bb4fae4c6cfcb00089beb596ae97f85b7be",
+      "netRaw": "18972719665831338626254126",
+      "netFormatted": "18972719",
+      "inCount": 1,
+      "outCount": 0
+    },
+    {
+      "address": "0x072391ef098e55971de12242de826efb63139451",
+      "netRaw": "11596021202487311826850532",
+      "netFormatted": "11596021",
+      "inCount": 2,
+      "outCount": 1
+    }
+  ]
+}
