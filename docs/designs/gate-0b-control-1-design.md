@@ -1,3 +1,15 @@
+> **SUPERSEDED 2026-10-15.** The gold-standard population was falsified
+> on 2026-10-13 (commit 799f885, `docs/audits/windowed-net-check-2026-10-13.md`):
+> 16 of 20 were pass-throughs, 3 held dust nets, 1 was a net seller.
+> The buy-count distribution {30, 463, 494, 758, 1276} — median 494 —
+> describes routing infrastructure, not buyers.
+>
+> The pair-matching approach is retained; the matching variable is
+> re-specified in `docs/designs/gate-0b-control-1-design-v2.md`.
+> This document is kept for reasoning trail only.
+
+---
+
 # Gate 0b — Control-1 Design
 
 **Date:** 2026-10-11
