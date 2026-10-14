@@ -1382,6 +1382,17 @@ W.gems = (() => {
     await Promise.all(workers);
   }
 
+  const dexResponseCache = new Map();
+  const dexInflight = new Map();
+  const dexCacheEnabled =
+    typeof location === "undefined" || location.hostname !== "localhost";
+  function dexCacheTtl(url) {
+    if (url.includes("/token-profiles/") || url.includes("/token-boosts/")) return 30_000;
+    if (url.includes("/latest/dex/tokens/") || url.includes("/token-pairs/")) return 120_000;
+    if (url.includes("/latest/dex/search?")) return 60_000;
+    return 30_000;
+  }
+
   async function fetchDexScreener(url) {
     if (
       typeof url !== "string" ||
@@ -1389,6 +1400,12 @@ W.gems = (() => {
     ) {
       throw new Error("Invalid DEX Screener URL");
     }
+    const now = Date.now();
+    const cached = dexCacheEnabled && dexResponseCache.get(url);
+    if (cached && now - cached.observedAt < cached.ttl) return cached.value;
+    if (dexInflight.has(url)) return dexInflight.get(url);
+
+    const request = (async () => {
     let lastErr;
     {
       const controller = new AbortController();
@@ -1397,13 +1414,24 @@ W.gems = (() => {
         const resp = await fetch(url, { signal: controller.signal });
         clearTimeout(timeout);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        return await resp.json();
+        const value = await resp.json();
+        if (dexCacheEnabled) {
+          dexResponseCache.set(url, { value, observedAt: Date.now(), ttl: dexCacheTtl(url) });
+        }
+        return value;
       } catch (e) {
         lastErr = e;
         clearTimeout(timeout);
       }
     }
     throw lastErr || new Error("All proxies failed");
+    })();
+    dexInflight.set(url, request);
+    try {
+      return await request;
+    } finally {
+      dexInflight.delete(url);
+    }
   }
 
   // ── Momentum scoring ───────────────────────────────
@@ -1763,7 +1791,11 @@ W.gems = (() => {
       // Include explicitly validated historical cohorts even when they are
       // absent from the current boost/profile feed. This is evidence only;
       // it never overrides the live opportunity score.
-      if (W.memeEvidence && typeof W.memeEvidence.load === "function") {
+      if (
+        W.memeEvidence &&
+        typeof W.memeEvidence.load === "function" &&
+        W.memeEvidence.isEnabled?.()
+      ) {
         try {
           const manifest = await W.memeEvidence.load();
           const validationPairs = await Promise.allSettled(
@@ -1882,7 +1914,7 @@ W.gems = (() => {
       for (const g of results) {
         const addr = g.pair.baseToken.address;
         const chainKey = g.pair.chainId;
-        g.historicalEvidence = W.memeEvidence && typeof W.memeEvidence.forPair === "function"
+        g.historicalEvidence = W.memeEvidence && W.memeEvidence.isEnabled?.() && typeof W.memeEvidence.forPair === "function"
           ? await W.memeEvidence.forPair(g.pair)
           : null;
         const key = shieldCacheKey(addr, chainKey);
@@ -2170,6 +2202,7 @@ W.gems = (() => {
   // ── Render ─────────────────────────────────────────
   async function render(view) {
     if (!view) return;
+    W.memeEvidence?.enable?.();
     const chainList = Object.keys(CHAINS).join(", ");
     view.innerHTML = `
       <div class="card">
@@ -2272,6 +2305,12 @@ W.gems = (() => {
       riskFlagsBlock,
       getDeployerHistory,
       recordDeployerSeen,
+      fetchDexScreener,
+      getDexCacheSize: () => dexResponseCache.size,
+      resetDexCache: () => {
+        dexResponseCache.clear();
+        dexInflight.clear();
+      },
       getDeployerStore: () => deployerStore,
       resetDeployerStore: () => {
         deployerStore = newMap();

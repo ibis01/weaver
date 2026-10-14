@@ -5,6 +5,7 @@ W.memeEvidence = (() => {
   const MANIFEST_URL = "data/meme-validation.json";
   const cache = new Map();
   let manifestPromise = null;
+  let enabled = false;
 
   function normalizeAddress(value) {
     return typeof value === "string" ? value.toLowerCase() : "";
@@ -32,6 +33,7 @@ W.memeEvidence = (() => {
   }
 
   async function forPair(pair) {
+    if (!enabled) return null;
     const chain = String(pair?.chainId || pair?.chain || "").toLowerCase();
     const tokenAddress = normalizeAddress(pair?.baseToken?.address || pair?.tokenAddress);
     const key = `${chain}:${tokenAddress}`;
@@ -59,5 +61,10 @@ W.memeEvidence = (() => {
     return result;
   }
 
-  return Object.freeze({ load, forPair });
+  return Object.freeze({
+    load,
+    forPair,
+    enable: () => { enabled = true; },
+    isEnabled: () => enabled,
+  });
 })();
