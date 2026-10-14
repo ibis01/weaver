@@ -1,0 +1,850 @@
+{
+  "version": "net-holder-attribution-v1",
+  "ranAt": "2026-10-14T09:27:03.226Z",
+  "totalCandidates": 31,
+  "buyers": 12,
+  "notBuyers": 2,
+  "errors": 17,
+  "results": [
+    {
+      "address": "0xbdb3ba9ffe392549e1f8658dd2630c141fdf47b6",
+      "status": "COMPLETE",
+      "totalInflowsInWindow": 501,
+      "sampledInflows": 10,
+      "confirmed": 10,
+      "holdCheck": {
+        "pass": false,
+        "reason": "out-in-ratio:499/501"
+      },
+      "classification": "NOT_BUYER",
+      "acquisitions": [
+        {
+          "txHash": "0x91e128403c0b68f9fb332c3b903acd92605eb2b5e148029bf9f1beb08e3f9bd1",
+          "blockNumber": "25710831",
+          "timestamp": "1786199183",
+          "amountRaw": "2303322297716797687769043603",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate-with-quote-outflow"
+        },
+        {
+          "txHash": "0x53097ce5cb12168d605d57043c116604c26533079b09bde21e53bb068c08ea2b",
+          "blockNumber": "25710837",
+          "timestamp": "1786199255",
+          "amountRaw": "176774751459661774351459097",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate-with-quote-outflow"
+        },
+        {
+          "txHash": "0x71b288ccd07fd5e580f0a9de8079ea795f6ea8ff7beb706cca2c2147fd444cf7",
+          "blockNumber": "25710874",
+          "timestamp": "1786199699",
+          "amountRaw": "397056837807326959238236251",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate-with-quote-outflow"
+        },
+        {
+          "txHash": "0x71b288ccd07fd5e580f0a9de8079ea795f6ea8ff7beb706cca2c2147fd444cf7",
+          "blockNumber": "25710874",
+          "timestamp": "1786199699",
+          "amountRaw": "863681763883886892758778248",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate-with-quote-outflow"
+        },
+        {
+          "txHash": "0xf1cea0440ea87c304e0d7c3c317dca9d79793564705f1c689bf74e1dde400022",
+          "blockNumber": "25710877",
+          "timestamp": "1786199735",
+          "amountRaw": "121616329846649362388474580",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate-with-quote-outflow"
+        },
+        {
+          "txHash": "0xf1cea0440ea87c304e0d7c3c317dca9d79793564705f1c689bf74e1dde400022",
+          "blockNumber": "25710877",
+          "timestamp": "1786199735",
+          "amountRaw": "130753063773758976368023812",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate-with-quote-outflow"
+        },
+        {
+          "txHash": "0x88aa2e8a9052d2c21a259b6fdad7bd11fb80ac22c42371ba1a2df81b033a1d9b",
+          "blockNumber": "25710878",
+          "timestamp": "1786199747",
+          "amountRaw": "107162960747061583085753299",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate-with-quote-outflow"
+        },
+        {
+          "txHash": "0x335c8ec9086e612a0751bcc5d989b52605ab486f05cbc50caac5da1ca57e1fea",
+          "blockNumber": "25710983",
+          "timestamp": "1786201019",
+          "amountRaw": "471880316259707738281046571",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate-with-quote-outflow"
+        },
+        {
+          "txHash": "0x335c8ec9086e612a0751bcc5d989b52605ab486f05cbc50caac5da1ca57e1fea",
+          "blockNumber": "25710983",
+          "timestamp": "1786201019",
+          "amountRaw": "148797446735590454822021019",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate-with-quote-outflow"
+        },
+        {
+          "txHash": "0xf2048359a5df8535964def2e916dc1979f0f138a640fa608875a7870380e2992",
+          "blockNumber": "25711125",
+          "timestamp": "1786202735",
+          "amountRaw": "686427588281971163615318254",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate-with-quote-outflow"
+        }
+      ]
+    },
+    {
+      "address": "0x522ae68380ca52b02d3b19042e51e63b805f6cb9",
+      "status": "COMPLETE",
+      "totalInflowsInWindow": 5,
+      "sampledInflows": 5,
+      "confirmed": 5,
+      "holdCheck": {
+        "pass": true,
+        "reason": "ok"
+      },
+      "classification": "BUYER",
+      "acquisitions": [
+        {
+          "txHash": "0x8adfc3ddc643676ee350de8b920f3f8db18fd7cb98c1688835b17c496e262c58",
+          "blockNumber": "25782988",
+          "timestamp": "1787068319",
+          "amountRaw": "191907742836948823956470302",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        },
+        {
+          "txHash": "0xf9b0ec59dd74dc7c14b7f8a4b8104e43d538ff1648178f8a5d89004dd3c618fe",
+          "blockNumber": "25783014",
+          "timestamp": "1787068631",
+          "amountRaw": "2204055656422714548957223673",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        },
+        {
+          "txHash": "0xb46f5cf0d6b42ec6b972c8033eb1a73c9609b9e75a383b0a42329b9d10b8a7bc",
+          "blockNumber": "25783020",
+          "timestamp": "1787068703",
+          "amountRaw": "2568269442579617911302196334",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        },
+        {
+          "txHash": "0xa55c7932f38c4c9182936cbae94c7db1db39c8ee14b9e31e32636a200417e981",
+          "blockNumber": "25783025",
+          "timestamp": "1787068763",
+          "amountRaw": "3663127960364219077920940504",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        },
+        {
+          "txHash": "0x3aac55e37d0e28ac83604af50abe3cdb32c2504d081d6093b01f40086a1813ac",
+          "blockNumber": "25783035",
+          "timestamp": "1787068883",
+          "amountRaw": "1463340139129944718298051566",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        }
+      ]
+    },
+    {
+      "address": "0x000000000004444c5dc75cb358380d2e3de08a90",
+      "status": "COMPLETE",
+      "totalInflowsInWindow": 525,
+      "sampledInflows": 10,
+      "confirmed": 0,
+      "holdCheck": {
+        "pass": false,
+        "reason": "out-in-ratio:475/525"
+      },
+      "classification": "NOT_BUYER",
+      "acquisitions": [
+        {
+          "txHash": "0x6e6d3b411aab7ab9188e2de80ce206ff331dfb71675b36734223e2e07605fc29",
+          "blockNumber": "25710426",
+          "timestamp": "1786194311",
+          "amountRaw": "545519560000000000000000",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0x4728e466520920202e717c5e424d18f661366fcedeee6fab4dbec95316d9f02b",
+          "blockNumber": "25710429",
+          "timestamp": "1786194347",
+          "amountRaw": "654395176400871268319746",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0x6fe107fb0b38bea0ea39aec95ce5d57bd8b387ed54e1c874166e78968c6ff497",
+          "blockNumber": "25711532",
+          "timestamp": "1786207631",
+          "amountRaw": "116695847310717299458048",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0x73ca48a7eab2df2650b24ebcea19efc0098890476048378c8381a46232f48a63",
+          "blockNumber": "25712239",
+          "timestamp": "1786216139",
+          "amountRaw": "6465217623263619128398190",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0x8d73820385119ffff9b69c86a5bfb8f81618a5920dd3218ea819309b83ebf132",
+          "blockNumber": "25712285",
+          "timestamp": "1786216691",
+          "amountRaw": "6466481064648203653432828",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0x267bd28c6e350d3bc33371302c2273415e2264b41d95cd710aa8f8b9c7fe76b5",
+          "blockNumber": "25712398",
+          "timestamp": "1786218059",
+          "amountRaw": "269834301688418035650000",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0x365ea0e38196f1413467bdf6d813a0381690b1316ac148c13f6b1ad7ad436548",
+          "blockNumber": "25712515",
+          "timestamp": "1786219463",
+          "amountRaw": "348514053879208675280871",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0xa8570548c1a8447a5a8bb6a11bab338ea35548ea092300a2921a358df003079a",
+          "blockNumber": "25712668",
+          "timestamp": "1786221299",
+          "amountRaw": "1046394865269451781495201",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0x3e5f853171b98c5e7c9e016643fb3d4a449f8a7ce1bc0dccd6cc15d36d531bf4",
+          "blockNumber": "25712755",
+          "timestamp": "1786222355",
+          "amountRaw": "151574187982920452407296",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0x79f81693fb33e3d3cec5dd38ef0932e3618c2c229eb869771e6998cca2b31528",
+          "blockNumber": "25712760",
+          "timestamp": "1786222415",
+          "amountRaw": "208530384370893632569344",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        }
+      ]
+    },
+    {
+      "address": "0x983edb2c9a31c2549fb8d8b33b5724a85ae99423",
+      "status": "COMPLETE",
+      "totalInflowsInWindow": 4,
+      "sampledInflows": 4,
+      "confirmed": 4,
+      "holdCheck": {
+        "pass": true,
+        "reason": "ok"
+      },
+      "classification": "BUYER",
+      "acquisitions": [
+        {
+          "txHash": "0xeeb00f947e637fc5af6e9e6eef1213c6ee672d176a873603bf27b31137d5948a",
+          "blockNumber": "25783841",
+          "timestamp": "1787078579",
+          "amountRaw": "954748423351444229447783492",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate-with-quote-outflow"
+        },
+        {
+          "txHash": "0xe24360447bbc63e8f87aaddb140203d474bae955e88fed6cdc436df9c75e1127",
+          "blockNumber": "25783867",
+          "timestamp": "1787078891",
+          "amountRaw": "884396811989905969032082157",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate-no-quote-visible"
+        },
+        {
+          "txHash": "0x187ef647e88ed05aa814ef9f4224e4b87edd1fae3d2a7bac7d3a7ba54ad2847a",
+          "blockNumber": "25783897",
+          "timestamp": "1787079251",
+          "amountRaw": "302958300954304201790880878",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate-no-quote-visible"
+        },
+        {
+          "txHash": "0x187ef647e88ed05aa814ef9f4224e4b87edd1fae3d2a7bac7d3a7ba54ad2847a",
+          "blockNumber": "25783897",
+          "timestamp": "1787079251",
+          "amountRaw": "75914626345402906716878111",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate-no-quote-visible"
+        }
+      ]
+    },
+    {
+      "address": "0xc9f16b6cc9cadb7b81e020b94e5ab72acf6b9748",
+      "status": "COMPLETE",
+      "totalInflowsInWindow": 16,
+      "sampledInflows": 10,
+      "confirmed": 1,
+      "holdCheck": {
+        "pass": true,
+        "reason": "ok"
+      },
+      "classification": "BUYER",
+      "acquisitions": [
+        {
+          "txHash": "0xd8d7a6cf0406a591264d04b35566029011142d721e770399bd8bcf5ed1a72d85",
+          "blockNumber": "25764299",
+          "timestamp": "1786843343",
+          "amountRaw": "191167821639222906780123136",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0xc7530a1018da21624a4897ca9690d4f5afbb863f6d42a86286e307955076bc71",
+          "blockNumber": "25764323",
+          "timestamp": "1786843631",
+          "amountRaw": "38272422530630730000000000",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0xa970f4fbbd3807426c8d9a22eccf66de639ece3bca0ece0d04c14795281bb4ab",
+          "blockNumber": "25764342",
+          "timestamp": "1786843859",
+          "amountRaw": "38310609123991081487171584",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0x21e0c7c99f3067553f93fe449dd1a0e680187d4b6406c132be56d6ddc149a7ab",
+          "blockNumber": "25764387",
+          "timestamp": "1786844399",
+          "amountRaw": "114928304034781231480569856",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0xf21078c547f79d1bd5e0405ca69fa21e68ef2227bb70a8f8e320acf501d67d4c",
+          "blockNumber": "25764501",
+          "timestamp": "1786845767",
+          "amountRaw": "76473167244054239513673728",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0xc313668337bef765b8ee70ebbf0aa4faea4105356652a4724500d8697809791a",
+          "blockNumber": "25764573",
+          "timestamp": "1786846631",
+          "amountRaw": "76676153379404651834638336",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0x4ac427d32b6760e8f0b3892fd5072cf9e2862bd0948d0a87c79b4a9534074b4b",
+          "blockNumber": "25764588",
+          "timestamp": "1786846811",
+          "amountRaw": "76877751074263560032878592",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0xba23c53575fc38ad3bfdb7f41b4e0c76f9ecef008c04b3cf46a6bec0fa81aa03",
+          "blockNumber": "25767985",
+          "timestamp": "1786887683",
+          "amountRaw": "40168558933180841382612878",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate-with-quote-outflow"
+        },
+        {
+          "txHash": "0x45be60d19c38ada5b0e39178789a62e0dbe0263884434536d7ab9d5488e42cda",
+          "blockNumber": "25769382",
+          "timestamp": "1786904471",
+          "amountRaw": "57584536946715524021092352",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0xbfddd28dc6c30d5da4826c32d43517266cb0dc9c4119c7919c91ea8107b278a6",
+          "blockNumber": "25769446",
+          "timestamp": "1786905239",
+          "amountRaw": "38469166885801823448334336",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        }
+      ]
+    },
+    {
+      "address": "0x18b7392814b06474de07aafcc674afc57a23c8b8",
+      "status": "COMPLETE",
+      "totalInflowsInWindow": 1,
+      "sampledInflows": 1,
+      "confirmed": 1,
+      "holdCheck": {
+        "pass": true,
+        "reason": "ok"
+      },
+      "classification": "BUYER",
+      "acquisitions": [
+        {
+          "txHash": "0x649994dba769992d89eba8c097159e395678ae12df7d69c5566e3116430ca5fb",
+          "blockNumber": "25768655",
+          "timestamp": "1786895723",
+          "amountRaw": "943343965308847307875331941",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        }
+      ]
+    },
+    {
+      "address": "0x1b1d8b13dcd6a01fdb4864d85d96f3ee0503b967",
+      "status": "COMPLETE",
+      "totalInflowsInWindow": 5,
+      "sampledInflows": 5,
+      "confirmed": 5,
+      "holdCheck": {
+        "pass": true,
+        "reason": "ok"
+      },
+      "classification": "BUYER",
+      "acquisitions": [
+        {
+          "txHash": "0x3a7e5af2d36e6a985655620aed6fbbd437206a002ae2c605b17f56b9d9107d34",
+          "blockNumber": "25712281",
+          "timestamp": "1786216643",
+          "amountRaw": "39143743376548703318992537",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        },
+        {
+          "txHash": "0xa23790e1af9a1bb02184f7c28f90428af5b7bad387e394a43be97fdf404f3e7b",
+          "blockNumber": "25754627",
+          "timestamp": "1786726775",
+          "amountRaw": "183098452891810005381449497",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        },
+        {
+          "txHash": "0xf10ce4d39d8a9cf0496884536f3a655b113a8b4bc9e7908d6a9b6d4983662cf1",
+          "blockNumber": "25812676",
+          "timestamp": "1787425667",
+          "amountRaw": "67533455568236051943458184",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        },
+        {
+          "txHash": "0xf10ce4d39d8a9cf0496884536f3a655b113a8b4bc9e7908d6a9b6d4983662cf1",
+          "blockNumber": "25812676",
+          "timestamp": "1787425667",
+          "amountRaw": "1809690656507004183575051",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        },
+        {
+          "txHash": "0x9b147ba1ffefd4f692bbb7217e319bf62e7ffdf7bd80d6987450aaeeb6535ed4",
+          "blockNumber": "25819192",
+          "timestamp": "1787504171",
+          "amountRaw": "522514154089096451717287064",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        }
+      ]
+    },
+    {
+      "address": "0x38583e92eaaae241bde8b5a10f23cea253d21b1b",
+      "status": "COMPLETE",
+      "totalInflowsInWindow": 1,
+      "sampledInflows": 1,
+      "confirmed": 1,
+      "holdCheck": {
+        "pass": true,
+        "reason": "ok"
+      },
+      "classification": "BUYER",
+      "acquisitions": [
+        {
+          "txHash": "0x640896dd4cf115697b500e5653f58b8872c1d811cdf24256d2cf49e70d54502d",
+          "blockNumber": "25746737",
+          "timestamp": "1786631783",
+          "amountRaw": "628731858469643311114814506",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        }
+      ]
+    },
+    {
+      "address": "0x60e1b2e2a8dfed101cb514f7baca98ae76bd1986",
+      "status": "COMPLETE",
+      "totalInflowsInWindow": 1,
+      "sampledInflows": 1,
+      "confirmed": 1,
+      "holdCheck": {
+        "pass": true,
+        "reason": "ok"
+      },
+      "classification": "BUYER",
+      "acquisitions": [
+        {
+          "txHash": "0xac66e3d77488a91381a9959f96feb77477f50311b4fb99c2b8c840124d28ba7e",
+          "blockNumber": "25767443",
+          "timestamp": "1786881167",
+          "amountRaw": "574324772964512973456630299",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate-no-quote-visible"
+        }
+      ]
+    },
+    {
+      "address": "0x3f6732ea4eedab1ee1b9a3f9fe4013736656f980",
+      "status": "COMPLETE",
+      "totalInflowsInWindow": 2,
+      "sampledInflows": 2,
+      "confirmed": 2,
+      "holdCheck": {
+        "pass": true,
+        "reason": "ok"
+      },
+      "classification": "BUYER",
+      "acquisitions": [
+        {
+          "txHash": "0xcccbebb3d3e4137313759ae6432c5ec90fd265f09a82b19b1ee6a014c0ebb0b1",
+          "blockNumber": "25768182",
+          "timestamp": "1786890047",
+          "amountRaw": "100000000000000000383113283",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        },
+        {
+          "txHash": "0x93b1b68263dcdcf671e59b134a49e55ffa6b0fb247a73a81069551ab8201c648",
+          "blockNumber": "25804019",
+          "timestamp": "1787321447",
+          "amountRaw": "130000000000000000260535340",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        }
+      ]
+    },
+    {
+      "address": "0xedd5c22bf56f0fa245d004cc83ce2a7081966664",
+      "status": "COMPLETE",
+      "totalInflowsInWindow": 2,
+      "sampledInflows": 2,
+      "confirmed": 2,
+      "holdCheck": {
+        "pass": true,
+        "reason": "ok"
+      },
+      "classification": "BUYER",
+      "acquisitions": [
+        {
+          "txHash": "0x4836cc736366668e564c72723507d2b3f886dd4e698ee89ff0b161802a44863e",
+          "blockNumber": "25722686",
+          "timestamp": "1786341899",
+          "amountRaw": "100000000000000000493137719",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        },
+        {
+          "txHash": "0xd8cb3d71f50079b6ad9f4a9e1fc5e46a32433799a7a443747eb98e75c2af3b0a",
+          "blockNumber": "25740205",
+          "timestamp": "1786553219",
+          "amountRaw": "100000000000000000054610379",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        }
+      ]
+    },
+    {
+      "address": "0x9f9820e58342286584481e20e631088cc5643208",
+      "status": "COMPLETE",
+      "totalInflowsInWindow": 18,
+      "sampledInflows": 10,
+      "confirmed": 5,
+      "holdCheck": {
+        "pass": true,
+        "reason": "ok"
+      },
+      "classification": "BUYER",
+      "acquisitions": [
+        {
+          "txHash": "0x6484a63de3cb43bd24dd49143a8bdcadf03f3674cc5a7d774cedd4ad897a4b75",
+          "blockNumber": "25728256",
+          "timestamp": "1786409027",
+          "amountRaw": "8690395898469681703368828",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate-with-quote-outflow"
+        },
+        {
+          "txHash": "0x96e8b62bf1e69a2bfe17210720bc05f9e3134707d9aa7dbba95765838bcbc8a8",
+          "blockNumber": "25733093",
+          "timestamp": "1786467455",
+          "amountRaw": "17874006466780233983214394",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        },
+        {
+          "txHash": "0x76c0daa2806d8aa29613b49ee1af07ad4851a71af5350274c09ba245313fe7ff",
+          "blockNumber": "25741677",
+          "timestamp": "1786570919",
+          "amountRaw": "9040506341344033126753344",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        },
+        {
+          "txHash": "0xb4b563a439cfadceb2bdbe64213aa3cf89659ad7a8ba053f853e15c9251176cf",
+          "blockNumber": "25741874",
+          "timestamp": "1786573283",
+          "amountRaw": "9151720779292032364445696",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0x79487c8ef2ba78fd10f4f75711e3bc5e9d2070668801723a8bc81e69c855677f",
+          "blockNumber": "25741895",
+          "timestamp": "1786573535",
+          "amountRaw": "9144828030955212106629120",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0x025ea7a9001f0d9ab9fb353d0fb3fe2e31632fb5a94e48183827d71fff10e736",
+          "blockNumber": "25741937",
+          "timestamp": "1786574039",
+          "amountRaw": "9179251396278999649878016",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0x111e7ec711110e0f60f4af29f0c5197f08a3e7993689154f3ddfd797f14324fb",
+          "blockNumber": "25741991",
+          "timestamp": "1786574687",
+          "amountRaw": "9213598549066683571503104",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        },
+        {
+          "txHash": "0x77e9cde90bb611ff37533ab1b7f7c37f3f21e15e4626bb80aa9e1f107fe06330",
+          "blockNumber": "25742223",
+          "timestamp": "1786577471",
+          "amountRaw": "9382646423742523796169999",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        },
+        {
+          "txHash": "0xcd6abe9663f27aa4a96d8d1c11132570a3687a5b6319d36285aa1322293093bd",
+          "blockNumber": "25743096",
+          "timestamp": "1786587959",
+          "amountRaw": "9307134547953950203624019",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        },
+        {
+          "txHash": "0x19711ef16e895214f8414f8cb874ad113f4fe9a6ebce05eab45fc5a54607e483",
+          "blockNumber": "25743198",
+          "timestamp": "1786589183",
+          "amountRaw": "9319987275861801526362112",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        }
+      ]
+    },
+    {
+      "address": "0x6a9b4bd87aa49574e107556fdeb9c7eb1c5f03f5",
+      "status": "COMPLETE",
+      "totalInflowsInWindow": 3,
+      "sampledInflows": 3,
+      "confirmed": 3,
+      "holdCheck": {
+        "pass": true,
+        "reason": "ok"
+      },
+      "classification": "BUYER",
+      "acquisitions": [
+        {
+          "txHash": "0xc8a3092f3d9d0a4585b53e4fbf9faa48e92919584b21284ea77506f457016c2e",
+          "blockNumber": "25743132",
+          "timestamp": "1786588391",
+          "amountRaw": "55000000000000000378987639",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        },
+        {
+          "txHash": "0xbc8999ca77fb81349defab6179e6ec097b8372c6bcd5e3e546d4bc69de950676",
+          "blockNumber": "25768218",
+          "timestamp": "1786890479",
+          "amountRaw": "72000000000000000646226819",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        },
+        {
+          "txHash": "0x50f77e91318d43edd4c8ffc9a5d3ee73eecf6e15e2de303d750ee7d55be59dc5",
+          "blockNumber": "25797881",
+          "timestamp": "1787247563",
+          "amountRaw": "28000000000000000000000000",
+          "classification": "DIRECT_ORIGINATOR",
+          "reason": "tx-from-is-candidate-and-method-is-swap",
+          "method": "0x3593564c"
+        }
+      ]
+    },
+    {
+      "address": "0xe859992fdb55fea5919613586cb25a8b08041a1f",
+      "status": "COMPLETE",
+      "totalInflowsInWindow": 3,
+      "sampledInflows": 3,
+      "confirmed": 2,
+      "holdCheck": {
+        "pass": true,
+        "reason": "ok"
+      },
+      "classification": "BUYER",
+      "acquisitions": [
+        {
+          "txHash": "0xaa24ab6ea5ff89031567ac84cfac1c17d750fcbf71fc0502326ae976afedc4bb",
+          "blockNumber": "25765217",
+          "timestamp": "1786854395",
+          "amountRaw": "23191139230259658655099554",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate"
+        },
+        {
+          "txHash": "0xe1330441e7bd6068c0104b3413a4a91258ae2ed535ecc22cacaa0aaaf0a20a6b",
+          "blockNumber": "25765271",
+          "timestamp": "1786855055",
+          "amountRaw": "15076434793384528023177463",
+          "classification": "TRACED_ECONOMIC_RECIPIENT",
+          "reason": "swap-event-to-candidate"
+        },
+        {
+          "txHash": "0x13aaf9351dab57a1101f271b73b6ad1e2c41175ed4b9874ac20371b9fd32a2ab",
+          "blockNumber": "25780625",
+          "timestamp": "1787039819",
+          "amountRaw": "37086091292093785931120835",
+          "classification": "UNRESOLVED",
+          "reason": "no-swap-evidence"
+        }
+      ]
+    },
+    {
+      "address": "0xc5e9f816994d3eb91b556bc8d0a0cbe44a674909",
+      "status": "ERROR",
+      "reason": "tokentx-fetch-failed"
+    },
+    {
+      "address": "0xe68e72bd29eab54c140a0e2eeb0f689b64c15160",
+      "status": "ERROR",
+      "reason": "tokentx-fetch-failed"
+    },
+    {
+      "address": "0x4ddb4c36aa35eefa67f9b267be12581c9b77fdd6",
+      "status": "ERROR",
+      "reason": "tokentx-fetch-failed"
+    },
+    {
+      "address": "0x69aa23feb60ee3dcfd0d347845b9eaadd704ea53",
+      "status": "ERROR",
+      "reason": "tokentx-fetch-failed"
+    },
+    {
+      "address": "0x42d2b5ba66b25e2e2f7b1efa98be04c3ce19b506",
+      "status": "ERROR",
+      "reason": "tokentx-fetch-failed"
+    },
+    {
+      "address": "0xa4a82592752998b4b52cdc7fb05adb68322afc93",
+      "status": "ERROR",
+      "reason": "tokentx-fetch-failed"
+    },
+    {
+      "address": "0xd853b30852844599ef5cc1b1fc7e917c1c66131d",
+      "status": "ERROR",
+      "reason": "tokentx-fetch-failed"
+    },
+    {
+      "address": "0x8f0aeb8aa5349c1c19c8c74085e73be0a0a60ce8",
+      "status": "ERROR",
+      "reason": "tokentx-fetch-failed"
+    },
+    {
+      "address": "0x8e86949277613492567a59b5c03ac4887425ebd6",
+      "status": "ERROR",
+      "reason": "tokentx-fetch-failed"
+    },
+    {
+      "address": "0x8a23110d3f9ad0ae642abacd55c2da70e7e1f098",
+      "status": "ERROR",
+      "reason": "tokentx-fetch-failed"
+    },
+    {
+      "address": "0xef5a7d2144bd813c906f0afb5447597148a99a4a",
+      "status": "ERROR",
+      "reason": "tokentx-fetch-failed"
+    },
+    {
+      "address": "0x9e56638b83184fe17a9e1237259915ae7c57f957",
+      "status": "ERROR",
+      "reason": "tokentx-fetch-failed"
+    },
+    {
+      "address": "0x699340d6bd2010e743a566184365ec205ba39c0b",
+      "status": "ERROR",
+      "reason": "tokentx-fetch-failed"
+    },
+    {
+      "address": "0x364f4a91b639c38d541aca4a2c9e3f88acbf7dcd",
+      "status": "ERROR",
+      "reason": "tokentx-fetch-failed"
+    },
+    {
+      "address": "0x43ab1bb4fae4c6cfcb00089beb596ae97f85b7be",
+      "status": "ERROR",
+      "reason": "tokentx-fetch-failed"
+    },
+    {
+      "address": "0xd56fca51b9f22414379a805cb45ab5b404e34023",
+      "status": "ERROR",
+      "reason": "tokentx-fetch-failed"
+    },
+    {
+      "address": "0x072391ef098e55971de12242de826efb63139451",
+      "status": "ERROR",
+      "reason": "tokentx-fetch-failed"
+    }
+  ]
+}
