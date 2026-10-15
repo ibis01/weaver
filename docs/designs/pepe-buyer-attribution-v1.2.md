@@ -1,3 +1,10 @@
+> **SUPERSEDED 2026-10-15 by v1.3.** Two amendments: §9.1.5
+> pre-classification filter on windowed net position, and §6.6
+> UNRESOLVED ceiling clarified to apply post-filter. Successor:
+> `docs/designs/pepe-buyer-attribution-v1.3.md`.
+
+---
+
 # Weaver — PEPE Buyer Attribution Specification v1.2
 
 **Date:** 2026-10-15 (v1.2)

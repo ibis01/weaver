@@ -347,7 +347,59 @@ function classifyOne(ctx) {
 }
 
 // ---- §9 per-candidate processing ----
+// §9.1.5 pre-filter (v1.3): drop candidates whose windowed net position
+// does not reflect a retained PEPE holding.
+let __windowStartBlock = null;
+let __windowEndBlock = null;
+const PREFILTER_MIN_NET_WEI = 10n ** 24n;  // 1M PEPE
+const PREFILTER_MAX_OUT_IN = 0.5;
+
+async function prefilterCandidate(candidate) {
+  if (__windowStartBlock === null || __windowEndBlock === null) {
+    return { pass: true };
+  }
+  const url = API_ES + "?module=account&action=tokentx"
+    + "&address=" + candidate
+    + "&contractaddress=" + PEPE
+    + "&startblock=" + String(__windowStartBlock)
+    + "&endblock=" + String(__windowEndBlock)
+    + "&sort=asc&page=1&offset=1000";
+  const d = await fetchJson(url);
+  if (!d || d.status !== "1") {
+    return { pass: false, reason: "prefilter-fetch-failed" };
+  }
+  const rows = d.result || [];
+  let net = 0n, inCount = 0, outCount = 0;
+  for (const r of rows) {
+    let v; try { v = BigInt(r.value || "0"); } catch { continue; }
+    if (lower(r.to) === candidate)   { net += v; inCount++; }
+    if (lower(r.from) === candidate) { net -= v; outCount++; }
+  }
+  if (net < PREFILTER_MIN_NET_WEI) {
+    return { pass: false, reason: "prefilter-net-below-1e24" };
+  }
+  if (inCount > 0 && (outCount / inCount) > PREFILTER_MAX_OUT_IN) {
+    return { pass: false, reason: "prefilter-out-in-" + outCount + "/" + inCount };
+  }
+  return { pass: true };
+}
+
 async function processCandidate(candidate, eventsForCandidate, maxPerCand) {
+  const pre = await prefilterCandidate(candidate);
+  if (!pre.pass) {
+    return {
+      address: candidate,
+      contract_meta: null,
+      totalSwapTxs: eventsForCandidate.length,
+      classifiedTxs: 0,
+      confirmed: 0,
+      classification: "NOT_BUYER",
+      prefilter: pre,
+      acquisitions: [],
+    };
+  }
+  await sleep(SLEEP_MS);
+
   const meta = await fetchAddressMeta(candidate);
   await sleep(SLEEP_MS);
 
@@ -455,6 +507,8 @@ async function main() {
     const endBlock = await exactBlockAt(windowEnd);
     if (startBlock === null || endBlock === null) { log("block lookup failed"); process.exit(1); }
     log("blocks: " + startBlock + " .. " + endBlock);
+  __windowStartBlock = startBlock;
+  __windowEndBlock = endBlock;
 
     const logs = await fetchSwapLogs(startBlock, endBlock, chunkSize);
     log("swap events: " + logs.length);
