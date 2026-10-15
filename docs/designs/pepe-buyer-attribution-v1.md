@@ -1,16 +1,16 @@
+> **SUPERSEDED 2026-10-15.** This revision is not implementation-ready.
+> Three items in the §11 review checklist fail:
+> (a) the economic-buyer definition does not resolve EIP-7702,
+> (b) the four classifications misroute 7702-delegated accounts to
+>     INTERMEDIARY,
+> (c) the §7 revalidation plan is superseded by the window-degeneracy
+>     finding (docs/audits/gate-0b-window-degeneracy-2026-10-15.md).
+> See docs/audits/pepe-buyer-attribution-spec-review-2026-10-15.md.
+> The successor is pepe-buyer-attribution-v1.1.md.
 
-    SUPERSEDED 2026-10-15. This revision is not implementation-ready.
-    Three items in the §11 review checklist fail:
-    (a) the economic-buyer definition does not resolve EIP-7702,
-    (b) the four classifications misroute 7702-delegated accounts to
-    INTERMEDIARY,
-    (c) the §7 revalidation plan is superseded by the window-degeneracy
-    finding (docs/audits/gate-0b-window-degeneracy-2026-10-15.md).
-    See docs/audits/pepe-buyer-attribution-spec-review-2026-10-15.md.
-    The successor is pepe-buyer-attribution-v1.1.md.
+---
 
 # Weaver — PEPE Buyer Attribution Specification v1
-
 **Date:** 2026-10-13
 **Status:** Draft for review. Not implemented.
 **Predecessor:** docs/audits/gate-0b-discrimination-result-2026-10-13.md
