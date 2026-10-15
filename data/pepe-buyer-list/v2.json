@@ -1,6 +1,6 @@
 {
   "version": "pepe-buyer-list-v2",
-  "generatedAt": "2026-10-15T16:40:34.054Z",
+  "generatedAt": "2026-10-15T17:03:45.502Z",
   "spec": "docs/designs/pepe-buyer-attribution-v1.1.md",
   "window": {
     "start": "2026-08-12",
@@ -8,24 +8,24 @@
   },
   "minPepe": "1000000000",
   "counts": {
-    "candidatesProcessed": 20,
-    "buyers": 12,
-    "notBuyers": 8,
+    "candidatesProcessed": 100,
+    "buyers": 18,
+    "notBuyers": 82,
     "errors": 0
   },
   "acceptance": {
     "swapEventsScanned": 2283,
-    "candidatesProcessed": 20,
+    "candidatesProcessed": 100,
     "acquisitionsByClass": {
-      "DIRECT_ORIGINATOR": 20,
-      "TRACED_ECONOMIC_RECIPIENT": 3,
-      "INTERMEDIARY": 18,
-      "UNRESOLVED": 18,
+      "DIRECT_ORIGINATOR": 28,
+      "TRACED_ECONOMIC_RECIPIENT": 5,
+      "INTERMEDIARY": 82,
+      "UNRESOLVED": 150,
       "REJECTED": 0
     },
-    "totalAcquisitions": 59,
-    "unresolvedPct": 30.51,
-    "unresolvedCeilingPass": true
+    "totalAcquisitions": 265,
+    "unresolvedPct": 56.6,
+    "unresolvedCeilingPass": false
   },
   "buyers": [
     {
@@ -87,6 +87,36 @@
       "address": "0xaf2e428a0c17ba8fc940918b2482227dacb5ae89",
       "confirmed": 1,
       "classifiedTxs": 1
+    },
+    {
+      "address": "0x18b7392814b06474de07aafcc674afc57a23c8b8",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0x08ec055d593c353612b576d41f144fa0a4865a2d",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0x78ec245e59af5deab96165648aad1d8bc04d4335",
+      "confirmed": 4,
+      "classifiedTxs": 4
+    },
+    {
+      "address": "0x38583e92eaaae241bde8b5a10f23cea253d21b1b",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0xa6fc8502b3a7f93180b6e960f48c4556c2beb0b8",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0xe1a71818918ff327ef4d2e8234fac0a8777ca4fe",
+      "confirmed": 2,
+      "classifiedTxs": 2
     }
   ]
 }

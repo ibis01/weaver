@@ -1,0 +1,39 @@
+{
+  "buyers": 18,
+  "notBuyers": 82,
+  "errors": 0,
+  "acceptance": {
+    "swapEventsScanned": 2283,
+    "candidatesProcessed": 100,
+    "acquisitionsByClass": {
+      "DIRECT_ORIGINATOR": 28,
+      "TRACED_ECONOMIC_RECIPIENT": 5,
+      "INTERMEDIARY": 82,
+      "UNRESOLVED": 150,
+      "REJECTED": 0
+    },
+    "totalAcquisitions": 265,
+    "unresolvedPct": 56.6,
+    "unresolvedCeilingPass": false
+  },
+  "buyerList": [
+    "0x522ae68380ca52b02d3b19042e51e63b805f6cb9",
+    "0xee0ca621c24bac5ba83491b8dd404c57909d5249",
+    "0xe3ef474805c96ac7edae891a8dc50f644d2cac3e",
+    "0xdbe325de32033a39edcb792d1264f9e40351000d",
+    "0xaa71667e3d15f5f0321f3008fa73060ed589f05d",
+    "0xfeb44e5f9d001e84815b8debbc32afdd9fb32e4e",
+    "0x983edb2c9a31c2549fb8d8b33b5724a85ae99423",
+    "0x359fc1162bea5ffbe52dc1879110dae8c70fa3b1",
+    "0x223edcebf2baadff1a85469019e26234ff67ff48",
+    "0xd19ff8508307e17ea079533adc9f12864ef557e2",
+    "0x6364b188d52e2c6483d435a4fb716123c7299bc4",
+    "0xaf2e428a0c17ba8fc940918b2482227dacb5ae89",
+    "0x18b7392814b06474de07aafcc674afc57a23c8b8",
+    "0x08ec055d593c353612b576d41f144fa0a4865a2d",
+    "0x78ec245e59af5deab96165648aad1d8bc04d4335",
+    "0x38583e92eaaae241bde8b5a10f23cea253d21b1b",
+    "0xa6fc8502b3a7f93180b6e960f48c4556c2beb0b8",
+    "0xe1a71818918ff327ef4d2e8234fac0a8777ca4fe"
+  ]
+}
