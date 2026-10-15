@@ -107,7 +107,13 @@ const TRACE_TRUNCATION_MARKER = null; // if trace returns next_page_params, no m
 
 // ---- Logging ----
 function log(m) { process.stderr.write(m + "\n"); }
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+let _sleepImpl = (ms) => new Promise((r) => setTimeout(r, ms));
+function _setSleepImpl(fn) { _sleepImpl = fn; }
+function sleep(ms) { return _sleepImpl(ms); }
+
+// v1.4 §9.1 extraction constants
+const LOGS_LIMIT = 1000;
+const MAX_SPLIT_DEPTH = 12;
 function lower(s) { return (s || "").toLowerCase(); }
 function authUrl(u) {
   if (!KEY) return u;
@@ -144,35 +150,80 @@ async function exactBlockAt(date) {
   return Number.isSafeInteger(n) ? n : null;
 }
 
-async function fetchSwapLogs(startBlock, endBlock, chunkSize) {
-  const all = [];
+async function fetchLogsRange(fromBlock, toBlock) {
+  const q = "?module=logs&action=getLogs&fromBlock=" + fromBlock
+    + "&toBlock=" + toBlock
+    + "&address=" + PAIR
+    + "&topic0=" + SWAP_TOPIC_V2;
+  return await fetchJson(API_ES + q);
+}
+
+async function fetchLogsRecursive(fromBlock, toBlock, depth, maxDepth, report, fetcher) {
+  const fetchFn = fetcher || fetchLogsRange;
+  if (fromBlock > toBlock) return { logs: [], ok: true };
+  const d = await fetchFn(fromBlock, toBlock);
+  if (d === null) {
+    report.rangesAttempted++;
+    report.rangesFailed.push({ from: fromBlock, to: toBlock, reason: "provider-error" });
+    return { logs: [], ok: false, reason: "provider-error" };
+  }
+  if (d.status !== "1") {
+    const msg = String(d.message || "").toLowerCase();
+    if (msg.includes("no") && (msg.includes("found") || msg.includes("transaction"))) {
+      report.rangesAttempted++;
+      report.rangesSucceeded++;
+      return { logs: [], ok: true };
+    }
+    report.rangesAttempted++;
+    report.rangesFailed.push({ from: fromBlock, to: toBlock, reason: "api-status-" + d.status });
+    return { logs: [], ok: false, reason: "api-status" };
+  }
+  const logs = d.result || [];
+  if (logs.length < LOGS_LIMIT) {
+    report.rangesAttempted++;
+    report.rangesSucceeded++;
+    return { logs, ok: true };
+  }
+  if (depth >= maxDepth) {
+    report.rangesAttempted++;
+    report.rangesFailed.push({ from: fromBlock, to: toBlock, reason: "max-split-depth" });
+    return { logs: [], ok: false, reason: "max-split-depth" };
+  }
+  if (fromBlock === toBlock) {
+    report.rangesAttempted++;
+    report.rangesFailed.push({ from: fromBlock, to: toBlock, reason: "single-block-over-limit" });
+    return { logs: [], ok: false, reason: "single-block-over-limit" };
+  }
+  const mid = Math.floor((fromBlock + toBlock) / 2);
+  await sleep(300);
+  const left = await fetchLogsRecursive(fromBlock, mid, depth + 1, maxDepth, report, fetcher);
+  await sleep(300);
+  const right = await fetchLogsRecursive(mid + 1, toBlock, depth + 1, maxDepth, report, fetcher);
+  return { logs: [...left.logs, ...right.logs], ok: left.ok && right.ok };
+}
+
+async function fetchSwapLogs(startBlock, endBlock, chunkSize, options) {
+  const opts = options || {};
+  const fetcher = opts.fetcher || fetchLogsRange;
+  const maxDepth = opts.maxDepth !== undefined ? opts.maxDepth : MAX_SPLIT_DEPTH;
+  const report = { rangesAttempted: 0, rangesSucceeded: 0, rangesFailed: [], swapEventCount: 0, complete: false };
+  const allLogs = [];
   let cursor = startBlock;
   while (cursor <= endBlock) {
     const chunkEnd = Math.min(cursor + chunkSize - 1, endBlock);
-    const q = "?module=logs&action=getLogs&fromBlock=" + cursor
-      + "&toBlock=" + chunkEnd
-      + "&address=" + PAIR
-      + "&topic0=" + SWAP_TOPIC_V2;
-    const d = await fetchJson(API_ES + q);
-    if (!d || d.status !== "1") {
-      cursor = chunkEnd + 1;
-      await sleep(300);
-      continue;
-    }
-    const logs = d.result || [];
-    if (logs.length >= 1000) {
-      const mid = Math.floor((cursor + chunkEnd) / 2);
-      const sub1 = await fetchJson(API_ES + "?module=logs&action=getLogs&fromBlock=" + cursor + "&toBlock=" + mid + "&address=" + PAIR + "&topic0=" + SWAP_TOPIC_V2);
-      const sub2 = await fetchJson(API_ES + "?module=logs&action=getLogs&fromBlock=" + (mid+1) + "&toBlock=" + chunkEnd + "&address=" + PAIR + "&topic0=" + SWAP_TOPIC_V2);
-      if (sub1 && sub1.status === "1") all.push(...(sub1.result || []));
-      if (sub2 && sub2.status === "1") all.push(...(sub2.result || []));
-    } else {
-      all.push(...logs);
+    const r = await fetchLogsRecursive(cursor, chunkEnd, 0, maxDepth, report, fetcher);
+    allLogs.push(...r.logs);
+    if (!r.ok) {
+      report.swapEventCount = allLogs.length;
+      report.complete = false;
+      return { logs: allLogs, report };
     }
     cursor = chunkEnd + 1;
     await sleep(300);
   }
-  return all;
+  report.swapEventCount = allLogs.length;
+  report.complete = report.rangesFailed.length === 0;
+  return { logs: allLogs, report };
 }
 
 function extractEvents(logs) {
@@ -523,9 +574,21 @@ async function main() {
   __windowStartBlock = startBlock;
   __windowEndBlock = endBlock;
 
-    const logs = await fetchSwapLogs(startBlock, endBlock, chunkSize);
-    log("swap events: " + logs.length);
-    events = extractEvents(logs);
+    const extraction = await fetchSwapLogs(startBlock, endBlock, chunkSize);
+    log("swap events: " + extraction.logs.length);
+    log("extraction ranges: attempted=" + extraction.report.rangesAttempted
+        + " succeeded=" + extraction.report.rangesSucceeded
+        + " failed=" + extraction.report.rangesFailed.length);
+    if (!extraction.report.complete) {
+      log("");
+      log("!! EXTRACTION INCOMPLETE - refusing to proceed.");
+      for (const f of extraction.report.rangesFailed.slice(0, 20)) {
+        log("   [" + f.from + ", " + f.to + "]  " + f.reason);
+      }
+      log("!! No population written. Exit 2.");
+      process.exit(2);
+    }
+    events = extractEvents(extraction.logs);
     log("extracted " + events.length + " candidate-acquisitions");
   }
 
@@ -639,4 +702,8 @@ module.exports = {
   classificationFromPrefilter,
   acceptanceCheck,
   prefilterCandidate,
+  _fetchSwapLogs: fetchSwapLogs,
+  _fetchLogsRecursive: fetchLogsRecursive,
+  _setSleepImpl,
+  _constants: { LOGS_LIMIT, MAX_SPLIT_DEPTH },
 };
