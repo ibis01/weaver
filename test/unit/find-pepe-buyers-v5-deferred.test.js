@@ -51,6 +51,16 @@ describe("acceptanceCheck — v1.5 §3.4 sub-reasons", () => {
     assert.equal(r.unresolvedByReason.TRACE_AMBIGUITY, 0);
   });
 
+  it("counts provider-error-transfers as PROVIDER_FAILURE residual", () => {
+    const r = acceptanceCheck([one([
+      acq("provider-error-transfers"),
+      acq("provider-error-tx"),
+      acq("no-decisive-evidence"),
+    ])], 10);
+    assert.equal(r.unresolvedByReason.PROVIDER_FAILURE, 2);
+    assert.equal(r.unresolvedByReason.TRACE_AMBIGUITY, 1);
+  });
+
   it("fails ceiling when residual exceeds 40%", () => {
     const acqs = [];
     for (let i = 0; i < 50; i++) acqs.push(acq("no-decisive-evidence"));

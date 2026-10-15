@@ -519,7 +519,16 @@ async function processCandidate(candidate, eventsForCandidate, maxPerCand) {
     }
     const transfersResp = await fetchTokenTransfersV2(ev.txHash);
     await sleep(SLEEP_MS);
-    const transfers = (transfersResp && transfersResp.items) || [];
+    if (!transfersResp || !Array.isArray(transfersResp.items)) {
+      acquisitions.push({
+        txHash: ev.txHash,
+        blockNumber: ev.blockNumber,
+        classification: "UNRESOLVED",
+        reason_code: "provider-error-transfers",
+      });
+      continue;
+    }
+    const transfers = transfersResp.items;
 
     const ctx = {
       candidate,
@@ -573,7 +582,11 @@ function acceptanceCheck(results, eventsCount) {
       const rc = a.reason_code || "";
       if (deferred[rc] !== undefined) {
         deferred[rc]++;
-      } else if (rc === "provider-error-tx" || rc === "provider-error") {
+      } else if (
+        rc === "provider-error-tx" ||
+        rc === "provider-error-transfers" ||
+        rc === "provider-error"
+      ) {
         residual.PROVIDER_FAILURE++;
       } else if (a.classification === "UNRESOLVED") {
         residual.TRACE_AMBIGUITY++;
