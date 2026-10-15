@@ -1,0 +1,33 @@
+{
+  "buyers": 12,
+  "notBuyers": 8,
+  "errors": 0,
+  "acceptance": {
+    "swapEventsScanned": 2283,
+    "candidatesProcessed": 20,
+    "acquisitionsByClass": {
+      "DIRECT_ORIGINATOR": 20,
+      "TRACED_ECONOMIC_RECIPIENT": 3,
+      "INTERMEDIARY": 18,
+      "UNRESOLVED": 18,
+      "REJECTED": 0
+    },
+    "totalAcquisitions": 59,
+    "unresolvedPct": 30.51,
+    "unresolvedCeilingPass": true
+  },
+  "buyerList": [
+    "0x522ae68380ca52b02d3b19042e51e63b805f6cb9",
+    "0xee0ca621c24bac5ba83491b8dd404c57909d5249",
+    "0xe3ef474805c96ac7edae891a8dc50f644d2cac3e",
+    "0xdbe325de32033a39edcb792d1264f9e40351000d",
+    "0xaa71667e3d15f5f0321f3008fa73060ed589f05d",
+    "0xfeb44e5f9d001e84815b8debbc32afdd9fb32e4e",
+    "0x983edb2c9a31c2549fb8d8b33b5724a85ae99423",
+    "0x359fc1162bea5ffbe52dc1879110dae8c70fa3b1",
+    "0x223edcebf2baadff1a85469019e26234ff67ff48",
+    "0xd19ff8508307e17ea079533adc9f12864ef557e2",
+    "0x6364b188d52e2c6483d435a4fb716123c7299bc4",
+    "0xaf2e428a0c17ba8fc940918b2482227dacb5ae89"
+  ]
+}

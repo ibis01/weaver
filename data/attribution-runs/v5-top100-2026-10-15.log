@@ -1,0 +1,49 @@
+=== find-pepe-buyers-v5 ===
+blocks: 25735200 .. 25785424
+swap events: 3699
+extracted 2283 candidate-acquisitions
+limit-candidates=100: trimming from 1132
+candidates with total >= minPepe: 100
+[1/100] 0x51c72848 txs=233
+  -> NOT_BUYER confirmed=0/5
+[2/100] 0xbdb3ba9f txs=92
+  -> NOT_BUYER confirmed=0/5
+[3/100] 0x522ae683 txs=5
+  -> BUYER confirmed=5/5
+[4/100] 0x11111112 txs=69
+  -> NOT_BUYER confirmed=0/5
+[5/100] 0xd9c26c77 txs=10
+  -> NOT_BUYER confirmed=0/5
+[6/100] 0x9008d19f txs=2
+  -> NOT_BUYER confirmed=0/2
+[7/100] 0xbdfa9c5f txs=1
+  -> NOT_BUYER confirmed=0/1
+[8/100] 0xee0ca621 txs=3
+  -> BUYER confirmed=3/3
+[9/100] 0xe3ef4748 txs=2
+  -> BUYER confirmed=2/2
+[10/100] 0xdbe325de txs=2
+  -> BUYER confirmed=2/2
+[11/100] 0xaa71667e txs=2
+  -> BUYER confirmed=2/2
+[12/100] 0xfeb44e5f txs=2
+  -> BUYER confirmed=2/2
+[13/100] 0x983edb2c txs=3
+  -> BUYER confirmed=1/3
+[14/100] 0x359fc116 txs=1
+  -> BUYER confirmed=1/1
+[15/100] 0x223edceb txs=1
+  -> BUYER confirmed=1/1
+[16/100] 0x128d2900 txs=11
+  -> NOT_BUYER confirmed=0/5
+[17/100] 0xd19ff850 txs=2
+  -> BUYER confirmed=2/2
+[18/100] 0x6364b188 txs=2
+  -> BUYER confirmed=1/2
+[19/100] 0x4b31042f txs=6
+  -> NOT_BUYER confirmed=0/5
+[20/100] 0xaf2e428a txs=1
+  -> BUYER confirmed=1/1
+[21/100] 0x11111605 txs=2
+  -> NOT_BUYER confirmed=0/2
+[22/100] 0xbf6acd52 txs=6

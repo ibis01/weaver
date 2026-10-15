@@ -1,0 +1,53 @@
+=== find-pepe-buyers-v5 ===
+blocks: 25735200 .. 25785424
+swap events: 3699
+extracted 2283 candidate-acquisitions
+limit-candidates=20: trimming from 1132
+candidates with total >= minPepe: 20
+[1/20] 0x51c72848 txs=233
+  -> NOT_BUYER confirmed=0/5
+[2/20] 0xbdb3ba9f txs=92
+  -> NOT_BUYER confirmed=0/5
+[3/20] 0x522ae683 txs=5
+  -> BUYER confirmed=5/5
+[4/20] 0x11111112 txs=69
+  -> NOT_BUYER confirmed=0/5
+[5/20] 0xd9c26c77 txs=10
+  -> NOT_BUYER confirmed=0/5
+[6/20] 0x9008d19f txs=2
+  -> NOT_BUYER confirmed=0/2
+[7/20] 0xbdfa9c5f txs=1
+  -> NOT_BUYER confirmed=0/1
+[8/20] 0xee0ca621 txs=3
+  -> BUYER confirmed=3/3
+[9/20] 0xe3ef4748 txs=2
+  -> BUYER confirmed=2/2
+[10/20] 0xdbe325de txs=2
+  -> BUYER confirmed=2/2
+[11/20] 0xaa71667e txs=2
+  -> BUYER confirmed=2/2
+[12/20] 0xfeb44e5f txs=2
+  -> BUYER confirmed=2/2
+[13/20] 0x983edb2c txs=3
+  -> BUYER confirmed=1/3
+[14/20] 0x359fc116 txs=1
+  -> BUYER confirmed=1/1
+[15/20] 0x223edceb txs=1
+  -> BUYER confirmed=1/1
+[16/20] 0x128d2900 txs=11
+  -> NOT_BUYER confirmed=0/5
+[17/20] 0xd19ff850 txs=2
+  -> BUYER confirmed=2/2
+[18/20] 0x6364b188 txs=2
+  -> BUYER confirmed=1/2
+[19/20] 0x4b31042f txs=6
+  -> NOT_BUYER confirmed=0/5
+[20/20] 0xaf2e428a txs=1
+  -> BUYER confirmed=1/1
+
+=== summary ===
+  BUYER:      12
+  NOT_BUYER:  8
+  ERROR:      0
+  UNRESOLVED: 30.51%
+  ceiling pass (<40%): true
