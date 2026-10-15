@@ -153,6 +153,47 @@ const GOPLUS_BASE_DELAY_MS = 400;
 const PROXY_CACHE_FRESH_SECONDS = 60;
 const PROXY_CACHE_STALE_MAX_SECONDS = 600;
 
+// Request coalescing: concurrent GETs to the same effectiveTarget share
+// one upstream fetch within a single isolate. Cloudflare may run multiple
+// isolates per colo; cross-isolate dedup is not provided. Entries are
+// removed on settle — success or failure — so a failed fetch cannot
+// poison the map.
+const __inflightFetches = new Map();
+
+async function fetchUpstreamCaptured(effectiveTarget, init) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const upstream = await fetch(effectiveTarget, {
+      ...init,
+      signal: controller.signal,
+    });
+    if (upstream.ok) {
+      const text = await readTextWithCap(upstream);
+      const contentType =
+        upstream.headers.get("content-type") || "application/json";
+      return { ok: true, status: upstream.status, text, contentType };
+    }
+    const errorText = await upstream.text().catch(() => "");
+    return { ok: false, status: upstream.status, errorText };
+  } catch (e) {
+    return { ok: false, status: 0, networkError: true };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function fetchWithCoalesce(effectiveTarget, init, method) {
+  if (method !== "GET") return fetchUpstreamCaptured(effectiveTarget, init);
+  const existing = __inflightFetches.get(effectiveTarget);
+  if (existing) return existing;
+  const p = fetchUpstreamCaptured(effectiveTarget, init).finally(() => {
+    __inflightFetches.delete(effectiveTarget);
+  });
+  __inflightFetches.set(effectiveTarget, p);
+  return p;
+}
+
 // ----------------------------------------------------------------
 // CORS
 // ----------------------------------------------------------------
@@ -750,31 +791,12 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
     }
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-  let upstream = null;
-  let text = null;
-  let upstreamOk = false;
-
-  try {
-    upstream = await fetch(effectiveTarget, {
-      ...init,
-      signal: controller.signal,
-    });
-    if (upstream.ok) {
-      text = await readTextWithCap(upstream);
-      upstreamOk = true;
-    }
-  } catch (e) {
-    upstream = null;
-  } finally {
-    clearTimeout(timer);
-  }
+  const captured = await fetchWithCoalesce(effectiveTarget, init, method);
+  const upstreamOk = captured.ok;
+  const text = captured.ok ? captured.text : null;
 
   if (upstreamOk && text !== null) {
-    const contentType =
-      upstream.headers.get("content-type") || "application/json";
+    const contentType = captured.contentType || "application/json";
 
     if (method === "GET") {
       const toCache = new Response(text, {
@@ -823,20 +845,18 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
     });
   }
 
-  if (upstream) {
-    const errorBody = await upstream.text().catch(() => "");
-    return new Response(
-      errorBody ||
-        JSON.stringify({ error: `Upstream returned HTTP ${upstream.status}` }),
-      {
-        status: upstream.status,
-        headers: {
-          "Content-Type": "application/json",
-          "X-Weaver-Cache": "NONE",
-          ...headers,
-        },
+  if (!captured.networkError && captured.status > 0) {
+    const errorBody =
+      captured.errorText ||
+      JSON.stringify({ error: `Upstream returned HTTP ${captured.status}` });
+    return new Response(errorBody, {
+      status: captured.status,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Weaver-Cache": "NONE",
+        ...headers,
       },
-    );
+    });
   }
 
   return jsonResponse(

@@ -177,7 +177,7 @@ describe("relayAllowedProxy cache behavior", () => {
     expect(r.headers.get("X-Weaver-Cache")).not.toBe("HIT");
   });
 
-  it("does NOT coalesce concurrent identical GETs (documents current absence)", async () => {
+  it("coalesces concurrent identical GETs into a single upstream fetch", async () => {
     const target = UPSTREAM + "/latest/dex/tokens/0xconc";
     const body = JSON.stringify({ token: "conc" });
 
@@ -185,7 +185,7 @@ describe("relayAllowedProxy cache behavior", () => {
       .get(UPSTREAM)
       .intercept({ path: "/latest/dex/tokens/0xconc", method: "GET" })
       .reply(200, body, { headers: { "content-type": "application/json" } })
-      .times(2);
+      .times(1);
 
     const ctxA = makeCtx();
     const ctxB = makeCtx();
@@ -197,6 +197,10 @@ describe("relayAllowedProxy cache behavior", () => {
 
     expect(a.status).toBe(200);
     expect(b.status).toBe(200);
+    expect(await a.text()).toBe(body);
+    expect(await b.text()).toBe(body);
+    // If afterEach's assertNoPendingInterceptors() fires, coalescing failed
+    // and the second request would have consumed a second interceptor.
   });
 });
 
