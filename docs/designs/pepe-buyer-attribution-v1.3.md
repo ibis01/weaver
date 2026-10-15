@@ -1,9 +1,16 @@
+> **SUPERSEDED 2026-10-15 by v1.4.** Amendment to §9.1: extraction
+> must recurse on truncation, fail closed on provider error, and
+> emit a completeness report. v1.3 inherited v4's silent-skip
+> extraction. Successor:
+> `docs/designs/pepe-buyer-attribution-v1.4.md`.
+
+---
+
 # Weaver — PEPE Buyer Attribution Specification v1.3
 
-**Date:** 2026-10-15 (v1.2)
+**Date:** 2026-10-15 (v1.3)
 **Status:** Draft for review. Not implemented.
-**Supersedes:** `docs/designs/pepe-buyer-attribution-v1.md` (v1, 2026-10-13);
-`docs/designs/pepe-buyer-attribution-v1.1.md` (v1.1, 2026-10-15)
+**Supersedes:** v1 (2026-10-13), v1.1 (2026-10-15), v1.2 (2026-10-15)
 **Predecessor review:** `docs/audits/pepe-buyer-attribution-spec-review-2026-10-15.md`
 **Related:** `docs/audits/gate-0b-window-degeneracy-2026-10-15.md`
 
