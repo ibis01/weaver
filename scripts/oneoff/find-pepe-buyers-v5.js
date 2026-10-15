@@ -94,7 +94,23 @@ const DIRECT_SWAP_METHODS = new Set([
   "0xfb3bdb41", // swapETHForExactTokens
   "0x4a25d94a", // swapTokensForExactETH
   "0x022c0d9f", // pair.swap
+  "0x3593564c", // Universal Router execute(bytes,bytes[],uint256)
 ]);
+
+// Native-ETH purchases: the payer's ETH is msg.value, visible on the
+// outer transaction. No ERC-20 Transfer log has the candidate as `from`;
+// the WETH that reaches the pair is minted from the zero address. Treat
+// `tx.value > 0 && tx.from == candidate` as a quote outflow for §3.1/§3.2.
+function nativeQuoteOutflow(tx, candidate) {
+  const v = tx && tx.value;
+  if (!v) return null;
+  let val;
+  try { val = BigInt(v); } catch { return null; }
+  if (val <= 0n) return null;
+  const txFrom = lower(tx.from && (tx.from.hash || tx.from));
+  if (txFrom !== candidate) return null;
+  return { token: "native-eth", from: candidate, raw: val.toString() };
+}
 
 // ---- §4.1 rate-limit handling ----
 const SLEEP_MS = 1200;
@@ -185,7 +201,7 @@ function extractEvents(logs) {
     if (amount0Out <= 0n) continue;
     events.push({
       txHash: ev.transactionHash,
-      blockNumber: parseInt(ev.blockNumber, 10),
+      blockNumber: typeof ev.blockNumber === "string" && ev.blockNumber.startsWith("0x") ? parseInt(ev.blockNumber, 16) : parseInt(ev.blockNumber, 10),
       candidate: to,
       amountOut: amount0Out,
     });
@@ -289,26 +305,40 @@ function classifyOne(ctx) {
       meta: { proxy_type: meta.proxy_type, name: meta.name } };
   }
 
-  // Quote-asset outflow (§2.6)
-  const quoteOutflow = transfers.find(
+  // Quote-asset outflow (§2.6) — ERC-20 or native ETH
+  const ercQuote = transfers.find(
     (t) => lower(t.from && (t.from.hash || t.from)) === candidate
       && QUOTES.has(lower(t.token && (t.token.address_hash || t.token.address)))
   );
+  const nativeQuote = nativeQuoteOutflow(tx, candidate);
+  const quoteOutflow = ercQuote
+    ? {
+        token: lower(ercQuote.token.address_hash || ercQuote.token.address),
+        from: candidate,
+        native: false,
+      }
+    : nativeQuote
+      ? { token: "native-eth", from: candidate, native: true }
+      : null;
 
   // §3.1 DIRECT_ORIGINATOR
-  const method = tx.method || tx.raw_input?.slice(0, 10) || null;
+  const method = tx.raw_input
+    ? tx.raw_input.slice(0, 10).toLowerCase()
+    : (tx.method || null);
   if (txFrom === candidate && DIRECT_SWAP_METHODS.has(method) && quoteOutflow) {
     return { classification: "DIRECT_ORIGINATOR", reason_code: "direct-swap",
-      method, quote_token: lower(quoteOutflow.token.address_hash || quoteOutflow.token.address) };
+      method, quote_token: quoteOutflow.token };
   }
 
   // §3.2 TRACED_ECONOMIC_RECIPIENT
   if (quoteOutflow && controlledBySingleSigner(meta)) {
-    // Reserve reconciliation would go here (§3.2 amended). v5 first pass
-    // accepts any visible quote outflow; refinement deferred.
+    // Reserve reconciliation still TODO; accepts any visible quote outflow
+    // (ERC-20 or native ETH). Refinement deferred to v1.2.
     return { classification: "TRACED_ECONOMIC_RECIPIENT",
-      reason_code: "quote-outflow-and-single-signer",
-      quote_token: lower(quoteOutflow.token.address_hash || quoteOutflow.token.address),
+      reason_code: quoteOutflow.native
+        ? "native-eth-outflow-and-single-signer"
+        : "quote-outflow-and-single-signer",
+      quote_token: quoteOutflow.token,
       proxy_type: meta ? meta.proxy_type : null };
   }
 
