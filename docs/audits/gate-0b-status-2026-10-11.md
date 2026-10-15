@@ -52,3 +52,20 @@ next session does not rediscover the constraint.
 3. **Rebuild gold-standard v2.** Depends on outcome of (2).
 
 The metric remains untested. It is not broken and not validated.
+
+---
+
+## Update 2026-10-15
+
+Gate 0b remains untested, now for a different reason than on 2026-10-11.
+The blocker is no longer provider rate limits or population construction.
+The blocker is that the PEPE test window (2026-08-08 through 2026-08-23)
+has no in-period outcome variance: every day through 08-18 had a 14-day
+forward return >=33%, and every day from 08-19 onward did not. Any
+population constructed from this window will produce a treatment rate
+determined by entry-date distribution, not wallet behavior.
+
+See docs/audits/gate-0b-window-degeneracy-2026-10-15.md.
+
+Next unblocked priority per production-roadmap-v1.md is Gate 0
+(cache and provider verification).
