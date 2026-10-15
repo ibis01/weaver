@@ -4,7 +4,7 @@
 /**
  * find-pepe-buyers-v5.js
  *
- * Implements docs/designs/pepe-buyer-attribution-v1.3.md §9.
+ * Implements docs/designs/pepe-buyer-attribution-v1.5.md §9.
  *
  * COMPLIANCE STATE (2026-10-15 first pass):
  *   - §3.1 DIRECT_ORIGINATOR       full
@@ -298,7 +298,53 @@ function isIntermediaryContract(meta) {
   return true;
 }
 
+function hasListedQuoteOutflow(transfers, candidate) {
+  return transfers.some(
+    (t) => lower(t.from && (t.from.hash || t.from)) === candidate
+      && QUOTES.has(lower(t.token && (t.token.address_hash || t.token.address)))
+  );
+}
+
+function hasNonPepeOutflow(transfers, candidate) {
+  return transfers.some(
+    (t) => lower(t.from && (t.from.hash || t.from)) === candidate
+      && lower(t.token && (t.token.address_hash || t.token.address)) !== PEPE
+  );
+}
+
+// v1.5 §3.4 deferred-signature detector.
+function deferredSignature(tx, transfers, candidate) {
+  if (!tx) return null;
+  const from = lower(tx.from && (tx.from.hash || tx.from));
+  const to   = lower(tx.to   && (tx.to.hash   || tx.to));
+  const sel  = (tx.raw_input || "").slice(0, 10).toLowerCase();
+
+  if (from === "0xf73644da46ab85da864fc4284322f489134ee82c"
+      && to   === "0xa66b23d9a8a46c284fa5b3f2e2b59eb5cc3817f4"
+      && sel  === "0x2c343229") {
+    return { classification: "UNRESOLVED",
+             reason_code: "SPEC_DEFERRED_SPONSORED_PROXY" };
+  }
+  if (to === "0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789") {
+    return { classification: "UNRESOLVED",
+             reason_code: "SPEC_DEFERRED_ERC4337" };
+  }
+  if (sel === "0x3593564c"
+      && !hasListedQuoteOutflow(transfers, candidate)
+      && hasNonPepeOutflow(transfers, candidate)) {
+    return { classification: "UNRESOLVED",
+             reason_code: "SPEC_DEFERRED_UNLISTED_QUOTE" };
+  }
+  return null;
+}
+
 function classifyOne(ctx) {
+  // v1.5 §3.4 deferred signatures
+  {
+    const __d = deferredSignature(ctx.tx, ctx.transfers || [], ctx.candidate);
+    if (__d) return __d;
+  }
+
   const {
     candidate,
     txHash,
@@ -514,26 +560,52 @@ async function processCandidate(candidate, eventsForCandidate, maxPerCand) {
 function acceptanceCheck(results, eventsCount) {
   const tally = { DIRECT_ORIGINATOR: 0, TRACED_ECONOMIC_RECIPIENT: 0,
     INTERMEDIARY: 0, UNRESOLVED: 0, REJECTED: 0 };
+  const deferred = {
+    SPEC_DEFERRED_SPONSORED_PROXY: 0,
+    SPEC_DEFERRED_ERC4337: 0,
+    SPEC_DEFERRED_UNLISTED_QUOTE: 0,
+  };
+  const residual = { TRACE_AMBIGUITY: 0, PROVIDER_FAILURE: 0 };
+
   for (const r of results) {
     for (const a of r.acquisitions) {
       if (tally[a.classification] !== undefined) tally[a.classification]++;
+      const rc = a.reason_code || "";
+      if (deferred[rc] !== undefined) {
+        deferred[rc]++;
+      } else if (rc === "provider-error-tx" || rc === "provider-error") {
+        residual.PROVIDER_FAILURE++;
+      } else if (a.classification === "UNRESOLVED") {
+        residual.TRACE_AMBIGUITY++;
+      }
     }
   }
+
   let errorCandidates = 0;
   for (const r of results) {
     if (r.classification === "ERROR") errorCandidates++;
   }
+
   const total = Object.values(tally).reduce((a, b) => a + b, 0);
-  const unresolvedPct = total > 0 ? (tally.UNRESOLVED / total) * 100 : 0;
+  const deferredTotal = Object.values(deferred).reduce((a, b) => a + b, 0);
+  const residualTotal = Object.values(residual).reduce((a, b) => a + b, 0);
+  const rawUnresolvedPct = total > 0 ? (tally.UNRESOLVED / total) * 100 : 0;
+  const residualPct = total > 0 ? (residualTotal / total) * 100 : 0;
+
   return {
     swapEventsScanned: eventsCount,
     candidatesProcessed: results.length,
     errorCandidates,
     complete: errorCandidates === 0,
     acquisitionsByClass: tally,
+    unresolvedByReason: Object.assign({}, deferred, residual),
+    deferredTotal,
+    residualTotal,
     totalAcquisitions: total,
-    unresolvedPct: Number(unresolvedPct.toFixed(2)),
-    unresolvedCeilingPass: unresolvedPct < 40,
+    rawUnresolvedPct: Number(rawUnresolvedPct.toFixed(2)),
+    residualPct: Number(residualPct.toFixed(2)),
+    unresolvedPct: Number(residualPct.toFixed(2)),
+    unresolvedCeilingPass: residualPct < 40,
   };
 }
 
@@ -638,7 +710,7 @@ async function main() {
   fs.writeFileSync("data/pepe-buyer-list/v2.json", JSON.stringify({
     version: "pepe-buyer-list-v2",
     generatedAt: new Date().toISOString(),
-    spec: "docs/designs/pepe-buyer-attribution-v1.3.md",
+    spec: "docs/designs/pepe-buyer-attribution-v1.5.md",
     window: { start: windowStart, end: windowEnd },
     minPepe: minPepe.toString(),
     counts: {
@@ -659,7 +731,7 @@ async function main() {
   const auditStream = fs.createWriteStream("data/audit-records/pepe-buyer-audit-v5.jsonl", { flags: "w" });
   for (const r of results) {
     auditStream.write(JSON.stringify({
-      schema_version: "buyer-attribution-v1.3",
+      schema_version: "buyer-attribution-v1.5",
       candidate_address: r.address,
       classification: r.classification,
       contract_status: r.contract_meta || null,

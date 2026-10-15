@@ -1,3 +1,10 @@
+> **SUPERSEDED 2026-10-15 by v1.5.** §3.4 replaced with a
+> sub-reason table; §6.6 ceiling scope narrowed to TRACE_AMBIGUITY
+> and PROVIDER_FAILURE. Successor:
+> `docs/designs/pepe-buyer-attribution-v1.5.md`.
+
+---
+
 > **SUPERSEDED 2026-10-15 by v1.4.** Amendment to §9.1: extraction
 > must recurse on truncation, fail closed on provider error, and
 > emit a completeness report. v1.3 inherited v4's silent-skip
