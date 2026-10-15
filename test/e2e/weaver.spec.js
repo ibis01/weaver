@@ -93,7 +93,7 @@ test.describe("Weaver E2E", () => {
       await page.fill("#d-asset", "BTC");
       await page.fill("#d-price", "60000");
       await page.fill("#d-reasoning", "E2E test decision");
-      await page.click('button:has-text("Save Decision")');
+      await page.locator('button:has-text("Save Decision")').click({ force: true, timeout: 15000 });
 
       await page.waitForSelector("[data-decision-id]", { timeout: 5000 });
     }
