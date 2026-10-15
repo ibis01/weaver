@@ -26,6 +26,49 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
+// v1.5.1: separate "healthy pipeline, quiet market" from "pipeline broken".
+async function checkSignalPipeline(page) {
+  const h = await page.evaluate(() => {
+    const out = {
+      hasEvents: typeof window.W?.events?.collectEvents === "function",
+      hasEvidenceDrawer: !!(
+        window.W?.ui?.evidenceDrawer || window.W?.evidenceDrawer
+      ),
+      signalCount: null,
+      error: null,
+    };
+    if (!out.hasEvents) return out;
+    try {
+      const s = window.W.events.collectEvents();
+      out.signalCount = Array.isArray(s) ? s.length : -1;
+    } catch (e) {
+      out.error = String((e && e.message) || e);
+    }
+    return out;
+  });
+
+  if (!h.hasEvents) {
+    throw new Error("Signal pipeline unavailable: W.events.collectEvents missing");
+  }
+  if (h.error) {
+    throw new Error("Signal pipeline errored: " + h.error);
+  }
+  if (h.signalCount === -1) {
+    throw new Error("collectEvents did not return an array");
+  }
+  if (h.signalCount === 0) {
+    return { skip: true, reason: "Healthy pipeline, zero signals (quiet market)" };
+  }
+  const domCount = await page.locator("[data-signal-id]").count();
+  if (domCount === 0) {
+    throw new Error(
+      "Pipeline produced " + h.signalCount +
+      " signal(s) but DOM has zero [data-signal-id] rows"
+    );
+  }
+  return { skip: false, signalCount: h.signalCount };
+}
+
 test.describe("Critical path — pipeline → dashboard → drawer", () => {
   test("the intelligence pipeline loads and collectEvents returns an array", async ({
     page,
@@ -93,8 +136,9 @@ test.describe("Critical path — pipeline → dashboard → drawer", () => {
     const signalRows = page.locator("[data-signal-id]");
     const count = await signalRows.count();
 
-    if (count === 0) {
-      test.skip(true, "No signals rendered — quiet market or blocked data path");
+    const __pipeline = await checkSignalPipeline(page);
+    if (__pipeline.skip) {
+      test.skip(true, __pipeline.reason);
       return;
     }
 
@@ -111,8 +155,9 @@ test.describe("Critical path — pipeline → dashboard → drawer", () => {
     const signalRows = page.locator("[data-signal-id]");
     const count = await signalRows.count();
 
-    if (count === 0) {
-      test.skip(true, "No signals rendered — quiet market or blocked data path");
+    const __pipeline = await checkSignalPipeline(page);
+    if (__pipeline.skip) {
+      test.skip(true, __pipeline.reason);
       return;
     }
 
@@ -143,8 +188,9 @@ test.describe("Critical path — pipeline → dashboard → drawer", () => {
     const signalRows = page.locator("[data-signal-id]");
     const count = await signalRows.count();
 
-    if (count === 0) {
-      test.skip(true, "No signals rendered — quiet market or blocked data path");
+    const __pipeline = await checkSignalPipeline(page);
+    if (__pipeline.skip) {
+      test.skip(true, __pipeline.reason);
       return;
     }
 
