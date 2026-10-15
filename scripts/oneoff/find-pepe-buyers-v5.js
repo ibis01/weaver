@@ -7,6 +7,18 @@
  * Implements docs/designs/pepe-buyer-attribution-v1.1.md §9.
  *
  * COMPLIANCE STATE (2026-10-15 first pass):
+ *   - §3.1 DIRECT_ORIGINATOR          full
+ *   - §3.2 TRACED_ECONOMIC_RECIPIENT  partial (quote-outflow present;
+ *                                     reserve reconciliation TODO)
+ *   - §3.3 INTERMEDIARY               full
+ *   - §3.4 UNRESOLVED                 partial (no 4337/truncation reason)
+ *   - §5 audit schema                 partial (evidence sub-object TODO)
+ *   - §6 acceptance                   partial (no manual-review harness)
+ *
+ * Verified against three known candidates:
+ *   0x522ae683 BUYER, 0xbdb3ba9f NOT_BUYER, 0x51c72848 NOT_BUYER.
+ *
+ * COMPLIANCE STATE (2026-10-15 first pass):
  *   - §3.1 DIRECT_ORIGINATOR       full
  *   - §3.2 TRACED_ECONOMIC_RECIPIENT  partial: quote-outflow check
  *                                     present, reserve reconciliation
