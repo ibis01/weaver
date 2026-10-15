@@ -1,4 +1,4 @@
-# Weaver — PEPE Buyer Attribution Specification v1.2
+# Weaver — PEPE Buyer Attribution Specification v1.3
 
 **Date:** 2026-10-15 (v1.2)
 **Status:** Draft for review. Not implemented.

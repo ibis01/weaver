@@ -4,7 +4,7 @@
 /**
  * find-pepe-buyers-v5.js
  *
- * Implements docs/designs/pepe-buyer-attribution-v1.1.md §9.
+ * Implements docs/designs/pepe-buyer-attribution-v1.3.md §9.
  *
  * COMPLIANCE STATE (2026-10-15 first pass):
  *   - §3.1 DIRECT_ORIGINATOR          full
@@ -562,7 +562,7 @@ async function main() {
   fs.writeFileSync("data/pepe-buyer-list/v2.json", JSON.stringify({
     version: "pepe-buyer-list-v2",
     generatedAt: new Date().toISOString(),
-    spec: "docs/designs/pepe-buyer-attribution-v1.1.md",
+    spec: "docs/designs/pepe-buyer-attribution-v1.3.md",
     window: { start: windowStart, end: windowEnd },
     minPepe: minPepe.toString(),
     counts: {
