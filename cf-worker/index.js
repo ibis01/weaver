@@ -781,7 +781,10 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
         status: 200,
         headers: {
           "Content-Type": contentType,
-          "Cache-Control": `public, max-age=${PROXY_CACHE_FRESH_SECONDS}`,
+          // Store through the stale ceiling. The handler enforces the
+          // fresh window via X-Weaver-Cached-At; the CDN just needs to
+          // keep the entry alive long enough for the stale branch to read it.
+          "Cache-Control": `public, max-age=${PROXY_CACHE_STALE_MAX_SECONDS}`,
           "X-Weaver-Cached-At": String(Date.now()),
         },
       });
