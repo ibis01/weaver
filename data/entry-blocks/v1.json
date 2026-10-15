@@ -1,0 +1,761 @@
+{
+  "version": "entry-blocks-v1",
+  "created": "2026-10-14T23:55:40.386Z",
+  "window": {
+    "startBlock": 25710000,
+    "endBlock": 25820000
+  },
+  "treatments": [
+    {
+      "address": "0x522ae68380ca52b02d3b19042e51e63b805f6cb9",
+      "inCount": 5,
+      "firstBlock": 25782988,
+      "firstTimestamp": 1787068319,
+      "inflowCount": 5
+    },
+    {
+      "address": "0x983edb2c9a31c2549fb8d8b33b5724a85ae99423",
+      "inCount": 4,
+      "firstBlock": 25783841,
+      "firstTimestamp": 1787078579,
+      "inflowCount": 4
+    },
+    {
+      "address": "0xc9f16b6cc9cadb7b81e020b94e5ab72acf6b9748",
+      "inCount": 16,
+      "firstBlock": 25764299,
+      "firstTimestamp": 1786843343,
+      "inflowCount": 16
+    },
+    {
+      "address": "0x18b7392814b06474de07aafcc674afc57a23c8b8",
+      "inCount": 1,
+      "firstBlock": 25768655,
+      "firstTimestamp": 1786895723,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x1b1d8b13dcd6a01fdb4864d85d96f3ee0503b967",
+      "inCount": 5,
+      "firstBlock": 25712281,
+      "firstTimestamp": 1786216643,
+      "inflowCount": 5
+    },
+    {
+      "address": "0x38583e92eaaae241bde8b5a10f23cea253d21b1b",
+      "inCount": 1,
+      "firstBlock": 25746737,
+      "firstTimestamp": 1786631783,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x60e1b2e2a8dfed101cb514f7baca98ae76bd1986",
+      "inCount": 1,
+      "firstBlock": 25767443,
+      "firstTimestamp": 1786881167,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x3f6732ea4eedab1ee1b9a3f9fe4013736656f980",
+      "inCount": 2,
+      "firstBlock": 25768182,
+      "firstTimestamp": 1786890047,
+      "inflowCount": 2
+    },
+    {
+      "address": "0xedd5c22bf56f0fa245d004cc83ce2a7081966664",
+      "inCount": 2,
+      "firstBlock": 25722686,
+      "firstTimestamp": 1786341899,
+      "inflowCount": 2
+    },
+    {
+      "address": "0x9f9820e58342286584481e20e631088cc5643208",
+      "inCount": 18,
+      "firstBlock": 25728256,
+      "firstTimestamp": 1786409027,
+      "inflowCount": 18
+    },
+    {
+      "address": "0x6a9b4bd87aa49574e107556fdeb9c7eb1c5f03f5",
+      "inCount": 3,
+      "firstBlock": 25743132,
+      "firstTimestamp": 1786588391,
+      "inflowCount": 3
+    },
+    {
+      "address": "0xe859992fdb55fea5919613586cb25a8b08041a1f",
+      "inCount": 3,
+      "firstBlock": 25765217,
+      "firstTimestamp": 1786854395,
+      "inflowCount": 3
+    },
+    {
+      "address": "0xe68e72bd29eab54c140a0e2eeb0f689b64c15160",
+      "inCount": 1,
+      "firstBlock": 25755731,
+      "firstTimestamp": 1786740083,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x4ddb4c36aa35eefa67f9b267be12581c9b77fdd6",
+      "inCount": 1,
+      "firstBlock": 25777411,
+      "firstTimestamp": 1787001131,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x69aa23feb60ee3dcfd0d347845b9eaadd704ea53",
+      "inCount": 1,
+      "firstBlock": 25777828,
+      "firstTimestamp": 1787006135,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x42d2b5ba66b25e2e2f7b1efa98be04c3ce19b506",
+      "inCount": 2,
+      "firstBlock": 25782595,
+      "firstTimestamp": 1787063567,
+      "inflowCount": 2
+    },
+    {
+      "address": "0xa4a82592752998b4b52cdc7fb05adb68322afc93",
+      "inCount": 1,
+      "firstBlock": 25780370,
+      "firstTimestamp": 1787036759,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xd853b30852844599ef5cc1b1fc7e917c1c66131d",
+      "inCount": 1,
+      "firstBlock": 25777026,
+      "firstTimestamp": 1786996499,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x8f0aeb8aa5349c1c19c8c74085e73be0a0a60ce8",
+      "inCount": 1,
+      "firstBlock": 25769493,
+      "firstTimestamp": 1786905803,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x8e86949277613492567a59b5c03ac4887425ebd6",
+      "inCount": 2,
+      "firstBlock": 25780026,
+      "firstTimestamp": 1787032595,
+      "inflowCount": 2
+    },
+    {
+      "address": "0x8a23110d3f9ad0ae642abacd55c2da70e7e1f098",
+      "inCount": 2,
+      "firstBlock": 25747503,
+      "firstTimestamp": 1786640987,
+      "inflowCount": 2
+    },
+    {
+      "address": "0xef5a7d2144bd813c906f0afb5447597148a99a4a",
+      "inCount": 2,
+      "firstBlock": 25780234,
+      "firstTimestamp": 1787035103,
+      "inflowCount": 2
+    },
+    {
+      "address": "0x9e56638b83184fe17a9e1237259915ae7c57f957",
+      "inCount": 3,
+      "firstBlock": 25752855,
+      "firstTimestamp": 1786705439,
+      "inflowCount": 3
+    },
+    {
+      "address": "0x699340d6bd2010e743a566184365ec205ba39c0b",
+      "inCount": 1,
+      "firstBlock": 25776182,
+      "firstTimestamp": 1786986311,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x364f4a91b639c38d541aca4a2c9e3f88acbf7dcd",
+      "inCount": 1,
+      "firstBlock": 25774418,
+      "firstTimestamp": 1786965071,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x43ab1bb4fae4c6cfcb00089beb596ae97f85b7be",
+      "inCount": 1,
+      "firstBlock": 25784232,
+      "firstTimestamp": 1787083283,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x072391ef098e55971de12242de826efb63139451",
+      "inCount": 2,
+      "firstBlock": 25778034,
+      "firstTimestamp": 1787008607,
+      "inflowCount": 2
+    }
+  ],
+  "controls": [
+    {
+      "address": "0x01b72cd14ce0fd668b18a61952dd258de19930a7",
+      "inCount": 1,
+      "firstBlock": 25784918,
+      "firstTimestamp": 1787091527,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x03b9f0684d7d7c1809512583a59fc56c2197fa84",
+      "inCount": 1,
+      "firstBlock": 25819952,
+      "firstTimestamp": 1787513315,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x05829ec49206bfefa820587487bbe61c9ee5948c",
+      "inCount": 1,
+      "firstBlock": 25804991,
+      "firstTimestamp": 1787333123,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x0983337d0f5ce5f4345f020da86980d856dfdb9f",
+      "inCount": 1,
+      "firstBlock": 25764923,
+      "firstTimestamp": 1786850867,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x0ab8af4a93da764eae0f81eb1145d098b7aacfc2",
+      "inCount": 1,
+      "firstBlock": 25819961,
+      "firstTimestamp": 1787513423,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x0ba9fddb30787b6ec63d016d40740d5cd1e984c4",
+      "inCount": 1,
+      "firstBlock": 25789967,
+      "firstTimestamp": 1787152283,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x0de29ce7684163be2151c6aa72b2fb10fda63e6b",
+      "inCount": 1,
+      "firstBlock": 25744829,
+      "firstTimestamp": 1786608851,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x12cdfd1cd819bee9367b4189ed6673b8d16b2ea9",
+      "inCount": 1,
+      "firstBlock": 25724938,
+      "firstTimestamp": 1786369031,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x227acb17014cc6c513d38f822c256885e36ec40e",
+      "inCount": 1,
+      "firstBlock": 25729936,
+      "firstTimestamp": 1786429331,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x29a75b82742b984308d44ddc58498408cebff308",
+      "inCount": 1,
+      "firstBlock": 25714775,
+      "firstTimestamp": 1786246631,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x2a4b65ba52eff2556c2e68696b13c0afe8c267db",
+      "inCount": 1,
+      "firstBlock": 25774940,
+      "firstTimestamp": 1786971371,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x2ae7ea3f7cb551ed34c6cbaeb46dd4ae5342677c",
+      "inCount": 1,
+      "firstBlock": 25769898,
+      "firstTimestamp": 1786910663,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x2fda7dd7bef4d0984960bab9b6aaf11883f48467",
+      "inCount": 1,
+      "firstBlock": 25739960,
+      "firstTimestamp": 1786550255,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x33e21a9a4ee9c9510c1bce17bce531ac24bee9b9",
+      "inCount": 1,
+      "firstBlock": 25819956,
+      "firstTimestamp": 1787513363,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x34687de2b2ce327fe03e5679c947bf8c102dfe85",
+      "inCount": 1,
+      "firstBlock": 25814978,
+      "firstTimestamp": 1787453435,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x34bf2a5084a5feae9b1966cb8ccd2d954b0e7cfa",
+      "inCount": 1,
+      "firstBlock": 25774961,
+      "firstTimestamp": 1786971623,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x3931a1762bfd1f17b4cc76a9f88318e96de76b6e",
+      "inCount": 1,
+      "firstBlock": 25739962,
+      "firstTimestamp": 1786550279,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x3abbeb06b49474323c62abf8a4730d9a7ea0658f",
+      "inCount": 1,
+      "firstBlock": 25819995,
+      "firstTimestamp": 1787513831,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x3bc197a3f57cbba7911fbfbabd8c1c5a21dcd66e",
+      "inCount": 1,
+      "firstBlock": 25729966,
+      "firstTimestamp": 1786429691,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x3dcef855ae8a9d0db12703faae5ff5c01abd8a67",
+      "inCount": 1,
+      "firstBlock": 25734930,
+      "firstTimestamp": 1786489547,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x46f97c266a46f45be1e89207cfd2a5d782bbb300",
+      "inCount": 1,
+      "firstBlock": 25804998,
+      "firstTimestamp": 1787333207,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x47f8cf79a7054a1d3325b6e8cd13df4a03e39609",
+      "inCount": 1,
+      "firstBlock": 25739960,
+      "firstTimestamp": 1786550255,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x484e003ab9a8933aecf78a2bed5ee73e4fc77246",
+      "inCount": 1,
+      "firstBlock": 25749924,
+      "firstTimestamp": 1786670123,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x493a10f4d39dcaca94673ee70d5def2d4b00d445",
+      "inCount": 1,
+      "firstBlock": 25764945,
+      "firstTimestamp": 1786851131,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x511702a5f39510c932b3e1f5803f0e8d489b8d59",
+      "inCount": 1,
+      "firstBlock": 25759905,
+      "firstTimestamp": 1786790363,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x5df543f83951abbc3a7b44fc43999bc12efdf83c",
+      "inCount": 1,
+      "firstBlock": 25744952,
+      "firstTimestamp": 1786610327,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x6080446c39b2381ab044605df95ecd5debbcfecd",
+      "inCount": 1,
+      "firstBlock": 25759891,
+      "firstTimestamp": 1786790195,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x66eb4356911602cb2beee363964f95ff49bfb678",
+      "inCount": 1,
+      "firstBlock": 25789985,
+      "firstTimestamp": 1787152499,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x68c6556e0f5424f42f98799e9c2fb64458f68f8b",
+      "inCount": 1,
+      "firstBlock": 25779874,
+      "firstTimestamp": 1787030771,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x69461b86d164d9cbb057479ac3964a2a891a5ff8",
+      "inCount": 1,
+      "firstBlock": 25719995,
+      "firstTimestamp": 1786309499,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x6b18c74047eaa4e08b469fd238f09f9e9f97ff06",
+      "inCount": 1,
+      "firstBlock": 25734947,
+      "firstTimestamp": 1786489751,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x6f4862525bfb9ccc05d873accbfec0eba4e6b3fd",
+      "inCount": 1,
+      "firstBlock": 25799990,
+      "firstTimestamp": 1787272931,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x6fd77cbbf58945ed731518fd625b86e771b153cb",
+      "inCount": 1,
+      "firstBlock": 25719972,
+      "firstTimestamp": 1786309223,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x6fe06b809d0befc3bd2b88ea8ee3c1114e2ea85c",
+      "inCount": 1,
+      "firstBlock": 25779946,
+      "firstTimestamp": 1787031635,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x74aabb4288d92d75b07ab15c08168ddc5de14f56",
+      "inCount": 1,
+      "firstBlock": 25719983,
+      "firstTimestamp": 1786309355,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x76ff0fb64dd02e3ad561292f49be7ec33f201b28",
+      "inCount": 1,
+      "firstBlock": 25799976,
+      "firstTimestamp": 1787272763,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x7ff708804c0a32121e93e5203b44b1f9baeb21ba",
+      "inCount": 1,
+      "firstBlock": 25744877,
+      "firstTimestamp": 1786609427,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x8c7c19cb192d992d6c2f06929bc14c07e284b034",
+      "inCount": 1,
+      "firstBlock": 25744889,
+      "firstTimestamp": 1786609571,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x8e2ff6282843c701749d69656ae808475742db11",
+      "inCount": 1,
+      "firstBlock": 25814959,
+      "firstTimestamp": 1787453207,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x96091ad264c25c9cc853197b2df9d079b9f06359",
+      "inCount": 1,
+      "firstBlock": 25779831,
+      "firstTimestamp": 1787030255,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x998948b120a87aa47b2fc058488411a9de5ec322",
+      "inCount": 1,
+      "firstBlock": 25819999,
+      "firstTimestamp": 1787513879,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xa3efec716d60c22215f628b2c5a072a10bb45de3",
+      "inCount": 1,
+      "firstBlock": 25759854,
+      "firstTimestamp": 1786789739,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xa76ca562645a7abb095b057c7177cfde35c96d03",
+      "inCount": 1,
+      "firstBlock": 25819986,
+      "firstTimestamp": 1787513723,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xa8961e2cb395667af625dbcd65807807a34e1da7",
+      "inCount": 1,
+      "firstBlock": 25719938,
+      "firstTimestamp": 1786308767,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xaf4e3b901d446e5f46a6b356a76d0b4acb5dc3e4",
+      "inCount": 1,
+      "firstBlock": 25754951,
+      "firstTimestamp": 1786730675,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xafd75ede0ccec62c647d8a9e3597355ff1e52229",
+      "inCount": 1,
+      "firstBlock": 25774923,
+      "firstTimestamp": 1786971167,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xb3ed7a9a6e761bbd2d0b5904ec64880e89f8c566",
+      "inCount": 1,
+      "firstBlock": 25759840,
+      "firstTimestamp": 1786789559,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xc04173871b55487af26167b1a080ed7862b71a6e",
+      "inCount": 1,
+      "firstBlock": 25804998,
+      "firstTimestamp": 1787333207,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xc6c090294f482a21d9dbf854ea707e2f47f56e0c",
+      "inCount": 1,
+      "firstBlock": 25739996,
+      "firstTimestamp": 1786550687,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xd041efd813fbfbf2bb3cd323ee210894dea55400",
+      "inCount": 1,
+      "firstBlock": 25739965,
+      "firstTimestamp": 1786550315,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xd76887923220c9bb8772f6acfcb8cffc1c10e215",
+      "inCount": 1,
+      "firstBlock": 25819970,
+      "firstTimestamp": 1787513531,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xd8349cd19a35ab8df1e8c8d54d031abb1b35213a",
+      "inCount": 1,
+      "firstBlock": 25759818,
+      "firstTimestamp": 1786789295,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xde132a5ccbf18eb8fda8251e02ea680cd1b02319",
+      "inCount": 1,
+      "firstBlock": 25739946,
+      "firstTimestamp": 1786550087,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xe02eca0573b9842a01fa77766dee2cdb1bad7200",
+      "inCount": 1,
+      "firstBlock": 25769892,
+      "firstTimestamp": 1786910591,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xe091f65110cdcbdddcb1361a5c4589c96366facd",
+      "inCount": 1,
+      "firstBlock": 25714964,
+      "firstTimestamp": 1786248911,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xe397a772e0a786487e7cc6d9cf6b754e814d1075",
+      "inCount": 1,
+      "firstBlock": 25739949,
+      "firstTimestamp": 1786550123,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xea067624aa0ad480318f159aba8dd774b4a2740d",
+      "inCount": 1,
+      "firstBlock": 25819962,
+      "firstTimestamp": 1787513435,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xedbc91fbc07f5e79d58cd464627184a02269a8cb",
+      "inCount": 1,
+      "firstBlock": 25819970,
+      "firstTimestamp": 1787513531,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xf0a3f82bac177d581316c953a2e59c225bdfb536",
+      "inCount": 1,
+      "firstBlock": 25799977,
+      "firstTimestamp": 1787272775,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xf18d82e32a4dc0e1600772350784ec6e52248199",
+      "inCount": 1,
+      "firstBlock": 25724951,
+      "firstTimestamp": 1786369187,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xf49378e08f75d3e8f976c19becf67771ead89340",
+      "inCount": 1,
+      "firstBlock": 25784919,
+      "firstTimestamp": 1787091539,
+      "inflowCount": 1
+    },
+    {
+      "address": "0xf869456953526c340cf8c54b01edf4a91787c52b",
+      "inCount": 1,
+      "firstBlock": 25729907,
+      "firstTimestamp": 1786428971,
+      "inflowCount": 1
+    },
+    {
+      "address": "0x16b8b86f3c13e34b37fc61e247708500f295837f",
+      "inCount": 2,
+      "firstBlock": 25729995,
+      "firstTimestamp": 1786430039,
+      "inflowCount": 2
+    },
+    {
+      "address": "0x46c8b45d969a760a6e1eb88cce28a63eeb36893c",
+      "inCount": 2,
+      "firstBlock": 25744847,
+      "firstTimestamp": 1786609067,
+      "inflowCount": 2
+    },
+    {
+      "address": "0x64005d3ed48f2bce118bb4257cc09b4b08f73587",
+      "inCount": 2,
+      "firstBlock": 25714921,
+      "firstTimestamp": 1786248395,
+      "inflowCount": 2
+    },
+    {
+      "address": "0x7548c97dd5fa04d3bf26449fd8c1764a6ae3096a",
+      "inCount": 2,
+      "firstBlock": 25819869,
+      "firstTimestamp": 1787512307,
+      "inflowCount": 2
+    },
+    {
+      "address": "0x7f5bff781e9af52db3c601743eed6c57fe4d41dd",
+      "inCount": 2,
+      "firstBlock": 25817373,
+      "firstTimestamp": 1787482283,
+      "inflowCount": 2
+    },
+    {
+      "address": "0x8da4d6c6507f0cada6847298b38ddf860e12bcac",
+      "inCount": 2,
+      "firstBlock": 25724928,
+      "firstTimestamp": 1786368911,
+      "inflowCount": 2
+    },
+    {
+      "address": "0x9ac51a84d9e80b93f874673c186e2b147acfaaf8",
+      "inCount": 2,
+      "firstBlock": 25764927,
+      "firstTimestamp": 1786850915,
+      "inflowCount": 2
+    },
+    {
+      "address": "0x9dfc3831b66fc962dd4be9c213487b2ca22c243c",
+      "inCount": 2,
+      "firstBlock": 25748653,
+      "firstTimestamp": 1786654811,
+      "inflowCount": 2
+    },
+    {
+      "address": "0xa5b77675fa78cc0b91451c1e9bb7a315224ce449",
+      "inCount": 2,
+      "firstBlock": 25718474,
+      "firstTimestamp": 1786291175,
+      "inflowCount": 2
+    },
+    {
+      "address": "0xedfffc8adbb394280afffc16b66dcbf5ceff18e5",
+      "inCount": 2,
+      "firstBlock": 25774921,
+      "firstTimestamp": 1786971143,
+      "inflowCount": 2
+    },
+    {
+      "address": "0x0f3875b35e6c5baa63b93fa6030548a8610fc337",
+      "inCount": 3,
+      "firstBlock": 25722471,
+      "firstTimestamp": 1786339307,
+      "inflowCount": 3
+    },
+    {
+      "address": "0x66db3519a49c06ac6f697f18ecf4f2dfc76a13f5",
+      "inCount": 3,
+      "firstBlock": 25714785,
+      "firstTimestamp": 1786246751,
+      "inflowCount": 3
+    },
+    {
+      "address": "0x74794cdb0bdfd4229b73e000132b86ef6f85c904",
+      "inCount": 3,
+      "firstBlock": 25779952,
+      "firstTimestamp": 1787031707,
+      "inflowCount": 3
+    },
+    {
+      "address": "0x8e95bee58c5d9272b3c6ac305a2d643025e1a81d",
+      "inCount": 3,
+      "firstBlock": 25739918,
+      "firstTimestamp": 1786549751,
+      "inflowCount": 3
+    },
+    {
+      "address": "0x9b92da584f770aff104f4121e17292fc24237c2b",
+      "inCount": 3,
+      "firstBlock": 25799659,
+      "firstTimestamp": 1787268947,
+      "inflowCount": 3
+    },
+    {
+      "address": "0xc73e682257a8069f3f7887db986fe2a71fa9a4aa",
+      "inCount": 3,
+      "firstBlock": 25738467,
+      "firstTimestamp": 1786532279,
+      "inflowCount": 3
+    },
+    {
+      "address": "0xb4fe0e6b85215db6c1db8f31d6362790b7bd397c",
+      "inCount": 4,
+      "firstBlock": 25799884,
+      "firstTimestamp": 1787271659,
+      "inflowCount": 4
+    },
+    {
+      "address": "0xa2d5f9976c86a49a79fdd095631d0c4b1d212073",
+      "inCount": 5,
+      "firstBlock": 25716173,
+      "firstTimestamp": 1786263443,
+      "inflowCount": 5
+    }
+  ]
+}
