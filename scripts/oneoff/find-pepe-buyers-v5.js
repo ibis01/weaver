@@ -7,18 +7,6 @@
  * Implements docs/designs/pepe-buyer-attribution-v1.3.md §9.
  *
  * COMPLIANCE STATE (2026-10-15 first pass):
- *   - §3.1 DIRECT_ORIGINATOR          full
- *   - §3.2 TRACED_ECONOMIC_RECIPIENT  partial (quote-outflow present;
- *                                     reserve reconciliation TODO)
- *   - §3.3 INTERMEDIARY               full
- *   - §3.4 UNRESOLVED                 partial (no 4337/truncation reason)
- *   - §5 audit schema                 partial (evidence sub-object TODO)
- *   - §6 acceptance                   partial (no manual-review harness)
- *
- * Verified against three known candidates:
- *   0x522ae683 BUYER, 0xbdb3ba9f NOT_BUYER, 0x51c72848 NOT_BUYER.
- *
- * COMPLIANCE STATE (2026-10-15 first pass):
  *   - §3.1 DIRECT_ORIGINATOR       full
  *   - §3.2 TRACED_ECONOMIC_RECIPIENT  partial: quote-outflow check
  *                                     present, reserve reconciliation
@@ -245,7 +233,7 @@ function controlledBySingleSigner(meta) {
   if (!meta) return false;
   if (!meta.is_contract) return true;
   if (meta.proxy_type === "eip7702") {
-    // Any implementation is accepted for v1.1; a stricter allowlist
+    // Any implementation is accepted for v1.3; a stricter allowlist
     // would check for Simple7702Account, etc.
     return meta.implementations.length > 0;
   }
@@ -365,8 +353,15 @@ async function prefilterCandidate(candidate) {
     + "&endblock=" + String(__windowEndBlock)
     + "&sort=asc&page=1&offset=1000";
   const d = await fetchJson(url);
-  if (!d || d.status !== "1") {
-    return { pass: false, reason: "prefilter-fetch-failed" };
+  if (d === null) {
+    // Provider / network failure — the candidate could not be evaluated.
+    // This MUST NOT be treated as "not a buyer".
+    return { pass: false, error: true, reason: "prefilter-fetch-failed" };
+  }
+  if (d.status !== "1") {
+    // Valid response, no matching rows (Blockscout: status "0" +
+    // "No transactions found"). Candidate has no window activity.
+    return { pass: false, error: false, reason: "prefilter-no-activity" };
   }
   const rows = d.result || [];
   let net = 0n, inCount = 0, outCount = 0;
@@ -384,16 +379,28 @@ async function prefilterCandidate(candidate) {
   return { pass: true };
 }
 
+// §4.1 — map a prefilter result to a candidate classification. Returns
+// null to continue to per-acquisition analysis. Provider failures are
+// ERROR (could not evaluate), not NOT_BUYER.
+function classificationFromPrefilter(pre) {
+  if (!pre) return null;
+  if (pre.error) return { classification: "ERROR", reason_code: pre.reason };
+  if (!pre.pass) return { classification: "NOT_BUYER", reason_code: pre.reason };
+  return null;
+}
+
 async function processCandidate(candidate, eventsForCandidate, maxPerCand) {
   const pre = await prefilterCandidate(candidate);
-  if (!pre.pass) {
+  const preClass = classificationFromPrefilter(pre);
+  if (preClass !== null) {
     return {
       address: candidate,
       contract_meta: null,
       totalSwapTxs: eventsForCandidate.length,
       classifiedTxs: 0,
       confirmed: 0,
-      classification: "NOT_BUYER",
+      classification: preClass.classification,
+      reason_code: preClass.reason_code,
       prefilter: pre,
       acquisitions: [],
     };
@@ -461,11 +468,17 @@ function acceptanceCheck(results, eventsCount) {
       if (tally[a.classification] !== undefined) tally[a.classification]++;
     }
   }
+  let errorCandidates = 0;
+  for (const r of results) {
+    if (r.classification === "ERROR") errorCandidates++;
+  }
   const total = Object.values(tally).reduce((a, b) => a + b, 0);
   const unresolvedPct = total > 0 ? (tally.UNRESOLVED / total) * 100 : 0;
   return {
     swapEventsScanned: eventsCount,
     candidatesProcessed: results.length,
+    errorCandidates,
+    complete: errorCandidates === 0,
     acquisitionsByClass: tally,
     totalAcquisitions: total,
     unresolvedPct: Number(unresolvedPct.toFixed(2)),
@@ -583,7 +596,7 @@ async function main() {
   const auditStream = fs.createWriteStream("data/audit-records/pepe-buyer-audit-v5.jsonl", { flags: "w" });
   for (const r of results) {
     auditStream.write(JSON.stringify({
-      schema_version: "buyer-attribution-v1.1",
+      schema_version: "buyer-attribution-v1.3",
       candidate_address: r.address,
       classification: r.classification,
       contract_status: r.contract_meta || null,
@@ -604,9 +617,26 @@ async function main() {
     buyers: buyers.length,
     notBuyers: notBuyers.length,
     errors: errors.length,
+    complete: acceptance.complete,
     acceptance,
     buyerList: buyers.map((b) => b.address),
   }, null, 2));
+
+  if (!acceptance.complete) {
+    log("");
+    log("!! Run incomplete: " + acceptance.errorCandidates +
+        " candidate(s) could not be evaluated.");
+    log("!! Artifacts written but complete=false. NOT an accepted population.");
+    process.exitCode = 2;
+  }
 }
 
-main().catch((e) => { console.error(e.stack || e); process.exit(1); });
+if (require.main === module) {
+  main().catch((e) => { console.error(e.stack || e); process.exit(1); });
+}
+
+module.exports = {
+  classificationFromPrefilter,
+  acceptanceCheck,
+  prefilterCandidate,
+};
