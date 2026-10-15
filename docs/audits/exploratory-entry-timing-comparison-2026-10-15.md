@@ -1,6 +1,21 @@
-# Gate 0b — earlyEntryRate result (2026-10-15)
+# Exploratory entry-timing comparison (not Gate 0b)
 
-**Status:** Result recorded, interpretation open
+**Date:** 2026-10-15
+**Status:** Exploratory observation, not a Gate 0b result
+
+> **Retraction notice 2026-10-15.** This is not a Gate 0b result.
+> The Gate 0b metric is `earlyEntryRate` as implemented in
+> `js/intelligence/smart-money/wallet-profiler.js`: fraction of
+> priced buys followed within 14 days by a >=20% price rise, over
+> the wallet's full PEPE history, sample floor 10 priced buys,
+> threshold 0.5.
+>
+> The metric measured in this document is an ad-hoc binary
+> alternative invented mid-session: first in-window inflow within
+> the first 25% of a 15-day window. It shares no numerator,
+> denominator, horizon, or threshold with the real metric. The
+> result is retained as an exploratory observation only.
+
 **Treatment:** `data/pepe-buyer-list/v1.json` (27 buyers)
 **Control:**   `data/control-candidates/v2.json` (80 candidates, 24 matched)
 **Metric script:** `scripts/oneoff/gate-0b-early-entry-rate.js`
