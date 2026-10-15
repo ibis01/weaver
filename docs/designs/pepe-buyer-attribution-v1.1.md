@@ -1,3 +1,12 @@
+> **SUPERSEDED 2026-10-15 by v1.2.** Two amendments: native ETH
+> added to the quote-asset set (§2.6), and Universal Router `execute`
+> added to the direct-swap selectors (§3.1). The changes close paths
+> that were either dead or missing in v1.1; every sample case
+> classifies identically. Successor:
+> `docs/designs/pepe-buyer-attribution-v1.2.md`.
+
+---
+
 # Weaver — PEPE Buyer Attribution Specification v1.1
 
 **Date:** 2026-10-15
