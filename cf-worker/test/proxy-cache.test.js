@@ -4,6 +4,13 @@
 // coalescing, expiration, and safe failure behavior."
 //
 // Coalescing is not implemented; the last test documents that absence.
+//
+// Known-unknown: these tests run in miniflare, whose Cache API may not
+// honor Cache-Control: max-age the same way Cloudflare's production edge
+// does. The regression test proves the handler's stale logic works when
+// an entry is readable at 120s; it does not prove the production edge
+// will keep a Worker-written entry alive that long. Verify against a
+// deployed Worker before relying on STALE behavior in production.
 
 import { env, fetchMock } from "cloudflare:test";
 import { afterEach, beforeAll, describe, it, expect } from "vitest";
@@ -190,5 +197,50 @@ describe("relayAllowedProxy cache behavior", () => {
 
     expect(a.status).toBe(200);
     expect(b.status).toBe(200);
+  });
+});
+
+// Regression: the Worker's own write path must store entries that
+// survive past the fresh window, or the STALE branch is unreachable
+// in production. Uses fake time to advance past FRESH_SECONDS.
+import { vi } from "vitest";
+
+describe("relayAllowedProxy write-path TTL", () => {
+  it("Worker-written entries survive past 60s so STALE is reachable", async () => {
+    vi.useFakeTimers();
+    try {
+      const target = UPSTREAM + "/latest/dex/tokens/0xwritepath";
+      const body = JSON.stringify({ token: "writepath" });
+
+      // First request: MISS, Worker writes the entry.
+      fetchMock
+        .get(UPSTREAM)
+        .intercept({ path: "/latest/dex/tokens/0xwritepath", method: "GET" })
+        .reply(200, body, { headers: { "content-type": "application/json" } })
+        .times(1);
+
+      const ctx1 = makeCtx();
+      const r1 = await handleRequest(proxyReq(target), env, ctx1);
+      await ctx1._drain();
+      expect(r1.headers.get("X-Weaver-Cache")).toBe("MISS");
+
+      // Advance 120s — past fresh, within stale ceiling.
+      vi.setSystemTime(Date.now() + 120_000);
+
+      // Second request: upstream 500. If the entry survived, the
+      // handler serves STALE. If it was evicted, the handler propagates
+      // the 500.
+      fetchMock
+        .get(UPSTREAM)
+        .intercept({ path: "/latest/dex/tokens/0xwritepath", method: "GET" })
+        .reply(500, "boom")
+        .times(1);
+
+      const r2 = await handleRequest(proxyReq(target), env, makeCtx());
+      expect(r2.status).toBe(200);
+      expect(r2.headers.get("X-Weaver-Cache")).toBe("STALE");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
