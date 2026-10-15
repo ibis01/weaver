@@ -1,30 +1,32 @@
 {
   "version": "pepe-buyer-list-v2",
-  "generatedAt": "2026-10-15T17:43:15.823Z",
-  "spec": "docs/designs/pepe-buyer-attribution-v1.1.md",
+  "generatedAt": "2026-10-15T19:07:01.915Z",
+  "spec": "docs/designs/pepe-buyer-attribution-v1.3.md",
   "window": {
     "start": "2026-08-12",
     "end": "2026-08-19"
   },
   "minPepe": "1000000000",
   "counts": {
-    "candidatesProcessed": 500,
-    "buyers": 17,
-    "notBuyers": 483,
+    "candidatesProcessed": 1132,
+    "buyers": 49,
+    "notBuyers": 1083,
     "errors": 0
   },
   "acceptance": {
     "swapEventsScanned": 2283,
-    "candidatesProcessed": 500,
+    "candidatesProcessed": 1132,
+    "errorCandidates": 0,
+    "complete": true,
     "acquisitionsByClass": {
-      "DIRECT_ORIGINATOR": 23,
-      "TRACED_ECONOMIC_RECIPIENT": 9,
-      "INTERMEDIARY": 12,
-      "UNRESOLVED": 30,
+      "DIRECT_ORIGINATOR": 30,
+      "TRACED_ECONOMIC_RECIPIENT": 35,
+      "INTERMEDIARY": 48,
+      "UNRESOLVED": 76,
       "REJECTED": 0
     },
-    "totalAcquisitions": 74,
-    "unresolvedPct": 40.54,
+    "totalAcquisitions": 189,
+    "unresolvedPct": 40.21,
     "unresolvedCeilingPass": false
   },
   "buyers": [
@@ -95,8 +97,8 @@
     },
     {
       "address": "0x9f9820e58342286584481e20e631088cc5643208",
-      "confirmed": 5,
-      "classifiedTxs": 5
+      "confirmed": 6,
+      "classifiedTxs": 6
     },
     {
       "address": "0xc5e9f816994d3eb91b556bc8d0a0cbe44a674909",
@@ -110,6 +112,166 @@
     },
     {
       "address": "0x77d159968a9d456fa75ad587365f1310b09199c1",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0x43ab1bb4fae4c6cfcb00089beb596ae97f85b7be",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0x43fc329ef55cb74eafaf7d87cc836abf905968ec",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0xa04fcb341e09a13c5962efb3bb4d155634d888b0",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0x821873f988b9e564d86e3cd82a0c9de994d38332",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0x9eded99c11ddd6f301d1db0ec139451d5760b214",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0xf1466e71aa60f47f75be00017cc03746c1d5d4b1",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0x033fe3aa194bb5df79964edaa846c99cf7c14fba",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0x599655afd39152b346904090c0ccb4af9fff73a4",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0x1edc34c2d2b5da33e489b60f62c0e325839fa18e",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0x7da82a201d0980fb4589568541f8510179f64dc1",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0xc714c925f1081e8090c2a2ff14bbe0b713632208",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0xe5b6fa7fd5c481c7d5eab6475ca1822c80833120",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0xdf03cf70ab0bd21acd600257bb9e8313a56f0f8a",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0xf0721a6d76f7f369afbb7dac0a919823a93b6b43",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0xba26a1d0ee605db2629a35bffc0817c46079014f",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0x4b3368ba6467d7f30e2b6bcf4ceb4f9a3a8f9ed8",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0x2ed95bcb3bf53863d569c7b90b4ede988a08e528",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0x259a899ad710a61d15f8e36599c854d4087512de",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0xc0b3d6aa9e4e4a97c8de4f20d7e62697c9c9ff89",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0xdbc8bec942bb29f4e04cc21ef3492cd0478b69ab",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0xf8d2d9d33ca270e5fb68029e797c37c6d07f93f3",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0x10bf378dd2fafe72cb6b03a21e9b928bdaef7069",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0xfaca02a91c5fe2f44a8e2ca28a1e1fec575a9b71",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0xdbe8cdad22261487548f2402cdae1e239ffd9783",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0x45866163bd36ed2333f4178072bcb81ba15a43ea",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0xb5087e4853e111af8d971653d0de602fc0cf7f17",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0x7bf6f786e1059fe68efafffdc09ef79c1673d989",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0x9c93101defe7976f390874a0b48c2472bb3da181",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0x262c7f872b36306479c6f6266ef7a983ba86d511",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0xdf31c692f12a86b0a7cd0ae161197fb4901ef260",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0xd947f1ffb00035531368315f7e512495ee4f0eda",
+      "confirmed": 1,
+      "classifiedTxs": 1
+    },
+    {
+      "address": "0xe176e3dd77f886c8862e7dc656e8432103ddda42",
       "confirmed": 1,
       "classifiedTxs": 1
     }
