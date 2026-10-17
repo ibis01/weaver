@@ -170,7 +170,13 @@ async function main() {
     const { a, p } = work[i];
     log("[" + (i + 1) + "/" + work.length + "] " + p + " " + a.slice(0, 10));
     const res = await fetchAllPepeTransfers(a, startBlock, endBlock);
-    if (res.error) { result.errors.push({ address: a, pool: p, reason: res.error }); log("    " + res.error); }
+    if (res.error) {
+      result.errors.push({ address: a, pool: p, reason: res.error });
+      log("    " + res.error);
+      result[p][lower(a)] = { _error: res.error };
+      await sleep(SLEEP_MS);
+      continue;
+    }
     result[p][lower(a)] = bucketByMonth(res.rows, months, a);
     await sleep(SLEEP_MS);
   }
@@ -197,7 +203,7 @@ async function main() {
 
   if (!dryRun) {
     fs.mkdirSync("data/experiments", { recursive: true });
-    const outPath = "data/experiments/availability-" + new Date().toISOString().slice(0, 10) + ".json";
+    const outPath = "data/experiments/availability-" + pool + "-" + new Date().toISOString().slice(0, 10) + ".json";
     fs.writeFileSync(outPath, JSON.stringify(result, null, 2));
     log("\nwritten: " + outPath);
   }

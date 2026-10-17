@@ -114,6 +114,80 @@ months to the summary table. But had they been measurable, the
 control's dominance over treatment would be even larger than the
 3–25× shown.
 
+## 4a. Distribution analysis (added 2026-10-17 after re-run)
+
+The first availability run had a filename bug: both treatment and
+control runs wrote to `availability-2026-10-17.json` and the control
+run overwrote treatment. The corrected run splits files by pool and
+marks errored wallets explicitly (`_error` key) rather than as
+plausible-looking zero-buckets. Full distributions:
+
+### Treatment (49 wallets, 3-month pooled)
+
+- Sum: 380 PEPE buys
+- Median: 3
+- Distribution: 20 wallets with 1-2 buys, 16 with 3-9, 13 with >=10
+- Zero-activity wallets: 0 (v2 filter guarantees at least 1 buy each)
+
+### Control (50 wallets, 3-month pooled)
+
+- Sum: 8740 PEPE buys (23x treatment)
+- Median: 24
+- Distribution: 16 wallets with **zero** buys, 2 with 1-2, 4 with
+  3-9, 28 with >=10
+- Top 5 individual wallets: 3546, 1143, 879, 386, 368 buys
+
+### Finding 4a — Control is bimodal
+
+16 of 50 control wallets (32%) have zero PEPE activity across the
+eval months. They contribute nothing to any statistical test yet
+were counted as "control." The effective control pool for any test
+in these months is 34 wallets, of which:
+
+- ~20 are true individual traders (the 1-2 and 3-9 bands plus a
+  subset of the ≥10 band)
+- ~5 are infrastructure (see 4c)
+- ~9 have high but ambiguous activity
+
+The 50-wallet pool size masked this. §11.1's "n >= 30 per group"
+was never achievable on either side.
+
+### Finding 4b — Metric variance mismatch
+
+Treatment median = 3 buys per wallet. Control median = 24. The
+metric `earlyEntryRate(w) = earlyCount(w) / buyCount(w)` has a
+denominator that differs by 8× between groups. The variance of that
+fraction is roughly proportional to `1/n`, so treatment's variance is
+~8× larger than control's.
+
+Mann-Whitney U and the day-block permutation test in §15 both assume
+that the compared distributions have similar shape. They do not. Even
+if treatment and control had identical timing skill, the metric's
+distribution would differ by variance alone. Any U-test or
+permutation test on these populations would be answering "do these
+distributions have different variances" — not "does one population
+have higher timing skill."
+
+### Finding 4c — Control's top activity is infrastructure
+
+The wallet with 3546 buys over 3 months averaged ~40 swaps per day.
+Second is 1143 (~13/day), third 879, fourth 386, fifth 368. These
+are router, aggregator, MEV-bot, or high-frequency-trader class —
+not individual occasional buyers. Combined with the Binance hot
+wallet already noted (§Finding 2), at least 5 of the 28 "active"
+control wallets are non-individual.
+
+### Consequence for the options
+
+**Option A (pooled test) is dead.** Treatment sum = 380, control
+sum = 8740 (23×). Truncating control to comparable activity
+requires an arbitrary threshold; any threshold is a
+post-hoc selection that invalidates the pool.
+
+**Options B, C, D remain** per the options section. B+C is the
+only combination producing a defensible experiment, and requires
+multi-session work.
+
 ## Why each preregistration section fails
 
 | § | Claim | Falsified by |

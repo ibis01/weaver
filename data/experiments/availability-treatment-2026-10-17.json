@@ -1,0 +1,728 @@
+{
+  "version": "availability-v1",
+  "generatedAt": "2026-10-17T18:43:45.282Z",
+  "pool": "treatment",
+  "monthsBack": 3,
+  "months": [
+    "2026-07",
+    "2026-08",
+    "2026-09"
+  ],
+  "blockRange": {
+    "startBlock": 25415294,
+    "endBlock": 26066470
+  },
+  "treatment": {
+    "0x522ae68380ca52b02d3b19042e51e63b805f6cb9": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 5,
+        "fromPair": 5
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0xee0ca621c24bac5ba83491b8dd404c57909d5249": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 3,
+        "fromPair": 3
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x983edb2c9a31c2549fb8d8b33b5724a85ae99423": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 4,
+        "fromPair": 3
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x6364b188d52e2c6483d435a4fb716123c7299bc4": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 4,
+        "fromPair": 2
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x18b7392814b06474de07aafcc674afc57a23c8b8": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 1,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x38583e92eaaae241bde8b5a10f23cea253d21b1b": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 1,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0xc9f16b6cc9cadb7b81e020b94e5ab72acf6b9748": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 27,
+        "fromPair": 9
+      },
+      "2026-09": {
+        "anyIn": 1,
+        "fromPair": 0
+      }
+    },
+    "0x6a9b4bd87aa49574e107556fdeb9c7eb1c5f03f5": {
+      "2026-07": {
+        "anyIn": 1,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 3,
+        "fromPair": 2
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x3f6732ea4eedab1ee1b9a3f9fe4013736656f980": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 2,
+        "fromPair": 2
+      },
+      "2026-09": {
+        "anyIn": 2,
+        "fromPair": 0
+      }
+    },
+    "0xedd5c22bf56f0fa245d004cc83ce2a7081966664": {
+      "2026-07": {
+        "anyIn": 8,
+        "fromPair": 2
+      },
+      "2026-08": {
+        "anyIn": 18,
+        "fromPair": 13
+      },
+      "2026-09": {
+        "anyIn": 8,
+        "fromPair": 1
+      }
+    },
+    "0xe4c19e73770fe133fd0ad41b1885dfeae3f99e72": {
+      "2026-07": {
+        "anyIn": 2,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 4,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0xe859992fdb55fea5919613586cb25a8b08041a1f": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 4,
+        "fromPair": 3
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0xe68e72bd29eab54c140a0e2eeb0f689b64c15160": {
+      "2026-07": {
+        "anyIn": 8,
+        "fromPair": 6
+      },
+      "2026-08": {
+        "anyIn": 2,
+        "fromPair": 2
+      },
+      "2026-09": {
+        "anyIn": 3,
+        "fromPair": 3
+      }
+    },
+    "0x9f9820e58342286584481e20e631088cc5643208": {
+      "2026-07": {
+        "anyIn": 1,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 18,
+        "fromPair": 6
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0xc5e9f816994d3eb91b556bc8d0a0cbe44a674909": {
+      "2026-07": {
+        "anyIn": 1,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 11,
+        "fromPair": 10
+      },
+      "2026-09": {
+        "anyIn": 9,
+        "fromPair": 4
+      }
+    },
+    "0x8a23110d3f9ad0ae642abacd55c2da70e7e1f098": {
+      "2026-07": {
+        "anyIn": 1,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 2,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x77d159968a9d456fa75ad587365f1310b09199c1": {
+      "2026-07": {
+        "anyIn": 2,
+        "fromPair": 1
+      },
+      "2026-08": {
+        "anyIn": 1,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x43ab1bb4fae4c6cfcb00089beb596ae97f85b7be": {
+      "2026-07": {
+        "anyIn": 1,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 1,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x43fc329ef55cb74eafaf7d87cc836abf905968ec": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 10,
+        "fromPair": 4
+      },
+      "2026-09": {
+        "anyIn": 3,
+        "fromPair": 0
+      }
+    },
+    "0xa04fcb341e09a13c5962efb3bb4d155634d888b0": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 4,
+        "fromPair": 2
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x821873f988b9e564d86e3cd82a0c9de994d38332": {
+      "2026-07": {
+        "anyIn": 1,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 1,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x9eded99c11ddd6f301d1db0ec139451d5760b214": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 3,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0xf1466e71aa60f47f75be00017cc03746c1d5d4b1": {
+      "2026-07": {
+        "anyIn": 1,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 1,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x033fe3aa194bb5df79964edaa846c99cf7c14fba": {
+      "2026-07": {
+        "anyIn": 3,
+        "fromPair": 1
+      },
+      "2026-08": {
+        "anyIn": 4,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x599655afd39152b346904090c0ccb4af9fff73a4": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 8,
+        "fromPair": 2
+      },
+      "2026-09": {
+        "anyIn": 2,
+        "fromPair": 0
+      }
+    },
+    "0x1edc34c2d2b5da33e489b60f62c0e325839fa18e": {
+      "2026-07": {
+        "anyIn": 1,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 1,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x7da82a201d0980fb4589568541f8510179f64dc1": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 2,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0xc714c925f1081e8090c2a2ff14bbe0b713632208": {
+      "2026-07": {
+        "anyIn": 8,
+        "fromPair": 2
+      },
+      "2026-08": {
+        "anyIn": 10,
+        "fromPair": 5
+      },
+      "2026-09": {
+        "anyIn": 6,
+        "fromPair": 4
+      }
+    },
+    "0xe5b6fa7fd5c481c7d5eab6475ca1822c80833120": {
+      "2026-07": {
+        "anyIn": 5,
+        "fromPair": 1
+      },
+      "2026-08": {
+        "anyIn": 33,
+        "fromPair": 3
+      },
+      "2026-09": {
+        "anyIn": 23,
+        "fromPair": 0
+      }
+    },
+    "0xdf03cf70ab0bd21acd600257bb9e8313a56f0f8a": {
+      "2026-07": {
+        "anyIn": 1,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 1,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0xf0721a6d76f7f369afbb7dac0a919823a93b6b43": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 1,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0xba26a1d0ee605db2629a35bffc0817c46079014f": {
+      "2026-07": {
+        "anyIn": 2,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 8,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x4b3368ba6467d7f30e2b6bcf4ceb4f9a3a8f9ed8": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 1,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x2ed95bcb3bf53863d569c7b90b4ede988a08e528": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 1,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x259a899ad710a61d15f8e36599c854d4087512de": {
+      "2026-07": {
+        "anyIn": 6,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 4,
+        "fromPair": 2
+      },
+      "2026-09": {
+        "anyIn": 3,
+        "fromPair": 0
+      }
+    },
+    "0xc0b3d6aa9e4e4a97c8de4f20d7e62697c9c9ff89": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 2,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0xdbc8bec942bb29f4e04cc21ef3492cd0478b69ab": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 1,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0xf8d2d9d33ca270e5fb68029e797c37c6d07f93f3": {
+      "2026-07": {
+        "anyIn": 3,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 5,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 1,
+        "fromPair": 0
+      }
+    },
+    "0x10bf378dd2fafe72cb6b03a21e9b928bdaef7069": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 2,
+        "fromPair": 2
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0xfaca02a91c5fe2f44a8e2ca28a1e1fec575a9b71": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 14,
+        "fromPair": 2
+      },
+      "2026-09": {
+        "anyIn": 5,
+        "fromPair": 0
+      }
+    },
+    "0xdbe8cdad22261487548f2402cdae1e239ffd9783": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 1,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x45866163bd36ed2333f4178072bcb81ba15a43ea": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 2,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 1,
+        "fromPair": 0
+      }
+    },
+    "0xb5087e4853e111af8d971653d0de602fc0cf7f17": {
+      "2026-07": {
+        "anyIn": 10,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 4,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x7bf6f786e1059fe68efafffdc09ef79c1673d989": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 2,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x9c93101defe7976f390874a0b48c2472bb3da181": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 1,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0x262c7f872b36306479c6f6266ef7a983ba86d511": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 1,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0xdf31c692f12a86b0a7cd0ae161197fb4901ef260": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 1,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    },
+    "0xd947f1ffb00035531368315f7e512495ee4f0eda": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 4,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 1,
+        "fromPair": 0
+      }
+    },
+    "0xe176e3dd77f886c8862e7dc656e8432103ddda42": {
+      "2026-07": {
+        "anyIn": 0,
+        "fromPair": 0
+      },
+      "2026-08": {
+        "anyIn": 2,
+        "fromPair": 1
+      },
+      "2026-09": {
+        "anyIn": 0,
+        "fromPair": 0
+      }
+    }
+  },
+  "control": {},
+  "errors": [],
+  "summary": [
+    {
+      "month": "2026-07",
+      "tFP": 0,
+      "tAI": 1,
+      "cFP": 0,
+      "cAI": 0
+    },
+    {
+      "month": "2026-08",
+      "tFP": 2,
+      "tAI": 8,
+      "cFP": 0,
+      "cAI": 0
+    },
+    {
+      "month": "2026-09",
+      "tFP": 0,
+      "tAI": 1,
+      "cFP": 0,
+      "cAI": 0
+    }
+  ]
+}
