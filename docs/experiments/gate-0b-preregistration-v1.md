@@ -1,3 +1,12 @@
+> **WITHDRAWN 2026-10-17.** The availability check
+> (`docs/audits/gate-0b-v1-design-falsified-2026-10-17.md`) showed
+> that the treatment and control populations cannot supply the sample
+> sizes this preregistration requires. Sections §6.2, §8, and §11.1
+> are falsified by evidence. This document is retained for the
+> reasoning trail; it is not approved for execution.
+
+---
+
 # Gate 0b Experiment Preregistration (v1)
 
 **Document ID:** gate-0b-preregistration-v1
