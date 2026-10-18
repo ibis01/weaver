@@ -1,0 +1,2996 @@
+{
+  "version": "gate-0b1-audit-v1",
+  "generatedAt": "2026-10-17T19:35:34.787Z",
+  "months": [
+    "2026-07",
+    "2026-08",
+    "2026-09"
+  ],
+  "knownInfra": [
+    {
+      "address": "0x28c6c06298d514db089934071355e5743bf21d60",
+      "label": "Binance hot wallet",
+      "source": "public Etherscan label; presence in control-2 documented in gate-0b-v1-design-falsified-2026-10-17.md"
+    },
+    {
+      "address": "0x51c72848c68a965f66fa7a88855f9f7784502a7f",
+      "label": "Uniswap Universal Router / aggregator",
+      "source": "identified in 2026-10-15 buyer-attribution run"
+    },
+    {
+      "address": "0x111111125421ca6dc452d289314280a0f8842a65",
+      "label": "1inch v6 router",
+      "source": "identified in 2026-10-15 buyer-attribution run"
+    },
+    {
+      "address": "0x9008d19f58aabd9ed0d60971565aa8510560ab41",
+      "label": "CoW Protocol settlement",
+      "source": "identified in 2026-10-15 buyer-attribution run"
+    }
+  ],
+  "treatment": {
+    "summary": {
+      "total": 49,
+      "byStatus": {
+        "eligible": 49
+      },
+      "eligible": 49,
+      "eligibleTiers": {
+        "3-9": 16,
+        "1-2": 20,
+        "10-50": 12,
+        "51-200": 1
+      }
+    },
+    "rows": [
+      {
+        "address": "0x522ae68380ca52b02d3b19042e51e63b805f6cb9",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 5,
+        "fromPairBuys": 5,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 5,
+            "fromPair": 5
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xee0ca621c24bac5ba83491b8dd404c57909d5249",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 3,
+        "fromPairBuys": 3,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 3,
+            "fromPair": 3
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x983edb2c9a31c2549fb8d8b33b5724a85ae99423",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 4,
+        "fromPairBuys": 3,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 4,
+            "fromPair": 3
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x6364b188d52e2c6483d435a4fb716123c7299bc4",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 4,
+        "fromPairBuys": 2,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 4,
+            "fromPair": 2
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x18b7392814b06474de07aafcc674afc57a23c8b8",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 1,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 1,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x38583e92eaaae241bde8b5a10f23cea253d21b1b",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 1,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 1,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xc9f16b6cc9cadb7b81e020b94e5ab72acf6b9748",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 10-50",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 28,
+        "fromPairBuys": 9,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 27,
+            "fromPair": 9
+          },
+          "2026-09": {
+            "anyIn": 1,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x6a9b4bd87aa49574e107556fdeb9c7eb1c5f03f5",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 4,
+        "fromPairBuys": 2,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 1,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 3,
+            "fromPair": 2
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x3f6732ea4eedab1ee1b9a3f9fe4013736656f980",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 4,
+        "fromPairBuys": 2,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 2,
+            "fromPair": 2
+          },
+          "2026-09": {
+            "anyIn": 2,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xedd5c22bf56f0fa245d004cc83ce2a7081966664",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 10-50",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 34,
+        "fromPairBuys": 16,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 8,
+            "fromPair": 2
+          },
+          "2026-08": {
+            "anyIn": 18,
+            "fromPair": 13
+          },
+          "2026-09": {
+            "anyIn": 8,
+            "fromPair": 1
+          }
+        }
+      },
+      {
+        "address": "0xe4c19e73770fe133fd0ad41b1885dfeae3f99e72",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 6,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 2,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 4,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xe859992fdb55fea5919613586cb25a8b08041a1f",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 4,
+        "fromPairBuys": 3,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 4,
+            "fromPair": 3
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xe68e72bd29eab54c140a0e2eeb0f689b64c15160",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 10-50",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 13,
+        "fromPairBuys": 11,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 8,
+            "fromPair": 6
+          },
+          "2026-08": {
+            "anyIn": 2,
+            "fromPair": 2
+          },
+          "2026-09": {
+            "anyIn": 3,
+            "fromPair": 3
+          }
+        }
+      },
+      {
+        "address": "0x9f9820e58342286584481e20e631088cc5643208",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 10-50",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 19,
+        "fromPairBuys": 6,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 1,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 18,
+            "fromPair": 6
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xc5e9f816994d3eb91b556bc8d0a0cbe44a674909",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 10-50",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 21,
+        "fromPairBuys": 14,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 1,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 11,
+            "fromPair": 10
+          },
+          "2026-09": {
+            "anyIn": 9,
+            "fromPair": 4
+          }
+        }
+      },
+      {
+        "address": "0x8a23110d3f9ad0ae642abacd55c2da70e7e1f098",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 3,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 1,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 2,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x77d159968a9d456fa75ad587365f1310b09199c1",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 3,
+        "fromPairBuys": 2,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 2,
+            "fromPair": 1
+          },
+          "2026-08": {
+            "anyIn": 1,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x43ab1bb4fae4c6cfcb00089beb596ae97f85b7be",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 2,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 1,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 1,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x43fc329ef55cb74eafaf7d87cc836abf905968ec",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 10-50",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 13,
+        "fromPairBuys": 4,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 10,
+            "fromPair": 4
+          },
+          "2026-09": {
+            "anyIn": 3,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xa04fcb341e09a13c5962efb3bb4d155634d888b0",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 4,
+        "fromPairBuys": 2,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 4,
+            "fromPair": 2
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x821873f988b9e564d86e3cd82a0c9de994d38332",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 2,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 1,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 1,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x9eded99c11ddd6f301d1db0ec139451d5760b214",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 3,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 3,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xf1466e71aa60f47f75be00017cc03746c1d5d4b1",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 2,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 1,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 1,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x033fe3aa194bb5df79964edaa846c99cf7c14fba",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 7,
+        "fromPairBuys": 2,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 3,
+            "fromPair": 1
+          },
+          "2026-08": {
+            "anyIn": 4,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x599655afd39152b346904090c0ccb4af9fff73a4",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 10-50",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 10,
+        "fromPairBuys": 2,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 8,
+            "fromPair": 2
+          },
+          "2026-09": {
+            "anyIn": 2,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x1edc34c2d2b5da33e489b60f62c0e325839fa18e",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 2,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 1,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 1,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x7da82a201d0980fb4589568541f8510179f64dc1",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 2,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 2,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xc714c925f1081e8090c2a2ff14bbe0b713632208",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 10-50",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 24,
+        "fromPairBuys": 11,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 8,
+            "fromPair": 2
+          },
+          "2026-08": {
+            "anyIn": 10,
+            "fromPair": 5
+          },
+          "2026-09": {
+            "anyIn": 6,
+            "fromPair": 4
+          }
+        }
+      },
+      {
+        "address": "0xe5b6fa7fd5c481c7d5eab6475ca1822c80833120",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 51-200",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 61,
+        "fromPairBuys": 4,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 5,
+            "fromPair": 1
+          },
+          "2026-08": {
+            "anyIn": 33,
+            "fromPair": 3
+          },
+          "2026-09": {
+            "anyIn": 23,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xdf03cf70ab0bd21acd600257bb9e8313a56f0f8a",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 2,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 1,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 1,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xf0721a6d76f7f369afbb7dac0a919823a93b6b43",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 1,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 1,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xba26a1d0ee605db2629a35bffc0817c46079014f",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 10-50",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 10,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 2,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 8,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x4b3368ba6467d7f30e2b6bcf4ceb4f9a3a8f9ed8",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 1,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 1,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x2ed95bcb3bf53863d569c7b90b4ede988a08e528",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 1,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 1,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x259a899ad710a61d15f8e36599c854d4087512de",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 10-50",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 13,
+        "fromPairBuys": 2,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 6,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 4,
+            "fromPair": 2
+          },
+          "2026-09": {
+            "anyIn": 3,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xc0b3d6aa9e4e4a97c8de4f20d7e62697c9c9ff89",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 2,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 2,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xdbc8bec942bb29f4e04cc21ef3492cd0478b69ab",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 1,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 1,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xf8d2d9d33ca270e5fb68029e797c37c6d07f93f3",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 9,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 3,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 5,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 1,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x10bf378dd2fafe72cb6b03a21e9b928bdaef7069",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 2,
+        "fromPairBuys": 2,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 2,
+            "fromPair": 2
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xfaca02a91c5fe2f44a8e2ca28a1e1fec575a9b71",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 10-50",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 19,
+        "fromPairBuys": 2,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 14,
+            "fromPair": 2
+          },
+          "2026-09": {
+            "anyIn": 5,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xdbe8cdad22261487548f2402cdae1e239ffd9783",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 1,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 1,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x45866163bd36ed2333f4178072bcb81ba15a43ea",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 3,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 2,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 1,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xb5087e4853e111af8d971653d0de602fc0cf7f17",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 10-50",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 14,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 10,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 4,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x7bf6f786e1059fe68efafffdc09ef79c1673d989",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 2,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 2,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x9c93101defe7976f390874a0b48c2472bb3da181",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 1,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 1,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x262c7f872b36306479c6f6266ef7a983ba86d511",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 1,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 1,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xdf31c692f12a86b0a7cd0ae161197fb4901ef260",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 1,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 1,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xd947f1ffb00035531368315f7e512495ee4f0eda",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 5,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 4,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 1,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xe176e3dd77f886c8862e7dc656e8432103ddda42",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 2,
+        "fromPairBuys": 1,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 2,
+            "fromPair": 1
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      }
+    ]
+  },
+  "control": {
+    "summary": {
+      "total": 50,
+      "byStatus": {
+        "zero-activity": 16,
+        "eligible": 25,
+        "infrastructure": 1,
+        "infrastructure-suspect": 8
+      },
+      "eligible": 25,
+      "eligibleTiers": {
+        "3-9": 4,
+        "51-200": 13,
+        "10-50": 6,
+        "1-2": 2
+      }
+    },
+    "rows": [
+      {
+        "address": "0x13f27352234fafd2573e8d367a9bc3adff3de7d5",
+        "status": "zero-activity",
+        "eligible": false,
+        "reason": "0 buys in any month — not a tradeable observation",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 0,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 0,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x9999f5fa7c56eabf937c06cd8f6c0c9d526cf934",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 6,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 2,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 2,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 2,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x46340b20830761efd32832a74d7169b29feb9758",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 51-200",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 62,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 28,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 24,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 10,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x193b3a19f1bfca16dea6f9b34b14db48f8a513bd",
+        "status": "zero-activity",
+        "eligible": false,
+        "reason": "0 buys in any month — not a tradeable observation",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 0,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 0,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x28c6c06298d514db089934071355e5743bf21d60",
+        "status": "infrastructure",
+        "eligible": false,
+        "reason": "Binance hot wallet (public Etherscan label; presence in control-2 documented in gate-0b-v1-design-falsified-2026-10-17.md)",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 3546,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 3014,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 532,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xf89d7b9c864f589bbf53a82105107622b35eaa40",
+        "status": "zero-activity",
+        "eligible": false,
+        "reason": "0 buys in any month — not a tradeable observation",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 0,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 0,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x22f08491184f37ade8e71006eaa07906ea3e8b08",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 51-200",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 179,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 58,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 65,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 56,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xf39335da91eda44e1998b0dee653bc2db2f52845",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 10-50",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 32,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 7,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 15,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 10,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x841ed663f2636863d40be4ee76243377dff13a34",
+        "status": "infrastructure-suspect",
+        "eligible": false,
+        "reason": "228 buys over 3 months (avg 76/mo) — exceeds individual-trading threshold",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 228,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 79,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 80,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 69,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x84653c310cefb75593a16c2e794ca21fed8a68e7",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 10-50",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 24,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 6,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 9,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 9,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x62b014b27a1f6054ea1800fc40ebcff6912d6d3a",
+        "status": "zero-activity",
+        "eligible": false,
+        "reason": "0 buys in any month — not a tradeable observation",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 0,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 0,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x39e274cb173999eca1cc3daf0c3e938d2cd69a50",
+        "status": "zero-activity",
+        "eligible": false,
+        "reason": "0 buys in any month — not a tradeable observation",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 0,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 0,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x744727a6fc563f54fd0f6f0442c0bd1e212011f9",
+        "status": "zero-activity",
+        "eligible": false,
+        "reason": "0 buys in any month — not a tradeable observation",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 0,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 0,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xb4a1a61ce88bd8557c5e76b4d1292c6afb08da98",
+        "status": "zero-activity",
+        "eligible": false,
+        "reason": "0 buys in any month — not a tradeable observation",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 0,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 0,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x89e1be593bc206f6e600d2de79d63dded85bf58a",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 51-200",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 121,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 59,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 57,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 5,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xbaed34aec301d4d5606b8fec9e7988d91eb73408",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 10-50",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 32,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 12,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 15,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 5,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x54e068ee3e1be98134117dba56fd81bee793dcbc",
+        "status": "infrastructure-suspect",
+        "eligible": false,
+        "reason": "386 buys over 3 months (avg 129/mo) — exceeds individual-trading threshold",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 386,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 96,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 167,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 123,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xe7b438ad9dfc98564cafdd9a7e41eb065deaa395",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 4,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 3,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 1,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xadaf10bdee665cfac9c9fe48c7cdb9fa13b09d69",
+        "status": "infrastructure-suspect",
+        "eligible": false,
+        "reason": "368 buys over 3 months (avg 123/mo) — exceeds individual-trading threshold",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 368,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 82,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 94,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 192,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xdf3172f8efcccb0f84fe1ce3fd22c3fe37e0c657",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 51-200",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 68,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 21,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 18,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 29,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x2a9809215f633a6ef5fcdf5d41724e4977119813",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 51-200",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 84,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 21,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 17,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 46,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xd6b168fd19bfc48368f5684246e6b02119062056",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 1,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 1,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x0c7e8f71ccc08385977b7a51e037acc6293c1ad2",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 51-200",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 115,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 37,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 48,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 30,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xeb9ca8fdfac0652a97c0e1a48c1178d32d3a6b8f",
+        "status": "infrastructure-suspect",
+        "eligible": false,
+        "reason": "1143 buys over 3 months (avg 381/mo) — exceeds individual-trading threshold",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 1143,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 506,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 414,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 223,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x370f63792806dbfb0f6bbbe093745535649f8c62",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 51-200",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 108,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 63,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 32,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 13,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x9b0c45d46d386cedd98873168c36efd0dcba8d46",
+        "status": "infrastructure-suspect",
+        "eligible": false,
+        "reason": "879 buys over 3 months (avg 293/mo) — exceeds individual-trading threshold",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 879,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 381,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 304,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 194,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xba5f711785c53b0de97333aa7bb87bbb57e549ba",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 1-2",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 1,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 1,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 1,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xa2656d2d1f6ab1d6c9d3b92f8e4585339496f23c",
+        "status": "zero-activity",
+        "eligible": false,
+        "reason": "0 buys in any month — not a tradeable observation",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 0,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 0,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xe17446bd28e5946415725357ed6eedab4fe51a67",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 51-200",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 71,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 23,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 35,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 13,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xd4ade84d1e4b1015a5dda8eb6c43858a3ac905f5",
+        "status": "zero-activity",
+        "eligible": false,
+        "reason": "0 buys in any month — not a tradeable observation",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 0,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 0,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xa710df5a9050f1376b38611f99d485d7d6711685",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 10-50",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 19,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 9,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 10,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xd7bafbc96c99f0bd07301300516140ade8a6d68f",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 10-50",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 40,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 4,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 4,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 32,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xf60c2ea62edbfe808163751dd0d8693dcb30019c",
+        "status": "infrastructure-suspect",
+        "eligible": false,
+        "reason": "281 buys over 3 months (avg 94/mo) — exceeds individual-trading threshold",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 281,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 14,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 74,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 193,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xc671b05671a7cd3080c6ceae79d284bdde0ef271",
+        "status": "infrastructure-suspect",
+        "eligible": false,
+        "reason": "299 buys over 3 months (avg 100/mo) — exceeds individual-trading threshold",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 299,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 212,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 77,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 10,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x8e18589d515d411e85a6fbc101a714b14e3ad811",
+        "status": "zero-activity",
+        "eligible": false,
+        "reason": "0 buys in any month — not a tradeable observation",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 0,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 0,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x3fd033751c5c8d1b20b8bbef44a82bae61b8579a",
+        "status": "zero-activity",
+        "eligible": false,
+        "reason": "0 buys in any month — not a tradeable observation",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 0,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 0,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xef15d12b8b935a432b681f317afd050f48dcbf85",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 51-200",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 77,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 39,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 26,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 12,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x40d658c7769709ec93d3433dc063b9e4a46433be",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 51-200",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 61,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 25,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 22,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 14,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x9e166c9b482699b442743a6019b1d7e599608bef",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 51-200",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 67,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 18,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 30,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 19,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xcc16e5c6d4e13219e49fa2cee8704ad6ecc41471",
+        "status": "zero-activity",
+        "eligible": false,
+        "reason": "0 buys in any month — not a tradeable observation",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 0,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 0,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xdc6d08e8fefaff451bcbbbd0a26172051e980ac6",
+        "status": "zero-activity",
+        "eligible": false,
+        "reason": "0 buys in any month — not a tradeable observation",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 0,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 0,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x393f7188053c7fcff45a61dfaa9866f4c270753b",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 6,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 2,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 5,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 1,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x55172d873be8ab5652c2df75567c368ea177bc86",
+        "status": "zero-activity",
+        "eligible": false,
+        "reason": "0 buys in any month — not a tradeable observation",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 0,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 0,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xf53b90605e3e48d5f015a4451118d93565dc23e1",
+        "status": "zero-activity",
+        "eligible": false,
+        "reason": "0 buys in any month — not a tradeable observation",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 0,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 0,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x4ed6cf63bd9c009d247ee51224fc1c7041f517f1",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 3-9",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 8,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 2,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 3,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 3,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x37d21f642f2db28bfe8e280876a9735c5dffcf1e",
+        "status": "zero-activity",
+        "eligible": false,
+        "reason": "0 buys in any month — not a tradeable observation",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 0,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 0,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 0,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 0,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x1a9d699aee3a56ca49d0cc3b542ae3a37885a3e1",
+        "status": "infrastructure-suspect",
+        "eligible": false,
+        "reason": "211 buys over 3 months (avg 70/mo) — exceeds individual-trading threshold",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 211,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 41,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 83,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 87,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0x8fede5452155c54c4faa3877c97c7b1bb75626f7",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 10-50",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 16,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 7,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 3,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 6,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xc8aa941d5e971943ad5105f6345b174240f6e4b3",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 51-200",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 108,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 49,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 34,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 25,
+            "fromPair": 0
+          }
+        }
+      },
+      {
+        "address": "0xdec723ffd070d8896482b1cae15f1fb295b91c2c",
+        "status": "eligible",
+        "eligible": true,
+        "reason": "activity tier: 51-200",
+        "months": [
+          "2026-07",
+          "2026-08",
+          "2026-09"
+        ],
+        "totalBuys": 89,
+        "fromPairBuys": 0,
+        "monthsWithActivity": 3,
+        "perMonth": {
+          "2026-07": {
+            "anyIn": 22,
+            "fromPair": 0
+          },
+          "2026-08": {
+            "anyIn": 23,
+            "fromPair": 0
+          },
+          "2026-09": {
+            "anyIn": 44,
+            "fromPair": 0
+          }
+        }
+      }
+    ]
+  },
+  "overlap": [],
+  "overlapPass": true,
+  "priceCoverage": {
+    "priceDirExists": false,
+    "cachedPEPEFiles": 0,
+    "monthsNeedingPrices": [
+      "2026-07",
+      "2026-08",
+      "2026-09"
+    ],
+    "forwardExtensionDays": 14,
+    "assessment": "no local PEPE price cache — a CoinGecko pull is required before Gate 0b.3"
+  },
+  "priceBlocker": "BLOCKER: no local PEPE price cache. A CoinGecko PEPE pull is required before any forward-return analysis.",
+  "extendedView": {
+    "treatment": {
+      "pool": "treatment",
+      "monthsCovered": 12,
+      "monthRange": [
+        "2025-10",
+        "2026-09"
+      ],
+      "walletCount": 49,
+      "erroredWallets": 0,
+      "totalBuys": 793,
+      "medianBuysPerWallet": 5,
+      "walletsWithZeroBuys": 0,
+      "walletsWithAtLeast10Buys": 16
+    },
+    "control": {
+      "pool": "control",
+      "monthsCovered": 3,
+      "monthRange": [
+        "2026-07",
+        "2026-09"
+      ],
+      "walletCount": 50,
+      "erroredWallets": 0,
+      "totalBuys": 8740,
+      "medianBuysPerWallet": 32,
+      "walletsWithZeroBuys": 16,
+      "walletsWithAtLeast10Buys": 28
+    },
+    "note": "Each pool's own months. NOT for comparison — comparison uses 'months' above (the intersection). Useful only for judging whether extending the availability window raises per-wallet counts."
+  },
+  "gate3Eligibility": {
+    "treatment": 49,
+    "control": 25,
+    "gate3_possible": true,
+    "note": "Gate 0b.3 requires enough eligible wallets to reconstruct an event-level dataset with bounded dependence. If either pool < 20, escalate rather than proceed."
+  },
+  "exclusions": {
+    "treatment": [],
+    "control": [
+      {
+        "address": "0x13f27352234fafd2573e8d367a9bc3adff3de7d5",
+        "reason": "0 buys in any month — not a tradeable observation"
+      },
+      {
+        "address": "0x193b3a19f1bfca16dea6f9b34b14db48f8a513bd",
+        "reason": "0 buys in any month — not a tradeable observation"
+      },
+      {
+        "address": "0x28c6c06298d514db089934071355e5743bf21d60",
+        "reason": "Binance hot wallet (public Etherscan label; presence in control-2 documented in gate-0b-v1-design-falsified-2026-10-17.md)"
+      },
+      {
+        "address": "0xf89d7b9c864f589bbf53a82105107622b35eaa40",
+        "reason": "0 buys in any month — not a tradeable observation"
+      },
+      {
+        "address": "0x841ed663f2636863d40be4ee76243377dff13a34",
+        "reason": "228 buys over 3 months (avg 76/mo) — exceeds individual-trading threshold"
+      },
+      {
+        "address": "0x62b014b27a1f6054ea1800fc40ebcff6912d6d3a",
+        "reason": "0 buys in any month — not a tradeable observation"
+      },
+      {
+        "address": "0x39e274cb173999eca1cc3daf0c3e938d2cd69a50",
+        "reason": "0 buys in any month — not a tradeable observation"
+      },
+      {
+        "address": "0x744727a6fc563f54fd0f6f0442c0bd1e212011f9",
+        "reason": "0 buys in any month — not a tradeable observation"
+      },
+      {
+        "address": "0xb4a1a61ce88bd8557c5e76b4d1292c6afb08da98",
+        "reason": "0 buys in any month — not a tradeable observation"
+      },
+      {
+        "address": "0x54e068ee3e1be98134117dba56fd81bee793dcbc",
+        "reason": "386 buys over 3 months (avg 129/mo) — exceeds individual-trading threshold"
+      },
+      {
+        "address": "0xadaf10bdee665cfac9c9fe48c7cdb9fa13b09d69",
+        "reason": "368 buys over 3 months (avg 123/mo) — exceeds individual-trading threshold"
+      },
+      {
+        "address": "0xeb9ca8fdfac0652a97c0e1a48c1178d32d3a6b8f",
+        "reason": "1143 buys over 3 months (avg 381/mo) — exceeds individual-trading threshold"
+      },
+      {
+        "address": "0x9b0c45d46d386cedd98873168c36efd0dcba8d46",
+        "reason": "879 buys over 3 months (avg 293/mo) — exceeds individual-trading threshold"
+      },
+      {
+        "address": "0xa2656d2d1f6ab1d6c9d3b92f8e4585339496f23c",
+        "reason": "0 buys in any month — not a tradeable observation"
+      },
+      {
+        "address": "0xd4ade84d1e4b1015a5dda8eb6c43858a3ac905f5",
+        "reason": "0 buys in any month — not a tradeable observation"
+      },
+      {
+        "address": "0xf60c2ea62edbfe808163751dd0d8693dcb30019c",
+        "reason": "281 buys over 3 months (avg 94/mo) — exceeds individual-trading threshold"
+      },
+      {
+        "address": "0xc671b05671a7cd3080c6ceae79d284bdde0ef271",
+        "reason": "299 buys over 3 months (avg 100/mo) — exceeds individual-trading threshold"
+      },
+      {
+        "address": "0x8e18589d515d411e85a6fbc101a714b14e3ad811",
+        "reason": "0 buys in any month — not a tradeable observation"
+      },
+      {
+        "address": "0x3fd033751c5c8d1b20b8bbef44a82bae61b8579a",
+        "reason": "0 buys in any month — not a tradeable observation"
+      },
+      {
+        "address": "0xcc16e5c6d4e13219e49fa2cee8704ad6ecc41471",
+        "reason": "0 buys in any month — not a tradeable observation"
+      },
+      {
+        "address": "0xdc6d08e8fefaff451bcbbbd0a26172051e980ac6",
+        "reason": "0 buys in any month — not a tradeable observation"
+      },
+      {
+        "address": "0x55172d873be8ab5652c2df75567c368ea177bc86",
+        "reason": "0 buys in any month — not a tradeable observation"
+      },
+      {
+        "address": "0xf53b90605e3e48d5f015a4451118d93565dc23e1",
+        "reason": "0 buys in any month — not a tradeable observation"
+      },
+      {
+        "address": "0x37d21f642f2db28bfe8e280876a9735c5dffcf1e",
+        "reason": "0 buys in any month — not a tradeable observation"
+      },
+      {
+        "address": "0x1a9d699aee3a56ca49d0cc3b542ae3a37885a3e1",
+        "reason": "211 buys over 3 months (avg 70/mo) — exceeds individual-trading threshold"
+      }
+    ]
+  }
+}
