@@ -1,0 +1,36 @@
+{
+  "version": "gate-0c-checks-bc-v1",
+  "generatedAt": "2026-10-18T01:40:27.113Z",
+  "pricesFile": "pepe-365d.json",
+  "pricePointCount": 366,
+  "pricedBuys": 203,
+  "distinctWallets": 49,
+  "dateRange": [
+    "2026-01-01",
+    "2026-10-01"
+  ],
+  "observedMean": 0.13686742928116685,
+  "checkB": {
+    "mode": "hourMatch",
+    "dayPoolSize": 90,
+    "validPerms": 10000,
+    "observedMean": 0.13686742928116685,
+    "nullP50": 0.040955890366466345,
+    "nullP95": 0.06233013013465746,
+    "pValue": 0
+  },
+  "checkC": {
+    "mode": "wideNull",
+    "dayPoolSize": 365,
+    "validPerms": 5,
+    "observedMean": 0.13686742928116685,
+    "nullP50": -0.005667958594141897,
+    "nullP95": 0.000032500193624107914,
+    "pValue": 0
+  },
+  "interpretation": {
+    "survivedB": true,
+    "survivedC": true,
+    "note": "Both checks must hold for the finding to be robust. If B holds but C fails, the wallets beat their own random active days but not random PEPE days — suggests intra-day timing matters more than date selection."
+  }
+}

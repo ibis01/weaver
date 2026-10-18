@@ -1,0 +1,75 @@
+{
+  "version": "gate-0c-check-d-v1",
+  "generatedAt": "2026-10-18T01:41:48.068Z",
+  "pricesFile": "pepe-365d.json",
+  "pricedBuys": 203,
+  "observedMean": 0.13686742928116685,
+  "nullP50": 0.0655525924760636,
+  "nullP95": 0.08617495036515121,
+  "pValue": 0,
+  "validPermutations": 10000,
+  "droppedPermutations": 0,
+  "perMonth": [
+    {
+      "month": "2026-01",
+      "nBuys": 6,
+      "observedMean": 0.08122956049166041,
+      "baselineMean": -0.1661586960123417
+    },
+    {
+      "month": "2026-02",
+      "nBuys": 7,
+      "observedMean": -0.16423750017788463,
+      "baselineMean": -0.05171209970869724
+    },
+    {
+      "month": "2026-03",
+      "nBuys": 12,
+      "observedMean": 0.028932865083725525,
+      "baselineMean": 0.012490621656792721
+    },
+    {
+      "month": "2026-04",
+      "nBuys": 14,
+      "observedMean": 0.058040712883123194,
+      "baselineMean": 0.079172713854059
+    },
+    {
+      "month": "2026-05",
+      "nBuys": 10,
+      "observedMean": -0.13741281035136074,
+      "baselineMean": -0.14163702377666293
+    },
+    {
+      "month": "2026-06",
+      "nBuys": 17,
+      "observedMean": -0.029132692641130484,
+      "baselineMean": -0.03926493112919503
+    },
+    {
+      "month": "2026-07",
+      "nBuys": 13,
+      "observedMean": 0.04709559028454892,
+      "baselineMean": 0.033071955253286406
+    },
+    {
+      "month": "2026-08",
+      "nBuys": 110,
+      "observedMean": 0.24233667723134705,
+      "baselineMean": 0.1259047716129498
+    },
+    {
+      "month": "2026-09",
+      "nBuys": 13,
+      "observedMean": 0.14877819623661903,
+      "baselineMean": 0.09814162331657243
+    },
+    {
+      "month": "2026-10",
+      "nBuys": 1,
+      "observedMean": -0.04740092080685748,
+      "baselineMean": -0.08700791784131305
+    }
+  ],
+  "verdict": "SKILL_ROBUST_TO_MONTH"
+}

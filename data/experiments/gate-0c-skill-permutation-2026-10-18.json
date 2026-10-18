@@ -1,0 +1,51 @@
+{
+  "version": "gate-0c-skill-permutation-v1",
+  "generatedAt": "2026-10-18T01:36:38.859Z",
+  "seed": 20261018,
+  "horizonDays": 14,
+  "permutations": 10000,
+  "buyDefinition": "PEPE inflow where (a) inflow from pair OR (b) wallet has QUOTES outflow in same tx",
+  "pricesFile": "pepe-365d.json",
+  "sample": {
+    "wallets": 49,
+    "totalRows": null,
+    "pepInflows": null,
+    "fromPair": null,
+    "withQuote": null,
+    "pricedBuys": 203,
+    "droppedNoPrice": 13,
+    "distinctWallets": 49,
+    "activeDays": 90,
+    "dateRange": [
+      "2026-01-01",
+      "2026-10-01"
+    ]
+  },
+  "observed": {
+    "n": 203,
+    "mean": 0.13686742928116688,
+    "median": 0.0792686665171232,
+    "fracPositive": 0.625615763546798,
+    "fracOver20": 0.4039408866995074,
+    "fracUnder20": 0.029556650246305417
+  },
+  "null": {
+    "meanP50": 0.04095396017155788,
+    "meanP95": 0.06231086647164919,
+    "meanP99": 0.07173537877011521,
+    "fracPosP50": 0.5221674876847291,
+    "fracPosP95": 0.5812807881773399
+  },
+  "pValues": {
+    "primary_mean": 0,
+    "secondary_fracPositive": 0.0019
+  },
+  "verdict": "STRONG_EVIDENCE_POSITIVE_SKILL",
+  "caveats": [
+    "Permutation null resamples entry dates from the pool of days on which these 49 wallets collectively bought. This preserves market regime structure.",
+    "Buy definition excludes transfers and airdrops; includes direct pair swaps and aggregator swaps with visible quote outflow.",
+    "Overlapping 14-day windows mean individual buys are not independent; the permutation test accounts for this by resampling whole entry dates.",
+    "One primary test (mean forward return). Secondary statistics reported; not gated.",
+    "This tests population-level timing. It does not prove the classifier identifies skill prospectively, only that its retrospective selections differ from random."
+  ]
+}
