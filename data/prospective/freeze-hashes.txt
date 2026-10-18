@@ -1,0 +1,8 @@
+# Gate 0d freeze — SHA-256 at freeze
+# Freeze date: 2026-10-18T00:00:00Z
+# Recorded: 2026-10-18T01:51:57.506Z
+
+3bf6091268bd3b80e6d5cb29aff2b3f0b3c8a9640135611757f2936c7408403e  data/pepe-buyer-list/v2.json
+6a881e7aeadc5023b9fb3a6a15c952f0d5df69ea6f08546bc7f6eea7592e38c8  scripts/oneoff/find-pepe-buyers-v5.js
+1c7ed0cb239693e17f119234649706c4fd49e44269e07e6407773f6bdf36de05  js/intelligence/smart-money/wallet-profiler.js
+b7bfd3edbce1df3e0e16ae99b04f055bc695a71ea4a86d34e2d34e0eeafca890  docs/experiments/gate-0d-prospective-preregistration-2026-10-18.md
