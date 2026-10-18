@@ -65,9 +65,19 @@ async function fetchBuys(wallet, fromBlock, toBlock) {
       + "&sort=asc&page=" + page + "&offset=1000";
     const d = await fetchJson(url);
     if (!d) return { rows, error: "fetch-failed-page-" + page };
-    if (d.status !== "1") {
+      if (d.status !== "1") {
+      // Treat as empty-success when the payload is a valid empty array,
+      // regardless of message text. Blockscout's empty-result message
+      // varies ("No transactions found", "No token transfers found",
+      // missing message entirely).
+      if (Array.isArray(d.result) && d.result.length === 0) {
+        return { rows, error: null };
+      }
       const msg = String(d.message || "").toLowerCase();
-      if (msg.includes("no") && msg.includes("transaction")) return { rows, error: null };
+      if (msg.includes("no") &&
+          (msg.includes("transaction") || msg.includes("token transfer"))) {
+        return { rows, error: null };
+      }
       return { rows, error: "api-status-" + d.status };
     }
     const pageRows = d.result || [];
