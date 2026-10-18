@@ -74,11 +74,31 @@ No interim analysis. Only the stopping-point verdict is computed.
 
 ## Verdict criteria (pre-registered)
 
+The verdict is computed at whatever stopping trigger fires first
+(200 buys, 12 months, or 50-buys-at-6-months) using all criteria
+below. The 6-month trigger produces a valid verdict on the sample
+available at that point — not a forced INCONCLUSIVE.
+
 - SKILL_CONFIRMED: treatment early_fraction > 95th percentile of
   500 control cohorts
 - SKILL_NOT_CONFIRMED: treatment early_fraction <= 95th percentile
-- INCONCLUSIVE: <200 resolved at 12 months, OR control pool <200,
-  OR >=10% unresolved
+- INCONCLUSIVE: <30 resolved buys at the stopping point, OR control
+  pool <200 wallets, OR >=10% of buys unresolved
+
+Rationale for the 30-buy floor: below 30 resolved buys, the
+95th-percentile-vs-controls comparison has insufficient power to
+distinguish a genuine effect from chance. Above 30, the verdict is
+computed honestly on the available sample, even if n is smaller
+than the 200-buy target.
+
+## Amendment log
+
+- 2026-10-18 (v1.1): Clarified stopping-rule / verdict interaction.
+  Original text had INCONCLUSIVE threshold at <200-at-12-months,
+  which would have made every stopping point except 200-buys
+  INCONCLUSIVE by construction. Zero buys had been collected at
+  amendment time. Freeze hashes must be re-recorded after this
+  amendment (preregistration file hash changes).
 
 ## Expected outcome (pre-registered)
 
