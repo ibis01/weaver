@@ -1,8 +1,32 @@
+> **SUPERSEDED 2026-10-18.** The regime-normalized metric specified
+> here has two defects that make it unusable as designed:
+> (1) at daily granularity `early(b)` collapses to a day-indicator, so
+> `normalized(w)` measures buy-concentration not timing skill;
+> (2) §3 names control-2 as reference population, but control-2's
+> construction was falsified 2026-10-17 (exchange contamination,
+> zero-activity wallets).
+>
+> Superseded in purpose by Gate 0c
+> (`docs/audits/gate-0c-result-2026-10-18.md`), which uses a
+> permutation null that requires no reference population at all.
+> Retained for reasoning trail.
+
+---
+
 # Weaver — Regime-Normalized earlyEntryRate (v1)
 
 **Date:** 2026-10-15
 **Status:** Draft for review. Not implemented.
 **Predecessor:** docs/audits/gate-0b-window-degeneracy-2026-10-15.md
+
+> **SUPERSESSION NOTICE 2026-10-18.** §3 (control-2 as reference
+> population) and §4.3 (two independent draws of the control pool) are
+> **BLOCKED pending a valid control-v3**. Control-2 was disqualified as a
+> reference population by the 2026-10-17 falsification (exchange
+> contamination; activity regime). See
+> `docs/audits/gate-0b-research-state-reconciliation-2026-10-17.md`
+> §6.5–§6.6 and §7-P3. No section of this draft may be implemented until
+> that document's §10 conditions are met.
 
 ## 1. Problem
 
