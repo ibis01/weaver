@@ -1,0 +1,132 @@
+=== USER-MACHINE 12M RECOVERY SWEEP (READ-ONLY) ===
+Mon Oct 19 04:35:33 PM UTC 2026
+repo: /home/ibismuh/Desktop/weaver @ 94c4a32b733b10f71bf0b52f3a5e8a19af8a8b57 (main)
+
+--- 1. stash list (READ-ONLY; never dropped) ---
+stash@{0}: WIP on main: 614fbb5 feat: implement local behavioral pattern detection engine
+
+--- 2. stash composition ---
+ js/ui/dashboard.js | 21 +++++++++++++--------
+ 1 file changed, 13 insertions(+), 8 deletions(-)
+
+--- 3. stash untracked tree (^3) ---
+
+--- 4. stash diff mentioning 12m/availability ---
+
+--- 5. reflog (last 30) ---
+94c4a32 HEAD@{0}: commit: data(gate-0d): record first successful scan — state advanced to 26220773
+50f0354 HEAD@{1}: commit: fix(gate-0d): recognize Blockscout 'No token transfers found' as empty-success
+1131f43 HEAD@{2}: commit: ci(gate-0d): weekly collection workflow
+20e74eb HEAD@{3}: commit: docs(gate-0d): clarify stopping-rule / verdict interaction (v1.1)
+f46b8cf HEAD@{4}: commit: feat(gate-0d): prospective validation — preregistration + collection pipeline
+7428395 HEAD@{5}: commit: chore: freeze v2 population for prospective tracking
+f5d6160 HEAD@{6}: commit: docs(spec): supersede regime-normalized metric v1
+6a3cbb8 HEAD@{7}: commit: chore: commit gate-0c reproducibility inputs + reconciliation doc
+05fea61 HEAD@{8}: commit: audit(gate-0c): retrospective skill permutation — narrow positive finding
+bd10bba HEAD@{9}: reset: moving to HEAD
+bd10bba HEAD@{10}: commit: audit(gate-0b): v1 design falsified — distributions prove incompatibility
+726ce7b HEAD@{11}: commit: audit(gate-0b): falsify v1 design — populations incompatible
+11d99d2 HEAD@{12}: commit: audit(gate-0b): falsify v1 design — populations are incompatible
+2f9265e HEAD@{13}: commit: fix(deploy): restore GitHub Pages production bundle
+8551d7b HEAD@{14}: commit: docs(design): regime-normalized earlyEntryRate spec v1
+4bf57d7 HEAD@{15}: commit: docs(design): regime-normalized earlyEntryRate spec v1
+0a82bbd HEAD@{16}: commit: test(e2e): distinguish quiet-market skip from broken-pipeline fail
+ba2ecfc HEAD@{17}: commit: chore: gitignore dist/ — build artifacts, not source
+c54e599 HEAD@{18}: commit: chore: restore executable bit on find-pepe-buyers-v5.js
+dfb6fe8 HEAD@{19}: commit: fix(v5): transfers-fetch provider failure is PROVIDER_FAILURE
+fe73d79 HEAD@{20}: commit: test(e2e): force-click Save Decision to survive modal re-render
+e90e84c HEAD@{21}: commit: audit(v5): 76 UNRESOLVED split — 67 deferred, 9 residual
+c34fba9 HEAD@{22}: commit: docs+fix(v5): v1.5 sub-reasons; deferred excluded from §6.6 ceiling
+61f0f5e HEAD@{23}: commit: data(v5): full 1132-candidate run with fixed extraction
+ee9a3dd HEAD@{24}: commit: fix(scripts): v5 extraction — recursive split, fail-closed, completeness
+fed6fc3 HEAD@{25}: commit: docs(spec): v1.4 §9.1 extraction rules — recursive split, fail-closed
+2adb0d9 HEAD@{26}: commit: fix(scripts): v5 §4.1 fail-closed — provider error is ERROR, not NOT_BUYER
+f8da232 HEAD@{27}: commit: docs(spec): correct internal title of v1.3; align v5 header
+21e502e HEAD@{28}: commit: audit: v1 vs v2 population reconciliation
+c76fa07 HEAD@{29}: commit: data(v5): top500 final — 17 buyers, 12 overlap with v1
+
+--- 6. index entries avail/12m ---
+100644 3d87501709b56ebfc9f7490e3a12209e73f9198f 0	data/experiments/availability-control-2026-10-17.json
+100644 ace028de1af608743290189cdf92aff1fcce8613 0	data/experiments/availability-treatment-2026-10-17.json
+100755 120c49f19dc24671968f752c9aaaa7c21455a9dd 0	scripts/oneoff/check-eval-window-availability.js
+100644 7eb62c30e05595a9bea33cbe61b63626e5b012db 0	test/unit/token-analysis-unavailable.test.js
+
+--- 7. any commit ever touching availability paths ---
+05fea61 audit(gate-0c): retrospective skill permutation — narrow positive finding
+D	data/experiments/availability-2026-10-17.json
+bd10bba audit(gate-0b): v1 design falsified — distributions prove incompatibility
+A	data/experiments/availability-control-2026-10-17.json
+A	data/experiments/availability-treatment-2026-10-17.json
+M	scripts/oneoff/check-eval-window-availability.js
+11d99d2 audit(gate-0b): falsify v1 design — populations are incompatible
+A	data/experiments/availability-2026-10-17.json
+A	scripts/oneoff/check-eval-window-availability.js
+
+--- 8. working tree files ---
+total 140
+drwxrwxr-x  2 ibismuh ibismuh  4096 Oct 18 02:47 .
+drwxrwxr-x 12 ibismuh ibismuh  4096 Oct 18 02:51 ..
+-rw-rw-r--  1 ibismuh ibismuh 16234 Oct 17 19:23 availability-control-2026-10-17.json
+-rw-rw-r--  1 ibismuh ibismuh 13783 Oct 18 01:37 availability-treatment-2026-10-17.json
+-rw-rw-r--  1 ibismuh ibismuh 72685 Oct 17 20:35 gate-0b1-audit-2026-10-17.json
+-rw-rw-r--  1 ibismuh ibismuh  1812 Oct 18 02:41 gate-0c-check-d-2026-10-18.json
+-rw-rw-r--  1 ibismuh ibismuh  1029 Oct 18 02:40 gate-0c-checks-bc-2026-10-18.json
+-rw-rw-r--  1 ibismuh ibismuh  1844 Oct 18 02:36 gate-0c-skill-permutation-2026-10-18.json
+-rw-rw-r--  1 ibismuh ibismuh    41 Oct 18 02:47 population-freeze-commit.txt
+-rw-rw-r--  1 ibismuh ibismuh  6794 Oct 18 02:47 population-freeze-v2.json
+-rw-rw-r--  1 ibismuh ibismuh    21 Oct 18 02:47 prospective-tracking-start.txt
+./scripts/oneoff/check-eval-window-availability.js
+./data/experiments/availability-control-2026-10-17.json
+./data/experiments/availability-treatment-2026-10-17.json
+
+--- 9. Trash check ---
+(nothing in Trash)
+
+--- 10. local APFS snapshots (potential recovery surface) ---
+
+--- 11. unreachable objects (count by type) ---
+     58 blob
+    102 commit
+    129 tree
+
+--- 12. unreachable/dangling blobs with artifact signatures ---
+BLOB 64df6b71919286a24ed13707e3e4abafb6d0d2d8 (size 45722):
+{
+  "version": "availability-v1",
+  "generatedAt": "2026-10-17T18:55:32.716Z",
+  "pool": "treatment",
+  "monthsBack": 12,
+  "months": [
+    "2025-10",
+    "2025-11",
+    "2025-12",
+    "2026-01",
+    "2026-02",
+    "2026-03",
+    "2026-04",
+    "2026-05",
+    "2026-06",
+    "2026-07",
+    "2026-08",
+    "2026-09"
+  ],
+  "blockRange": {
+    "startBlock": 23483000,
+    "endBlock": 26066470
+  },
+  "treatment": {
+    "0x522ae68380ca52b02d3b19042e51e63b805f6cb9": {
+      "2025-10": {
+        "anyIn":
+---
+(blob scan done)
+
+--- 13. unreachable trees referencing availability filename ---
+100755 blob 120c49f19dc24671968f752c9aaaa7c21455a9dd	check-eval-window-availability.js
+  (in tree dec873965eb77605bec34784826d5579bfab6dcc)
+100644 blob 3d87501709b56ebfc9f7490e3a12209e73f9198f	availability-control-2026-10-17.json
+100644 blob 64df6b71919286a24ed13707e3e4abafb6d0d2d8	availability-treatment-2026-10-17.json
+  (in tree 8d5a6a5d29e7f98d64599e875bf1aa8f2c6d920c)
+(tree scan done)
+
+=== END SWEEP ===
