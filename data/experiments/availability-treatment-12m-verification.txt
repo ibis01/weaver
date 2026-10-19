@@ -1,0 +1,23 @@
+Recovered: data/experiments/availability-treatment-12m-2026-10-17.json
+  blob: 64df6b71919286a24ed13707e3e4abafb6d0d2d8 (45722 bytes)
+  monthsBack: 12, wallets: 49, errors: 0
+
+Cumulative per-wallet (12 months pooled):
+  wallets with >=10 anyIn:    16/49
+  wallets with >=10 fromPair: 5/49
+
+Wallet-month crossings (anyIn>=10 within a single month):
+  2025-11: 1
+  2025-12: 1
+  2026-01: 1
+  2026-02: 2
+  2026-03: 2
+  2026-04: 2
+  2026-05: 2
+  2026-06: 3
+  2026-07: 1
+  2026-08: 8
+  2026-09: 1
+
+Total crossings: 24 across 49 wallets x 12 months
+Concentration: 8/24 crossings in 2026-08 (selection month)
