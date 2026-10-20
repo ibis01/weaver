@@ -23,8 +23,8 @@ applied and executed on 2026-10-21 as recorded here and in the artifacts.
 - producer scripts/aw-nic-p4-v11.js
   0223b7eb0a2ac6e4ca2c74bc531b5c00509f571333e435e6aed9efac9dab23f2
 - anchor gate: all green (prereg 36201d78, record 7964e7ae, patch 200531e9,
-  frozen pair e064f625bb8e.../07cb0ffcd2..., price input ae47b4e7416...,
-  entry-blocks 6b4f25..., v5 jsonl 3ab1a0..., v2 blob 73024f5f5e4b6dc67125fd674e30c9c1b8499c40)
+  frozen pair e064f625bb8efefa3f3e90f9c05c587643e8360ba6f824de3e26ad91882402b7/07cb0ffcd25ce4465b36d491500d817dc409f52a6d2937b312ad5889ebbfb2f0, price input ae47b4e74167259b75a6d6e589e30fc608d19e6bc30ae72c168c35dea5c0100c,
+  entry-blocks 6b4f25350793216d4f7240be553f09a7d6f6f1585ffedb34c2ade0f10cf4face, v5 jsonl 3ab1a0a3a571423290145a66a8e97c62c0409dda8c45f047ac5a8706089b20bc, v2 blob 73024f5f5e4b6dc67125fd674e30c9c1b8499c40)
 - incident rules satisfied: D1 reproduces frozen G1 exactly; legacy k-draw
   column reproduces frozen g2.perWallet exactly (min 0.0778)
 - G2-P exact marginal null: min marginal IQR_w = 0.2 >= 0.10 (N=49, 0 fallbacks)
