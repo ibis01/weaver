@@ -1,5 +1,5 @@
 // ===============================================================
-//   Live Event Collector & Normalizer (Intelligence Phase) 
+//   Live Event Collector & Normalizer (Intelligence Phase)
 // ===============================================================
 
 window.W = window.W || {};
