@@ -1,0 +1,1136 @@
+{
+  "generatedAtUTC": "2026-10-20T13:25:53Z",
+  "prereg": "docs/experiments/gate-0c-skill-test-preregistration-v1.md (Option-A redline 2026-10-20)",
+  "reviewPackage": "docs/experiments/gate-0c-redline-review-package-2026-10-20.md",
+  "scope": "P4 NIC — price-only (G1) + assignment-only (G2); pre-unblinding; no wallet-level outcome computation; no RPC; offline",
+  "inputs": {
+    "v2json": {
+      "gitBlob": "73024f5f5e4b6dc67125fd674e30c9c1b8499c40"
+    },
+    "v5jsonl": {
+      "sha256": "3ab1a0a3a571423290145a66a8e97c62c0409dda8c45f047ac5a8706089b20bc"
+    },
+    "entryBlocksV1": {
+      "sha256": "6b4f25350793216d4f7240be553f09a7d6f6f1585ffedb34c2ade0f10cf4face"
+    },
+    "priceTyped": {
+      "sha256": "ae47b4e74167259b75a6d6e589e30fc608d19e6bc30ae72c168c35dea5c0100c",
+      "span": [
+        "2025-10-20",
+        "2026-10-19"
+      ],
+      "rows": 365,
+      "contiguous": true
+    },
+    "dDet": "2026-08-08",
+    "windowDays": 16,
+    "window": [
+      "2026-08-08",
+      "2026-08-23"
+    ]
+  },
+  "conventions": {
+    "return": "close-to-close, r(day) = close(day)/close(prev day) - 1 (UTC day boundaries)",
+    "percentile": "type-7 linear interpolation",
+    "bandConstruction": {
+      "primary": "excl — band = [d-b .. d-1], b days ending the day before the acquisition day (matches E3/F5 evidence)",
+      "sensitivity": "incl — band = [d-b+1 .. d] (acquisition day included)",
+      "g1Threshold": "P90 of the 90 returns r(s-90..s-1) strictly before band start s; up-day: r(t) >= threshold"
+    },
+    "g2": "per-wallet null of the §9.1 entry-day percentile under §8.2 weights q_w(d) ∝ N_{-w}(d) + 0.25 on A_w; k_w i.i.d. draws with replacement; IQR of null e* on the [0,1] percentile scale; gate: min over eligible wallets >= 0.10. Band-independent by construction (the §8.2/§9.1 machinery involves no band); \"band excluded\" in prereg §7-G2 is inherited wording — a G2 failure excludes the primary design, not a specific band.",
+    "seeds": {
+      "provisionalNIC": "uint32 words of sha256(\"gate0c:nic:\" + address + \":\" + priceSha + \":\" + v2blob)",
+      "definitive": "post-lock §8.4 seeds derive from LOCK_SHA; this gate is re-confirmed then; disagreement -> HALT (§8.5 spirit)",
+      "draws": 10000,
+      "prng": "xorshift128+ (canonical form, low word of s1+s0)"
+    }
+  },
+  "population": {
+    "eligibleWallets": 49,
+    "minimumNRequired": 15,
+    "minimumNok": true,
+    "perWalletKw": [
+      {
+        "address": "0x033fe3aa194bb5df79964edaa846c99cf7c14fba",
+        "k": 1
+      },
+      {
+        "address": "0x10bf378dd2fafe72cb6b03a21e9b928bdaef7069",
+        "k": 1
+      },
+      {
+        "address": "0x18b7392814b06474de07aafcc674afc57a23c8b8",
+        "k": 1
+      },
+      {
+        "address": "0x1edc34c2d2b5da33e489b60f62c0e325839fa18e",
+        "k": 1
+      },
+      {
+        "address": "0x259a899ad710a61d15f8e36599c854d4087512de",
+        "k": 1
+      },
+      {
+        "address": "0x262c7f872b36306479c6f6266ef7a983ba86d511",
+        "k": 1
+      },
+      {
+        "address": "0x2ed95bcb3bf53863d569c7b90b4ede988a08e528",
+        "k": 1
+      },
+      {
+        "address": "0x38583e92eaaae241bde8b5a10f23cea253d21b1b",
+        "k": 1
+      },
+      {
+        "address": "0x3f6732ea4eedab1ee1b9a3f9fe4013736656f980",
+        "k": 1
+      },
+      {
+        "address": "0x43ab1bb4fae4c6cfcb00089beb596ae97f85b7be",
+        "k": 1
+      },
+      {
+        "address": "0x43fc329ef55cb74eafaf7d87cc836abf905968ec",
+        "k": 1
+      },
+      {
+        "address": "0x45866163bd36ed2333f4178072bcb81ba15a43ea",
+        "k": 1
+      },
+      {
+        "address": "0x4b3368ba6467d7f30e2b6bcf4ceb4f9a3a8f9ed8",
+        "k": 1
+      },
+      {
+        "address": "0x522ae68380ca52b02d3b19042e51e63b805f6cb9",
+        "k": 5
+      },
+      {
+        "address": "0x599655afd39152b346904090c0ccb4af9fff73a4",
+        "k": 1
+      },
+      {
+        "address": "0x6364b188d52e2c6483d435a4fb716123c7299bc4",
+        "k": 1
+      },
+      {
+        "address": "0x6a9b4bd87aa49574e107556fdeb9c7eb1c5f03f5",
+        "k": 2
+      },
+      {
+        "address": "0x77d159968a9d456fa75ad587365f1310b09199c1",
+        "k": 1
+      },
+      {
+        "address": "0x7bf6f786e1059fe68efafffdc09ef79c1673d989",
+        "k": 1
+      },
+      {
+        "address": "0x7da82a201d0980fb4589568541f8510179f64dc1",
+        "k": 1
+      },
+      {
+        "address": "0x821873f988b9e564d86e3cd82a0c9de994d38332",
+        "k": 1
+      },
+      {
+        "address": "0x8a23110d3f9ad0ae642abacd55c2da70e7e1f098",
+        "k": 1
+      },
+      {
+        "address": "0x983edb2c9a31c2549fb8d8b33b5724a85ae99423",
+        "k": 1
+      },
+      {
+        "address": "0x9c93101defe7976f390874a0b48c2472bb3da181",
+        "k": 1
+      },
+      {
+        "address": "0x9eded99c11ddd6f301d1db0ec139451d5760b214",
+        "k": 1
+      },
+      {
+        "address": "0x9f9820e58342286584481e20e631088cc5643208",
+        "k": 6
+      },
+      {
+        "address": "0xa04fcb341e09a13c5962efb3bb4d155634d888b0",
+        "k": 1
+      },
+      {
+        "address": "0xb5087e4853e111af8d971653d0de602fc0cf7f17",
+        "k": 1
+      },
+      {
+        "address": "0xba26a1d0ee605db2629a35bffc0817c46079014f",
+        "k": 1
+      },
+      {
+        "address": "0xc0b3d6aa9e4e4a97c8de4f20d7e62697c9c9ff89",
+        "k": 1
+      },
+      {
+        "address": "0xc5e9f816994d3eb91b556bc8d0a0cbe44a674909",
+        "k": 2
+      },
+      {
+        "address": "0xc714c925f1081e8090c2a2ff14bbe0b713632208",
+        "k": 1
+      },
+      {
+        "address": "0xc9f16b6cc9cadb7b81e020b94e5ab72acf6b9748",
+        "k": 4
+      },
+      {
+        "address": "0xd947f1ffb00035531368315f7e512495ee4f0eda",
+        "k": 1
+      },
+      {
+        "address": "0xdbc8bec942bb29f4e04cc21ef3492cd0478b69ab",
+        "k": 1
+      },
+      {
+        "address": "0xdbe8cdad22261487548f2402cdae1e239ffd9783",
+        "k": 1
+      },
+      {
+        "address": "0xdf03cf70ab0bd21acd600257bb9e8313a56f0f8a",
+        "k": 1
+      },
+      {
+        "address": "0xdf31c692f12a86b0a7cd0ae161197fb4901ef260",
+        "k": 1
+      },
+      {
+        "address": "0xe176e3dd77f886c8862e7dc656e8432103ddda42",
+        "k": 1
+      },
+      {
+        "address": "0xe4c19e73770fe133fd0ad41b1885dfeae3f99e72",
+        "k": 1
+      },
+      {
+        "address": "0xe5b6fa7fd5c481c7d5eab6475ca1822c80833120",
+        "k": 1
+      },
+      {
+        "address": "0xe68e72bd29eab54c140a0e2eeb0f689b64c15160",
+        "k": 1
+      },
+      {
+        "address": "0xe859992fdb55fea5919613586cb25a8b08041a1f",
+        "k": 1
+      },
+      {
+        "address": "0xedd5c22bf56f0fa245d004cc83ce2a7081966664",
+        "k": 1
+      },
+      {
+        "address": "0xee0ca621c24bac5ba83491b8dd404c57909d5249",
+        "k": 3
+      },
+      {
+        "address": "0xf0721a6d76f7f369afbb7dac0a919823a93b6b43",
+        "k": 1
+      },
+      {
+        "address": "0xf1466e71aa60f47f75be00017cc03746c1d5d4b1",
+        "k": 1
+      },
+      {
+        "address": "0xf8d2d9d33ca270e5fb68029e797c37c6d07f93f3",
+        "k": 1
+      },
+      {
+        "address": "0xfaca02a91c5fe2f44a8e2ca28a1e1fec575a9b71",
+        "k": 1
+      }
+    ],
+    "perWalletMismatchVsV2": 0,
+    "v2WalletsAbsentFromRecount": 0,
+    "dayMass": {
+      "2026-08-12": 5,
+      "2026-08-13": 10,
+      "2026-08-14": 4,
+      "2026-08-15": 6,
+      "2026-08-16": 15,
+      "2026-08-17": 9,
+      "2026-08-18": 16
+    },
+    "txTotal": 65,
+    "unpriceable": 0,
+    "essMin": 6.04,
+    "essMax": 6.45,
+    "optionAFallbackFired": 0
+  },
+  "p2cChecks": {
+    "windowEdgesExtrapolated": [
+      "2026-08-08",
+      "2026-08-23"
+    ],
+    "anchorsOnDetWindow": "27/27",
+    "txDaysAllWithinWindow": true,
+    "midnightBoundaryTx": [
+      {
+        "block": 25771116,
+        "day": "2026-08-17",
+        "isoTime": "2026-08-17T00:08:54.363Z",
+        "minFromMidnight": 9
+      },
+      {
+        "block": 25742495,
+        "day": "2026-08-13",
+        "isoTime": "2026-08-13T00:25:10.516Z",
+        "minFromMidnight": 25
+      },
+      {
+        "block": 25742511,
+        "day": "2026-08-13",
+        "isoTime": "2026-08-13T00:28:23.433Z",
+        "minFromMidnight": 28
+      },
+      {
+        "block": 25778314,
+        "day": "2026-08-18",
+        "isoTime": "2026-08-18T00:12:58.807Z",
+        "minFromMidnight": 13
+      }
+    ]
+  },
+  "g1": {
+    "3d": {
+      "excl": {
+        "pooledFracUp": 0,
+        "pass": false,
+        "perAcqDay": [
+          {
+            "acqDay": "2026-08-12",
+            "occurrences": 5,
+            "bandStart": "2026-08-09",
+            "bandEnd": "2026-08-11",
+            "thresholdP90": 0.029962,
+            "up": 0,
+            "b": 3,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-13",
+            "occurrences": 10,
+            "bandStart": "2026-08-10",
+            "bandEnd": "2026-08-12",
+            "thresholdP90": 0.028705,
+            "up": 0,
+            "b": 3,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-14",
+            "occurrences": 4,
+            "bandStart": "2026-08-11",
+            "bandEnd": "2026-08-13",
+            "thresholdP90": 0.028705,
+            "up": 0,
+            "b": 3,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-15",
+            "occurrences": 6,
+            "bandStart": "2026-08-12",
+            "bandEnd": "2026-08-14",
+            "thresholdP90": 0.028705,
+            "up": 0,
+            "b": 3,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-16",
+            "occurrences": 15,
+            "bandStart": "2026-08-13",
+            "bandEnd": "2026-08-15",
+            "thresholdP90": 0.028705,
+            "up": 0,
+            "b": 3,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-17",
+            "occurrences": 9,
+            "bandStart": "2026-08-14",
+            "bandEnd": "2026-08-16",
+            "thresholdP90": 0.028705,
+            "up": 0,
+            "b": 3,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-18",
+            "occurrences": 16,
+            "bandStart": "2026-08-15",
+            "bandEnd": "2026-08-17",
+            "thresholdP90": 0.028705,
+            "up": 0,
+            "b": 3,
+            "fracUp": 0
+          }
+        ]
+      },
+      "incl": {
+        "pooledFracUp": 0,
+        "pass": false,
+        "perAcqDay": [
+          {
+            "acqDay": "2026-08-12",
+            "occurrences": 5,
+            "bandStart": "2026-08-10",
+            "bandEnd": "2026-08-12",
+            "thresholdP90": 0.028705,
+            "up": 0,
+            "b": 3,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-13",
+            "occurrences": 10,
+            "bandStart": "2026-08-11",
+            "bandEnd": "2026-08-13",
+            "thresholdP90": 0.028705,
+            "up": 0,
+            "b": 3,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-14",
+            "occurrences": 4,
+            "bandStart": "2026-08-12",
+            "bandEnd": "2026-08-14",
+            "thresholdP90": 0.028705,
+            "up": 0,
+            "b": 3,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-15",
+            "occurrences": 6,
+            "bandStart": "2026-08-13",
+            "bandEnd": "2026-08-15",
+            "thresholdP90": 0.028705,
+            "up": 0,
+            "b": 3,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-16",
+            "occurrences": 15,
+            "bandStart": "2026-08-14",
+            "bandEnd": "2026-08-16",
+            "thresholdP90": 0.028705,
+            "up": 0,
+            "b": 3,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-17",
+            "occurrences": 9,
+            "bandStart": "2026-08-15",
+            "bandEnd": "2026-08-17",
+            "thresholdP90": 0.028705,
+            "up": 0,
+            "b": 3,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-18",
+            "occurrences": 16,
+            "bandStart": "2026-08-16",
+            "bandEnd": "2026-08-18",
+            "thresholdP90": 0.028705,
+            "up": 0,
+            "b": 3,
+            "fracUp": 0
+          }
+        ]
+      }
+    },
+    "7d": {
+      "excl": {
+        "pooledFracUp": 0,
+        "pass": false,
+        "perAcqDay": [
+          {
+            "acqDay": "2026-08-12",
+            "occurrences": 5,
+            "bandStart": "2026-08-05",
+            "bandEnd": "2026-08-11",
+            "thresholdP90": 0.031872,
+            "up": 0,
+            "b": 7,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-13",
+            "occurrences": 10,
+            "bandStart": "2026-08-06",
+            "bandEnd": "2026-08-12",
+            "thresholdP90": 0.031872,
+            "up": 0,
+            "b": 7,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-14",
+            "occurrences": 4,
+            "bandStart": "2026-08-07",
+            "bandEnd": "2026-08-13",
+            "thresholdP90": 0.031872,
+            "up": 0,
+            "b": 7,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-15",
+            "occurrences": 6,
+            "bandStart": "2026-08-08",
+            "bandEnd": "2026-08-14",
+            "thresholdP90": 0.029962,
+            "up": 0,
+            "b": 7,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-16",
+            "occurrences": 15,
+            "bandStart": "2026-08-09",
+            "bandEnd": "2026-08-15",
+            "thresholdP90": 0.029962,
+            "up": 0,
+            "b": 7,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-17",
+            "occurrences": 9,
+            "bandStart": "2026-08-10",
+            "bandEnd": "2026-08-16",
+            "thresholdP90": 0.028705,
+            "up": 0,
+            "b": 7,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-18",
+            "occurrences": 16,
+            "bandStart": "2026-08-11",
+            "bandEnd": "2026-08-17",
+            "thresholdP90": 0.028705,
+            "up": 0,
+            "b": 7,
+            "fracUp": 0
+          }
+        ]
+      },
+      "incl": {
+        "pooledFracUp": 0,
+        "pass": false,
+        "perAcqDay": [
+          {
+            "acqDay": "2026-08-12",
+            "occurrences": 5,
+            "bandStart": "2026-08-06",
+            "bandEnd": "2026-08-12",
+            "thresholdP90": 0.031872,
+            "up": 0,
+            "b": 7,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-13",
+            "occurrences": 10,
+            "bandStart": "2026-08-07",
+            "bandEnd": "2026-08-13",
+            "thresholdP90": 0.031872,
+            "up": 0,
+            "b": 7,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-14",
+            "occurrences": 4,
+            "bandStart": "2026-08-08",
+            "bandEnd": "2026-08-14",
+            "thresholdP90": 0.029962,
+            "up": 0,
+            "b": 7,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-15",
+            "occurrences": 6,
+            "bandStart": "2026-08-09",
+            "bandEnd": "2026-08-15",
+            "thresholdP90": 0.029962,
+            "up": 0,
+            "b": 7,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-16",
+            "occurrences": 15,
+            "bandStart": "2026-08-10",
+            "bandEnd": "2026-08-16",
+            "thresholdP90": 0.028705,
+            "up": 0,
+            "b": 7,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-17",
+            "occurrences": 9,
+            "bandStart": "2026-08-11",
+            "bandEnd": "2026-08-17",
+            "thresholdP90": 0.028705,
+            "up": 0,
+            "b": 7,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-18",
+            "occurrences": 16,
+            "bandStart": "2026-08-12",
+            "bandEnd": "2026-08-18",
+            "thresholdP90": 0.028705,
+            "up": 0,
+            "b": 7,
+            "fracUp": 0
+          }
+        ]
+      }
+    },
+    "14d": {
+      "excl": {
+        "pooledFracUp": 0.0538,
+        "pass": false,
+        "perAcqDay": [
+          {
+            "acqDay": "2026-08-12",
+            "occurrences": 5,
+            "bandStart": "2026-07-29",
+            "bandEnd": "2026-08-11",
+            "thresholdP90": 0.031589,
+            "up": 1,
+            "b": 14,
+            "fracUp": 0.0714
+          },
+          {
+            "acqDay": "2026-08-13",
+            "occurrences": 10,
+            "bandStart": "2026-07-30",
+            "bandEnd": "2026-08-12",
+            "thresholdP90": 0.031589,
+            "up": 1,
+            "b": 14,
+            "fracUp": 0.0714
+          },
+          {
+            "acqDay": "2026-08-14",
+            "occurrences": 4,
+            "bandStart": "2026-07-31",
+            "bandEnd": "2026-08-13",
+            "thresholdP90": 0.031589,
+            "up": 1,
+            "b": 14,
+            "fracUp": 0.0714
+          },
+          {
+            "acqDay": "2026-08-15",
+            "occurrences": 6,
+            "bandStart": "2026-08-01",
+            "bandEnd": "2026-08-14",
+            "thresholdP90": 0.031589,
+            "up": 1,
+            "b": 14,
+            "fracUp": 0.0714
+          },
+          {
+            "acqDay": "2026-08-16",
+            "occurrences": 15,
+            "bandStart": "2026-08-02",
+            "bandEnd": "2026-08-15",
+            "thresholdP90": 0.031589,
+            "up": 1,
+            "b": 14,
+            "fracUp": 0.0714
+          },
+          {
+            "acqDay": "2026-08-17",
+            "occurrences": 9,
+            "bandStart": "2026-08-03",
+            "bandEnd": "2026-08-16",
+            "thresholdP90": 0.031589,
+            "up": 1,
+            "b": 14,
+            "fracUp": 0.0714
+          },
+          {
+            "acqDay": "2026-08-18",
+            "occurrences": 16,
+            "bandStart": "2026-08-04",
+            "bandEnd": "2026-08-17",
+            "thresholdP90": 0.032717,
+            "up": 0,
+            "b": 14,
+            "fracUp": 0
+          }
+        ]
+      },
+      "incl": {
+        "pooledFracUp": 0.044,
+        "pass": false,
+        "perAcqDay": [
+          {
+            "acqDay": "2026-08-12",
+            "occurrences": 5,
+            "bandStart": "2026-07-30",
+            "bandEnd": "2026-08-12",
+            "thresholdP90": 0.031589,
+            "up": 1,
+            "b": 14,
+            "fracUp": 0.0714
+          },
+          {
+            "acqDay": "2026-08-13",
+            "occurrences": 10,
+            "bandStart": "2026-07-31",
+            "bandEnd": "2026-08-13",
+            "thresholdP90": 0.031589,
+            "up": 1,
+            "b": 14,
+            "fracUp": 0.0714
+          },
+          {
+            "acqDay": "2026-08-14",
+            "occurrences": 4,
+            "bandStart": "2026-08-01",
+            "bandEnd": "2026-08-14",
+            "thresholdP90": 0.031589,
+            "up": 1,
+            "b": 14,
+            "fracUp": 0.0714
+          },
+          {
+            "acqDay": "2026-08-15",
+            "occurrences": 6,
+            "bandStart": "2026-08-02",
+            "bandEnd": "2026-08-15",
+            "thresholdP90": 0.031589,
+            "up": 1,
+            "b": 14,
+            "fracUp": 0.0714
+          },
+          {
+            "acqDay": "2026-08-16",
+            "occurrences": 15,
+            "bandStart": "2026-08-03",
+            "bandEnd": "2026-08-16",
+            "thresholdP90": 0.031589,
+            "up": 1,
+            "b": 14,
+            "fracUp": 0.0714
+          },
+          {
+            "acqDay": "2026-08-17",
+            "occurrences": 9,
+            "bandStart": "2026-08-04",
+            "bandEnd": "2026-08-17",
+            "thresholdP90": 0.032717,
+            "up": 0,
+            "b": 14,
+            "fracUp": 0
+          },
+          {
+            "acqDay": "2026-08-18",
+            "occurrences": 16,
+            "bandStart": "2026-08-05",
+            "bandEnd": "2026-08-18",
+            "thresholdP90": 0.031872,
+            "up": 0,
+            "b": 14,
+            "fracUp": 0
+          }
+        ]
+      }
+    }
+  },
+  "g2": {
+    "gate": "min per-wallet null IQR >= 0.10",
+    "min": 0.0778,
+    "median": 0.2667,
+    "max": 0.3333,
+    "pass": false,
+    "perWallet": [
+      {
+        "address": "0x033fe3aa194bb5df79964edaa846c99cf7c14fba",
+        "k": 1,
+        "ess": 6.12,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x10bf378dd2fafe72cb6b03a21e9b928bdaef7069",
+        "k": 1,
+        "ess": 6.24,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x18b7392814b06474de07aafcc674afc57a23c8b8",
+        "k": 1,
+        "ess": 6.22,
+        "nullIQR": 0.3333,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x1edc34c2d2b5da33e489b60f62c0e325839fa18e",
+        "k": 1,
+        "ess": 6.12,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x259a899ad710a61d15f8e36599c854d4087512de",
+        "k": 1,
+        "ess": 6.08,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x262c7f872b36306479c6f6266ef7a983ba86d511",
+        "k": 1,
+        "ess": 6.08,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x2ed95bcb3bf53863d569c7b90b4ede988a08e528",
+        "k": 1,
+        "ess": 6.24,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x38583e92eaaae241bde8b5a10f23cea253d21b1b",
+        "k": 1,
+        "ess": 6.14,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x3f6732ea4eedab1ee1b9a3f9fe4013736656f980",
+        "k": 1,
+        "ess": 6.22,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x43ab1bb4fae4c6cfcb00089beb596ae97f85b7be",
+        "k": 1,
+        "ess": 6.24,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x43fc329ef55cb74eafaf7d87cc836abf905968ec",
+        "k": 1,
+        "ess": 6.14,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x45866163bd36ed2333f4178072bcb81ba15a43ea",
+        "k": 1,
+        "ess": 6.24,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x4b3368ba6467d7f30e2b6bcf4ceb4f9a3a8f9ed8",
+        "k": 1,
+        "ess": 6.22,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x522ae68380ca52b02d3b19042e51e63b805f6cb9",
+        "k": 5,
+        "ess": 6.45,
+        "nullIQR": 0.0933,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x599655afd39152b346904090c0ccb4af9fff73a4",
+        "k": 1,
+        "ess": 6.24,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x6364b188d52e2c6483d435a4fb716123c7299bc4",
+        "k": 1,
+        "ess": 6.22,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x6a9b4bd87aa49574e107556fdeb9c7eb1c5f03f5",
+        "k": 2,
+        "ess": 6.2,
+        "nullIQR": 0.1667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x77d159968a9d456fa75ad587365f1310b09199c1",
+        "k": 1,
+        "ess": 6.12,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x7bf6f786e1059fe68efafffdc09ef79c1673d989",
+        "k": 1,
+        "ess": 6.08,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x7da82a201d0980fb4589568541f8510179f64dc1",
+        "k": 1,
+        "ess": 6.12,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x821873f988b9e564d86e3cd82a0c9de994d38332",
+        "k": 1,
+        "ess": 6.06,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x8a23110d3f9ad0ae642abacd55c2da70e7e1f098",
+        "k": 1,
+        "ess": 6.14,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x983edb2c9a31c2549fb8d8b33b5724a85ae99423",
+        "k": 1,
+        "ess": 6.24,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x9c93101defe7976f390874a0b48c2472bb3da181",
+        "k": 1,
+        "ess": 6.04,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x9eded99c11ddd6f301d1db0ec139451d5760b214",
+        "k": 1,
+        "ess": 6.06,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x9f9820e58342286584481e20e631088cc5643208",
+        "k": 6,
+        "ess": 6.07,
+        "nullIQR": 0.0778,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xa04fcb341e09a13c5962efb3bb4d155634d888b0",
+        "k": 1,
+        "ess": 6.04,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xb5087e4853e111af8d971653d0de602fc0cf7f17",
+        "k": 1,
+        "ess": 6.12,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xba26a1d0ee605db2629a35bffc0817c46079014f",
+        "k": 1,
+        "ess": 6.08,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xc0b3d6aa9e4e4a97c8de4f20d7e62697c9c9ff89",
+        "k": 1,
+        "ess": 6.12,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xc5e9f816994d3eb91b556bc8d0a0cbe44a674909",
+        "k": 2,
+        "ess": 6.27,
+        "nullIQR": 0.1667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xc714c925f1081e8090c2a2ff14bbe0b713632208",
+        "k": 1,
+        "ess": 6.12,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xc9f16b6cc9cadb7b81e020b94e5ab72acf6b9748",
+        "k": 4,
+        "ess": 6.42,
+        "nullIQR": 0.1,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xd947f1ffb00035531368315f7e512495ee4f0eda",
+        "k": 1,
+        "ess": 6.14,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xdbc8bec942bb29f4e04cc21ef3492cd0478b69ab",
+        "k": 1,
+        "ess": 6.08,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xdbe8cdad22261487548f2402cdae1e239ffd9783",
+        "k": 1,
+        "ess": 6.08,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xdf03cf70ab0bd21acd600257bb9e8313a56f0f8a",
+        "k": 1,
+        "ess": 6.14,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xdf31c692f12a86b0a7cd0ae161197fb4901ef260",
+        "k": 1,
+        "ess": 6.14,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xe176e3dd77f886c8862e7dc656e8432103ddda42",
+        "k": 1,
+        "ess": 6.06,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xe4c19e73770fe133fd0ad41b1885dfeae3f99e72",
+        "k": 1,
+        "ess": 6.14,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xe5b6fa7fd5c481c7d5eab6475ca1822c80833120",
+        "k": 1,
+        "ess": 6.14,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xe68e72bd29eab54c140a0e2eeb0f689b64c15160",
+        "k": 1,
+        "ess": 6.04,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xe859992fdb55fea5919613586cb25a8b08041a1f",
+        "k": 1,
+        "ess": 6.24,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xedd5c22bf56f0fa245d004cc83ce2a7081966664",
+        "k": 1,
+        "ess": 6.06,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xee0ca621c24bac5ba83491b8dd404c57909d5249",
+        "k": 3,
+        "ess": 6.28,
+        "nullIQR": 0.1111,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xf0721a6d76f7f369afbb7dac0a919823a93b6b43",
+        "k": 1,
+        "ess": 6.24,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xf1466e71aa60f47f75be00017cc03746c1d5d4b1",
+        "k": 1,
+        "ess": 6.22,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xf8d2d9d33ca270e5fb68029e797c37c6d07f93f3",
+        "k": 1,
+        "ess": 6.12,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xfaca02a91c5fe2f44a8e2ca28a1e1fec575a9b71",
+        "k": 1,
+        "ess": 6.22,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      }
+    ]
+  },
+  "horizonCoverage": {
+    "7": {
+      "needBy": "2026-08-25",
+      "covered": true
+    },
+    "30": {
+      "needBy": "2026-09-17",
+      "covered": true
+    },
+    "lastAcqDay": "2026-08-18"
+  },
+  "verdict": "P4 FAIL",
+  "passingPairs": [],
+  "notes": [
+    "F5 re-specified threshold (P90 trailing-90d) first executed here; the fixed +20% preview (E3) is superseded.",
+    "G1 is reported under both band constructions; the primary passing list uses excl (E3-consistent).",
+    "Provisional seeds used (pre-lock); §8.4 LOCK_SHA seeds apply to the definitive post-lock run, which re-confirms G1/G2.",
+    "This artifact is frozen before unblinding (prereg §7); no outcome statistic appears in it."
+  ]
+}
