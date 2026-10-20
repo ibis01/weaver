@@ -1,0 +1,1511 @@
+{
+  "generatedAtUTC": "2026-10-21T00:00:00Z",
+  "executionDate": "2026-10-21",
+  "determinismNote": "generatedAtUTC is pinned to the execution date for byte-determinism (wall-clock intentionally not recorded); all float operations in fixed order; the companion verifier (aw-nic-verify-v11.js) recomputes G2-P by exact integer arithmetic and must agree to 10 decimal places.",
+  "prereg": "docs/experiments/gate-0c-skill-test-preregistration-v1.md (amended v1.1, 2026-10-21; sha256 36201d78c588b9523c5ece3e38cd22ddb5da18ad969379da891c7e2247db7fc7)",
+  "amendment": {
+    "record": {
+      "path": "docs/experiments/gate-0c-amendment-v1.1-draft-2026-10-21.md",
+      "sha256": "7964e7ae1d358843b20e90c14614072500942670d9c12df03dbe47b284418e30"
+    },
+    "patch": {
+      "path": "docs/experiments/gate-0c-amendment-v1.1-draft-2026-10-21.patch",
+      "sha256": "200531e9001958ae4bebbdbfaa3b4b6c1864e17a52e2c63c24467a5d09572592"
+    },
+    "baselinePreregSha256": "85468ac76b37c20b0db53581abc0ae395e93dd1730f19d43a05ed9051a04b6f1",
+    "reviewGate": "RQ1=a (generalized-inverse quantiles on the exact discrete distribution); RQ2=yes (single wallet below floor -> UNTESTABLE, hard, no wallet-dropping); RQ3=yes (Branch Q as documented fallback only; Branch P remains primary); RQ4=approved (binding Q1/Q2 text inspected on hash-verified copies; approval realized by patch application and owner go-ahead); RQ5=yes (legacy k-draw IQRs descriptive, non-gating)",
+    "executionProtocol": "amendment record §5 (steps 1-6); this run executes steps 2-4"
+  },
+  "frozenPairReferenced": {
+    "json": {
+      "sha256": "e064f625bb8efefa3f3e90f9c05c587643e8360ba6f824de3e26ad91882402b7"
+    },
+    "md": {
+      "sha256": "07cb0ffcd25ce4465b36d491500d817dc409f52a6d2937b312ad5889ebbfb2f0"
+    },
+    "note": "frozen 2026-10-20 P4 FAIL pair — referenced, never altered; D1 and legacy columns reproduce its numbers exactly (incident rule enforced at run time)"
+  },
+  "scope": "P4 NIC v1.1 — D1 descriptive (price-only) + G2-P anti-degeneracy guard (assignment-only, seed-free) + legacy k-draw IQRs (descriptive); offline, no RPC, pre-unblinding; contains no wallet-level outcome statistic",
+  "inputs": {
+    "v2json": {
+      "gitBlob": "73024f5f5e4b6dc67125fd674e30c9c1b8499c40"
+    },
+    "v5jsonl": {
+      "sha256": "3ab1a0a3a571423290145a66a8e97c62c0409dda8c45f047ac5a8706089b20bc"
+    },
+    "entryBlocksV1": {
+      "sha256": "6b4f25350793216d4f7240be553f09a7d6f6f1585ffedb34c2ade0f10cf4face"
+    },
+    "priceTyped": {
+      "sha256": "ae47b4e74167259b75a6d6e589e30fc608d19e6bc30ae72c168c35dea5c0100c",
+      "span": [
+        "2025-10-20",
+        "2026-10-19"
+      ],
+      "rows": 365,
+      "contiguous": true
+    },
+    "dDet": "2026-08-08",
+    "windowDays": 16,
+    "window": [
+      "2026-08-08",
+      "2026-08-23"
+    ]
+  },
+  "conventions": {
+    "return": "close-to-close, r(day) = close(day)/close(prev day) - 1 (UTC day boundaries)",
+    "percentile": "type-7 linear interpolation (D1 thresholds and legacy k-draw IQRs, unchanged from frozen run); G2-P uses exact generalized-inverse quantiles on the discrete grid — no interpolation, no Monte Carlo",
+    "d1": "identical machinery to frozen-run G1: up-day := close-to-close return >= P90 of the trailing 90 daily returns as of the band start; band primary excl [d-b..d-1], sensitivity incl [d-b+1..d]; pooled frac_up over acquisition days; REPORTED NOT GATING; kill-switch removed",
+    "g2p": "per-wallet exact marginal null of a single day-position on the A_w grid: P(D_w = i/(|A_w|-1)) = q_w(d_i)/Σ q_w(d) with q_w the §8.2 weights (leave-self-out crowd counts + 0.25; Option-A uniform fallback if ESS_w < 5, logged); IQR_w = Q_D_w(0.75) - Q_D_w(0.25) with generalized-inverse Q; gate: min over eligible wallets >= 0.10",
+    "legacy": "per-wallet k-draw null IQR of the §9.1 entry-day percentile under §8.2 weights; k_w i.i.d. draws with replacement; B_W=10000 draws; provisional seeds identical to the frozen run (sha256(\"gate0c:nic:\"+address+\":\"+priceSha+\":\"+v2blob), xorshift128+ canonical, low word of s1+s0); DESCRIPTIVE, NON-GATING (F7 scope discipline); no §8 null-model machinery changes",
+    "bandSelection": "none — the §9.1 primary is band-free; D1 feeds no decision; no (band, horizon) pair is selected or pass-listed"
+  },
+  "population": {
+    "eligibleWallets": 49,
+    "minimumNRequired": 15,
+    "minimumNok": true,
+    "perWalletKw": [
+      {
+        "address": "0x033fe3aa194bb5df79964edaa846c99cf7c14fba",
+        "k": 1
+      },
+      {
+        "address": "0x10bf378dd2fafe72cb6b03a21e9b928bdaef7069",
+        "k": 1
+      },
+      {
+        "address": "0x18b7392814b06474de07aafcc674afc57a23c8b8",
+        "k": 1
+      },
+      {
+        "address": "0x1edc34c2d2b5da33e489b60f62c0e325839fa18e",
+        "k": 1
+      },
+      {
+        "address": "0x259a899ad710a61d15f8e36599c854d4087512de",
+        "k": 1
+      },
+      {
+        "address": "0x262c7f872b36306479c6f6266ef7a983ba86d511",
+        "k": 1
+      },
+      {
+        "address": "0x2ed95bcb3bf53863d569c7b90b4ede988a08e528",
+        "k": 1
+      },
+      {
+        "address": "0x38583e92eaaae241bde8b5a10f23cea253d21b1b",
+        "k": 1
+      },
+      {
+        "address": "0x3f6732ea4eedab1ee1b9a3f9fe4013736656f980",
+        "k": 1
+      },
+      {
+        "address": "0x43ab1bb4fae4c6cfcb00089beb596ae97f85b7be",
+        "k": 1
+      },
+      {
+        "address": "0x43fc329ef55cb74eafaf7d87cc836abf905968ec",
+        "k": 1
+      },
+      {
+        "address": "0x45866163bd36ed2333f4178072bcb81ba15a43ea",
+        "k": 1
+      },
+      {
+        "address": "0x4b3368ba6467d7f30e2b6bcf4ceb4f9a3a8f9ed8",
+        "k": 1
+      },
+      {
+        "address": "0x522ae68380ca52b02d3b19042e51e63b805f6cb9",
+        "k": 5
+      },
+      {
+        "address": "0x599655afd39152b346904090c0ccb4af9fff73a4",
+        "k": 1
+      },
+      {
+        "address": "0x6364b188d52e2c6483d435a4fb716123c7299bc4",
+        "k": 1
+      },
+      {
+        "address": "0x6a9b4bd87aa49574e107556fdeb9c7eb1c5f03f5",
+        "k": 2
+      },
+      {
+        "address": "0x77d159968a9d456fa75ad587365f1310b09199c1",
+        "k": 1
+      },
+      {
+        "address": "0x7bf6f786e1059fe68efafffdc09ef79c1673d989",
+        "k": 1
+      },
+      {
+        "address": "0x7da82a201d0980fb4589568541f8510179f64dc1",
+        "k": 1
+      },
+      {
+        "address": "0x821873f988b9e564d86e3cd82a0c9de994d38332",
+        "k": 1
+      },
+      {
+        "address": "0x8a23110d3f9ad0ae642abacd55c2da70e7e1f098",
+        "k": 1
+      },
+      {
+        "address": "0x983edb2c9a31c2549fb8d8b33b5724a85ae99423",
+        "k": 1
+      },
+      {
+        "address": "0x9c93101defe7976f390874a0b48c2472bb3da181",
+        "k": 1
+      },
+      {
+        "address": "0x9eded99c11ddd6f301d1db0ec139451d5760b214",
+        "k": 1
+      },
+      {
+        "address": "0x9f9820e58342286584481e20e631088cc5643208",
+        "k": 6
+      },
+      {
+        "address": "0xa04fcb341e09a13c5962efb3bb4d155634d888b0",
+        "k": 1
+      },
+      {
+        "address": "0xb5087e4853e111af8d971653d0de602fc0cf7f17",
+        "k": 1
+      },
+      {
+        "address": "0xba26a1d0ee605db2629a35bffc0817c46079014f",
+        "k": 1
+      },
+      {
+        "address": "0xc0b3d6aa9e4e4a97c8de4f20d7e62697c9c9ff89",
+        "k": 1
+      },
+      {
+        "address": "0xc5e9f816994d3eb91b556bc8d0a0cbe44a674909",
+        "k": 2
+      },
+      {
+        "address": "0xc714c925f1081e8090c2a2ff14bbe0b713632208",
+        "k": 1
+      },
+      {
+        "address": "0xc9f16b6cc9cadb7b81e020b94e5ab72acf6b9748",
+        "k": 4
+      },
+      {
+        "address": "0xd947f1ffb00035531368315f7e512495ee4f0eda",
+        "k": 1
+      },
+      {
+        "address": "0xdbc8bec942bb29f4e04cc21ef3492cd0478b69ab",
+        "k": 1
+      },
+      {
+        "address": "0xdbe8cdad22261487548f2402cdae1e239ffd9783",
+        "k": 1
+      },
+      {
+        "address": "0xdf03cf70ab0bd21acd600257bb9e8313a56f0f8a",
+        "k": 1
+      },
+      {
+        "address": "0xdf31c692f12a86b0a7cd0ae161197fb4901ef260",
+        "k": 1
+      },
+      {
+        "address": "0xe176e3dd77f886c8862e7dc656e8432103ddda42",
+        "k": 1
+      },
+      {
+        "address": "0xe4c19e73770fe133fd0ad41b1885dfeae3f99e72",
+        "k": 1
+      },
+      {
+        "address": "0xe5b6fa7fd5c481c7d5eab6475ca1822c80833120",
+        "k": 1
+      },
+      {
+        "address": "0xe68e72bd29eab54c140a0e2eeb0f689b64c15160",
+        "k": 1
+      },
+      {
+        "address": "0xe859992fdb55fea5919613586cb25a8b08041a1f",
+        "k": 1
+      },
+      {
+        "address": "0xedd5c22bf56f0fa245d004cc83ce2a7081966664",
+        "k": 1
+      },
+      {
+        "address": "0xee0ca621c24bac5ba83491b8dd404c57909d5249",
+        "k": 3
+      },
+      {
+        "address": "0xf0721a6d76f7f369afbb7dac0a919823a93b6b43",
+        "k": 1
+      },
+      {
+        "address": "0xf1466e71aa60f47f75be00017cc03746c1d5d4b1",
+        "k": 1
+      },
+      {
+        "address": "0xf8d2d9d33ca270e5fb68029e797c37c6d07f93f3",
+        "k": 1
+      },
+      {
+        "address": "0xfaca02a91c5fe2f44a8e2ca28a1e1fec575a9b71",
+        "k": 1
+      }
+    ],
+    "perWalletMismatchVsV2": 0,
+    "v2WalletsAbsentFromRecount": 0,
+    "dayMass": {
+      "2026-08-12": 5,
+      "2026-08-13": 10,
+      "2026-08-14": 4,
+      "2026-08-15": 6,
+      "2026-08-16": 15,
+      "2026-08-17": 9,
+      "2026-08-18": 16
+    },
+    "txTotal": 65,
+    "unpriceable": 0,
+    "essMin": 6.04,
+    "essMax": 6.45,
+    "optionAFallbackFired": 0
+  },
+  "p2cChecks": {
+    "windowEdgesExtrapolated": [
+      "2026-08-08",
+      "2026-08-23"
+    ],
+    "anchorsOnDetWindow": "27/27",
+    "txDaysAllWithinWindow": true,
+    "midnightBoundaryTx": [
+      {
+        "block": 25771116,
+        "day": "2026-08-17",
+        "isoTime": "2026-08-17T00:08:54.363Z",
+        "minFromMidnight": 9
+      },
+      {
+        "block": 25742495,
+        "day": "2026-08-13",
+        "isoTime": "2026-08-13T00:25:10.516Z",
+        "minFromMidnight": 25
+      },
+      {
+        "block": 25742511,
+        "day": "2026-08-13",
+        "isoTime": "2026-08-13T00:28:23.433Z",
+        "minFromMidnight": 28
+      },
+      {
+        "block": 25778314,
+        "day": "2026-08-18",
+        "isoTime": "2026-08-18T00:12:58.807Z",
+        "minFromMidnight": 13
+      }
+    ]
+  },
+  "g1_descriptive": {
+    "disclosure": "Binding disclosure (F6): band-day up-variance is absent in this era — P4 NIC 2026-10-20: pooled frac_up 0.00–0.05 across all bands under both constructions (trailing-era P90 ≈ 2.9–3.3%/day vs band-day returns −5.6%..+1.5%); the era's discriminating signal exists at horizon scale (14d forward +33.9..+45.5% through 08-18).",
+    "killSwitchRemoved": true,
+    "feedsDecision": false,
+    "bands": {
+      "3d": {
+        "excl": {
+          "pooledFracUp": 0,
+          "perAcqDay": [
+            {
+              "acqDay": "2026-08-12",
+              "occurrences": 5,
+              "bandStart": "2026-08-09",
+              "bandEnd": "2026-08-11",
+              "thresholdP90": 0.029962,
+              "up": 0,
+              "b": 3,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-13",
+              "occurrences": 10,
+              "bandStart": "2026-08-10",
+              "bandEnd": "2026-08-12",
+              "thresholdP90": 0.028705,
+              "up": 0,
+              "b": 3,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-14",
+              "occurrences": 4,
+              "bandStart": "2026-08-11",
+              "bandEnd": "2026-08-13",
+              "thresholdP90": 0.028705,
+              "up": 0,
+              "b": 3,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-15",
+              "occurrences": 6,
+              "bandStart": "2026-08-12",
+              "bandEnd": "2026-08-14",
+              "thresholdP90": 0.028705,
+              "up": 0,
+              "b": 3,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-16",
+              "occurrences": 15,
+              "bandStart": "2026-08-13",
+              "bandEnd": "2026-08-15",
+              "thresholdP90": 0.028705,
+              "up": 0,
+              "b": 3,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-17",
+              "occurrences": 9,
+              "bandStart": "2026-08-14",
+              "bandEnd": "2026-08-16",
+              "thresholdP90": 0.028705,
+              "up": 0,
+              "b": 3,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-18",
+              "occurrences": 16,
+              "bandStart": "2026-08-15",
+              "bandEnd": "2026-08-17",
+              "thresholdP90": 0.028705,
+              "up": 0,
+              "b": 3,
+              "fracUp": 0
+            }
+          ]
+        },
+        "incl": {
+          "pooledFracUp": 0,
+          "perAcqDay": [
+            {
+              "acqDay": "2026-08-12",
+              "occurrences": 5,
+              "bandStart": "2026-08-10",
+              "bandEnd": "2026-08-12",
+              "thresholdP90": 0.028705,
+              "up": 0,
+              "b": 3,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-13",
+              "occurrences": 10,
+              "bandStart": "2026-08-11",
+              "bandEnd": "2026-08-13",
+              "thresholdP90": 0.028705,
+              "up": 0,
+              "b": 3,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-14",
+              "occurrences": 4,
+              "bandStart": "2026-08-12",
+              "bandEnd": "2026-08-14",
+              "thresholdP90": 0.028705,
+              "up": 0,
+              "b": 3,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-15",
+              "occurrences": 6,
+              "bandStart": "2026-08-13",
+              "bandEnd": "2026-08-15",
+              "thresholdP90": 0.028705,
+              "up": 0,
+              "b": 3,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-16",
+              "occurrences": 15,
+              "bandStart": "2026-08-14",
+              "bandEnd": "2026-08-16",
+              "thresholdP90": 0.028705,
+              "up": 0,
+              "b": 3,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-17",
+              "occurrences": 9,
+              "bandStart": "2026-08-15",
+              "bandEnd": "2026-08-17",
+              "thresholdP90": 0.028705,
+              "up": 0,
+              "b": 3,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-18",
+              "occurrences": 16,
+              "bandStart": "2026-08-16",
+              "bandEnd": "2026-08-18",
+              "thresholdP90": 0.028705,
+              "up": 0,
+              "b": 3,
+              "fracUp": 0
+            }
+          ]
+        }
+      },
+      "7d": {
+        "excl": {
+          "pooledFracUp": 0,
+          "perAcqDay": [
+            {
+              "acqDay": "2026-08-12",
+              "occurrences": 5,
+              "bandStart": "2026-08-05",
+              "bandEnd": "2026-08-11",
+              "thresholdP90": 0.031872,
+              "up": 0,
+              "b": 7,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-13",
+              "occurrences": 10,
+              "bandStart": "2026-08-06",
+              "bandEnd": "2026-08-12",
+              "thresholdP90": 0.031872,
+              "up": 0,
+              "b": 7,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-14",
+              "occurrences": 4,
+              "bandStart": "2026-08-07",
+              "bandEnd": "2026-08-13",
+              "thresholdP90": 0.031872,
+              "up": 0,
+              "b": 7,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-15",
+              "occurrences": 6,
+              "bandStart": "2026-08-08",
+              "bandEnd": "2026-08-14",
+              "thresholdP90": 0.029962,
+              "up": 0,
+              "b": 7,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-16",
+              "occurrences": 15,
+              "bandStart": "2026-08-09",
+              "bandEnd": "2026-08-15",
+              "thresholdP90": 0.029962,
+              "up": 0,
+              "b": 7,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-17",
+              "occurrences": 9,
+              "bandStart": "2026-08-10",
+              "bandEnd": "2026-08-16",
+              "thresholdP90": 0.028705,
+              "up": 0,
+              "b": 7,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-18",
+              "occurrences": 16,
+              "bandStart": "2026-08-11",
+              "bandEnd": "2026-08-17",
+              "thresholdP90": 0.028705,
+              "up": 0,
+              "b": 7,
+              "fracUp": 0
+            }
+          ]
+        },
+        "incl": {
+          "pooledFracUp": 0,
+          "perAcqDay": [
+            {
+              "acqDay": "2026-08-12",
+              "occurrences": 5,
+              "bandStart": "2026-08-06",
+              "bandEnd": "2026-08-12",
+              "thresholdP90": 0.031872,
+              "up": 0,
+              "b": 7,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-13",
+              "occurrences": 10,
+              "bandStart": "2026-08-07",
+              "bandEnd": "2026-08-13",
+              "thresholdP90": 0.031872,
+              "up": 0,
+              "b": 7,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-14",
+              "occurrences": 4,
+              "bandStart": "2026-08-08",
+              "bandEnd": "2026-08-14",
+              "thresholdP90": 0.029962,
+              "up": 0,
+              "b": 7,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-15",
+              "occurrences": 6,
+              "bandStart": "2026-08-09",
+              "bandEnd": "2026-08-15",
+              "thresholdP90": 0.029962,
+              "up": 0,
+              "b": 7,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-16",
+              "occurrences": 15,
+              "bandStart": "2026-08-10",
+              "bandEnd": "2026-08-16",
+              "thresholdP90": 0.028705,
+              "up": 0,
+              "b": 7,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-17",
+              "occurrences": 9,
+              "bandStart": "2026-08-11",
+              "bandEnd": "2026-08-17",
+              "thresholdP90": 0.028705,
+              "up": 0,
+              "b": 7,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-18",
+              "occurrences": 16,
+              "bandStart": "2026-08-12",
+              "bandEnd": "2026-08-18",
+              "thresholdP90": 0.028705,
+              "up": 0,
+              "b": 7,
+              "fracUp": 0
+            }
+          ]
+        }
+      },
+      "14d": {
+        "excl": {
+          "pooledFracUp": 0.0538,
+          "perAcqDay": [
+            {
+              "acqDay": "2026-08-12",
+              "occurrences": 5,
+              "bandStart": "2026-07-29",
+              "bandEnd": "2026-08-11",
+              "thresholdP90": 0.031589,
+              "up": 1,
+              "b": 14,
+              "fracUp": 0.0714
+            },
+            {
+              "acqDay": "2026-08-13",
+              "occurrences": 10,
+              "bandStart": "2026-07-30",
+              "bandEnd": "2026-08-12",
+              "thresholdP90": 0.031589,
+              "up": 1,
+              "b": 14,
+              "fracUp": 0.0714
+            },
+            {
+              "acqDay": "2026-08-14",
+              "occurrences": 4,
+              "bandStart": "2026-07-31",
+              "bandEnd": "2026-08-13",
+              "thresholdP90": 0.031589,
+              "up": 1,
+              "b": 14,
+              "fracUp": 0.0714
+            },
+            {
+              "acqDay": "2026-08-15",
+              "occurrences": 6,
+              "bandStart": "2026-08-01",
+              "bandEnd": "2026-08-14",
+              "thresholdP90": 0.031589,
+              "up": 1,
+              "b": 14,
+              "fracUp": 0.0714
+            },
+            {
+              "acqDay": "2026-08-16",
+              "occurrences": 15,
+              "bandStart": "2026-08-02",
+              "bandEnd": "2026-08-15",
+              "thresholdP90": 0.031589,
+              "up": 1,
+              "b": 14,
+              "fracUp": 0.0714
+            },
+            {
+              "acqDay": "2026-08-17",
+              "occurrences": 9,
+              "bandStart": "2026-08-03",
+              "bandEnd": "2026-08-16",
+              "thresholdP90": 0.031589,
+              "up": 1,
+              "b": 14,
+              "fracUp": 0.0714
+            },
+            {
+              "acqDay": "2026-08-18",
+              "occurrences": 16,
+              "bandStart": "2026-08-04",
+              "bandEnd": "2026-08-17",
+              "thresholdP90": 0.032717,
+              "up": 0,
+              "b": 14,
+              "fracUp": 0
+            }
+          ]
+        },
+        "incl": {
+          "pooledFracUp": 0.044,
+          "perAcqDay": [
+            {
+              "acqDay": "2026-08-12",
+              "occurrences": 5,
+              "bandStart": "2026-07-30",
+              "bandEnd": "2026-08-12",
+              "thresholdP90": 0.031589,
+              "up": 1,
+              "b": 14,
+              "fracUp": 0.0714
+            },
+            {
+              "acqDay": "2026-08-13",
+              "occurrences": 10,
+              "bandStart": "2026-07-31",
+              "bandEnd": "2026-08-13",
+              "thresholdP90": 0.031589,
+              "up": 1,
+              "b": 14,
+              "fracUp": 0.0714
+            },
+            {
+              "acqDay": "2026-08-14",
+              "occurrences": 4,
+              "bandStart": "2026-08-01",
+              "bandEnd": "2026-08-14",
+              "thresholdP90": 0.031589,
+              "up": 1,
+              "b": 14,
+              "fracUp": 0.0714
+            },
+            {
+              "acqDay": "2026-08-15",
+              "occurrences": 6,
+              "bandStart": "2026-08-02",
+              "bandEnd": "2026-08-15",
+              "thresholdP90": 0.031589,
+              "up": 1,
+              "b": 14,
+              "fracUp": 0.0714
+            },
+            {
+              "acqDay": "2026-08-16",
+              "occurrences": 15,
+              "bandStart": "2026-08-03",
+              "bandEnd": "2026-08-16",
+              "thresholdP90": 0.031589,
+              "up": 1,
+              "b": 14,
+              "fracUp": 0.0714
+            },
+            {
+              "acqDay": "2026-08-17",
+              "occurrences": 9,
+              "bandStart": "2026-08-04",
+              "bandEnd": "2026-08-17",
+              "thresholdP90": 0.032717,
+              "up": 0,
+              "b": 14,
+              "fracUp": 0
+            },
+            {
+              "acqDay": "2026-08-18",
+              "occurrences": 16,
+              "bandStart": "2026-08-05",
+              "bandEnd": "2026-08-18",
+              "thresholdP90": 0.031872,
+              "up": 0,
+              "b": 14,
+              "fracUp": 0
+            }
+          ]
+        }
+      }
+    }
+  },
+  "g2p": {
+    "definition": "exact marginal null of a single day-position under §8.2 weights; generalized-inverse quantiles; seed-free and deterministic (F7 Branch P)",
+    "gate": "min over eligible wallets of exact marginal IQR_w >= 0.10 (Q1 floor)",
+    "perWallet": [
+      {
+        "address": "0x033fe3aa194bb5df79964edaa846c99cf7c14fba",
+        "k": 1,
+        "ess": 6.12,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x10bf378dd2fafe72cb6b03a21e9b928bdaef7069",
+        "k": 1,
+        "ess": 6.24,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2
+      },
+      {
+        "address": "0x18b7392814b06474de07aafcc674afc57a23c8b8",
+        "k": 1,
+        "ess": 6.22,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x1edc34c2d2b5da33e489b60f62c0e325839fa18e",
+        "k": 1,
+        "ess": 6.12,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x259a899ad710a61d15f8e36599c854d4087512de",
+        "k": 1,
+        "ess": 6.08,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x262c7f872b36306479c6f6266ef7a983ba86d511",
+        "k": 1,
+        "ess": 6.08,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x2ed95bcb3bf53863d569c7b90b4ede988a08e528",
+        "k": 1,
+        "ess": 6.24,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2
+      },
+      {
+        "address": "0x38583e92eaaae241bde8b5a10f23cea253d21b1b",
+        "k": 1,
+        "ess": 6.14,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x3f6732ea4eedab1ee1b9a3f9fe4013736656f980",
+        "k": 1,
+        "ess": 6.22,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x43ab1bb4fae4c6cfcb00089beb596ae97f85b7be",
+        "k": 1,
+        "ess": 6.24,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2
+      },
+      {
+        "address": "0x43fc329ef55cb74eafaf7d87cc836abf905968ec",
+        "k": 1,
+        "ess": 6.14,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x45866163bd36ed2333f4178072bcb81ba15a43ea",
+        "k": 1,
+        "ess": 6.24,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2
+      },
+      {
+        "address": "0x4b3368ba6467d7f30e2b6bcf4ceb4f9a3a8f9ed8",
+        "k": 1,
+        "ess": 6.22,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x522ae68380ca52b02d3b19042e51e63b805f6cb9",
+        "k": 5,
+        "ess": 6.45,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x599655afd39152b346904090c0ccb4af9fff73a4",
+        "k": 1,
+        "ess": 6.24,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2
+      },
+      {
+        "address": "0x6364b188d52e2c6483d435a4fb716123c7299bc4",
+        "k": 1,
+        "ess": 6.22,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x6a9b4bd87aa49574e107556fdeb9c7eb1c5f03f5",
+        "k": 2,
+        "ess": 6.2,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x77d159968a9d456fa75ad587365f1310b09199c1",
+        "k": 1,
+        "ess": 6.12,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x7bf6f786e1059fe68efafffdc09ef79c1673d989",
+        "k": 1,
+        "ess": 6.08,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x7da82a201d0980fb4589568541f8510179f64dc1",
+        "k": 1,
+        "ess": 6.12,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x821873f988b9e564d86e3cd82a0c9de994d38332",
+        "k": 1,
+        "ess": 6.06,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x8a23110d3f9ad0ae642abacd55c2da70e7e1f098",
+        "k": 1,
+        "ess": 6.14,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x983edb2c9a31c2549fb8d8b33b5724a85ae99423",
+        "k": 1,
+        "ess": 6.24,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2
+      },
+      {
+        "address": "0x9c93101defe7976f390874a0b48c2472bb3da181",
+        "k": 1,
+        "ess": 6.04,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x9eded99c11ddd6f301d1db0ec139451d5760b214",
+        "k": 1,
+        "ess": 6.06,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0x9f9820e58342286584481e20e631088cc5643208",
+        "k": 6,
+        "ess": 6.07,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xa04fcb341e09a13c5962efb3bb4d155634d888b0",
+        "k": 1,
+        "ess": 6.04,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xb5087e4853e111af8d971653d0de602fc0cf7f17",
+        "k": 1,
+        "ess": 6.12,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xba26a1d0ee605db2629a35bffc0817c46079014f",
+        "k": 1,
+        "ess": 6.08,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xc0b3d6aa9e4e4a97c8de4f20d7e62697c9c9ff89",
+        "k": 1,
+        "ess": 6.12,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xc5e9f816994d3eb91b556bc8d0a0cbe44a674909",
+        "k": 2,
+        "ess": 6.27,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xc714c925f1081e8090c2a2ff14bbe0b713632208",
+        "k": 1,
+        "ess": 6.12,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xc9f16b6cc9cadb7b81e020b94e5ab72acf6b9748",
+        "k": 4,
+        "ess": 6.42,
+        "fallbackFired": false,
+        "iqrMarginal": 0.3333333333
+      },
+      {
+        "address": "0xd947f1ffb00035531368315f7e512495ee4f0eda",
+        "k": 1,
+        "ess": 6.14,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xdbc8bec942bb29f4e04cc21ef3492cd0478b69ab",
+        "k": 1,
+        "ess": 6.08,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xdbe8cdad22261487548f2402cdae1e239ffd9783",
+        "k": 1,
+        "ess": 6.08,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xdf03cf70ab0bd21acd600257bb9e8313a56f0f8a",
+        "k": 1,
+        "ess": 6.14,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xdf31c692f12a86b0a7cd0ae161197fb4901ef260",
+        "k": 1,
+        "ess": 6.14,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xe176e3dd77f886c8862e7dc656e8432103ddda42",
+        "k": 1,
+        "ess": 6.06,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xe4c19e73770fe133fd0ad41b1885dfeae3f99e72",
+        "k": 1,
+        "ess": 6.14,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xe5b6fa7fd5c481c7d5eab6475ca1822c80833120",
+        "k": 1,
+        "ess": 6.14,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xe68e72bd29eab54c140a0e2eeb0f689b64c15160",
+        "k": 1,
+        "ess": 6.04,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xe859992fdb55fea5919613586cb25a8b08041a1f",
+        "k": 1,
+        "ess": 6.24,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2
+      },
+      {
+        "address": "0xedd5c22bf56f0fa245d004cc83ce2a7081966664",
+        "k": 1,
+        "ess": 6.06,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xee0ca621c24bac5ba83491b8dd404c57909d5249",
+        "k": 3,
+        "ess": 6.28,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xf0721a6d76f7f369afbb7dac0a919823a93b6b43",
+        "k": 1,
+        "ess": 6.24,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2
+      },
+      {
+        "address": "0xf1466e71aa60f47f75be00017cc03746c1d5d4b1",
+        "k": 1,
+        "ess": 6.22,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xf8d2d9d33ca270e5fb68029e797c37c6d07f93f3",
+        "k": 1,
+        "ess": 6.12,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      },
+      {
+        "address": "0xfaca02a91c5fe2f44a8e2ca28a1e1fec575a9b71",
+        "k": 1,
+        "ess": 6.22,
+        "fallbackFired": false,
+        "iqrMarginal": 0.2666666667
+      }
+    ],
+    "min": 0.2,
+    "median": 0.2666666667,
+    "max": 0.3333333333,
+    "pass": true,
+    "optionAFallbackFired": 0,
+    "untestableWallet": null
+  },
+  "bindingQualifications": {
+    "Q1": "Binding qualification Q1 (threshold provenance). The 0.10 floor is **structurally and purposively justified, not empirically derived**: it is carried over unchanged from the original §7 gate for pre-registration continuity, as a minimal non-degeneracy floor (the middle 50% of the wallet's day-position null must span ≥ 0.10 of the [0,1] percentile scale ≈ 1.5 grid steps on the 16-day grid). No empirical optimization or calibration supports it; it is not claimed to be empirically optimal. Any post-hoc threshold re-derivation is threshold-shopping and prohibited.",
+    "Q2": "Binding qualification Q2 (non-sufficiency). Passing this floor establishes non-degeneracy only. An IQR of 0.10 on the 16-day grid corresponds to roughly **two distinct day-positions** of interquartile spread; **two day-positions do not establish scientific sufficiency** of the design, detectability of the primary effect, or any strategy property. Passing G2-P must not be cited as evidence of discriminative adequacy beyond the floor's literal content. Q1 and Q2 are binding text and must be reproduced verbatim in every results artifact's interpretation fields."
+  },
+  "legacy": {
+    "note": "k-draw null IQRs under the frozen run's provisional-seed convention — descriptive, non-gating (RQ5); values reproduce the frozen artifact g2.perWallet exactly (incident rule enforced at run time)",
+    "perWallet": [
+      {
+        "address": "0x033fe3aa194bb5df79964edaa846c99cf7c14fba",
+        "k": 1,
+        "ess": 6.12,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x10bf378dd2fafe72cb6b03a21e9b928bdaef7069",
+        "k": 1,
+        "ess": 6.24,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x18b7392814b06474de07aafcc674afc57a23c8b8",
+        "k": 1,
+        "ess": 6.22,
+        "nullIQR": 0.3333,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x1edc34c2d2b5da33e489b60f62c0e325839fa18e",
+        "k": 1,
+        "ess": 6.12,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x259a899ad710a61d15f8e36599c854d4087512de",
+        "k": 1,
+        "ess": 6.08,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x262c7f872b36306479c6f6266ef7a983ba86d511",
+        "k": 1,
+        "ess": 6.08,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x2ed95bcb3bf53863d569c7b90b4ede988a08e528",
+        "k": 1,
+        "ess": 6.24,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x38583e92eaaae241bde8b5a10f23cea253d21b1b",
+        "k": 1,
+        "ess": 6.14,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x3f6732ea4eedab1ee1b9a3f9fe4013736656f980",
+        "k": 1,
+        "ess": 6.22,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x43ab1bb4fae4c6cfcb00089beb596ae97f85b7be",
+        "k": 1,
+        "ess": 6.24,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x43fc329ef55cb74eafaf7d87cc836abf905968ec",
+        "k": 1,
+        "ess": 6.14,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x45866163bd36ed2333f4178072bcb81ba15a43ea",
+        "k": 1,
+        "ess": 6.24,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x4b3368ba6467d7f30e2b6bcf4ceb4f9a3a8f9ed8",
+        "k": 1,
+        "ess": 6.22,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x522ae68380ca52b02d3b19042e51e63b805f6cb9",
+        "k": 5,
+        "ess": 6.45,
+        "nullIQR": 0.0933,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x599655afd39152b346904090c0ccb4af9fff73a4",
+        "k": 1,
+        "ess": 6.24,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x6364b188d52e2c6483d435a4fb716123c7299bc4",
+        "k": 1,
+        "ess": 6.22,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x6a9b4bd87aa49574e107556fdeb9c7eb1c5f03f5",
+        "k": 2,
+        "ess": 6.2,
+        "nullIQR": 0.1667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x77d159968a9d456fa75ad587365f1310b09199c1",
+        "k": 1,
+        "ess": 6.12,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x7bf6f786e1059fe68efafffdc09ef79c1673d989",
+        "k": 1,
+        "ess": 6.08,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x7da82a201d0980fb4589568541f8510179f64dc1",
+        "k": 1,
+        "ess": 6.12,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x821873f988b9e564d86e3cd82a0c9de994d38332",
+        "k": 1,
+        "ess": 6.06,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x8a23110d3f9ad0ae642abacd55c2da70e7e1f098",
+        "k": 1,
+        "ess": 6.14,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x983edb2c9a31c2549fb8d8b33b5724a85ae99423",
+        "k": 1,
+        "ess": 6.24,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x9c93101defe7976f390874a0b48c2472bb3da181",
+        "k": 1,
+        "ess": 6.04,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x9eded99c11ddd6f301d1db0ec139451d5760b214",
+        "k": 1,
+        "ess": 6.06,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0x9f9820e58342286584481e20e631088cc5643208",
+        "k": 6,
+        "ess": 6.07,
+        "nullIQR": 0.0778,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xa04fcb341e09a13c5962efb3bb4d155634d888b0",
+        "k": 1,
+        "ess": 6.04,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xb5087e4853e111af8d971653d0de602fc0cf7f17",
+        "k": 1,
+        "ess": 6.12,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xba26a1d0ee605db2629a35bffc0817c46079014f",
+        "k": 1,
+        "ess": 6.08,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xc0b3d6aa9e4e4a97c8de4f20d7e62697c9c9ff89",
+        "k": 1,
+        "ess": 6.12,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xc5e9f816994d3eb91b556bc8d0a0cbe44a674909",
+        "k": 2,
+        "ess": 6.27,
+        "nullIQR": 0.1667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xc714c925f1081e8090c2a2ff14bbe0b713632208",
+        "k": 1,
+        "ess": 6.12,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xc9f16b6cc9cadb7b81e020b94e5ab72acf6b9748",
+        "k": 4,
+        "ess": 6.42,
+        "nullIQR": 0.1,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xd947f1ffb00035531368315f7e512495ee4f0eda",
+        "k": 1,
+        "ess": 6.14,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xdbc8bec942bb29f4e04cc21ef3492cd0478b69ab",
+        "k": 1,
+        "ess": 6.08,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xdbe8cdad22261487548f2402cdae1e239ffd9783",
+        "k": 1,
+        "ess": 6.08,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xdf03cf70ab0bd21acd600257bb9e8313a56f0f8a",
+        "k": 1,
+        "ess": 6.14,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xdf31c692f12a86b0a7cd0ae161197fb4901ef260",
+        "k": 1,
+        "ess": 6.14,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xe176e3dd77f886c8862e7dc656e8432103ddda42",
+        "k": 1,
+        "ess": 6.06,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xe4c19e73770fe133fd0ad41b1885dfeae3f99e72",
+        "k": 1,
+        "ess": 6.14,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xe5b6fa7fd5c481c7d5eab6475ca1822c80833120",
+        "k": 1,
+        "ess": 6.14,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xe68e72bd29eab54c140a0e2eeb0f689b64c15160",
+        "k": 1,
+        "ess": 6.04,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xe859992fdb55fea5919613586cb25a8b08041a1f",
+        "k": 1,
+        "ess": 6.24,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xedd5c22bf56f0fa245d004cc83ce2a7081966664",
+        "k": 1,
+        "ess": 6.06,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xee0ca621c24bac5ba83491b8dd404c57909d5249",
+        "k": 3,
+        "ess": 6.28,
+        "nullIQR": 0.1111,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xf0721a6d76f7f369afbb7dac0a919823a93b6b43",
+        "k": 1,
+        "ess": 6.24,
+        "nullIQR": 0.2,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xf1466e71aa60f47f75be00017cc03746c1d5d4b1",
+        "k": 1,
+        "ess": 6.22,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xf8d2d9d33ca270e5fb68029e797c37c6d07f93f3",
+        "k": 1,
+        "ess": 6.12,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      },
+      {
+        "address": "0xfaca02a91c5fe2f44a8e2ca28a1e1fec575a9b71",
+        "k": 1,
+        "ess": 6.22,
+        "nullIQR": 0.2667,
+        "fallbackFired": false
+      }
+    ],
+    "min": 0.0778,
+    "median": 0.2667,
+    "max": 0.3333
+  },
+  "horizonCoverage": {
+    "7": {
+      "needBy": "2026-08-25",
+      "covered": true
+    },
+    "30": {
+      "needBy": "2026-09-17",
+      "covered": true
+    },
+    "lastAcqDay": "2026-08-18",
+    "informativeOnly": true
+  },
+  "verdict": "P4 v1.1 PASS",
+  "untestableReason": null,
+  "notes": [
+    "Executed under amended prereg v1.1 (36201d78…); amendment chain hash-verified before execution (record 7964e7ae…, patch 200531e9…, baseline prereg 85468ac7…).",
+    "D1 reproduces the frozen artifact's G1 numbers exactly and the legacy column reproduces the frozen per-wallet k-draw IQRs exactly — verified at run time; any difference is an incident and aborts.",
+    "The frozen 2026-10-20 P4 FAIL pair (e064f625…/07cb0ffc…) remains untouched; its verdict stands for the v1 analysis.",
+    "G2-P is seed-free: an exact quantity verifiable without PRNG reproduction (strengthens §12 recount).",
+    "Q1/Q2 binding text reproduced verbatim in this artifact's interpretation fields (amended prereg §7 requirement).",
+    "This artifact is frozen before unblinding; no wallet-level outcome statistic appears in it."
+  ]
+}
