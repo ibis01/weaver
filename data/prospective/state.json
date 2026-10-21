@@ -1,8 +1,8 @@
 {
   "freeze_block": 26216278,
   "freeze_date": "2026-10-18T00:00:00Z",
-  "last_scanned_block": 26227933,
+  "last_scanned_block": 26242429,
   "first_run_at": "2026-10-18T01:51:58.230Z",
-  "buys_collected": 0,
-  "last_run_at": "2026-10-19T16:53:07.096Z"
+  "buys_collected": 2,
+  "last_run_at": "2026-10-21T17:21:19.990Z"
 }
