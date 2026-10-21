@@ -86,7 +86,6 @@ const PROXY_CACHE_STALE_MAX_SECONDS = 600;
 const GOPLUS_CACHE_FRESH_SECONDS = 300;
 const GOPLUS_CACHE_STALE_MAX_SECONDS = 900;
 
-// ── Budget tracking ──
 const DAILY_BUDGETS = {
   goplus: 500,
   etherscan: 5000,
@@ -1206,14 +1205,10 @@ async function handleRequest(request, env, ctx) {
 
   // ── Discovery Routes ───────────────────────────────────────
 
-  // Manual trigger to force a scan
   if (parts.length === 2 && parts[0] === "discovery" && parts[1] === "scan") {
     if (request.method !== "GET")
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
-
-    // Run in the background so the HTTP request returns immediately
     ctx.waitUntil(runDiscoveryScan(env));
-
     return jsonResponse(
       {
         ok: true,
@@ -1225,7 +1220,6 @@ async function handleRequest(request, env, ctx) {
     );
   }
 
-  // Get the latest snapshot
   if (
     parts.length === 2 &&
     parts[0] === "discovery" &&
@@ -1247,7 +1241,6 @@ async function handleRequest(request, env, ctx) {
     });
   }
 
-  // Health and budget status
   if (parts.length === 2 && parts[0] === "discovery" && parts[1] === "health") {
     if (request.method !== "GET")
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
@@ -1280,6 +1273,74 @@ async function handleRequest(request, env, ctx) {
       200,
       headers,
     );
+  }
+
+  // ── Solana Funding Sources (via Solscan) ──
+  if (
+    parts.length === 2 &&
+    parts[0] === "solana" &&
+    parts[1] === "funding-sources"
+  ) {
+    if (request.method !== "POST") {
+      return jsonResponse({ error: "Method not allowed" }, 405, headers);
+    }
+    let body;
+    try {
+      body = await request.json();
+    } catch (e) {
+      return jsonResponse({ error: "Invalid JSON body" }, 400, headers);
+    }
+    const addresses =
+      body && Array.isArray(body.addresses) ? body.addresses : [];
+    if (addresses.length === 0) {
+      return jsonResponse({ error: "Missing addresses array" }, 400, headers);
+    }
+    if (addresses.length > 50) {
+      return jsonResponse(
+        { error: "Max 50 addresses per batch" },
+        400,
+        headers,
+      );
+    }
+
+    if (!env.SOLSCAN_API_KEY) {
+      return jsonResponse(
+        { error: "Solscan API key not configured" },
+        503,
+        headers,
+      );
+    }
+
+    const solscanUrl = `https://pro-api.solscan.io/v2.0/account/funded_by`;
+
+    try {
+      const upstreamResp = await fetch(solscanUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          token: env.SOLSCAN_API_KEY,
+        },
+        body: JSON.stringify({ addresses }),
+      });
+
+      if (!upstreamResp.ok) {
+        return jsonResponse(
+          { error: `Solscan upstream error: ${upstreamResp.status}` },
+          upstreamResp.status,
+          headers,
+        );
+      }
+
+      const data = await upstreamResp.json();
+      return jsonResponse({ ok: true, data }, 200, headers);
+    } catch (e) {
+      console.error("[Solscan Proxy] Fetch failed:", e.message);
+      return jsonResponse(
+        { error: "Solscan upstream unavailable" },
+        502,
+        headers,
+      );
+    }
   }
 
   return jsonResponse({ error: "Not found" }, 404, headers);

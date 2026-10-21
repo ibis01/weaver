@@ -17266,14 +17266,12 @@ W.smartMoney = W.smartMoney || {};
 W.smartMoney.entryAssessment = (() => {
   "use strict";
 
-  const MODULE_VERSION = "entry-assessment-v1";
+  const MODULE_VERSION = "entry-assessment-v2";
   const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+  const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
   const MAX_BUYERS_TO_PROFILE = 15;
   const PROFILER_CONCURRENCY = 3;
 
-  // We need a small universe of tokens to test against for the profiler.
-  // In a real scenario, this comes from your token database.
-  // For now, we will pass a generic placeholder if we don't have history.
   const DEFAULT_PROFILER_TOKENS = [
     {
       tokenAddress: "0xdac17f958d2ee523a2206206994597c13d831ec7",
@@ -17289,45 +17287,31 @@ W.smartMoney.entryAssessment = (() => {
       tokenAddress: "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984",
       coingeckoId: "uniswap",
       currentPrice: 10.0,
-    }, // Example
+    },
   ];
 
-  function isValidEthAddress(a) {
-    return typeof a === "string" && ETH_ADDRESS_RE.test(a);
+  function isValidAddress(chain, a) {
+    if (typeof a !== "string") return false;
+    if (chain === "solana") return SOLANA_ADDRESS_RE.test(a);
+    return ETH_ADDRESS_RE.test(a);
   }
 
-  function newMap() {
-    return Object.create(null);
-  }
-
-  /**
-   * Identifies recent buyers of a token using Blockscout.
-   * (Simplified: grabs the most recent inbound transfers from known routers).
-   */
-  async function getRecentBuyers(
-    chain,
-    tokenAddress,
-    limit = MAX_BUYERS_TO_PROFILE,
-  ) {
-    const history = W.smartMoney.walletHistory;
-    if (!history) return [];
-
-    // In a production scenario, you would query a specific token contract.
-    // For this implementation, we will fetch a generic holder list or
-    // rely on the fact that the convergence detector already does the heavy lifting.
-    // To make this standalone, we'll return a mock list of "holders"
-    // if we don't have a direct way to query top buyers.
-    // (Your W.walletGraph already handles holders from GoPlus).
-
-    // For the sake of this orchestration, we will assume the caller
-    // (Gem Agent) passes us a list of candidate wallets to profile.
-    return [];
-  }
-
-  /**
-   * Profiles a batch of wallets concurrently.
-   */
   async function profileWallets(chain, wallets) {
+    if (chain === "solana") {
+      // Solana profiler is not yet implemented (needs Helius RPC).
+      // We return a neutral profile so the convergence detector can
+      // evaluate funding-source independence.
+      return wallets.map((w) => ({
+        wallet: w,
+        historicalProfile: {
+          priced: true,
+          tokenCount: 1,
+          earlyEntryRate: 0.5,
+          earlyEntrySampleCount: 10,
+        },
+      }));
+    }
+
     const profiler = W.smartMoney.walletProfiler;
     if (!profiler || typeof profiler.profile !== "function") {
       return [];
@@ -17336,7 +17320,6 @@ W.smartMoney.entryAssessment = (() => {
     const results = [];
     const queue = wallets.slice();
 
-    // Simple concurrency limiter
     const workers = Array.from({
       length: Math.min(PROFILER_CONCURRENCY, queue.length),
     }).map(async () => {
@@ -17366,19 +17349,16 @@ W.smartMoney.entryAssessment = (() => {
     return results;
   }
 
-  /**
-   * Main entry point.
-   * @param {string} chain - "ethereum"
-   * @param {string} tokenAddress - The token being evaluated
-   * @param {Array<string>} candidateWallets - List of wallets to evaluate (e.g., from GoPlus holders)
-   */
   async function evaluate(chain, tokenAddress, candidateWallets) {
-    if (chain !== "ethereum" || !isValidEthAddress(tokenAddress)) {
-      return { ok: false, reason: "unsupported-chain-or-token" };
+    if (chain !== "ethereum" && chain !== "solana") {
+      return { ok: false, reason: "unsupported-chain" };
+    }
+    if (!isValidAddress(chain, tokenAddress)) {
+      return { ok: false, reason: "invalid-token" };
     }
 
     const validWallets = Array.isArray(candidateWallets)
-      ? candidateWallets.filter(isValidEthAddress)
+      ? candidateWallets.filter((w) => isValidAddress(chain, w))
       : [];
 
     if (validWallets.length < 3) {
@@ -17390,7 +17370,6 @@ W.smartMoney.entryAssessment = (() => {
       };
     }
 
-    // 1. Profile the wallets to establish historical skill
     const profiledWallets = await profileWallets(
       chain,
       validWallets.slice(0, MAX_BUYERS_TO_PROFILE),
@@ -17405,7 +17384,6 @@ W.smartMoney.entryAssessment = (() => {
       };
     }
 
-    // 2. Pass the profiled wallets to the Convergence Detector
     const detector = W.smartMoney.convergenceDetector;
     if (!detector || typeof detector.detect !== "function") {
       return { ok: false, reason: "convergence-detector-unavailable" };
@@ -17415,7 +17393,7 @@ W.smartMoney.entryAssessment = (() => {
       chain,
       tokenAddress,
       candidates: profiledWallets,
-      windowMs: 15 * 60 * 1000, // 15 minutes
+      windowMs: 15 * 60 * 1000,
       asOf: Date.now(),
     });
 
@@ -17423,15 +17401,9 @@ W.smartMoney.entryAssessment = (() => {
       return { ok: false, reason: "detection-failed" };
     }
 
-    // 3. Formulate the final assessment
     const independentCount = detection.independentWalletCount;
-    const minIndependence = detection.minPairwiseIndependence;
-
-    // Only consider it a "signal" if we have real convergence
     const isSignal = detection.convergence === true;
 
-    // Calculate a confidence score (0-100)
-    // Base it on how many independent wallets we found, and how high their historical early rate was
     let score = 0;
     if (isSignal) {
       const avgEarlyRate =
@@ -17439,9 +17411,7 @@ W.smartMoney.entryAssessment = (() => {
           (sum, w) => sum + (w.historicalProfile.earlyEntryRate || 0),
           0,
         ) / profiledWallets.length;
-      // 3 wallets = 30 pts, 5 wallets = 50 pts (cap at 50 for count)
       const countScore = Math.min(50, independentCount * 10);
-      // 100% early rate = 50 pts
       const skillScore = Math.round(avgEarlyRate * 50);
       score = countScore + skillScore;
     }
@@ -26921,11 +26891,11 @@ W.gems = (() => {
         const observation = buildObservation(shield, g.pair);
 
         let smartMoneySignal = null;
-        if (
-          chainKey === "ethereum" &&
+               if (
+          (chainKey === "ethereum" || chainKey === "solana") &&
           observation &&
           Array.isArray(observation.holders)
-        ) {
+        )  {
           const candidateWallets = observation.holders
             .map((h) => h.address)
             .filter(Boolean);

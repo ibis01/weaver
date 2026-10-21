@@ -2151,11 +2151,11 @@ W.gems = (() => {
         const observation = buildObservation(shield, g.pair);
 
         let smartMoneySignal = null;
-        if (
-          chainKey === "ethereum" &&
+               if (
+          (chainKey === "ethereum" || chainKey === "solana") &&
           observation &&
           Array.isArray(observation.holders)
-        ) {
+        )  {
           const candidateWallets = observation.holders
             .map((h) => h.address)
             .filter(Boolean);
