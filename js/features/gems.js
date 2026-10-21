@@ -1905,16 +1905,34 @@ W.gems = (() => {
           const snapRes = await fetch(`${workerBase}/discovery/snapshot`);
           if (snapRes.ok) {
             const snapData = await snapRes.json();
+
+            // ── Freshness Check ──
+            const meta = snapData._meta;
+            if (meta && Number.isFinite(meta.staleAfter)) {
+              if (Date.now() > meta.staleAfter) {
+                const ageMins = Math.round(
+                  (Date.now() - meta.generatedAt) / 60000,
+                );
+                W.ui.toast(
+                  `Data is ${ageMins}m old. Background scan may be delayed.`,
+                  "warn",
+                );
+              }
+            }
+
             if (snapData.tokens && snapData.tokens.length > 0) {
               console.log(
                 `[Gems] Loaded ${snapData.tokens.length} tokens from Worker snapshot.`,
               );
 
               discoveredPairs = snapData.tokens.map((t) => {
+                // Use actual chainId from Worker, fallback to ethereum
+                const chainId = t.chainId || "ethereum";
+
                 const pair = {
-                  chainId: "ethereum", // Hardcoded for now by the Worker cron
+                  chainId: chainId,
                   pairAddress: "unknown",
-                  url: `https://dexscreener.com/ethereum/${t.address}`,
+                  url: `https://dexscreener.com/${chainId}/${t.address}`,
                   priceUsd: t.priceUsd,
                   liquidity: { usd: t.liquidity },
                   baseToken: {
@@ -1930,7 +1948,7 @@ W.gems = (() => {
 
                 // Pre-cache security data from the snapshot
                 if (t.security) {
-                  const key = shieldCacheKey(t.address, "ethereum");
+                  const key = shieldCacheKey(t.address, chainId);
                   if (key) {
                     const assessment = W.shield.assessEvmRisk(t.security);
                     assessment.ok = true;
