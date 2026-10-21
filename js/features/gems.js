@@ -2207,6 +2207,22 @@ W.gems = (() => {
             ...g.analysis.opportunity.reasons,
           ].slice(0, 10);
         }
+
+        // ── NEW: Require Smart Money Convergence ──
+        // If no smart money is present, reduce the score by 50%.
+        // If it's present, reward it by +20 points.
+        if (!g.smartMoneySignal || !g.smartMoneySignal.hasConvergence) {
+          g.analysis.score = Math.floor(g.analysis.score * 0.5);
+          g.analysis.reasons.unshift("⚠️ No smart money convergence detected");
+        } else {
+          g.analysis.score += 20;
+          g.analysis.reasons.unshift(
+            `💰 Smart Money confirmed (${g.smartMoneySignal.independentCount} wallets)`,
+          );
+        }
+
+        // Clamp score to 0-100
+        g.analysis.score = Math.max(0, Math.min(100, g.analysis.score));
       }
 
       // ══ Phase F — re-rank & re-filter with authoritative scores ══
@@ -2247,8 +2263,12 @@ W.gems = (() => {
         const chainKey = g.pair.chainId;
         const cacheKey = shieldCacheKey(addr, chainKey);
         const isDanger = g.risk && g.risk.verdict.key === "danger";
+
+        // NEW: Only alert if score is high AND Smart Money convergence is present
         if (
           g.analysis.score >= 70 &&
+          g.smartMoneySignal &&
+          g.smartMoneySignal.hasConvergence &&
           cacheKey &&
           !seen[cacheKey] &&
           !isDanger
