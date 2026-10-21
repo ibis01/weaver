@@ -25125,10 +25125,10 @@ W.securityAdapters = (() => {
     optimism: "10",
   });
 
+  // FIX: Removed Base (8453) because honeypot.is does not support it.
   const HONEYPOT_CHAINS = Object.freeze({
     ethereum: "1",
     bsc: "56",
-    base: "8453",
     arbitrum: "42161",
     polygon: "137",
     avalanche: "43114",
@@ -25461,7 +25461,7 @@ W.gems = (() => {
   const DEPLOYER_STORE_KEY = "gems.deployerHistory.v1";
   const DEPLOYER_STORE_MAX = 500;
 
-  // NEW: Circuit breaker for the deployer route so we do not spam
+  // Circuit breaker for the deployer route so we do not spam
   // /etherscan/deployer for 6 tokens on every scan when the upstream
   // is failing. Any failure suspends deployer enrichment for 5 minutes.
   const DEPLOYER_BACKOFF_MS = 5 * 60 * 1000;
@@ -26260,8 +26260,6 @@ W.gems = (() => {
     candidates,
     concurrency = DEPLOYER_CONCURRENCY,
   ) {
-    // Circuit breaker: if we recently hit a hard failure, skip enrichment
-    // entirely for the backoff window instead of spamming the Worker.
     if (Date.now() < deployerBackoffUntil) {
       console.log(
         "[Gems] Deployer enrichment skipped — backoff active for " +
@@ -26285,10 +26283,6 @@ W.gems = (() => {
             try {
               const result = await observeDeployer(gem);
               if (result === null) {
-                // observeDeployer returns null on upstream failure,
-                // non-rate-limited fetch failure, or missing secret.
-                // After the first hard failure, bail out of this scan
-                // so we do not fire 5 more requests in a row.
                 if (!hardFailure) {
                   hardFailure = true;
                   deployerBackoffUntil = Date.now() + DEPLOYER_BACKOFF_MS;
@@ -27252,12 +27246,22 @@ W.gems = (() => {
         <div class="kv-row"><span class="muted">1h / 6h / 24h</span><span>${esc(W.fmt.pct(a.h1))} ${esc(W.fmt.pct(a.h6))} ${esc(W.fmt.pct(a.h24))}</span></div>
         <div class="shield-slot">${shieldSection}</div>
         ${smartMoneySection}
-        ${riskFlagsBlock(assessment)}
-        ${structureSection}
-        ${graphSection}
-        ${trajectorySection}
-        ${ownerSection}
-        ${deployerSection}
+        
+        <!-- Collapsible Details Section -->
+        <details class="mt-8">
+          <summary class="muted small" style="cursor: pointer; outline: none; user-select: none;">
+            ▶ Show deep analysis
+          </summary>
+          <div class="mt-8" style="border-left: 2px solid var(--border, #333); padding-left: 10px;">
+            ${riskFlagsBlock(assessment)}
+            ${structureSection}
+            ${graphSection}
+            ${trajectorySection}
+            ${ownerSection}
+            ${deployerSection}
+          </div>
+        </details>
+
         <p class="small muted mt-8"><b>Why it appeared:</b> ${esc(firstReason)}</p>
         ${
           reasons.length > 1
