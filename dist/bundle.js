@@ -24648,24 +24648,6 @@ console.log(
 // MODULE 3 — W.gems
 // Scanner, composite risk engine, persistent deployer reputation,
 // UI rendering. Consumes W.walletGraph and W.securityAdapters.
-//
-// Scan pipeline (phases labeled in _scanImpl):
-//   A · coarse scoring + enrichment set selection
-//   B · shield enrichment
-//   C · observation recording
-//   D · deployer enrichment
-//   E · per-candidate risk + context-aware opportunity score
-//   F · re-rank and re-filter by authoritative score
-//   G · deployer reputation bookkeeping
-//   H · user-facing filters
-//   I · notifications, theses, alert persistence
-//   J · render stats
-//   K · render cards
-//
-// The opportunity engine is called twice per candidate: a coarse
-// pass (no security/holder/graph context) for prioritization, and a
-// context-aware pass after enrichment. The authoritative score is
-// the context-aware one; sorting and filtering use it exclusively.
 // ═══════════════════════════════════════════════════════════════════
 
 W.gems = (() => {
@@ -24694,12 +24676,6 @@ W.gems = (() => {
   const DEPLOYER_STORE_KEY = "gems.deployerHistory.v1";
   const DEPLOYER_STORE_MAX = 500;
 
-  // ── Recently-observed memes cache ──────────────────
-  // Persists a compact projection of scan results to localStorage so
-  // the Discover page can render them when the live scan fails
-  // (offline, DNS error, provider outage). Not an alternative data
-  // source — purely a memory of what this browser has seen. Entries
-  // expire after 7 days; the cache is capped at 50 entries.
   const RECENT_KEY = "gems.recent.v1";
   const RECENT_MAX = 50;
   const RECENT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -24730,10 +24706,7 @@ W.gems = (() => {
     try {
       localStorage.setItem(RECENT_KEY, JSON.stringify(list));
     } catch (e) {
-      console.warn(
-        "[Gems] Failed to write recent-gems cache:",
-        e && e.message,
-      );
+      console.warn("[Gems] Failed to write recent-gems cache:", e && e.message);
     }
   }
 
@@ -24779,7 +24752,8 @@ W.gems = (() => {
           ? [String(a.verdict[0] || ""), String(a.verdict[1] || "")]
           : null,
         reasons: Array.isArray(a.reasons) ? a.reasons.slice(0, 10) : [],
-        scoreVersion: typeof a.scoreVersion === "string" ? a.scoreVersion : null,
+        scoreVersion:
+          typeof a.scoreVersion === "string" ? a.scoreVersion : null,
         ageH: Number.isFinite(a.ageH) ? a.ageH : null,
         liq: Number.isFinite(a.liq) ? a.liq : null,
         vol: Number.isFinite(a.vol) ? a.vol : null,
@@ -24899,8 +24873,6 @@ W.gems = (() => {
         .join("") +
       "</div>";
 
-    // Neutralize shield-check buttons in cached cards — they would
-    // fire a doomed network request while offline.
     body.querySelectorAll("[data-shield-check]").forEach((btn) => {
       const row = document.createElement("div");
       row.className = "kv-row";
@@ -24938,7 +24910,6 @@ W.gems = (() => {
     UNKNOWN: { key: "unknown", label: "❔ Unverified", cls: "verdict-unknown" },
   });
 
-  // ── Escaping (attribute-safe) ──────────────────────
   function esc(v) {
     if (v === null || v === undefined) return "";
     const s = String(v);
@@ -24966,7 +24937,6 @@ W.gems = (() => {
     return Object.create(null);
   }
 
-  // ── Format helpers ─────────────────────────────────
   function chainTag(chain) {
     const emoji = CHAINS[chain] || "⛓️";
     return `<span class="tag rank">${emoji} ${esc(chain)}</span>`;
@@ -25003,7 +24973,6 @@ W.gems = (() => {
     return chainKey + ":" + normalized;
   }
 
-  // ── Deployer reputation store ──────────────────────
   function loadDeployerStore() {
     try {
       const raw = localStorage.getItem(DEPLOYER_STORE_KEY);
@@ -25078,7 +25047,6 @@ W.gems = (() => {
     saveDeployerStore();
   }
 
-  // ── Shield eligibility ─────────────────────────────
   function isShieldEligible(gem) {
     const addr =
       gem && gem.pair && gem.pair.baseToken ? gem.pair.baseToken.address : null;
@@ -25100,7 +25068,6 @@ W.gems = (() => {
     );
   }
 
-  // ── Composite risk engine ──────────────────────────
   function computeRiskAssessment(gem, shield, observation, graphReport) {
     const flags = [];
     let risk = 0;
@@ -25410,7 +25377,6 @@ W.gems = (() => {
     return `<div class="kv-row"><span class="muted">Deployer</span><span>${esc(summary)}</span></div>`;
   }
 
-  // ── Observation recording ──────────────────────────
   function recordObservation(gem) {
     if (!W.observations || typeof W.observations.record !== "function")
       return false;
@@ -25552,14 +25518,6 @@ W.gems = (() => {
     throw lastErr || new Error("All proxies failed");
   }
 
-  // ── Momentum scoring ───────────────────────────────
-  //
-  // Phase A prioritization only. The opportunity score returned here
-  // is a coarse signal (no security/holder/graph context) used solely
-  // to decide which candidates receive expensive network enrichment
-  // in phases B–D. It is NOT the authoritative score shown to the
-  // user or used for final sorting; phase E recomputes with full
-  // context and phase F re-ranks with that.
   function score(pair) {
     const liq = (pair.liquidity && pair.liquidity.usd) || 0;
     const vol = (pair.volume && pair.volume.h24) || 0;
@@ -25632,8 +25590,6 @@ W.gems = (() => {
             ? ["⚠️ Speculative / mixed", "speculative"]
             : ["🚩 Weak opportunity signals", "weak-opportunity"];
 
-    // Coarse pass — no context. Authoritative score is recomputed in
-    // phase E after enrichment and used for the final ranking.
     const opportunity =
       W.memeOpportunity && typeof W.memeOpportunity.analyze === "function"
         ? W.memeOpportunity.analyze(pair)
@@ -25656,7 +25612,6 @@ W.gems = (() => {
     };
   }
 
-  // ── Scan state ─────────────────────────────────────
   let auto = false;
   let timer = null;
   let seen = newMap();
@@ -25676,7 +25631,6 @@ W.gems = (() => {
     shieldCache[key] = { assessment, observedAt: Date.now() };
   }
 
-  // ── Shield check with external fallback/merge ──────
   async function checkShield(addr, chainKey, identity = {}) {
     const key = shieldCacheKey(addr, chainKey);
     if (!key) return { error: true, message: "Invalid address or chain" };
@@ -25811,26 +25765,17 @@ W.gems = (() => {
     });
   }
 
-  // ── Alert persistence (Slice 1 — calibration input) ────
-  // Fire-and-forget POST of a qualifying gem alert to the Worker so
-  // the calibration job can later join it with snapshot-worker
-  // observations of the same token. Failures never affect the scan.
-    function resolveWorkerBase() {
-      if (
-        W.config &&
-        typeof W.config.workerBase === "string" &&
-        W.config.workerBase
-      ) {
-        return W.config.workerBase;
-      }
-      if (typeof W.workerBase === "string" && W.workerBase) return W.workerBase;
-      // Fallback: the Worker URL is a public constant. deployer-graph.js
-      // hardcodes the same value at module scope; duplicating it here
-      // makes persistMemeAlert functional without requiring a global
-      // bootstrap step to set W.workerBase. If a future config layer
-      // sets W.config.workerBase, it wins.
-      return "https://weaver-proxy.ibis01-weaver.workers.dev";
+  function resolveWorkerBase() {
+    if (
+      W.config &&
+      typeof W.config.workerBase === "string" &&
+      W.config.workerBase
+    ) {
+      return W.config.workerBase;
     }
+    if (typeof W.workerBase === "string" && W.workerBase) return W.workerBase;
+    return "https://weaver-proxy.ibis01-weaver.workers.dev";
+  }
 
   async function persistMemeAlert(gem) {
     const workerBase = resolveWorkerBase();
@@ -25843,11 +25788,6 @@ W.gems = (() => {
     if (typeof addr !== "string" || !addr || !chain) return;
 
     const priceUsd = Number(gem.pair.priceUsd);
-    // The Worker rejects alerts without a usable price (400). A price
-    // is required by the calibration job anyway — the alert's entry
-    // price is the baseline for all future observations. If we cannot
-    // establish it, the alert is not calibratable, so skip the POST
-    // locally rather than sending a request the Worker will reject.
     if (!Number.isFinite(priceUsd) || priceUsd <= 0) {
       console.warn(
         "[Gems] Skipping alert persistence: no usable priceUsd for",
@@ -25881,7 +25821,6 @@ W.gems = (() => {
     });
   }
 
-  // ── Scan ───────────────────────────────────────────
   async function scan(view) {
     if (!view) return;
     const body = view.querySelector("#g-body");
@@ -25893,91 +25832,156 @@ W.gems = (() => {
     body.innerHTML = W.ui.spinner();
 
     try {
-      // ══ Discovery: DexScreener boosts + profiles + trending ══
-      const [boosts, profiles, trending] = await Promise.allSettled([
-        fetchDexScreener(DEXSCREENER_API + "/token-boosts/latest/v1"),
-        fetchDexScreener(DEXSCREENER_API + "/token-profiles/latest/v1"),
-        W.api && typeof W.api.trending === "function"
-          ? W.api.trending()
-          : Promise.reject(new Error("Trending provider unavailable")),
-      ]);
+      let discoveredPairs = [];
+      let addresses = [];
+      let map = newMap();
+      let loadedFromWorker = false;
 
-      const map = newMap();
-      if (boosts.status === "fulfilled" && boosts.value) {
-        boosts.value.forEach((b) => {
-          if (b && b.tokenAddress) {
-            map[b.tokenAddress] = map[b.tokenAddress] || {
-              boosts: b.totalBoosts || 1,
-              sources: new Set(),
-            };
-            map[b.tokenAddress].sources.add("dex-boosts");
+      const minScore = parseFloat(view.querySelector("#g-min")?.value) || 0;
+      const chainFilter = view.querySelector("#g-chain")?.value || "";
+      const hideRisk = view.querySelector("#g-hide-risk")?.checked || false;
+      const onlyPass = view.querySelector("#g-only-pass")?.checked || false;
+      const workerBase = resolveWorkerBase();
+
+      // ══ 1. Try Worker Snapshot First ══
+      if (workerBase) {
+        try {
+          const snapRes = await fetch(`${workerBase}/discovery/snapshot`);
+          if (snapRes.ok) {
+            const snapData = await snapRes.json();
+            if (snapData.tokens && snapData.tokens.length > 0) {
+              console.log(
+                `[Gems] Loaded ${snapData.tokens.length} tokens from Worker snapshot.`,
+              );
+
+              discoveredPairs = snapData.tokens.map((t) => {
+                const pair = {
+                  chainId: "ethereum", // Hardcoded for now by the Worker cron
+                  pairAddress: "unknown",
+                  url: `https://dexscreener.com/ethereum/${t.address}`,
+                  priceUsd: t.priceUsd,
+                  liquidity: { usd: t.liquidity },
+                  baseToken: {
+                    address: t.address,
+                    symbol: t.symbol,
+                    name: t.symbol,
+                  },
+                  pairCreatedAt: Date.now() - 12 * 3600000, // Fake age to pass filters
+                  volume: { h24: 0 },
+                  priceChange: { h1: 0, h6: 0, h24: 0 },
+                  discoverySources: ["worker-snapshot"],
+                };
+
+                // Pre-cache security data from the snapshot
+                if (t.security) {
+                  const key = shieldCacheKey(t.address, "ethereum");
+                  if (key) {
+                    const assessment = W.shield.assessEvmRisk(t.security);
+                    assessment.ok = true;
+                    setCachedShield(key, assessment);
+                  }
+                }
+                addresses.push(t.address);
+                return pair;
+              });
+              loadedFromWorker = true;
+            }
           }
-        });
-      }
-      if (profiles.status === "fulfilled" && profiles.value) {
-        profiles.value.forEach((p) => {
-          if (p && p.tokenAddress) {
-            map[p.tokenAddress] = map[p.tokenAddress] || {
-              boosts: 0,
-              sources: new Set(),
-            };
-            map[p.tokenAddress].sources.add("dex-profiles");
-          }
-        });
+        } catch (e) {
+          console.warn(
+            "[Gems] Worker snapshot failed, falling back to live scan:",
+            e.message,
+          );
+        }
       }
 
-      const trendingCoins =
-        trending.status === "fulfilled" && Array.isArray(trending.value?.coins)
-          ? trending.value.coins.slice(0, 8)
-          : [];
-      const trendingSearches = await Promise.allSettled(
-        trendingCoins
-          .map((coin) =>
-            String(
-              coin?.item?.symbol || coin?.symbol || coin?.name || "",
-            ).trim(),
-          )
-          .filter(Boolean)
-          .map((symbol) =>
-            fetchDexScreener(
-              DEXSCREENER_API +
-                "/latest/dex/search?q=" +
-                encodeURIComponent(symbol),
+      // ══ 2. Fallback to Live Discovery ══
+      if (!loadedFromWorker) {
+        const [boosts, profiles, trending] = await Promise.allSettled([
+          fetchDexScreener(DEXSCREENER_API + "/token-boosts/latest/v1"),
+          fetchDexScreener(DEXSCREENER_API + "/token-profiles/latest/v1"),
+          W.api && typeof W.api.trending === "function"
+            ? W.api.trending()
+            : Promise.reject(new Error("Trending provider unavailable")),
+        ]);
+
+        if (boosts.status === "fulfilled" && boosts.value) {
+          boosts.value.forEach((b) => {
+            if (b && b.tokenAddress) {
+              map[b.tokenAddress] = map[b.tokenAddress] || {
+                boosts: b.totalBoosts || 1,
+                sources: new Set(),
+              };
+              map[b.tokenAddress].sources.add("dex-boosts");
+            }
+          });
+        }
+        if (profiles.status === "fulfilled" && profiles.value) {
+          profiles.value.forEach((p) => {
+            if (p && p.tokenAddress) {
+              map[p.tokenAddress] = map[p.tokenAddress] || {
+                boosts: 0,
+                sources: new Set(),
+              };
+              map[p.tokenAddress].sources.add("dex-profiles");
+            }
+          });
+        }
+
+        const trendingCoins =
+          trending.status === "fulfilled" &&
+          Array.isArray(trending.value?.coins)
+            ? trending.value.coins.slice(0, 8)
+            : [];
+        const trendingSearches = await Promise.allSettled(
+          trendingCoins
+            .map((coin) =>
+              String(
+                coin?.item?.symbol || coin?.symbol || coin?.name || "",
+              ).trim(),
+            )
+            .filter(Boolean)
+            .map((symbol) =>
+              fetchDexScreener(
+                DEXSCREENER_API +
+                  "/latest/dex/search?q=" +
+                  encodeURIComponent(symbol),
+              ),
             ),
-          ),
-      );
-
-      const addresses = Object.keys(map).slice(0, 30);
-      if (!addresses.length && !trendingCoins.length)
-        throw new Error("No candidates");
-
-      const pairsResp = addresses.length
-        ? await fetchDexScreener(
-            DEXSCREENER_API + "/latest/dex/tokens/" + addresses.join(","),
-          )
-        : { pairs: [] };
-
-      const pairs = Array.isArray(pairsResp)
-        ? pairsResp
-        : pairsResp && Array.isArray(pairsResp.pairs)
-          ? pairsResp.pairs
-          : [];
-
-      const discoveredPairs = pairs.slice();
-      trendingSearches.forEach((result) => {
-        if (result.status !== "fulfilled") return;
-        const searched = Array.isArray(result.value?.pairs)
-          ? result.value.pairs
-          : [];
-        discoveredPairs.push(
-          ...searched.map((pair) => ({
-            ...pair,
-            discoverySources: ["coinpaprika-trending", "dex-search"],
-          })),
         );
-      });
 
-      // Deduplicate by base token, keeping the deepest-liquidity pair.
+        addresses = Object.keys(map).slice(0, 30);
+        if (!addresses.length && !trendingCoins.length)
+          throw new Error("No candidates");
+
+        const pairsResp = addresses.length
+          ? await fetchDexScreener(
+              DEXSCREENER_API + "/latest/dex/tokens/" + addresses.join(","),
+            )
+          : { pairs: [] };
+
+        const pairs = Array.isArray(pairsResp)
+          ? pairsResp
+          : pairsResp && Array.isArray(pairsResp.pairs)
+            ? pairsResp.pairs
+            : [];
+
+        discoveredPairs = pairs.slice();
+        trendingSearches.forEach((result) => {
+          if (result.status !== "fulfilled") return;
+          const searched = Array.isArray(result.value?.pairs)
+            ? result.value.pairs
+            : [];
+          discoveredPairs.push(
+            ...searched.map((pair) => ({
+              ...pair,
+              discoverySources: ["coinpaprika-trending", "dex-search"],
+            })),
+          );
+        });
+      }
+
+      // ══ 3. Deduplicate and map to gems format ══
       const byToken = newMap();
       discoveredPairs.forEach((p) => {
         if (!p || typeof p !== "object") return;
@@ -25988,7 +25992,9 @@ W.gems = (() => {
           ...(map[a]?.sources || []),
           ...(p.discoverySources || []),
         ]);
-        sources.add("dex-market-pair");
+        if (loadedFromWorker) sources.add("worker-snapshot");
+        else sources.add("dex-market-pair");
+
         const candidate = { ...p, discoverySources: [...sources] };
         const existing = byToken[a];
         if (
@@ -26005,11 +26011,6 @@ W.gems = (() => {
           ];
         }
       });
-
-      const minScore = parseFloat(view.querySelector("#g-min")?.value) || 0;
-      const chainFilter = view.querySelector("#g-chain")?.value || "";
-      const hideRisk = view.querySelector("#g-hide-risk")?.checked || false;
-      const onlyPass = view.querySelector("#g-only-pass")?.checked || false;
 
       // ══ Phase A — coarse scoring & enrichment set selection ══
       const candidates = Object.values(byToken).map((p) => ({
@@ -26122,27 +26123,16 @@ W.gems = (() => {
       }
 
       // ══ Phase F — re-rank & re-filter with authoritative scores ══
-      //
-      // Sorting and filtering now use the context-aware score from
-      // phase E, so the number shown on the card matches the number
-      // that decided whether the card appears. The coarse score from
-      // phase A is no longer consulted after this point.
       enriched.sort((a, b) => b.analysis.score - a.analysis.score);
       const results = enriched.filter((g) => g.analysis.score >= minScore);
 
       // ══ Phase F½ — persist a projection for offline viewing ══
-      // Purely a client-side memory of what this browser has observed.
-      // No network call, no side effects on the scan. Failures are
-      // non-fatal — a full localStorage just means no cache next time.
       try {
         if (results.length) {
           mergeRecentGems(results.map(projectGemForCache));
         }
       } catch (e) {
-        console.warn(
-          "[Gems] Recent-gems persistence failed:",
-          e && e.message,
-        );
+        console.warn("[Gems] Recent-gems persistence failed:", e && e.message);
       }
 
       // ══ Phase G — deployer reputation bookkeeping ══
@@ -26220,7 +26210,6 @@ W.gems = (() => {
               methodologyVersion: g.analysis.scoreVersion,
             });
           }
-          // Calibration input — non-blocking; failures are swallowed.
           persistMemeAlert(g).catch(() => {});
         }
         if (cacheKey) seen[cacheKey] = 1;
@@ -26269,9 +26258,6 @@ W.gems = (() => {
         );
       }
     } catch (e) {
-      // Live scan failed. Try to render cached memes before showing
-      // the error message. If the cache is empty or everything is
-      // filtered out, fall through to the honest error.
       try {
         const chainFilter = view.querySelector("#g-chain")?.value || "";
         const hideRisk = view.querySelector("#g-hide-risk")?.checked || false;
@@ -26286,7 +26272,6 @@ W.gems = (() => {
     }
   }
 
-  // ── Card renderer ──────────────────────────────────
   function _renderGemCard(g) {
     const p = g.pair;
     const a = g.analysis;
@@ -26345,7 +26330,7 @@ W.gems = (() => {
           </div>
         </div>
         <div class="meter-bar"><div class="meter-fill meter-fill-${pctBucket(a.score)}"></div></div>
-        ${Number.isFinite(g._cachedAt) ? '<div class="muted text-2xs mt-8">cached ' + esc(hoursAgoText(g._cachedAt)) + '</div>' : ""}
+        ${Number.isFinite(g._cachedAt) ? '<div class="muted text-2xs mt-8">cached ' + esc(hoursAgoText(g._cachedAt)) + "</div>" : ""}
         <div class="kv-row"><span class="muted">Price</span><span>$${esc(p.priceUsd)}</span></div>
         <div class="kv-row"><span class="muted">Liquidity / 24h Vol</span><span>$${esc(kfmt(a.liq))} / $${esc(kfmt(a.vol))}</span></div>
         <div class="kv-row"><span class="muted">1h / 6h / 24h</span><span>${esc(W.fmt.pct(a.h1))} ${esc(W.fmt.pct(a.h6))} ${esc(W.fmt.pct(a.h24))}</span></div>
@@ -26371,7 +26356,6 @@ W.gems = (() => {
     `;
   }
 
-  // ── Render ─────────────────────────────────────────
   async function render(view) {
     if (!view) return;
     const chainList = Object.keys(CHAINS).join(", ");
@@ -26437,7 +26421,6 @@ W.gems = (() => {
   }
 
   return {
-    // Exported for the §3.3 invariant test (constitution compliance).
     CHAINS,
     render,
     scan,
@@ -26503,7 +26486,7 @@ W.shield = (() => {
   const GOPLUS_SOLANA_API =
     "https://api.gopluslabs.io/api/v1/solana/token_security";
   const CACHE_TTL = 300000; // 5 minutes
-
+  const WORKER_PROXY_BASE = "https://weaver-proxy.ibis01-weaver.workers.dev";
   // Authoritative threshold for "identified high-risk". Do not duplicate
   // this value elsewhere in the codebase. Consumers that need a
   // high-risk decision MUST call W.shield.isHighRisk() rather than
@@ -26649,50 +26632,69 @@ W.shield = (() => {
   // ── Fetch from GoPlus ─────────────────────────────────
 
   async function fetchTokenSecurity(chainId, address) {
-    // Check cache first
+    // Check local cache first
     const cached = getCached(chainId, address);
     if (cached) return cached;
 
-    // GoPlus direct is the primary path. The Worker's shared
-    // Cloudflare egress IP pool causes GoPlus to return
-    // { code: 4012, message: "signature verification failure" } — its
-    // opaque rate-limit response on the free unauthenticated tier.
-    // Direct requests use the user's own IP, each with a fresh per-IP
-    // quota. api.gopluslabs.io echoes our Origin in
-    // Access-Control-Allow-Origin, so CORS is not an obstacle.
-
-    const url = `${GOPLUS_API}/${chainId}?contract_addresses=${encodeURIComponent(address.toLowerCase())}`;
+    const targetUrl = `${GOPLUS_API}/${chainId}?contract_addresses=${encodeURIComponent(address.toLowerCase())}`;
+    const workerUrl = `${WORKER_PROXY_BASE}/goplus/evm/${chainId}?contract_addresses=${encodeURIComponent(address.toLowerCase())}`;
 
     let lastError = null;
-    {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000);
-        const response = await fetch(url, {
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    // 1. Try the Worker first (it has built-in caching)
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const response = await fetch(workerUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (response.ok) {
         const data = await response.json();
-        if (data.code === 4012 || data.code === 4029) {
-          const err = new Error(
-            "GoPlus is rate-limiting right now. Please wait a few seconds and retry.",
-          );
-          err.code = "RATE_LIMITED";
-          throw err;
+        if (data.code === 1) {
+          setCache(chainId, address, data);
+          return data;
         }
-        if (data.code !== 1) {
+        if (data.code !== 4029 && data.code !== 4012 && data.code !== 0) {
           throw new Error(data.message || "API error");
         }
-        // Cache and return
-        setCache(chainId, address, data);
-        return data;
-      } catch (e) {
-        clearTimeout(timeout);
-        lastError = e;
-        console.warn("[Shield] GoPlus request failed:", e.message);
       }
+    } catch (e) {
+      console.warn(
+        "[Shield] Worker GoPlus request failed, falling back to direct:",
+        e.message,
+      );
+      lastError = e;
     }
+
+    // 2. Fallback to direct GoPlus fetch
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const response = await fetch(targetUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+
+      if (data.code === 4012 || data.code === 4029) {
+        const err = new Error(
+          "GoPlus is rate-limiting right now. Please wait a few seconds and retry.",
+        );
+        err.code = "RATE_LIMITED";
+        throw err;
+      }
+      if (data.code !== 1) {
+        throw new Error(data.message || "API error");
+      }
+
+      setCache(chainId, address, data);
+      return data;
+    } catch (e) {
+      clearTimeout(timeout);
+      lastError = e;
+      console.warn("[Shield] GoPlus direct request failed:", e.message);
+    }
+
     throw lastError || new Error("GoPlus request failed");
   }
 
@@ -26705,46 +26707,66 @@ W.shield = (() => {
     const cached = getCached("solana", address);
     if (cached) return cached;
 
-    // GoPlus direct is the primary path. The Worker's shared
-    // Cloudflare egress IP pool causes GoPlus to return
-    // { code: 4012, message: "signature verification failure" } — its
-    // opaque rate-limit response on the free unauthenticated tier.
-    // Direct requests use the user's own IP, each with a fresh per-IP
-    // quota. api.gopluslabs.io echoes our Origin in
-    // Access-Control-Allow-Origin, so CORS is not an obstacle.
-
     // Address case matters for Solana — never lowercase it.
-    const url = `${GOPLUS_SOLANA_API}?contract_addresses=${encodeURIComponent(address)}`;
+    const targetUrl = `${GOPLUS_SOLANA_API}?contract_addresses=${encodeURIComponent(address)}`;
+    const workerUrl = `${WORKER_PROXY_BASE}/goplus/solana?contract_addresses=${encodeURIComponent(address)}`;
 
     let lastError = null;
-    {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000);
-        const response = await fetch(url, {
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    // 1. Try the Worker first
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const response = await fetch(workerUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (response.ok) {
         const data = await response.json();
-        if (data.code === 4012 || data.code === 4029) {
-          const err = new Error(
-            "GoPlus is rate-limiting right now. Please wait a few seconds and retry.",
-          );
-          err.code = "RATE_LIMITED";
-          throw err;
+        if (data.code === 1) {
+          setCache("solana", address, data);
+          return data;
         }
-        if (data.code !== 1) {
+        if (data.code !== 4029 && data.code !== 4012 && data.code !== 0) {
           throw new Error(data.message || "API error");
         }
-        setCache("solana", address, data);
-        return data;
-      } catch (e) {
-        clearTimeout(timeout);
-        lastError = e;
-        console.warn("[Shield] GoPlus Solana request failed:", e.message);
       }
+    } catch (e) {
+      console.warn(
+        "[Shield] Worker GoPlus Solana request failed, falling back to direct:",
+        e.message,
+      );
+      lastError = e;
     }
+
+    // 2. Fallback to direct fetch
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const response = await fetch(targetUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+
+      if (data.code === 4012 || data.code === 4029) {
+        const err = new Error(
+          "GoPlus is rate-limiting right now. Please wait a few seconds and retry.",
+        );
+        err.code = "RATE_LIMITED";
+        throw err;
+      }
+      if (data.code !== 1) {
+        throw new Error(data.message || "API error");
+      }
+
+      setCache("solana", address, data);
+      return data;
+    } catch (e) {
+      clearTimeout(timeout);
+      lastError = e;
+      console.warn("[Shield] GoPlus Solana direct request failed:", e.message);
+    }
+
     throw lastError || new Error("GoPlus request failed");
   }
 
@@ -26768,8 +26790,14 @@ W.shield = (() => {
       ? lpHoldersRaw.some((lp) => lp.is_locked === 1)
       : null;
 
-    const buyTax = (parseFloat(result.buy_tax) * 100).toFixed(1);
-    const sellTax = (parseFloat(result.sell_tax) * 100).toFixed(1);
+    const buyTaxRaw = parseFloat(result.buy_tax);
+    const buyTax = Number.isFinite(buyTaxRaw)
+      ? (buyTaxRaw * 100).toFixed(1)
+      : "0.0";
+    const sellTaxRaw = parseFloat(result.sell_tax);
+    const sellTax = Number.isFinite(sellTaxRaw)
+      ? (sellTaxRaw * 100).toFixed(1)
+      : "0.0";
 
     let riskScore = 0;
     const risks = [];
