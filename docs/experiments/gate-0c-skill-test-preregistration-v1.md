@@ -1,3 +1,13 @@
+> **EXECUTION STATUS UPDATE — 2026-10-21.** The "DRAFT — NOT APPLIED —
+> NOT EXECUTED" wording above was accurate at the time this file was
+> committed. The amendment was subsequently applied and executed, and
+> the results were committed in `gate-0c-nic-2026-10-21-v1.1.json` and
+> `.md`. The recovery commit (f86d19f) restored those artifacts after
+> they were omitted from a prior commit. The independent verifier now
+> confirms 416/416 checks against the committed bytes.
+
+---
+
 # Gate 0c — Chance-Benchmark Skill Test: Preregistration v1
 
 > **STATUS: DRAFT v1 — PENDING ACTIVATION.** Uncommitted. This document becomes

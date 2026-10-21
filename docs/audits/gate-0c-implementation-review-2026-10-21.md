@@ -1,3 +1,20 @@
+> **RECONCILIATION UPDATE — 2026-10-21.** This review was authored before
+> the recovery commit (f86d19f). The artifacts it describes as missing
+> (the amended P4 v1.1 JSON and Markdown) were subsequently recovered and
+> committed. The independent verifier (`scripts/aw-nic-verify-v11.js`)
+> now reports 416/416 checks passed against the recovered bytes.
+>
+> **What remains valid from this review:** The finding that the amendment
+> was not present at the time of review. The requirement for an
+> independent verifier. The HOLD status as of the earlier timestamp.
+>
+> **What is now superseded:** The specific claims that the amended
+> artifact is missing, that the patch is absent, and that P4 FAIL is the
+> only verifiable state. Those conditions have been resolved by the
+> recovery commit.
+
+---
+
 # Gate 0c — Independent Implementation Review (2026-10-21)
 
 **Scope:** verification of the reported "Amendment v1.1" implementation (F6 reclassification of G1
