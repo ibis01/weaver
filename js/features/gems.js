@@ -2114,7 +2114,47 @@ W.gems = (() => {
       }
 
       // ══ Phase E — per-candidate risk + context-aware score ══
-      for (const g of enriched) {
+      // Run smart money evaluation concurrently for all enriched tokens
+      const smartMoneyPromises = enriched.map(async (g) => {
+        const addr = g.pair.baseToken.address;
+        const chainKey = g.pair.chainId;
+        const key = shieldCacheKey(addr, chainKey);
+        const shield = key ? getCachedShield(key) : null;
+        const observation = buildObservation(shield, g.pair);
+
+        let smartMoneySignal = null;
+        if (
+          chainKey === "ethereum" &&
+          observation &&
+          Array.isArray(observation.holders)
+        ) {
+          const candidateWallets = observation.holders
+            .map((h) => h.address)
+            .filter(Boolean);
+
+          if (
+            candidateWallets.length >= 3 &&
+            W.smartMoney &&
+            W.smartMoney.entryAssessment
+          ) {
+            try {
+              smartMoneySignal = await W.smartMoney.entryAssessment.evaluate(
+                chainKey,
+                addr,
+                candidateWallets,
+              );
+            } catch (e) {
+              console.warn("[Gems] Smart Money evaluation failed:", e.message);
+            }
+          }
+        }
+        return smartMoneySignal;
+      });
+
+      const smartMoneySignals = await Promise.all(smartMoneyPromises);
+
+      for (let i = 0; i < enriched.length; i++) {
+        const g = enriched[i];
         const addr = g.pair.baseToken.address;
         const chainKey = g.pair.chainId;
         const key = shieldCacheKey(addr, chainKey);
@@ -2139,6 +2179,7 @@ W.gems = (() => {
           }
         }
 
+        g.smartMoneySignal = smartMoneySignals[i];
         g.risk = computeRiskAssessment(g, shield, observation, graphReport);
         g.shield = shield;
         g.observation = observation;
@@ -2350,6 +2391,17 @@ W.gems = (() => {
       : null;
     const deployerSection = deployerLine(deployerObservation);
 
+    // ── NEW: Smart Money Signal Section ──
+    const smartMoneySection =
+      g.smartMoneySignal && g.smartMoneySignal.hasConvergence
+        ? `
+      <div class="kv-row mt-8" style="background: rgba(0,255,0,0.1); padding: 4px; border-radius: 4px;">
+        <span class="muted">💰 Smart Money</span>
+        <span style="color: var(--green);"><b>${g.smartMoneySignal.independentCount} wallets converging</b></span>
+      </div>
+    `
+        : "";
+
     const fallbackUrl =
       "https://dexscreener.com/" +
       encodeURIComponent(p.chainId || "") +
@@ -2381,6 +2433,7 @@ W.gems = (() => {
         <div class="kv-row"><span class="muted">Liquidity / 24h Vol</span><span>$${esc(kfmt(a.liq))} / $${esc(kfmt(a.vol))}</span></div>
         <div class="kv-row"><span class="muted">1h / 6h / 24h</span><span>${esc(W.fmt.pct(a.h1))} ${esc(W.fmt.pct(a.h6))} ${esc(W.fmt.pct(a.h24))}</span></div>
         <div class="shield-slot">${shieldSection}</div>
+        ${smartMoneySection}
         ${riskFlagsBlock(assessment)}
         ${structureSection}
         ${graphSection}
