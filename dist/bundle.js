@@ -24759,10 +24759,6 @@ window.W = window.W || {};
 
 // ═══════════════════════════════════════════════════════════════════
 // MODULE 1 — W.walletGraph
-// Local behavioural clustering for meme-token launches.
-// No new network calls. Consumes holder lists already returned by
-// the observation pipeline, optionally merged with caller-supplied
-// funding edges (from an indexer). Prototype-safe. Bounded.
 // ═══════════════════════════════════════════════════════════════════
 
 W.walletGraph = (() => {
@@ -25112,9 +25108,6 @@ console.log(
 
 // ═══════════════════════════════════════════════════════════════════
 // MODULE 2 — W.securityAdapters
-// External security API adapters: GoPlus (EVM), RugCheck (Solana),
-// honeypot.is (both). Returns a normalised assessment shape so the
-// risk engine does not care which provider answered.
 // ═══════════════════════════════════════════════════════════════════
 
 W.securityAdapters = (() => {
@@ -25441,8 +25434,6 @@ console.log(
 
 // ═══════════════════════════════════════════════════════════════════
 // MODULE 3 — W.gems
-// Scanner, composite risk engine, persistent deployer reputation,
-// UI rendering. Consumes W.walletGraph and W.securityAdapters.
 // ═══════════════════════════════════════════════════════════════════
 
 W.gems = (() => {
@@ -25470,6 +25461,12 @@ W.gems = (() => {
 
   const DEPLOYER_STORE_KEY = "gems.deployerHistory.v1";
   const DEPLOYER_STORE_MAX = 500;
+
+  // NEW: Circuit breaker for the deployer route so we do not spam
+  // /etherscan/deployer for 6 tokens on every scan when the upstream
+  // is failing. Any failure suspends deployer enrichment for 5 minutes.
+  const DEPLOYER_BACKOFF_MS = 5 * 60 * 1000;
+  let deployerBackoffUntil = 0;
 
   const RECENT_KEY = "gems.recent.v1";
   const RECENT_MAX = 50;
@@ -26264,10 +26261,22 @@ W.gems = (() => {
     candidates,
     concurrency = DEPLOYER_CONCURRENCY,
   ) {
+    // Circuit breaker: if we recently hit a hard failure, skip enrichment
+    // entirely for the backoff window instead of spamming the Worker.
+    if (Date.now() < deployerBackoffUntil) {
+      console.log(
+        "[Gems] Deployer enrichment skipped — backoff active for " +
+          Math.round((deployerBackoffUntil - Date.now()) / 1000) +
+          "s",
+      );
+      return;
+    }
+
     const queue = candidates.slice();
     if (!queue.length) return;
     const workers = [];
     const limit = Math.max(1, Math.min(concurrency, queue.length));
+    let hardFailure = false;
     for (let i = 0; i < limit; i++) {
       workers.push(
         (async () => {
@@ -26275,7 +26284,21 @@ W.gems = (() => {
             const gem = queue.shift();
             if (!gem) break;
             try {
-              await observeDeployer(gem);
+              const result = await observeDeployer(gem);
+              if (result === null) {
+                // observeDeployer returns null on upstream failure,
+                // non-rate-limited fetch failure, or missing secret.
+                // After the first hard failure, bail out of this scan
+                // so we do not fire 5 more requests in a row.
+                if (!hardFailure) {
+                  hardFailure = true;
+                  deployerBackoffUntil = Date.now() + DEPLOYER_BACKOFF_MS;
+                  console.log(
+                    "[Gems] Deployer enrichment suspended for 5 minutes (upstream failing)",
+                  );
+                }
+                break;
+              }
             } catch (e) {
               console.warn(
                 "[Gems] Deployer enrichment failed:",
@@ -26543,7 +26566,6 @@ W.gems = (() => {
 
     const asset = `$${gem.pair.baseToken.symbol} (${chain})`;
 
-    // Use the Evidence Synthesizer if available
     let statement = `Gem Agent alert — score ${gem.analysis.score}.`;
     let reasons = (gem.analysis.reasons || []).join("; ");
     let signals = shieldSummary(shield);
@@ -26648,14 +26670,12 @@ W.gems = (() => {
       const onlyPass = view.querySelector("#g-only-pass")?.checked || false;
       const workerBase = resolveWorkerBase();
 
-      // ══ 1. Try Worker Snapshot First ══
       if (workerBase) {
         try {
           const snapRes = await fetch(`${workerBase}/discovery/snapshot`);
           if (snapRes.ok) {
             const snapData = await snapRes.json();
 
-            // ── Freshness Check ──
             const meta = snapData._meta;
             if (meta && Number.isFinite(meta.staleAfter)) {
               if (Date.now() > meta.staleAfter) {
@@ -26675,7 +26695,6 @@ W.gems = (() => {
               );
 
               discoveredPairs = snapData.tokens.map((t) => {
-                // Use actual chainId from Worker, fallback to ethereum
                 const chainId = t.chainId || "ethereum";
 
                 const pair = {
@@ -26689,13 +26708,12 @@ W.gems = (() => {
                     symbol: t.symbol,
                     name: t.symbol,
                   },
-                  pairCreatedAt: Date.now() - 12 * 3600000, // Fake age to pass filters
+                  pairCreatedAt: Date.now() - 12 * 3600000,
                   volume: { h24: 0 },
                   priceChange: { h1: 0, h6: 0, h24: 0 },
                   discoverySources: ["worker-snapshot"],
                 };
 
-                // Pre-cache security data from the snapshot
                 if (t.security) {
                   const key = shieldCacheKey(t.address, chainId);
                   if (key) {
@@ -26718,7 +26736,6 @@ W.gems = (() => {
         }
       }
 
-      // ══ 2. Fallback to Live Discovery ══
       if (!loadedFromWorker) {
         const [boosts, profiles, trending] = await Promise.allSettled([
           fetchDexScreener(DEXSCREENER_API + "/token-boosts/latest/v1"),
@@ -26804,7 +26821,6 @@ W.gems = (() => {
         });
       }
 
-      // ══ 3. Deduplicate and map to gems format ══
       const byToken = newMap();
       discoveredPairs.forEach((p) => {
         if (!p || typeof p !== "object") return;
@@ -26835,7 +26851,6 @@ W.gems = (() => {
         }
       });
 
-      // ══ Phase A — coarse scoring & enrichment set selection ══
       const candidates = Object.values(byToken).map((p) => ({
         pair: p,
         analysis: score(p),
@@ -26845,7 +26860,6 @@ W.gems = (() => {
         .filter((g) => g.analysis.score >= minScore)
         .slice(0, 24);
 
-      // ══ Phase B — shield enrichment ══
       const eligible = enriched.filter(isShieldEligible);
       const uncached = [];
       for (const g of eligible) {
@@ -26857,13 +26871,11 @@ W.gems = (() => {
       if (uncached.length)
         await enrichShieldResults(uncached, SHIELD_CONCURRENCY);
 
-      // ══ Phase C — observation recording ══
       for (const g of enriched) {
         recordObservation(g);
         observeOwner(g);
       }
 
-      // ══ Phase D — deployer enrichment ══
       if (W.deployerGraph && typeof W.deployerGraph.get === "function") {
         const deployerUncached = [];
         for (const g of enriched) {
@@ -26891,7 +26903,6 @@ W.gems = (() => {
       }
 
       // ══ Phase E — per-candidate risk + context-aware score ══
-      // Run smart money evaluation concurrently for all enriched tokens
       const smartMoneyPromises = enriched.map(async (g) => {
         const addr = g.pair.baseToken.address;
         const chainKey = g.pair.chainId;
@@ -26900,11 +26911,11 @@ W.gems = (() => {
         const observation = buildObservation(shield, g.pair);
 
         let smartMoneySignal = null;
-               if (
+        if (
           (chainKey === "ethereum" || chainKey === "solana") &&
           observation &&
           Array.isArray(observation.holders)
-        )  {
+        ) {
           const candidateWallets = observation.holders
             .map((h) => h.address)
             .filter(Boolean);
@@ -26985,28 +26996,45 @@ W.gems = (() => {
           ].slice(0, 10);
         }
 
-        // ── NEW: Require Smart Money Convergence ──
-        // If no smart money is present, reduce the score by 50%.
-        // If it's present, reward it by +20 points.
-        if (!g.smartMoneySignal || !g.smartMoneySignal.hasConvergence) {
-          g.analysis.score = Math.floor(g.analysis.score * 0.5);
-          g.analysis.reasons.unshift("⚠️ No smart money convergence detected");
-        } else {
-          g.analysis.score += 20;
+        // ── Smart Money: distinguish "no data" from "evaluated and rejected" ──
+        const sm = g.smartMoneySignal;
+        if (sm && sm.hasConvergence === true) {
+          // Confirmed convergence — reward
+          g.analysis.score = Math.min(100, g.analysis.score + 20);
           g.analysis.reasons.unshift(
-            `💰 Smart Money confirmed (${g.smartMoneySignal.independentCount} wallets)`,
+            `💰 Smart Money confirmed (${sm.independentCount} wallets)`,
+          );
+        } else if (sm && sm.reason === "sybil-cluster-detected") {
+          // Active coordination detected — heavy penalty
+          g.analysis.score = Math.floor(g.analysis.score * 0.3);
+          g.analysis.reasons.unshift(
+            "🚩 Smart money: coordinated sybil cluster",
+          );
+        } else if (
+          sm &&
+          (sm.reason === "not-enough-wallets" ||
+            sm.reason === "insufficient-profiled-wallets" ||
+            sm.reason === "no-candidates")
+        ) {
+          // Not enough data to judge — neutral, no penalty
+          g.analysis.reasons.unshift(
+            `ℹ️ Smart money: ${String(sm.reason).replace(/-/g, " ")}`,
+          );
+        } else if (sm && sm.ok === true) {
+          // Evaluated but not convergent — mild penalty
+          g.analysis.score = Math.max(0, g.analysis.score - 10);
+          g.analysis.reasons.unshift(
+            `⚠️ Smart money: ${String(sm.reason).replace(/-/g, " ")}`,
           );
         }
+        // No signal at all — neutral (do nothing)
 
-        // Clamp score to 0-100
         g.analysis.score = Math.max(0, Math.min(100, g.analysis.score));
       }
 
-      // ══ Phase F — re-rank & re-filter with authoritative scores ══
       enriched.sort((a, b) => b.analysis.score - a.analysis.score);
       const results = enriched.filter((g) => g.analysis.score >= minScore);
 
-      // ══ Phase F½ — persist a projection for offline viewing ══
       try {
         if (results.length) {
           mergeRecentGems(results.map(projectGemForCache));
@@ -27015,7 +27043,6 @@ W.gems = (() => {
         console.warn("[Gems] Recent-gems persistence failed:", e && e.message);
       }
 
-      // ══ Phase G — deployer reputation bookkeeping ══
       for (const g of results) {
         if (!g.risk || !g.risk.deployerAddr) continue;
         recordDeployerSeen(
@@ -27025,7 +27052,6 @@ W.gems = (() => {
         );
       }
 
-      // ══ Phase H — user-facing filters ══
       const shown = results.filter((g) => {
         if (chainFilter && g.pair.chainId !== chainFilter) return false;
         if (hideRisk && g.risk && g.risk.verdict.key === "danger") return false;
@@ -27034,14 +27060,12 @@ W.gems = (() => {
         return true;
       });
 
-      // ══ Phase I — notifications, theses, alert persistence ══
       for (const g of results) {
         const addr = g.pair.baseToken.address;
         const chainKey = g.pair.chainId;
         const cacheKey = shieldCacheKey(addr, chainKey);
         const isDanger = g.risk && g.risk.verdict.key === "danger";
 
-        // NEW: Only alert if score is high AND Smart Money convergence is present
         if (
           g.analysis.score >= 70 &&
           g.smartMoneySignal &&
@@ -27099,7 +27123,6 @@ W.gems = (() => {
         if (cacheKey) seen[cacheKey] = 1;
       }
 
-      // ══ Phase J — render stats ══
       const statsEl = view.querySelector("#g-stats");
       if (statsEl) {
         const passed = results.filter(
@@ -27108,15 +27131,15 @@ W.gems = (() => {
         const danger = results.filter(
           (g) => g.risk && g.risk.verdict.key === "danger",
         ).length;
+        // FIX: use `enriched` not `results` for chains covered
         statsEl.innerHTML = `
           <div class="card stat"><div class="stat-label">Candidates scanned</div><div class="stat-big">${esc(addresses.length)}</div></div>
-          <div class="card stat"><div class="stat-label">Chains covered</div><div class="stat-big">${esc(new Set(results.map((g) => g.pair.chainId)).size)}</div></div>
+          <div class="card stat"><div class="stat-label">Chains covered</div><div class="stat-big">${esc(new Set(enriched.map((g) => g.pair.chainId)).size)}</div></div>
           <div class="card stat"><div class="stat-label">Gems ≥ ${esc(minScore)}</div><div class="stat-big">${esc(results.length)}${shown.length < results.length ? " (showing " + esc(shown.length) + ")" : ""}</div></div>
           <div class="card stat"><div class="stat-label">✅ Pass / 🚫 Danger</div><div class="stat-big">${esc(passed)} / ${esc(danger)}</div></div>
         `;
       }
 
-      // ══ Phase K — render cards ══
       if (shown.length) {
         body.innerHTML = `<div class="grid-2">${shown.map((g) => _renderGemCard(g)).join("")}</div>`;
         body.querySelectorAll("[data-shield-check]").forEach((btn) => {
@@ -27188,7 +27211,6 @@ W.gems = (() => {
       : null;
     const deployerSection = deployerLine(deployerObservation);
 
-    // ── NEW: Smart Money Signal Section ──
     const smartMoneySection =
       g.smartMoneySignal && g.smartMoneySignal.hasConvergence
         ? `
@@ -27304,7 +27326,6 @@ W.gems = (() => {
     view.querySelector("#g-hide-risk").onchange = () => scan(view);
     view.querySelector("#g-only-pass").onchange = () => scan(view);
 
-    // ── NEW: Wire up the Performance button ──
     view.querySelector("#g-validate").onclick = async () => {
       const btn = view.querySelector("#g-validate");
       btn.textContent = "Evaluating...";
