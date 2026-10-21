@@ -156,50 +156,69 @@ W.shield = (() => {
   // ── Fetch from GoPlus ─────────────────────────────────
 
   async function fetchTokenSecurity(chainId, address) {
-    // Check cache first
+    // Check local cache first
     const cached = getCached(chainId, address);
     if (cached) return cached;
 
-    // GoPlus direct is the primary path. The Worker's shared
-    // Cloudflare egress IP pool causes GoPlus to return
-    // { code: 4012, message: "signature verification failure" } — its
-    // opaque rate-limit response on the free unauthenticated tier.
-    // Direct requests use the user's own IP, each with a fresh per-IP
-    // quota. api.gopluslabs.io echoes our Origin in
-    // Access-Control-Allow-Origin, so CORS is not an obstacle.
-
-    const url = `${GOPLUS_API}/${chainId}?contract_addresses=${encodeURIComponent(address.toLowerCase())}`;
+    const targetUrl = `${GOPLUS_API}/${chainId}?contract_addresses=${encodeURIComponent(address.toLowerCase())}`;
+    const workerUrl = `${WORKER_PROXY_BASE}/goplus/evm/${chainId}?contract_addresses=${encodeURIComponent(address.toLowerCase())}`;
 
     let lastError = null;
-    {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000);
-        const response = await fetch(url, {
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    // 1. Try the Worker first (it has built-in caching)
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const response = await fetch(workerUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (response.ok) {
         const data = await response.json();
-        if (data.code === 4012 || data.code === 4029) {
-          const err = new Error(
-            "GoPlus is rate-limiting right now. Please wait a few seconds and retry.",
-          );
-          err.code = "RATE_LIMITED";
-          throw err;
+        if (data.code === 1) {
+          setCache(chainId, address, data);
+          return data;
         }
-        if (data.code !== 1) {
+        if (data.code !== 4029 && data.code !== 4012 && data.code !== 0) {
           throw new Error(data.message || "API error");
         }
-        // Cache and return
-        setCache(chainId, address, data);
-        return data;
-      } catch (e) {
-        clearTimeout(timeout);
-        lastError = e;
-        console.warn("[Shield] GoPlus request failed:", e.message);
       }
+    } catch (e) {
+      console.warn(
+        "[Shield] Worker GoPlus request failed, falling back to direct:",
+        e.message,
+      );
+      lastError = e;
     }
+
+    // 2. Fallback to direct GoPlus fetch
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const response = await fetch(targetUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+
+      if (data.code === 4012 || data.code === 4029) {
+        const err = new Error(
+          "GoPlus is rate-limiting right now. Please wait a few seconds and retry.",
+        );
+        err.code = "RATE_LIMITED";
+        throw err;
+      }
+      if (data.code !== 1) {
+        throw new Error(data.message || "API error");
+      }
+
+      setCache(chainId, address, data);
+      return data;
+    } catch (e) {
+      clearTimeout(timeout);
+      lastError = e;
+      console.warn("[Shield] GoPlus direct request failed:", e.message);
+    }
+
     throw lastError || new Error("GoPlus request failed");
   }
 
@@ -212,46 +231,66 @@ W.shield = (() => {
     const cached = getCached("solana", address);
     if (cached) return cached;
 
-    // GoPlus direct is the primary path. The Worker's shared
-    // Cloudflare egress IP pool causes GoPlus to return
-    // { code: 4012, message: "signature verification failure" } — its
-    // opaque rate-limit response on the free unauthenticated tier.
-    // Direct requests use the user's own IP, each with a fresh per-IP
-    // quota. api.gopluslabs.io echoes our Origin in
-    // Access-Control-Allow-Origin, so CORS is not an obstacle.
-
     // Address case matters for Solana — never lowercase it.
-    const url = `${GOPLUS_SOLANA_API}?contract_addresses=${encodeURIComponent(address)}`;
+    const targetUrl = `${GOPLUS_SOLANA_API}?contract_addresses=${encodeURIComponent(address)}`;
+    const workerUrl = `${WORKER_PROXY_BASE}/goplus/solana?contract_addresses=${encodeURIComponent(address)}`;
 
     let lastError = null;
-    {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000);
-        const response = await fetch(url, {
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    // 1. Try the Worker first
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const response = await fetch(workerUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (response.ok) {
         const data = await response.json();
-        if (data.code === 4012 || data.code === 4029) {
-          const err = new Error(
-            "GoPlus is rate-limiting right now. Please wait a few seconds and retry.",
-          );
-          err.code = "RATE_LIMITED";
-          throw err;
+        if (data.code === 1) {
+          setCache("solana", address, data);
+          return data;
         }
-        if (data.code !== 1) {
+        if (data.code !== 4029 && data.code !== 4012 && data.code !== 0) {
           throw new Error(data.message || "API error");
         }
-        setCache("solana", address, data);
-        return data;
-      } catch (e) {
-        clearTimeout(timeout);
-        lastError = e;
-        console.warn("[Shield] GoPlus Solana request failed:", e.message);
       }
+    } catch (e) {
+      console.warn(
+        "[Shield] Worker GoPlus Solana request failed, falling back to direct:",
+        e.message,
+      );
+      lastError = e;
     }
+
+    // 2. Fallback to direct fetch
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const response = await fetch(targetUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+
+      if (data.code === 4012 || data.code === 4029) {
+        const err = new Error(
+          "GoPlus is rate-limiting right now. Please wait a few seconds and retry.",
+        );
+        err.code = "RATE_LIMITED";
+        throw err;
+      }
+      if (data.code !== 1) {
+        throw new Error(data.message || "API error");
+      }
+
+      setCache("solana", address, data);
+      return data;
+    } catch (e) {
+      clearTimeout(timeout);
+      lastError = e;
+      console.warn("[Shield] GoPlus Solana direct request failed:", e.message);
+    }
+
     throw lastError || new Error("GoPlus request failed");
   }
 
@@ -275,8 +314,14 @@ W.shield = (() => {
       ? lpHoldersRaw.some((lp) => lp.is_locked === 1)
       : null;
 
-    const buyTax = (parseFloat(result.buy_tax) * 100).toFixed(1);
-    const sellTax = (parseFloat(result.sell_tax) * 100).toFixed(1);
+    const buyTaxRaw = parseFloat(result.buy_tax);
+    const buyTax = Number.isFinite(buyTaxRaw)
+      ? (buyTaxRaw * 100).toFixed(1)
+      : "0.0";
+    const sellTaxRaw = parseFloat(result.sell_tax);
+    const sellTax = Number.isFinite(sellTaxRaw)
+      ? (sellTaxRaw * 100).toFixed(1)
+      : "0.0";
 
     let riskScore = 0;
     const risks = [];
