@@ -12,6 +12,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -26,5 +28,5 @@ jobs:
           git config user.name "weaver-bot"
           git config user.email "bot@weaver.local"
           git add data/prospective/
-          git diff --cached --quiet || git commit -m "data(gate-0d): weekly collection $(date -u +%Y-%m-%d)"
+          git diff --cached --quiet || git commit -m "data(gate-0d): weekly collection $(date -u +%Y-%m-%d) [skip ci]"
           git push
