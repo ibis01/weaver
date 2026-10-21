@@ -1311,6 +1311,119 @@ async function handleRequest(request, env, ctx) {
       );
     }
 
+    // ── Solana Trade History (via Helius RPC) ──
+    if (parts.length === 2 && parts[0] === "solana" && parts[1] === "trades") {
+      if (request.method !== "POST") {
+        return jsonResponse({ error: "Method not allowed" }, 405, headers);
+      }
+      let body;
+      try {
+        body = await request.json();
+      } catch (e) {
+        return jsonResponse({ error: "Invalid JSON body" }, 400, headers);
+      }
+      const wallet = body && typeof body.wallet === "string" ? body.wallet : "";
+      const tokenMint =
+        body && typeof body.tokenMint === "string" ? body.tokenMint : "";
+
+      if (!wallet || !tokenMint) {
+        return jsonResponse(
+          { error: "Missing wallet or tokenMint" },
+          400,
+          headers,
+        );
+      }
+
+      const hasBudget = await checkAndIncrementBudget(env, "helius");
+      if (!hasBudget) {
+        return jsonResponse(
+          { error: "Helius daily budget exhausted" },
+          429,
+          headers,
+        );
+      }
+
+      const heliusUrl = `https://mainnet.helius-rpc.com/?api-key=${env.HELIUS_KEY}`;
+
+      try {
+        // 1. Fetch recent signatures for the wallet
+        const sigResp = await fetch(heliusUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: "1",
+            method: "getSignaturesForAddress",
+            params: [wallet, { limit: 20 }],
+          }),
+        });
+        const sigData = await sigResp.json();
+        const signatures = sigData.result || [];
+
+        if (signatures.length === 0) {
+          return jsonResponse({ ok: true, trades: [] }, 200, headers);
+        }
+
+        // 2. Fetch transactions in parallel (bounded to 20)
+        const trades = [];
+        const fetchPromises = signatures.map((sig) =>
+          fetch(heliusUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: sig.signature,
+              method: "getTransaction",
+              params: [
+                sig.signature,
+                { maxSupportedTransactionVersion: 0, encoding: "jsonParsed" },
+              ],
+            }),
+          }).then((res) => res.json()),
+        );
+
+        const txResults = await Promise.all(fetchPromises);
+
+        // 3. Parse transactions for token balance changes
+        for (const tx of txResults) {
+          if (!tx.result || !tx.result.meta) continue;
+
+          const { meta, blockTime } = tx.result;
+          const preBalances = meta.preTokenBalances || [];
+          const postBalances = meta.postTokenBalances || [];
+
+          const pre = preBalances.find(
+            (b) => b.mint === tokenMint && b.owner === wallet,
+          );
+          const post = postBalances.find(
+            (b) => b.mint === tokenMint && b.owner === wallet,
+          );
+
+          const preAmt = pre ? Number(pre.uiTokenAmount.uiAmount) : 0;
+          const postAmt = post ? Number(post.uiTokenAmount.uiAmount) : 0;
+
+          if (preAmt !== postAmt) {
+            const diff = postAmt - preAmt;
+            trades.push({
+              side: diff > 0 ? "in" : "out",
+              amount: Math.abs(diff),
+              at: (blockTime || Date.now() / 1000) * 1000,
+              txHash: tx.result.transaction.signatures[0],
+            });
+          }
+        }
+
+        return jsonResponse({ ok: true, trades }, 200, headers);
+      } catch (e) {
+        console.error("[Helius Trades] Fetch failed:", e.message);
+        return jsonResponse(
+          { error: "Helius upstream unavailable" },
+          502,
+          headers,
+        );
+      }
+    }
+    
     const solscanUrl = `https://pro-api.solscan.io/v2.0/account/funded_by`;
 
     try {
