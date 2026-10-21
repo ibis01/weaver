@@ -1,5 +1,8 @@
 > **RECONCILIATION UPDATE — 2026-10-21.** This review was authored before
 > the recovery commit (f86d19f). The artifacts it describes as missing
+> were subsequently recovered. The verifier confirms 416/416 checks.
+> **RECONCILIATION UPDATE — 2026-10-21.** This review was authored before
+> the recovery commit (f86d19f). The artifacts it describes as missing
 > (the amended P4 v1.1 JSON and Markdown) were subsequently recovered and
 > committed. The independent verifier (`scripts/aw-nic-verify-v11.js`)
 > now reports 416/416 checks passed against the recovered bytes.

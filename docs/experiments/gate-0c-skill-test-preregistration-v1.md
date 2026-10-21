@@ -1,3 +1,6 @@
+> **RECONCILIATION UPDATE — 2026-10-21.** This review was authored before
+> the recovery commit (f86d19f). The artifacts it describes as missing
+> were subsequently recovered. The verifier confirms 416/416 checks.
 > **EXECUTION STATUS UPDATE — 2026-10-21.** The "DRAFT — NOT APPLIED —
 > NOT EXECUTED" wording above was accurate at the time this file was
 > committed. The amendment was subsequently applied and executed, and
