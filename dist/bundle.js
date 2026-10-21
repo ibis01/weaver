@@ -25121,7 +25121,6 @@ W.securityAdapters = (() => {
     bsc: "56",
     polygon: "137",
     arbitrum: "42161",
-    base: "8453",
     avalanche: "43114",
     optimism: "10",
   });

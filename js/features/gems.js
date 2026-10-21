@@ -372,7 +372,6 @@ W.securityAdapters = (() => {
     bsc: "56",
     polygon: "137",
     arbitrum: "42161",
-    base: "8453",
     avalanche: "43114",
     optimism: "10",
   });
@@ -2703,3 +2702,4 @@ W.gems = (() => {
 console.log(
   "[Gems] Module loaded  — composite risk engine, deployer reputation, wallet graph, external adapters.",
 );
+ 
