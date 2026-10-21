@@ -16053,21 +16053,14 @@ console.log("[DeployerGraph] Module loaded.");
 //     newest-first reverse the array themselves.
 //   - Independent of js/features/smart.js. This module loads
 //     before W.smart is defined; it must never depend on it.
-//
-// ATTRIBUTION (Phase 3):
-//   Distinguishes between a direct buyer and an intermediary.
-//   DIRECT_ORIGINATOR: Wallet initiated the transaction (sent tokens/sold).
-//   TRACED_ECONOMIC_RECIPIENT: Wallet received tokens from a known DEX router (bought).
-//   INTERMEDIARY: Wallet received tokens from another wallet (airdrop/transfer).
-//   UNRESOLVED: Role cannot be established (e.g., mint from zero address).
 
 window.W = window.W || {};
 W.smartMoney = W.smartMoney || {};
 
 W.smartMoney.walletHistory = (() => {
   const BLOCKSCOUT_API = "https://eth.blockscout.com/api/v2";
-  const MODULE_VERSION = "wallet-history-v2"; // Bumped for attribution
-  const CACHE_KEY = "sm.wallet-history.v2"; // Bumped cache key
+  const MODULE_VERSION = "wallet-history-v2";
+  const CACHE_KEY = "sm.wallet-history.v2";
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   const CACHE_MAX_ENTRIES = 400;
   const FETCH_TIMEOUT_MS = 20000;
@@ -16092,6 +16085,21 @@ W.smartMoney.walletHistory = (() => {
     "0xd9e1ce17f2641f24ae83637ab66a2cca9c378b9f", // SushiSwap
     "0x1111111254eeb25477b68fb85ed929f73a960582", // 1inch V5
     "0x1111111254fb6c44bac0bed2854e76f90643097d", // 1inch V4
+  ]);
+
+  // Common CEX Hot Wallets (Ethereum) - Used for funding analysis
+  const KNOWN_CEX_WALLETS = new Set([
+    "0x28c6c06298d514db089934071355e5743bf21d60", // Binance 14
+    "0x21a31ee1afc51d94c2efccaa2092ad1028285549", // Binance 15
+    "0xdfd5293d8e347dfe59e90efd55b2956a1343963d", // Binance 16
+    "0x56eddb7aa87536c09ccc2793473599fd21a8b17f", // Binance 17
+    "0x9696f59e4d72e237be84ffd425dcad154bf96976", // Binance 18
+    "0x4976a4a02f38326660d17bf34b431dc6e2eb2327", // Binance 19
+    "0x742d35cc6634c0532925a3b844bc454e4438f44e", // Bitfinex
+    "0x71660c4005ba85c37ccec55d0c4493e66fe775d3", // Coinbase 1
+    "0x503828976d22510aad0201ac7ec88293211d23da", // Coinbase 2
+    "0xddfabcdc4d8ffc6d5beaf154f18b778f892a0740", // Coinbase 3
+    "0x3cd751e6b0078be393132286c442345e5dc49699", // Coinbase 4
   ]);
 
   function newMap() {
@@ -16241,7 +16249,6 @@ W.smartMoney.walletHistory = (() => {
   }
 
   // ── Transfer parsing & attribution ────────────────────
-  // Distinguishes between a direct buyer and an intermediary.
   function parseTransfer(record, wallet) {
     if (!record || typeof record !== "object") return null;
 
@@ -16332,7 +16339,7 @@ W.smartMoney.walletHistory = (() => {
       "/token-transfers?token=" +
       token.toLowerCase();
 
-    const MAX_PAGES = 40; // safety bound: 40 x 50 = 2000 transfers
+    const MAX_PAGES = 40;
     const allItems = [];
     let url = baseUrl;
     let fetchFailed = false;
@@ -16387,6 +16394,46 @@ W.smartMoney.walletHistory = (() => {
     return { trades, cached: false };
   }
 
+  async function fetchFundingSources(chain, wallet) {
+    if (chain !== "ethereum")
+      return { fundingSources: [], reason: "unsupported-chain" };
+    if (!isValidEthAddress(wallet))
+      return { fundingSources: [], reason: "invalid-wallet" };
+
+    const url = `${BLOCKSCOUT_API}/addresses/${wallet.toLowerCase()}/transactions`;
+
+    try {
+      const data = await fetchJSON(url);
+      const items = Array.isArray(data.items) ? data.items : [];
+
+      const sortedItems = items.slice().reverse();
+      const fundingSources = [];
+
+      for (const tx of sortedItems) {
+        if (!tx || !tx.from || !tx.to) continue;
+        const from = tx.from.hash.toLowerCase();
+        const to = tx.to.hash.toLowerCase();
+
+        if (to === wallet.toLowerCase() && from !== wallet.toLowerCase()) {
+          if (KNOWN_CEX_WALLETS.has(from)) {
+            fundingSources.push({ source: from, type: "cex" });
+          } else if (from === ZERO_ADDRESS) {
+            fundingSources.push({ source: from, type: "mint" });
+          } else {
+            fundingSources.push({ source: from, type: "wallet" });
+          }
+
+          if (fundingSources.length >= 2) break;
+        }
+      }
+
+      return { fundingSources, cached: false };
+    } catch (e) {
+      console.warn("[WalletHistory] Funding source fetch failed:", e.message);
+      return { fundingSources: [], reason: "fetch-failed" };
+    }
+  }
+
   function resetCache() {
     try {
       W.store?.delete?.(CACHE_KEY);
@@ -16395,6 +16442,7 @@ W.smartMoney.walletHistory = (() => {
 
   return Object.freeze({
     fetchTrades,
+    fetchFundingSources,
     version: MODULE_VERSION,
     ATTRIBUTION,
     _internal: Object.freeze({
@@ -16405,6 +16453,7 @@ W.smartMoney.walletHistory = (() => {
       CACHE_TTL_MS,
       CACHE_MAX_ENTRIES,
       KNOWN_DEX_ROUTERS,
+      KNOWN_CEX_WALLETS,
     }),
   });
 })();
@@ -16697,8 +16746,6 @@ W.smartMoney.convergenceDetector = (() => {
   const INDEPENDENCE_MIN = 0.7;
   const DEFAULT_WINDOW_MS = 15 * 60 * 1000;
   const MIN_HISTORICAL_EARLY_RATE = 0.5;
-  // Per docs/audits/smart-money-early-entry-2026-10-11.md §4:
-  // a rate computed from fewer than 10 priced buys is noise.
   const MIN_EARLY_ENTRY_SAMPLE = 10;
   const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
@@ -16821,41 +16868,72 @@ W.smartMoney.convergenceDetector = (() => {
     }
 
     const qualifyingWallets = [];
-    // POOL_DIAG_MARK: per-source drop-reason attribution for Gate 0a.
-    const __pool = {
-      bySource: {},
-      records: [],
-    };
+    const __pool = { bySource: {}, records: [] };
     const __src = (c) => (c && c._poolSource) || "holder";
     const __bump = (source, field) => {
       if (!__pool.bySource[source]) {
         __pool.bySource[source] = {
-          total: 0, qualified: 0,
-          invalidAddress: 0, noHp: 0, notPriced: 0, noTokenCount: 0,
-          noEarlyRate: 0, sampleBelowMin: 0, rateBelowMin: 0,
-          fetchFailed: 0, noTrades: 0, noRecentBuys: 0, sellsGeBuys: 0,
+          total: 0,
+          qualified: 0,
+          invalidAddress: 0,
+          noHp: 0,
+          notPriced: 0,
+          noTokenCount: 0,
+          noEarlyRate: 0,
+          sampleBelowMin: 0,
+          rateBelowMin: 0,
+          fetchFailed: 0,
+          noTrades: 0,
+          noRecentBuys: 0,
+          sellsGeBuys: 0,
         };
       }
-      __pool.bySource[source][field] = (__pool.bySource[source][field] || 0) + 1;
+      __pool.bySource[source][field] =
+        (__pool.bySource[source][field] || 0) + 1;
     };
 
     for (const c of candidates) {
       const __s = __src(c);
       __bump(__s, "total");
-      if (!c || !isValidEthAddress(c.wallet)) { __bump(__s, "invalidAddress"); continue; }
+      if (!c || !isValidEthAddress(c.wallet)) {
+        __bump(__s, "invalidAddress");
+        continue;
+      }
 
       const hp = c.historicalProfile;
-      if (!hp || typeof hp !== "object") { __bump(__s, "noHp"); continue; }
-      if (hp.priced !== true) { __bump(__s, "notPriced"); continue; }
-      if (!Number.isFinite(hp.tokenCount) || hp.tokenCount < 1) { __bump(__s, "noTokenCount"); continue; }
-      if (!Number.isFinite(hp.earlyEntryRate)) { __bump(__s, "noEarlyRate"); continue; }
+      if (!hp || typeof hp !== "object") {
+        __bump(__s, "noHp");
+        continue;
+      }
+      if (hp.priced !== true) {
+        __bump(__s, "notPriced");
+        continue;
+      }
+      if (!Number.isFinite(hp.tokenCount) || hp.tokenCount < 1) {
+        __bump(__s, "noTokenCount");
+        continue;
+      }
+      if (!Number.isFinite(hp.earlyEntryRate)) {
+        __bump(__s, "noEarlyRate");
+        continue;
+      }
       __pool.records.push({
-        src: __s, wallet: String(c.wallet).slice(0, 10),
-        sample: hp.earlyEntrySampleCount, rate: hp.earlyEntryRate,
+        src: __s,
+        wallet: String(c.wallet).slice(0, 10),
+        sample: hp.earlyEntrySampleCount,
+        rate: hp.earlyEntryRate,
       });
-      if (!Number.isFinite(hp.earlyEntrySampleCount) ||
-          hp.earlyEntrySampleCount < MIN_EARLY_ENTRY_SAMPLE) { __bump(__s, "sampleBelowMin"); continue; }
-      if (hp.earlyEntryRate < MIN_HISTORICAL_EARLY_RATE) { __bump(__s, "rateBelowMin"); continue; }
+      if (
+        !Number.isFinite(hp.earlyEntrySampleCount) ||
+        hp.earlyEntrySampleCount < MIN_EARLY_ENTRY_SAMPLE
+      ) {
+        __bump(__s, "sampleBelowMin");
+        continue;
+      }
+      if (hp.earlyEntryRate < MIN_HISTORICAL_EARLY_RATE) {
+        __bump(__s, "rateBelowMin");
+        continue;
+      }
 
       let trades = [];
       try {
@@ -16873,14 +16951,23 @@ W.smartMoney.convergenceDetector = (() => {
         );
         continue;
       }
-      if (!trades.length) { __bump(__s, "noTrades"); continue; }
+      if (!trades.length) {
+        __bump(__s, "noTrades");
+        continue;
+      }
 
       const recent = filterRecent(trades, asOf, windowMs);
-      if (!recent.buys.length) { __bump(__s, "noRecentBuys"); continue; }
+      if (!recent.buys.length) {
+        __bump(__s, "noRecentBuys");
+        continue;
+      }
 
       const totalBuyAmount = recent.buys.reduce((s, t) => s + t.amount, 0);
       const totalSellAmount = recent.sells.reduce((s, t) => s + t.amount, 0);
-      if (totalSellAmount >= totalBuyAmount) { __bump(__s, "sellsGeBuys"); continue; }
+      if (totalSellAmount >= totalBuyAmount) {
+        __bump(__s, "sellsGeBuys");
+        continue;
+      }
 
       const lastBuyAt = recent.buys.reduce(
         (m, t) => (t.at > m ? t.at : m),
@@ -16893,22 +16980,26 @@ W.smartMoney.convergenceDetector = (() => {
         buyCount: recent.buys.length,
         totalAmount: totalBuyAmount,
         historicalEarlyEntryRate: hp.earlyEntryRate,
+        _poolSource: __s, // <--- FIXED: Retain the pool source for diagnostics
       });
     }
 
     for (const q of qualifyingWallets) {
-      const s = __src({ _poolSource: q._poolSource }) || "holder";
+      const s = q._poolSource || "holder";
       if (!__pool.bySource[s]) {
         __pool.bySource[s] = { total: 0, qualified: 0 };
       }
       __pool.bySource[s].qualified = (__pool.bySource[s].qualified || 0) + 1;
     }
 
-    console.log("[POOL_DIAG] " + JSON.stringify({
-      token: String(input.tokenAddress || "").slice(0, 10),
-      bySource: __pool.bySource,
-      poolSampleRecords: __pool.records.filter((r) => r.src !== "holder"),
-    }));
+    console.log(
+      "[POOL_DIAG] " +
+        JSON.stringify({
+          token: String(input.tokenAddress || "").slice(0, 10),
+          bySource: __pool.bySource,
+          poolSampleRecords: __pool.records.filter((r) => r.src !== "holder"),
+        }),
+    );
 
     if (qualifyingWallets.length < N_MIN) {
       return {

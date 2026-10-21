@@ -19,8 +19,6 @@ W.smartMoney.convergenceDetector = (() => {
   const INDEPENDENCE_MIN = 0.7;
   const DEFAULT_WINDOW_MS = 15 * 60 * 1000;
   const MIN_HISTORICAL_EARLY_RATE = 0.5;
-  // Per docs/audits/smart-money-early-entry-2026-10-11.md §4:
-  // a rate computed from fewer than 10 priced buys is noise.
   const MIN_EARLY_ENTRY_SAMPLE = 10;
   const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
@@ -143,41 +141,72 @@ W.smartMoney.convergenceDetector = (() => {
     }
 
     const qualifyingWallets = [];
-    // POOL_DIAG_MARK: per-source drop-reason attribution for Gate 0a.
-    const __pool = {
-      bySource: {},
-      records: [],
-    };
+    const __pool = { bySource: {}, records: [] };
     const __src = (c) => (c && c._poolSource) || "holder";
     const __bump = (source, field) => {
       if (!__pool.bySource[source]) {
         __pool.bySource[source] = {
-          total: 0, qualified: 0,
-          invalidAddress: 0, noHp: 0, notPriced: 0, noTokenCount: 0,
-          noEarlyRate: 0, sampleBelowMin: 0, rateBelowMin: 0,
-          fetchFailed: 0, noTrades: 0, noRecentBuys: 0, sellsGeBuys: 0,
+          total: 0,
+          qualified: 0,
+          invalidAddress: 0,
+          noHp: 0,
+          notPriced: 0,
+          noTokenCount: 0,
+          noEarlyRate: 0,
+          sampleBelowMin: 0,
+          rateBelowMin: 0,
+          fetchFailed: 0,
+          noTrades: 0,
+          noRecentBuys: 0,
+          sellsGeBuys: 0,
         };
       }
-      __pool.bySource[source][field] = (__pool.bySource[source][field] || 0) + 1;
+      __pool.bySource[source][field] =
+        (__pool.bySource[source][field] || 0) + 1;
     };
 
     for (const c of candidates) {
       const __s = __src(c);
       __bump(__s, "total");
-      if (!c || !isValidEthAddress(c.wallet)) { __bump(__s, "invalidAddress"); continue; }
+      if (!c || !isValidEthAddress(c.wallet)) {
+        __bump(__s, "invalidAddress");
+        continue;
+      }
 
       const hp = c.historicalProfile;
-      if (!hp || typeof hp !== "object") { __bump(__s, "noHp"); continue; }
-      if (hp.priced !== true) { __bump(__s, "notPriced"); continue; }
-      if (!Number.isFinite(hp.tokenCount) || hp.tokenCount < 1) { __bump(__s, "noTokenCount"); continue; }
-      if (!Number.isFinite(hp.earlyEntryRate)) { __bump(__s, "noEarlyRate"); continue; }
+      if (!hp || typeof hp !== "object") {
+        __bump(__s, "noHp");
+        continue;
+      }
+      if (hp.priced !== true) {
+        __bump(__s, "notPriced");
+        continue;
+      }
+      if (!Number.isFinite(hp.tokenCount) || hp.tokenCount < 1) {
+        __bump(__s, "noTokenCount");
+        continue;
+      }
+      if (!Number.isFinite(hp.earlyEntryRate)) {
+        __bump(__s, "noEarlyRate");
+        continue;
+      }
       __pool.records.push({
-        src: __s, wallet: String(c.wallet).slice(0, 10),
-        sample: hp.earlyEntrySampleCount, rate: hp.earlyEntryRate,
+        src: __s,
+        wallet: String(c.wallet).slice(0, 10),
+        sample: hp.earlyEntrySampleCount,
+        rate: hp.earlyEntryRate,
       });
-      if (!Number.isFinite(hp.earlyEntrySampleCount) ||
-          hp.earlyEntrySampleCount < MIN_EARLY_ENTRY_SAMPLE) { __bump(__s, "sampleBelowMin"); continue; }
-      if (hp.earlyEntryRate < MIN_HISTORICAL_EARLY_RATE) { __bump(__s, "rateBelowMin"); continue; }
+      if (
+        !Number.isFinite(hp.earlyEntrySampleCount) ||
+        hp.earlyEntrySampleCount < MIN_EARLY_ENTRY_SAMPLE
+      ) {
+        __bump(__s, "sampleBelowMin");
+        continue;
+      }
+      if (hp.earlyEntryRate < MIN_HISTORICAL_EARLY_RATE) {
+        __bump(__s, "rateBelowMin");
+        continue;
+      }
 
       let trades = [];
       try {
@@ -195,14 +224,23 @@ W.smartMoney.convergenceDetector = (() => {
         );
         continue;
       }
-      if (!trades.length) { __bump(__s, "noTrades"); continue; }
+      if (!trades.length) {
+        __bump(__s, "noTrades");
+        continue;
+      }
 
       const recent = filterRecent(trades, asOf, windowMs);
-      if (!recent.buys.length) { __bump(__s, "noRecentBuys"); continue; }
+      if (!recent.buys.length) {
+        __bump(__s, "noRecentBuys");
+        continue;
+      }
 
       const totalBuyAmount = recent.buys.reduce((s, t) => s + t.amount, 0);
       const totalSellAmount = recent.sells.reduce((s, t) => s + t.amount, 0);
-      if (totalSellAmount >= totalBuyAmount) { __bump(__s, "sellsGeBuys"); continue; }
+      if (totalSellAmount >= totalBuyAmount) {
+        __bump(__s, "sellsGeBuys");
+        continue;
+      }
 
       const lastBuyAt = recent.buys.reduce(
         (m, t) => (t.at > m ? t.at : m),
@@ -215,22 +253,26 @@ W.smartMoney.convergenceDetector = (() => {
         buyCount: recent.buys.length,
         totalAmount: totalBuyAmount,
         historicalEarlyEntryRate: hp.earlyEntryRate,
+        _poolSource: __s, // <--- FIXED: Retain the pool source for diagnostics
       });
     }
 
     for (const q of qualifyingWallets) {
-      const s = __src({ _poolSource: q._poolSource }) || "holder";
+      const s = q._poolSource || "holder";
       if (!__pool.bySource[s]) {
         __pool.bySource[s] = { total: 0, qualified: 0 };
       }
       __pool.bySource[s].qualified = (__pool.bySource[s].qualified || 0) + 1;
     }
 
-    console.log("[POOL_DIAG] " + JSON.stringify({
-      token: String(input.tokenAddress || "").slice(0, 10),
-      bySource: __pool.bySource,
-      poolSampleRecords: __pool.records.filter((r) => r.src !== "holder"),
-    }));
+    console.log(
+      "[POOL_DIAG] " +
+        JSON.stringify({
+          token: String(input.tokenAddress || "").slice(0, 10),
+          bySource: __pool.bySource,
+          poolSampleRecords: __pool.records.filter((r) => r.src !== "holder"),
+        }),
+    );
 
     if (qualifyingWallets.length < N_MIN) {
       return {
