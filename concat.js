@@ -91,6 +91,7 @@ const files = [
   "js/intelligence/smart-money/wallet-history.js",
   "js/intelligence/smart-money/wallet-profiler.js",
   "js/intelligence/smart-money/convergence-detector.js",
+  "js/intelligence/smart-money/solana-adapter.js",
   "js/intelligence/smart-money/entry-assessment.js",
   "js/intelligence/evaluation/predictive-validator.js",
   "js/intelligence/reasoning/evidence-synthesizer.js",

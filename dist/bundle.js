@@ -16730,9 +16730,13 @@ console.log(
 // Detects when N independent, historically-early wallets are
 // accumulating the same token within a short window.
 //
-// Independence v2 = Behavioral (co-timing/amount) + Funding Graph.
+// Independence v3 = Behavioral (co-timing/amount) + Funding Graph.
 // Two wallets look like the same actor if they are similar on BOTH
 // behavioral axes, OR if they share a non-CEX funding source.
+//
+// CHAIN SUPPORT:
+//   - ethereum: routes to W.smartMoney.walletHistory (Blockscout)
+//   - solana:   routes to W.smartMoney.solanaAdapter (Solscan/Helius)
 
 window.W = window.W || {};
 W.smartMoney = W.smartMoney || {};
@@ -16740,16 +16744,20 @@ W.smartMoney = W.smartMoney || {};
 W.smartMoney.convergenceDetector = (() => {
   "use strict";
 
-  const MODULE_VERSION = "convergence-detector-v2";
+  const MODULE_VERSION = "convergence-detector-v3";
   const N_MIN = 3;
   const INDEPENDENCE_MIN = 0.7;
   const DEFAULT_WINDOW_MS = 15 * 60 * 1000;
   const MIN_HISTORICAL_EARLY_RATE = 0.5;
   const MIN_EARLY_ENTRY_SAMPLE = 10;
-  const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
-  function isValidEthAddress(a) {
-    return typeof a === "string" && ETH_ADDRESS_RE.test(a);
+  const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+  const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+  function isValidAddress(chain, a) {
+    if (typeof a !== "string") return false;
+    if (chain === "solana") return SOLANA_ADDRESS_RE.test(a);
+    return ETH_ADDRESS_RE.test(a);
   }
 
   function limitations() {
@@ -16842,9 +16850,11 @@ W.smartMoney.convergenceDetector = (() => {
   async function detect(input) {
     if (!input || typeof input !== "object")
       return emptyResult(input, "invalid-input");
-    if (input.chain !== "ethereum")
+
+    if (input.chain !== "ethereum" && input.chain !== "solana")
       return emptyResult(input, "unsupported-chain");
-    if (!isValidEthAddress(input.tokenAddress))
+
+    if (!isValidAddress(input.chain, input.tokenAddress))
       return emptyResult(input, "invalid-token");
 
     const asOf =
@@ -16857,9 +16867,21 @@ W.smartMoney.convergenceDetector = (() => {
     const candidates = Array.isArray(input.candidates) ? input.candidates : [];
     if (!candidates.length) return emptyResult(input, "no-candidates");
 
+    // Verify we have the correct adapter for the chain
     const history = W.smartMoney && W.smartMoney.walletHistory;
-    if (!history || typeof history.fetchTrades !== "function") {
+    const solanaAdapter = W.smartMoney && W.smartMoney.solanaAdapter;
+
+    if (
+      input.chain === "ethereum" &&
+      (!history || typeof history.fetchTrades !== "function")
+    ) {
       return emptyResult(input, "wallet-history-unavailable");
+    }
+    if (
+      input.chain === "solana" &&
+      (!solanaAdapter || typeof solanaAdapter.fetchTradeHistory !== "function")
+    ) {
+      return emptyResult(input, "solana-adapter-unavailable");
     }
 
     const qualifyingWallets = [];
@@ -16890,7 +16912,7 @@ W.smartMoney.convergenceDetector = (() => {
     for (const c of candidates) {
       const __s = __src(c);
       __bump(__s, "total");
-      if (!c || !isValidEthAddress(c.wallet)) {
+      if (!c || !isValidAddress(input.chain, c.wallet)) {
         __bump(__s, "invalidAddress");
         continue;
       }
@@ -16932,11 +16954,19 @@ W.smartMoney.convergenceDetector = (() => {
 
       let trades = [];
       try {
-        const r = await history.fetchTrades(
-          input.chain,
-          c.wallet,
-          input.tokenAddress,
-        );
+        let r;
+        if (input.chain === "solana") {
+          r = await solanaAdapter.fetchTradeHistory(
+            c.wallet,
+            input.tokenAddress,
+          );
+        } else {
+          r = await history.fetchTrades(
+            input.chain,
+            c.wallet,
+            input.tokenAddress,
+          );
+        }
         trades = Array.isArray(r && r.trades) ? r.trades : [];
       } catch (e) {
         console.warn(
@@ -16944,6 +16974,7 @@ W.smartMoney.convergenceDetector = (() => {
           String(c.wallet).slice(0, 10),
           e && e.message,
         );
+        __bump(__s, "fetchFailed");
         continue;
       }
       if (!trades.length) {
@@ -17010,26 +17041,67 @@ W.smartMoney.convergenceDetector = (() => {
       };
     }
 
-    // ══ NEW: Funding Source Independence Check ══
-    // Even if their behavior is different, if they share a non-CEX funder, they are a Sybil cluster.
+    // ══ Funding Source Independence Check ══
     const sourceToWallets = Object.create(null);
+    const allFundingSources = [];
 
-    if (typeof history.fetchFundingSources === "function") {
+    // Fetch funding sources (chain-aware)
+    if (
+      input.chain === "solana" &&
+      solanaAdapter &&
+      typeof solanaAdapter.fetchFundingSources === "function"
+    ) {
+      try {
+        const res = await solanaAdapter.fetchFundingSources(
+          qualifyingWallets.map((w) => w.wallet),
+        );
+        if (res && res.fundingSources) {
+          for (const [wallet, fund] of res.fundingSources.entries()) {
+            allFundingSources.push({
+              wallet,
+              source: fund.source,
+              type: fund.type,
+            });
+          }
+        }
+      } catch (e) {
+        console.warn(
+          "[ConvergenceDetector] Solana funding fetch failed:",
+          e.message,
+        );
+      }
+    } else if (history && typeof history.fetchFundingSources === "function") {
       const fundingData = await Promise.all(
         qualifyingWallets.map(async (w) => {
-          const res = await history.fetchFundingSources(input.chain, w.wallet);
-          return { wallet: w.wallet, sources: res.fundingSources || [] };
+          try {
+            const res = await history.fetchFundingSources(
+              input.chain,
+              w.wallet,
+            );
+            return { wallet: w.wallet, sources: res.fundingSources || [] };
+          } catch (e) {
+            return { wallet: w.wallet, sources: [] };
+          }
         }),
       );
 
       for (const item of fundingData) {
         for (const fund of item.sources) {
-          if (fund.type !== "wallet") continue; // Ignore CEX/Mint
-          if (!sourceToWallets[fund.source]) sourceToWallets[fund.source] = [];
-          if (!sourceToWallets[fund.source].includes(item.wallet)) {
-            sourceToWallets[fund.source].push(item.wallet);
-          }
+          allFundingSources.push({
+            wallet: item.wallet,
+            source: fund.source,
+            type: fund.type,
+          });
         }
+      }
+    }
+
+    // Cluster the wallets based on shared funders
+    for (const item of allFundingSources) {
+      if (item.type !== "wallet") continue; // Ignore CEX/Mint
+      if (!sourceToWallets[item.source]) sourceToWallets[item.source] = [];
+      if (!sourceToWallets[item.source].includes(item.wallet)) {
+        sourceToWallets[item.source].push(item.wallet);
       }
     }
 
@@ -17105,7 +17177,81 @@ W.smartMoney.convergenceDetector = (() => {
 })();
 
 console.log(
-  "[ConvergenceDetector] Module loaded — N>=3, sybil-resistant, 15m window.",
+  "[ConvergenceDetector] Module loaded — N>=3, multi-chain, sybil-resistant, 15m window.",
+);
+// ---- js/intelligence/smart-money/solana-adapter.js ----
+// js/intelligence/smart-money/solana-adapter.js
+window.W = window.W || {};
+W.smartMoney = W.smartMoney || {};
+
+W.smartMoney.solanaAdapter = (() => {
+  "use strict";
+  const MODULE_VERSION = "solana-adapter-v1";
+  const WORKER_BASE = "https://weaver-proxy.ibis01-weaver.workers.dev";
+
+  // Known Solana CEX hot wallets to filter out
+  const KNOWN_CEX_WALLETS = new Set([
+    "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9", // Binance
+    "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", // Coinbase
+  ]);
+
+  async function fetchFundingSources(addresses) {
+    if (!Array.isArray(addresses) || addresses.length === 0) {
+      return { fundingSources: new Map(), reason: "no-addresses" };
+    }
+
+    try {
+      const res = await fetch(`${WORKER_BASE}/solana/funding-sources`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ addresses }),
+      });
+
+      if (!res.ok) throw new Error(`Worker returned ${res.status}`);
+      const json = await res.json();
+      if (!json.ok || !Array.isArray(json.data)) {
+        throw new Error("Invalid response shape from Worker");
+      }
+
+      const fundingMap = new Map();
+      for (const entry of json.data) {
+        if (!entry || !entry.address) continue;
+        const funder = entry.funded_by;
+        if (!funder) continue;
+
+        let type = "wallet";
+        if (KNOWN_CEX_WALLETS.has(funder)) {
+          type = "cex";
+        }
+        fundingMap.set(entry.address, { source: funder, type });
+      }
+
+      return { fundingSources: fundingMap, cached: false };
+    } catch (e) {
+      console.warn("[SolanaAdapter] Funding source fetch failed:", e.message);
+      return { fundingSources: new Map(), reason: "fetch-failed" };
+    }
+  }
+
+  async function fetchTradeHistory(wallet, tokenMint) {
+    // Placeholder for Helius parsed history integration.
+    // Without this, historicalEarlyEntryRate will be null, and the wallet
+    // will be filtered out by the ConvergenceDetector's MIN_EARLY_ENTRY_SAMPLE check.
+    console.warn(
+      "[SolanaAdapter] Trade history is not yet implemented for Solana.",
+    );
+    return { trades: [], reason: "not-implemented" };
+  }
+
+  return Object.freeze({
+    fetchFundingSources,
+    fetchTradeHistory,
+    version: MODULE_VERSION,
+  });
+})();
+
+console.log(
+  "[SolanaAdapter] Module loaded — Solana funding & trade history adapter.",
 );
 // ---- js/intelligence/smart-money/entry-assessment.js ----
 // js/intelligence/smart-money/entry-assessment.js
