@@ -1204,6 +1204,28 @@ async function handleRequest(request, env, ctx) {
     return relayGoPlus(upstream, headers, env, ctx);
   }
 
+  // ── Discovery Routes ───────────────────────────────────────
+
+  // Manual trigger to force a scan
+  if (parts.length === 2 && parts[0] === "discovery" && parts[1] === "scan") {
+    if (request.method !== "GET")
+      return jsonResponse({ error: "Method not allowed" }, 405, headers);
+
+    // Run in the background so the HTTP request returns immediately
+    ctx.waitUntil(runDiscoveryScan(env));
+
+    return jsonResponse(
+      {
+        ok: true,
+        message:
+          "Scan triggered in background. Check /discovery/health in 5 seconds.",
+      },
+      200,
+      headers,
+    );
+  }
+
+  // Get the latest snapshot
   if (
     parts.length === 2 &&
     parts[0] === "discovery" &&
@@ -1225,6 +1247,7 @@ async function handleRequest(request, env, ctx) {
     });
   }
 
+  // Health and budget status
   if (parts.length === 2 && parts[0] === "discovery" && parts[1] === "health") {
     if (request.method !== "GET")
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
