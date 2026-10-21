@@ -8,9 +8,12 @@ compatibility_date = "2024-09-01"
 # Secrets are configured via `wrangler secret put`. The Worker reads:
 #   ETHERSCAN_KEY  (required for /etherscan/deployer)
 #   HELIUS_KEY     (required for /helius/deployer and the Solana RPC relay)
-#   GOPLUS_KEY     (optional; GoPlus routes work unauthenticated)
 #
 # Missing secrets produce 503 on the affected route, not a deploy failure.
 [[kv_namespaces]]
 binding = "MEME_ALERTS"
 id = "711edb1aa070446ea6ccbf81d26135a4"
+
+# Wake up every 15 minutes to scan for new tokens
+[triggers]
+crons = ["*/15 * * * *"]

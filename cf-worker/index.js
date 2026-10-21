@@ -11,30 +11,7 @@
 //   GET  /meme/alerts?since=&until=&limit=&cursor=   (calibration read)
 //   POST /meme/alert           body: { assessment, market, ... }
 //   GET/POST /proxy?url=...    host-allowlisted market/news relay
-//
-// SOLANA DEPLOYER LOOKUP — DESIGN NOTES:
-//   Etherscan has no Solana deployment. Solana deployer history is
-//   sourced from Helius Parsed Events (transaction-history endpoint),
-//   which returns every transaction an address touched with decoded
-//   instructions. The Worker filters for Pump.fun create/create_v2
-//   instructions, extracts the mint from each decoded account list,
-//   and returns a normalized { contracts[] } array identical in shape
-//   to what /etherscan/deployer returns.
-//
-//   Pump.fun covers the majority of Solana memecoins the gem scanner
-//   surfaces. Other launchpads (Raydium LaunchLab, Moonshot) use
-//   different programs; if their coverage becomes important, add
-//   their program IDs to PUMPFUN_PROGRAM_IDS and their instruction
-//   names to CREATE_INSTRUCTION_NAMES. The response shape does not
-//   need to change.
-//
-//   Credits: Helius Parsed Events costs 10 credits per request on
-//   every plan including Free. The Worker caps at MAX_HELIUS_PAGES
-//   (3) pages of 100 transactions each, so a single deployer lookup
-//   costs at most 30 credits. This is bounded and predictable.
-//
-//   HELIUS_KEY is the same secret used by the Solana RPC key
-//   injection in relayAllowedProxy. No new secret.
+//   GET  /discovery/snapshot   latest background scan results
 //
 // Deploy: see cf-worker/README.md in this folder.
 
@@ -62,12 +39,9 @@ const HELIUS_PARSED_EVENTS_URL =
   "https://mainnet.helius-rpc.com/v1/parsed-events/transaction-history";
 
 // Pump.fun launch programs and instruction names that create a token.
-// Add more launchpads here if coverage is needed later.
 const PUMPFUN_PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
 const CREATE_INSTRUCTION_NAMES = new Set(["create", "create_v2"]);
 
-// Pagination caps for the Helius deployer lookup. 3 pages × 100 txns
-// = at most 30 credits per lookup.
 const MAX_HELIUS_PAGES = 3;
 const HELIUS_PAGE_SIZE = 100;
 
@@ -85,43 +59,32 @@ const ALLOWED_EVM_CHAIN_IDS = new Set([
 ]);
 
 const ALLOWED_PROXY_HOSTS = new Set([
-  // ── Market data ──
   "api.coinpaprika.com",
   "api.coinlore.net",
   "api.coinbase.com",
-  // Coinbase Exchange (OHLCV candles) is a distinct host from
-  // api.coinbase.com (spot prices). The exchange subdomain hosts
-  // /products/{pair}/candles, which is the OHLCV fallback path.
   "api.exchange.coinbase.com",
   "api.alternative.me",
   "api.dexscreener.com",
   "api.llama.fi",
-  // ── OHLCV providers ──
   "api.binance.com",
   "api.kraken.com",
   "api.bybit.com",
-  // ── Security / analysis ──
   "api.gopluslabs.io",
   "api.etherscan.io",
   "api.polygonscan.com",
   "api.arbiscan.io",
   "api.snowtrace.io",
   "api.solscan.io",
-  // ── EVM RPCs ──
   "ethereum.publicnode.com",
   "bsc-rpc.publicnode.com",
-  // ── Solana RPC (keyed, injected by relayAllowedProxy) ──
   "mainnet.helius-rpc.com",
-  // ── Explorers / misc ──
   "eth.blockscout.com",
   "mempool.space",
-  // ── News RSS ──
   "www.coindesk.com",
   "cointelegraph.com",
   "decrypt.co",
 ]);
 
-// Weaver EVM chain key → Etherscan unified V2 chainid.
 const CHAIN_TO_ETHERSCAN_ID = Object.freeze({
   ethereum: "1",
   bsc: "56",
@@ -145,17 +108,82 @@ const GOPLUS_BASE_DELAY_MS = 400;
 const PROXY_CACHE_FRESH_SECONDS = 60;
 const PROXY_CACHE_STALE_MAX_SECONDS = 600;
 
-// GoPlus caching windows. Caching security data prevents exhausting
-// the shared Cloudflare egress IP rate limit on the GoPlus free tier.
-const GOPLUS_CACHE_FRESH_SECONDS = 300; // 5 minutes
-const GOPLUS_CACHE_STALE_MAX_SECONDS = 900; // 15 minutes
+const GOPLUS_CACHE_FRESH_SECONDS = 300;
+const GOPLUS_CACHE_STALE_MAX_SECONDS = 900;
 
-// Request coalescing: concurrent GETs to the same effectiveTarget share
-// one upstream fetch within a single isolate. Cloudflare may run multiple
-// isolates per colo; cross-isolate dedup is not provided. Entries are
-// removed on settle — success or failure — so a failed fetch cannot
-// poison the map.
 const __inflightFetches = new Map();
+
+// ----------------------------------------------------------------
+// Discovery Pipeline (Gate 3)
+// ----------------------------------------------------------------
+const DISCOVERY_KV_KEY = "discovery:snapshot:latest";
+
+async function runDiscoveryScan(env) {
+  console.log("[Discovery] Starting scheduled scan...");
+
+  try {
+    const dexRes = await fetch(
+      "https://api.dexscreener.com/latest/dex/search?q=PEPE",
+    );
+    if (!dexRes.ok) throw new Error(`DexScreener returned ${dexRes.status}`);
+
+    const dexData = await dexRes.json();
+    const rawPairs = dexData.pairs || [];
+
+    const uniqueTokens = [
+      ...new Map(rawPairs.map((p) => [p.baseToken.address, p])).values(),
+    ]
+      .filter((p) => p.chainId === "ethereum")
+      .slice(0, 10);
+
+    const enrichedTokens = [];
+
+    for (const token of uniqueTokens) {
+      const goplusUrl = `${GOPLUS_EVM_BASE}/1?contract_addresses=${token.baseToken.address}`;
+
+      try {
+        const secRes = await fetch(goplusUrl);
+        const secData = await secRes.json();
+
+        enrichedTokens.push({
+          address: token.baseToken.address,
+          symbol: token.baseToken.symbol,
+          priceUsd: token.priceUsd,
+          liquidity: token.liquidity?.usd || 0,
+          security:
+            secData.code === 1
+              ? secData.result[token.baseToken.address.toLowerCase()]
+              : null,
+        });
+      } catch (err) {
+        console.error(
+          `[Discovery] Failed to enrich ${token.baseToken.symbol}:`,
+          err,
+        );
+        enrichedTokens.push({
+          address: token.baseToken.address,
+          symbol: token.baseToken.symbol,
+          priceUsd: token.priceUsd,
+          liquidity: token.liquidity?.usd || 0,
+          security: null,
+        });
+      }
+    }
+
+    const snapshot = {
+      timestamp: Date.now(),
+      tokenCount: enrichedTokens.length,
+      tokens: enrichedTokens,
+    };
+
+    await env.MEME_ALERTS.put(DISCOVERY_KV_KEY, JSON.stringify(snapshot));
+    console.log(
+      `[Discovery] Scan complete. Saved ${enrichedTokens.length} tokens to KV.`,
+    );
+  } catch (error) {
+    console.error("[Discovery] Scan failed:", error.message);
+  }
+}
 
 async function fetchUpstreamCaptured(effectiveTarget, init) {
   const controller = new AbortController();
@@ -191,9 +219,6 @@ function fetchWithCoalesce(effectiveTarget, init, method) {
   return p;
 }
 
-// ----------------------------------------------------------------
-// CORS
-// ----------------------------------------------------------------
 function corsHeaders(origin) {
   const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : "null";
   return {
@@ -236,12 +261,6 @@ async function fetchGoPlusOnce(upstreamUrl) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-  // GoPlus v1 (api.gopluslabs.io/api/v1) accepts unauthenticated
-  // requests on the free tier. Sending `Authorization: Bearer <key>`
-  // causes a 4012 "signature verification failure" because GoPlus
-  // expects HMAC-SHA256 signing for authenticated calls, not a Bearer
-  // token. If higher rate limits are needed later, implement signing
-  // with GOPLUS_APP_KEY + GOPLUS_APP_SECRET, not by reusing this block.
   const headers = { "User-Agent": "WeaverProxy/1.0" };
 
   try {
@@ -312,9 +331,6 @@ async function relay(upstreamUrl, headers) {
   );
 }
 
-// ----------------------------------------------------------------
-// GoPlus caching wrapper
-// ----------------------------------------------------------------
 async function relayGoPlus(upstreamUrl, headers, env, ctx) {
   const cache = caches.default;
   const cacheKey = new Request(upstreamUrl, {
@@ -322,7 +338,6 @@ async function relayGoPlus(upstreamUrl, headers, env, ctx) {
     headers: { Accept: "application/json" },
   });
 
-  // Try cache first
   const cached = await cache.match(cacheKey);
   if (cached) {
     const cachedAt = Number(cached.headers.get("X-Weaver-Cached-At") || 0);
@@ -340,10 +355,8 @@ async function relayGoPlus(upstreamUrl, headers, env, ctx) {
     }
   }
 
-  // Cache miss or stale → fetch upstream via existing relay()
   const response = await relay(upstreamUrl, headers, env);
 
-  // Only cache successful (code:1) responses
   if (response.status === 200) {
     const body = await response.clone().text();
     try {
@@ -371,18 +384,12 @@ async function relayGoPlus(upstreamUrl, headers, env, ctx) {
           },
         });
       }
-    } catch (_) {
-      // Not JSON, don't cache
-    }
+    } catch (_) {}
   }
 
-  // If rate-limited or error, return as-is (don't cache)
   return response;
 }
 
-// ----------------------------------------------------------------
-// Etherscan deployer lookup (EVM)
-// ----------------------------------------------------------------
 async function relayEtherscanDeployer(env, chainId, address, headers) {
   if (!env || typeof env.ETHERSCAN_KEY !== "string" || !env.ETHERSCAN_KEY) {
     return jsonResponse(
@@ -430,9 +437,6 @@ async function relayEtherscanDeployer(env, chainId, address, headers) {
 
   if (!upstreamResp.ok) {
     const status = upstreamResp.status;
-    console.error(
-      `[relayEtherscanDeployer] Etherscan upstream returned HTTP ${status}`,
-    );
     const isRateLimited = status === 429;
     return jsonResponse(
       {
@@ -458,21 +462,12 @@ async function relayEtherscanDeployer(env, chainId, address, headers) {
     );
   }
 
-  if (!parsed || typeof parsed !== "object") {
-    return jsonResponse(
-      { error: "Etherscan returned an unexpected shape" },
-      502,
-      headers,
-    );
-  }
-
   const status = parsed.status;
   const message = typeof parsed.message === "string" ? parsed.message : "";
   const result = parsed.result;
 
   if (status === "0") {
     const lower = message.toLowerCase();
-
     if (lower.includes("no transactions found")) {
       return jsonResponse(
         {
@@ -486,11 +481,7 @@ async function relayEtherscanDeployer(env, chainId, address, headers) {
         headers,
       );
     }
-
     if (lower.includes("rate limit") || lower.includes("max rate")) {
-      console.error(
-        `[relayEtherscanDeployer] Etherscan rate limit: ${message}`,
-      );
       return jsonResponse(
         {
           error: "Etherscan rate limit reached",
@@ -501,11 +492,6 @@ async function relayEtherscanDeployer(env, chainId, address, headers) {
         headers,
       );
     }
-
-    console.error(
-      `[relayEtherscanDeployer] Etherscan status:0 message="${message}" ` +
-        `result=${JSON.stringify(result).slice(0, 200)}`,
-    );
     return jsonResponse(
       {
         error: `Etherscan rejected the request`,
@@ -518,9 +504,6 @@ async function relayEtherscanDeployer(env, chainId, address, headers) {
   }
 
   if (!Array.isArray(result)) {
-    console.error(
-      "[relayEtherscanDeployer] Etherscan status:1 but result is not an array",
-    );
     return jsonResponse(
       { error: "Etherscan returned a non-array result" },
       502,
@@ -531,37 +514,34 @@ async function relayEtherscanDeployer(env, chainId, address, headers) {
   const contracts = [];
   for (const tx of result) {
     if (!tx || typeof tx !== "object") continue;
-
     const contractAddress =
       typeof tx.contractAddress === "string" ? tx.contractAddress.trim() : "";
     if (
       !contractAddress ||
       contractAddress === "0x" ||
       contractAddress.length < 42
-    ) {
+    )
       continue;
-    }
     if (!EVM_ADDRESS_PATTERN.test(contractAddress)) continue;
-
-    const blockNumber = Number(tx.blockNumber);
-    const timestamp = Number(tx.timeStamp);
 
     contracts.push({
       address: contractAddress.toLowerCase(),
       txHash: typeof tx.hash === "string" ? tx.hash : null,
-      blockNumber: Number.isFinite(blockNumber) ? blockNumber : null,
-      deployedAt: Number.isFinite(timestamp) ? timestamp * 1000 : null,
+      blockNumber: Number.isFinite(Number(tx.blockNumber))
+        ? Number(tx.blockNumber)
+        : null,
+      deployedAt: Number.isFinite(Number(tx.timeStamp))
+        ? Number(tx.timeStamp) * 1000
+        : null,
     });
   }
-
-  const truncated = result.length >= 10000;
 
   return jsonResponse(
     {
       deployer: address,
       chainId,
       contracts,
-      truncated,
+      truncated: result.length >= 10000,
       source: "etherscan",
     },
     200,
@@ -569,18 +549,6 @@ async function relayEtherscanDeployer(env, chainId, address, headers) {
   );
 }
 
-// ----------------------------------------------------------------
-// Helius deployer lookup (Solana)
-// ----------------------------------------------------------------
-//
-// Pages through a Solana wallet's Parsed Events history, filters for
-// Pump.fun create/create_v2 instructions, extracts the mint address
-// from each decoded instruction, and returns the same shape that
-// /etherscan/deployer returns so the client can treat both
-// providers identically.
-//
-// Solana addresses are case-sensitive base58. Do NOT lowercase them
-// here or in the client.
 async function relayHeliusDeployer(env, address, headers) {
   if (!env || typeof env.HELIUS_KEY !== "string" || !env.HELIUS_KEY) {
     return jsonResponse(
@@ -591,7 +559,6 @@ async function relayHeliusDeployer(env, address, headers) {
   }
 
   const url = `${HELIUS_PARSED_EVENTS_URL}?api-key=${encodeURIComponent(env.HELIUS_KEY)}`;
-
   const contracts = [];
   let paginationToken = null;
   let pagesFetched = 0;
@@ -609,8 +576,7 @@ async function relayHeliusDeployer(env, address, headers) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-    let resp;
-    let text;
+    let resp, text;
     try {
       resp = await fetch(url, {
         method: "POST",
@@ -625,14 +591,12 @@ async function relayHeliusDeployer(env, address, headers) {
       });
       text = await readTextWithCap(resp);
     } catch (e) {
-      console.error("[relayHeliusDeployer] fetch failed:", e && e.message);
-      if (pagesFetched === 0) {
+      if (pagesFetched === 0)
         return jsonResponse(
           { error: "Helius upstream unavailable" },
           502,
           headers,
         );
-      }
       truncated = true;
       break;
     } finally {
@@ -640,8 +604,7 @@ async function relayHeliusDeployer(env, address, headers) {
     }
 
     if (!resp.ok) {
-      if (resp.status === 429) {
-        console.error("[relayHeliusDeployer] Helius rate limit reached");
+      if (resp.status === 429)
         return jsonResponse(
           {
             error: "Helius rate limit reached",
@@ -651,17 +614,12 @@ async function relayHeliusDeployer(env, address, headers) {
           429,
           headers,
         );
-      }
-      console.error(
-        `[relayHeliusDeployer] upstream returned HTTP ${resp.status}`,
-      );
-      if (pagesFetched === 0) {
+      if (pagesFetched === 0)
         return jsonResponse(
           { error: `Helius upstream returned HTTP ${resp.status}` },
           502,
           headers,
         );
-      }
       truncated = true;
       break;
     }
@@ -678,7 +636,6 @@ async function relayHeliusDeployer(env, address, headers) {
     }
 
     const data = parsed && Array.isArray(parsed.data) ? parsed.data : [];
-
     for (const entry of data) {
       if (!entry || entry.parserStatus !== "OK") continue;
       const inner = entry.parsed;
@@ -687,7 +644,6 @@ async function relayHeliusDeployer(env, address, headers) {
       const instructions = Array.isArray(inner.instructions)
         ? inner.instructions
         : [];
-
       for (const ix of instructions) {
         if (!ix || typeof ix !== "object") continue;
         if (ix.programId !== PUMPFUN_PROGRAM_ID) continue;
@@ -695,7 +651,6 @@ async function relayHeliusDeployer(env, address, headers) {
 
         const decoded = ix.decoded;
         if (!decoded || typeof decoded !== "object") continue;
-
         const accounts = Array.isArray(decoded.accounts)
           ? decoded.accounts
           : [];
@@ -715,10 +670,9 @@ async function relayHeliusDeployer(env, address, headers) {
           findAccount("creator") ||
           findAccount("user") ||
           null;
-
         contracts.push({
           address: mint,
-          txHash: typeof entry.signature === "string" ? entry.signature : null,
+          txHash: entry.signature || null,
           deployedAt: null,
           slot: Number.isFinite(inner.slot) ? inner.slot : null,
           creator,
@@ -731,20 +685,12 @@ async function relayHeliusDeployer(env, address, headers) {
         ? parsed.paginationToken
         : null;
     pagesFetched += 1;
-
     if (!paginationToken) break;
   }
 
   if (paginationToken && pagesFetched >= MAX_HELIUS_PAGES) truncated = true;
-
   return jsonResponse(
-    {
-      deployer: address,
-      contracts,
-      truncated,
-      pagesFetched,
-      source: "helius",
-    },
+    { deployer: address, contracts, truncated, pagesFetched, source: "helius" },
     200,
     headers,
   );
@@ -752,9 +698,8 @@ async function relayHeliusDeployer(env, address, headers) {
 
 async function relayAllowedProxy(request, url, headers, ctx, env) {
   const target = url.searchParams.get("url");
-  if (!target) {
+  if (!target)
     return jsonResponse({ error: "Missing url param" }, 400, headers);
-  }
 
   const targetUrl = (() => {
     try {
@@ -763,43 +708,30 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
       return null;
     }
   })();
-
-  if (!targetUrl) {
-    return jsonResponse({ error: "Invalid url" }, 400, headers);
-  }
-
-  if (targetUrl.protocol !== "https:") {
+  if (!targetUrl) return jsonResponse({ error: "Invalid url" }, 400, headers);
+  if (targetUrl.protocol !== "https:")
     return jsonResponse({ error: "Only https is allowed" }, 400, headers);
-  }
-
-  if (!ALLOWED_PROXY_HOSTS.has(targetUrl.hostname)) {
+  if (!ALLOWED_PROXY_HOSTS.has(targetUrl.hostname))
     return jsonResponse(
       { error: `Host not allowed: ${targetUrl.hostname}` },
       403,
       headers,
     );
-  }
 
   let effectiveTarget = targetUrl.toString();
 
-  if (
-    targetUrl.hostname === "mainnet.helius-rpc.com" &&
-    env &&
-    typeof env.HELIUS_KEY === "string" &&
-    env.HELIUS_KEY
-  ) {
-    const keyed = new URL(targetUrl.toString());
-    keyed.searchParams.set("api-key", env.HELIUS_KEY);
-    effectiveTarget = keyed.toString();
-  } else if (
-    targetUrl.hostname === "mainnet.helius-rpc.com" &&
-    (!env || !env.HELIUS_KEY)
-  ) {
-    return jsonResponse(
-      { error: "Helius RPC not configured on this Worker (set HELIUS_KEY)" },
-      503,
-      headers,
-    );
+  if (targetUrl.hostname === "mainnet.helius-rpc.com") {
+    if (env && typeof env.HELIUS_KEY === "string" && env.HELIUS_KEY) {
+      const keyed = new URL(targetUrl.toString());
+      keyed.searchParams.set("api-key", env.HELIUS_KEY);
+      effectiveTarget = keyed.toString();
+    } else {
+      return jsonResponse(
+        { error: "Helius RPC not configured on this Worker (set HELIUS_KEY)" },
+        503,
+        headers,
+      );
+    }
   }
 
   const method = request.method === "POST" ? "POST" : "GET";
@@ -807,12 +739,8 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
     Accept: "application/json",
     "User-Agent": "WeaverProxy/1.0",
   };
+  const init = { method, headers: upstreamHeaders, redirect: "manual" };
 
-  const init = {
-    method,
-    headers: upstreamHeaders,
-    redirect: "manual",
-  };
   if (method === "POST") {
     init.body = await request.text();
     init.headers["Content-Type"] = "application/json";
@@ -823,7 +751,6 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
     method: "GET",
     headers: { Accept: "application/json" },
   });
-
   let cachedResponse = null;
   let cachedAge = Infinity;
 
@@ -834,10 +761,8 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
         cachedResponse.headers.get("X-Weaver-Cached-At") || 0,
       );
       cachedAge = (Date.now() - cachedAt) / 1000;
-
       if (cachedAge <= PROXY_CACHE_FRESH_SECONDS) {
-        const body = await cachedResponse.text();
-        return new Response(body, {
+        return new Response(await cachedResponse.text(), {
           status: 200,
           headers: {
             "Content-Type":
@@ -851,14 +776,10 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
   }
 
   const captured = await fetchWithCoalesce(effectiveTarget, init, method);
-  const upstreamOk = captured.ok;
-  const text = captured.ok ? captured.text : null;
-
-  if (upstreamOk && text !== null) {
+  if (captured.ok && captured.text !== null) {
     const contentType = captured.contentType || "application/json";
-
     if (method === "GET") {
-      const toCache = new Response(text, {
+      const toCache = new Response(captured.text, {
         status: 200,
         headers: {
           "Content-Type": contentType,
@@ -866,14 +787,11 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
           "X-Weaver-Cached-At": String(Date.now()),
         },
       });
-      if (ctx && typeof ctx.waitUntil === "function") {
+      if (ctx && typeof ctx.waitUntil === "function")
         ctx.waitUntil(cache.put(cacheKey, toCache.clone()));
-      } else {
-        await cache.put(cacheKey, toCache.clone());
-      }
+      else await cache.put(cacheKey, toCache.clone());
     }
-
-    return new Response(text, {
+    return new Response(captured.text, {
       status: 200,
       headers: {
         "Content-Type": contentType,
@@ -888,8 +806,7 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
     cachedResponse &&
     cachedAge <= PROXY_CACHE_STALE_MAX_SECONDS
   ) {
-    const staleBody = await cachedResponse.text();
-    return new Response(staleBody, {
+    return new Response(await cachedResponse.text(), {
       status: 200,
       headers: {
         "Content-Type":
@@ -902,17 +819,18 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
   }
 
   if (!captured.networkError && captured.status > 0) {
-    const errorBody =
+    return new Response(
       captured.errorText ||
-      JSON.stringify({ error: `Upstream returned HTTP ${captured.status}` });
-    return new Response(errorBody, {
-      status: captured.status,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Weaver-Cache": "NONE",
-        ...headers,
+        JSON.stringify({ error: `Upstream returned HTTP ${captured.status}` }),
+      {
+        status: captured.status,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Weaver-Cache": "NONE",
+          ...headers,
+        },
       },
-    });
+    );
   }
 
   return jsonResponse(
@@ -922,10 +840,6 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
   );
 }
 
-// ----------------------------------------------------------------
-// Route handlers
-// ----------------------------------------------------------------
-
 async function handleEtherscanDeployerRequest(request, env, headers) {
   let body;
   try {
@@ -933,25 +847,22 @@ async function handleEtherscanDeployerRequest(request, env, headers) {
   } catch (e) {
     return jsonResponse({ error: "Invalid JSON body" }, 400, headers);
   }
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
+  if (!body || typeof body !== "object" || Array.isArray(body))
     return jsonResponse({ error: "Invalid request body" }, 400, headers);
-  }
 
   const chain =
     typeof body.chain === "string" ? body.chain.trim().toLowerCase() : "";
   const address =
     typeof body.deployerAddress === "string" ? body.deployerAddress.trim() : "";
-
   const chainId = CHAIN_TO_ETHERSCAN_ID[chain];
-  if (!chainId) {
+
+  if (!chainId)
     return jsonResponse(
       { error: `Unsupported chain: ${chain || "(missing)"}` },
       400,
       headers,
     );
-  }
-
-  if (!EVM_ADDRESS_PATTERN.test(address)) {
+  if (!EVM_ADDRESS_PATTERN.test(address))
     return jsonResponse(
       {
         error: "deployerAddress must be a 0x-prefixed 40-character hex string",
@@ -959,7 +870,6 @@ async function handleEtherscanDeployerRequest(request, env, headers) {
       400,
       headers,
     );
-  }
 
   return relayEtherscanDeployer(env, chainId, address.toLowerCase(), headers);
 }
@@ -971,77 +881,59 @@ async function handleHeliusDeployerRequest(request, env, headers) {
   } catch (e) {
     return jsonResponse({ error: "Invalid JSON body" }, 400, headers);
   }
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
+  if (!body || typeof body !== "object" || Array.isArray(body))
     return jsonResponse({ error: "Invalid request body" }, 400, headers);
-  }
 
   const chain =
     typeof body.chain === "string" ? body.chain.trim().toLowerCase() : "";
   const address =
     typeof body.deployerAddress === "string" ? body.deployerAddress.trim() : "";
 
-  if (chain !== "solana") {
+  if (chain !== "solana")
     return jsonResponse(
       { error: `Unsupported chain for Helius: ${chain || "(missing)"}` },
       400,
       headers,
     );
-  }
-
-  if (!SOLANA_ADDRESS_PATTERN.test(address)) {
+  if (!SOLANA_ADDRESS_PATTERN.test(address))
     return jsonResponse(
-      {
-        error: "deployerAddress must be a base58 Solana address",
-      },
+      { error: "deployerAddress must be a base58 Solana address" },
       400,
       headers,
     );
-  }
 
   return relayHeliusDeployer(env, address, headers);
 }
 
-// ----------------------------------------------------------------
-// Router
-// ----------------------------------------------------------------
 async function handleRequest(request, env, ctx) {
   const originHeader = request.headers.get("Origin");
   const origin = originHeader || "";
   const headers = corsHeaders(origin);
 
-  if (request.method === "OPTIONS") {
+  if (request.method === "OPTIONS")
     return new Response(null, { status: 204, headers });
-  }
-
-  if (originHeader !== null && !ALLOWED_ORIGINS.includes(origin)) {
+  if (originHeader !== null && !ALLOWED_ORIGINS.includes(origin))
     return jsonResponse({ error: "Origin not allowed" }, 403, headers);
-  }
 
   const url = new URL(request.url);
   const parts = url.pathname.split("/").filter(Boolean);
 
-  // ── Etherscan deployer route (EVM) ───────────────────────────
   if (
     parts.length === 2 &&
     parts[0] === "etherscan" &&
     parts[1] === "deployer"
   ) {
-    if (request.method !== "POST") {
+    if (request.method !== "POST")
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
-    }
     return handleEtherscanDeployerRequest(request, env, headers);
   }
 
-  // ── Helius deployer route (Solana) ──────────────────────────
   if (parts.length === 2 && parts[0] === "helius" && parts[1] === "deployer") {
-    if (request.method !== "POST") {
+    if (request.method !== "POST")
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
-    }
     return handleHeliusDeployerRequest(request, env, headers);
   }
 
-  // ── Meme alerts listing ─────────────────────────────────────
-  // ---- Weaver: provenance bridge (Phase 2) ----
   if (
     parts.length === 1 &&
     parts[0] === "provenance" &&
@@ -1053,13 +945,13 @@ async function handleRequest(request, env, ctx) {
     } catch {
       body = null;
     }
-    if (!body || typeof body.symbol !== "string" || !body.result) {
+    if (!body || typeof body.symbol !== "string" || !body.result)
       return jsonResponse(
         { error: "symbol and result required" },
         400,
         headers,
       );
-    }
+
     const ranAt = Number(body.ranAt) || Date.now();
     const key = "provenance:v1:" + body.symbol.toLowerCase() + ":" + ranAt;
     const payload = JSON.stringify({
@@ -1089,34 +981,36 @@ async function handleRequest(request, env, ctx) {
     const limit = Math.min(Number(url.searchParams.get("limit")) || 20, 200);
     const prefix = symbol ? "provenance:v1:" + symbol + ":" : "provenance:v1:";
     const list = await env.MEME_ALERTS.list({ prefix, limit: limit * 3 });
-    const keys = list.keys.map((k) => k.name);
     const out = [];
-    for (const k of keys) {
+    for (const k of list.keys) {
       try {
-        const v = await env.MEME_ALERTS.get(k);
+        const v = await env.MEME_ALERTS.get(k.name);
         if (v) out.push(JSON.parse(v));
       } catch {}
     }
+
     const seen = new Map();
-    for (const e of out) {
-      const k = (e.symbol || "") + ":" + (e.ranAt || 0);
-      seen.set(k, e);
-    }
-    const deduped = [...seen.values()];
-    deduped.sort((a, b) => (Number(b.ranAt) || 0) - (Number(a.ranAt) || 0));
-    const trimmed = deduped.slice(0, limit);
-    return jsonResponse({ entries: trimmed }, 200, headers);
+    for (const e of out) seen.set((e.symbol || "") + ":" + (e.ranAt || 0), e);
+    const deduped = [...seen.values()].sort(
+      (a, b) => (Number(b.ranAt) || 0) - (Number(a.ranAt) || 0),
+    );
+
+    return jsonResponse({ entries: deduped.slice(0, limit) }, 200, headers);
   }
+
   if (
     parts.length === 1 &&
     parts[0] === "provenance" &&
     request.method === "DELETE"
   ) {
-    const prefix = "provenance:v1:";
-    let cursor;
-    let deleted = 0;
+    let cursor,
+      deleted = 0;
     do {
-      const page = await env.MEME_ALERTS.list({ prefix, cursor, limit: 500 });
+      const page = await env.MEME_ALERTS.list({
+        prefix: "provenance:v1:",
+        cursor,
+        limit: 500,
+      });
       for (const k of page.keys) {
         await env.MEME_ALERTS.delete(k.name);
         deleted++;
@@ -1128,9 +1022,6 @@ async function handleRequest(request, env, ctx) {
     });
   }
 
-  // ---- end provenance bridge ----
-
-  // ---- Weaver: generic signal bridge (Phase 1) ----
   if (
     parts.length === 1 &&
     parts[0] === "signal" &&
@@ -1142,12 +1033,12 @@ async function handleRequest(request, env, ctx) {
     } catch {
       body = null;
     }
-    if (!body || !body.signal || typeof body.signal.type !== "string") {
+    if (!body || !body.signal || typeof body.signal.type !== "string")
       return new Response(JSON.stringify({ error: "signal required" }), {
         status: 400,
         headers: { "content-type": "application/json" },
       });
-    }
+
     const signal = body.signal;
     const id =
       signal.id ||
@@ -1156,13 +1047,15 @@ async function handleRequest(request, env, ctx) {
         signal.timestamp +
         ":" +
         Math.random().toString(36).slice(2, 10);
-    const key = "signals:v1:" + signal.type + ":" + id;
-    await env.MEME_ALERTS.put(key, JSON.stringify(signal), {
-      expirationTtl: 60 * 60 * 24 * 7,
-    });
-    return new Response(JSON.stringify({ ok: true, key }), {
-      headers: { "content-type": "application/json" },
-    });
+    await env.MEME_ALERTS.put(
+      "signals:v1:" + signal.type + ":" + id,
+      JSON.stringify(signal),
+      { expirationTtl: 60 * 60 * 24 * 7 },
+    );
+    return new Response(
+      JSON.stringify({ ok: true, key: "signals:v1:" + signal.type + ":" + id }),
+      { headers: { "content-type": "application/json" } },
+    );
   }
 
   if (
@@ -1178,43 +1071,37 @@ async function handleRequest(request, env, ctx) {
     const signals = [];
     for (const k of list.keys) {
       const raw = await env.MEME_ALERTS.get(k.name);
-      if (!raw) continue;
-      try {
-        const sig = JSON.parse(raw);
-        if (!sig.timestamp || sig.timestamp < since) continue;
-        signals.push(sig);
-      } catch {}
+      if (raw) {
+        try {
+          const sig = JSON.parse(raw);
+          if (sig.timestamp && sig.timestamp >= since) signals.push(sig);
+        } catch {}
+      }
     }
     signals.sort((a, b) => b.timestamp - a.timestamp);
     return new Response(JSON.stringify({ signals }), {
       headers: {
         "content-type": "application/json",
         "access-control-allow-origin": "*",
-        "access-control-allow-methods": "GET, OPTIONS",
-        "access-control-allow-headers": "content-type",
       },
     });
   }
-  // ---- end signal bridge ----
 
   if (parts.length === 2 && parts[0] === "meme" && parts[1] === "alerts") {
-    if (request.method !== "GET") {
+    if (request.method !== "GET")
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
-    }
-    if (!env || !env.MEME_ALERTS) {
+    if (!env || !env.MEME_ALERTS)
       return jsonResponse(
         { error: "Meme alert storage not configured" },
         503,
         headers,
       );
-    }
 
     const since = Number(url.searchParams.get("since")) || 0;
     const until =
       Number(url.searchParams.get("until")) || Number.MAX_SAFE_INTEGER;
     const limit = Math.min(1000, Number(url.searchParams.get("limit")) || 500);
     const cursor = url.searchParams.get("cursor") || undefined;
-
     const result = await env.MEME_ALERTS.list({
       prefix: "weaver:meme:alert:v2:",
       limit,
@@ -1223,26 +1110,25 @@ async function handleRequest(request, env, ctx) {
 
     const inWindow = [];
     for (const key of result.keys) {
-      const keyParts = key.name.split(":");
-      const observedAtMs = Number(keyParts[4]);
-      if (!Number.isFinite(observedAtMs)) continue;
-      if (observedAtMs < since || observedAtMs >= until) continue;
-      inWindow.push(key.name);
+      const observedAtMs = Number(key.name.split(":")[4]);
+      if (
+        Number.isFinite(observedAtMs) &&
+        observedAtMs >= since &&
+        observedAtMs < until
+      )
+        inWindow.push(key.name);
     }
 
-    const BATCH = 25;
     const alerts = [];
-    for (let i = 0; i < inWindow.length; i += BATCH) {
-      const slice = inWindow.slice(i, i + BATCH);
+    for (let i = 0; i < inWindow.length; i += 25) {
       const values = await Promise.all(
-        slice.map((name) => env.MEME_ALERTS.get(name)),
+        inWindow.slice(i, i + 25).map((name) => env.MEME_ALERTS.get(name)),
       );
       for (const value of values) {
-        if (!value) continue;
-        try {
-          alerts.push(JSON.parse(value));
-        } catch {
-          /* skip malformed records */
+        if (value) {
+          try {
+            alerts.push(JSON.parse(value));
+          } catch {}
         }
       }
     }
@@ -1260,58 +1146,82 @@ async function handleRequest(request, env, ctx) {
     );
   }
 
-  // ── Meme alert persistence ──────────────────────────────────
   if (parts.length === 2 && parts[0] === "meme" && parts[1] === "alert") {
-    if (request.method !== "POST") {
+    if (request.method !== "POST")
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
-    }
     const res = await handleMemeAlert(request, env);
     const merged = new Headers(res.headers);
     for (const [k, v] of Object.entries(headers)) merged.set(k, v);
     return new Response(res.body, { status: res.status, headers: merged });
   }
 
-  // ── Generic relay ───────────────────────────────────────────
   if (parts.length === 1 && parts[0] === "proxy") {
-    if (request.method !== "GET" && request.method !== "POST") {
+    if (request.method !== "GET" && request.method !== "POST")
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
-    }
     return relayAllowedProxy(request, url, headers, ctx, env);
   }
 
-  // ── GoPlus routes ───────────────────────────────────────────
   const isGoplusEvm = parts[0] === "goplus" && parts[1] === "evm" && !!parts[2];
   const isGoplusSolana = parts[0] === "goplus" && parts[1] === "solana";
 
   if (isGoplusEvm || isGoplusSolana) {
-    if (request.method !== "GET") {
+    if (request.method !== "GET")
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
-    }
-
     const contractAddresses = url.searchParams.get("contract_addresses");
-    if (!contractAddresses) {
+    if (!contractAddresses)
       return jsonResponse(
         { error: "Missing contract_addresses query param" },
         400,
         headers,
       );
-    }
 
     if (isGoplusEvm) {
       const chainId = parts[2];
-      if (!ALLOWED_EVM_CHAIN_IDS.has(chainId)) {
+      if (!ALLOWED_EVM_CHAIN_IDS.has(chainId))
         return jsonResponse(
           { error: `Unsupported chain id: ${chainId}` },
           400,
           headers,
         );
-      }
-      const upstream = `${GOPLUS_EVM_BASE}/${chainId}?contract_addresses=${encodeURIComponent(contractAddresses)}`;
-      return relayGoPlus(upstream, headers, env, ctx);
+      return relayGoPlus(
+        `${GOPLUS_EVM_BASE}/${chainId}?contract_addresses=${encodeURIComponent(contractAddresses)}`,
+        headers,
+        env,
+        ctx,
+      );
     }
 
-    const upstream = `${GOPLUS_SOLANA_BASE}?contract_addresses=${encodeURIComponent(contractAddresses)}`;
-    return relayGoPlus(upstream, headers, env, ctx);
+    return relayGoPlus(
+      `${GOPLUS_SOLANA_BASE}?contract_addresses=${encodeURIComponent(contractAddresses)}`,
+      headers,
+      env,
+      ctx,
+    );
+  }
+
+  // ── Discovery Snapshot (Gate 3) ─────────────────────────────
+  if (
+    parts.length === 2 &&
+    parts[0] === "discovery" &&
+    parts[1] === "snapshot"
+  ) {
+    if (request.method !== "GET") {
+      return jsonResponse({ error: "Method not allowed" }, 405, headers);
+    }
+
+    const snapshot = await env.MEME_ALERTS.get(DISCOVERY_KV_KEY);
+    if (!snapshot) {
+      return jsonResponse(
+        { error: "No snapshot available yet. Wait for the next cron run." },
+        404,
+        headers,
+      );
+    }
+
+    return new Response(snapshot, {
+      status: 200,
+      headers: { "Content-Type": "application/json", ...headers },
+    });
   }
 
   return jsonResponse({ error: "Not found" }, 404, headers);
@@ -1321,4 +1231,7 @@ export { handleRequest };
 
 export default {
   fetch: (request, env, ctx) => handleRequest(request, env, ctx),
+  scheduled: (event, env, ctx) => {
+    ctx.waitUntil(runDiscoveryScan(env));
+  },
 };
