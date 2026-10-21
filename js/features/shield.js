@@ -10,7 +10,7 @@ W.shield = (() => {
   const GOPLUS_SOLANA_API =
     "https://api.gopluslabs.io/api/v1/solana/token_security";
   const CACHE_TTL = 300000; // 5 minutes
-
+  const WORKER_PROXY_BASE = "https://weaver-proxy.ibis01-weaver.workers.dev";
   // Authoritative threshold for "identified high-risk". Do not duplicate
   // this value elsewhere in the codebase. Consumers that need a
   // high-risk decision MUST call W.shield.isHighRisk() rather than
