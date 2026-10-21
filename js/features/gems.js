@@ -2493,6 +2493,7 @@ W.gems = (() => {
         <div class="watch-head">
           <h3>🤖 Gem Agent — new-token scanner (v3 · composite risk + wallet graph)</h3>
           <div class="qa">
+            <button class="btn ghost" id="g-validate" title="Run Phase 4 Backtester">📊 Performance</button>
             <label class="m-0">Min score
               <select id="g-min" class="w-auto">
                 <option value="0">0</option>
@@ -2535,6 +2536,67 @@ W.gems = (() => {
     view.querySelector("#g-chain").onchange = () => scan(view);
     view.querySelector("#g-hide-risk").onchange = () => scan(view);
     view.querySelector("#g-only-pass").onchange = () => scan(view);
+
+    // ── NEW: Wire up the Performance button ──
+    view.querySelector("#g-validate").onclick = async () => {
+      const btn = view.querySelector("#g-validate");
+      btn.textContent = "Evaluating...";
+      btn.disabled = true;
+
+      try {
+        const report = await W.predictiveValidator.evaluateHistoricalAlerts();
+        if (!report) {
+          W.ui.toast("No historical alerts available to evaluate yet.", "warn");
+          return;
+        }
+
+        const tradesHtml = report.trades
+          .map(
+            (t) => `
+          <tr>
+            <td><b>${W.gems._internal.esc(t.symbol)}</b> (${W.gems._internal.esc(t.chain)})</td>
+            <td>$${t.entryPrice.toPrecision(4)}</td>
+            <td>$${t.currentPrice.toPrecision(4)}</td>
+            <td class="${t.isWin ? "text-up" : "text-down"}">${t.rawReturnPct}%</td>
+            <td class="${t.isWin ? "text-up" : "text-down"}"><b>${t.netReturnPct}%</b></td>
+          </tr>
+        `,
+          )
+          .join("");
+
+        W.ui.modal({
+          title: "📊 Strategy Validation (Phase 4)",
+          body: `
+            <div class="grid-2">
+              <div class="card stat">
+                <div class="stat-label">Win Rate</div>
+                <div class="stat-big ${parseFloat(report.winRate) >= 50 ? "text-up" : "text-down"}">${report.winRate}</div>
+              </div>
+              <div class="card stat">
+                <div class="stat-label">Median Net Return</div>
+                <div class="stat-big ${parseFloat(report.medianNetReturn) >= 0 ? "text-up" : "text-down"}">${report.medianNetReturn}</div>
+              </div>
+            </div>
+            <p class="muted small mt">Cost Assumption: -${report.costAssumption} per trade (slippage + gas). Evaluated over ${report.uniqueTokensEvaluated} unique tokens (deduplicated from ${report.totalAlertsFound} alerts).</p>
+            <div class="table-wrap mt">
+              <table>
+                <thead>
+                  <tr><th>Token</th><th>Entry</th><th>Current</th><th>Raw %</th><th>Net %</th></tr>
+                </thead>
+                <tbody>${tradesHtml}</tbody>
+              </table>
+            </div>
+          `,
+          footer: `<button class="btn primary" data-a="modal-close">Close</button>`,
+        });
+      } catch (e) {
+        W.ui.toast("Validation failed: " + e.message, "error");
+      } finally {
+        btn.textContent = "📊 Performance";
+        btn.disabled = false;
+      }
+    };
+
     view.querySelector("#g-auto").onchange = (e) => {
       auto = e.target.checked;
       clearInterval(timer);
