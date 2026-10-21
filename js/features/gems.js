@@ -1793,19 +1793,29 @@ W.gems = (() => {
     if (W.theses.findBySourceRef && W.theses.findBySourceRef(sourceRef)) return;
 
     const asset = `$${gem.pair.baseToken.symbol} (${chain})`;
-    const reasons = (gem.analysis.reasons || []).join("; ");
-    const signals = shieldSummary(shield);
-    const riskLine = assessment
-      ? `Risk verdict: ${assessment.verdict.label} (${assessment.risk}/100, ${assessment.version}). ${assessment.flags.map((f) => f.text).join("; ")}`
-      : "";
+
+    // Use the Evidence Synthesizer if available
+    let statement = `Gem Agent alert — score ${gem.analysis.score}.`;
+    let reasons = (gem.analysis.reasons || []).join("; ");
+    let signals = shieldSummary(shield);
+    let invalidation = "Shield verdict turns high-risk or liquidity is pulled.";
+
+    if (W.evidenceSynthesizer) {
+      const report = W.evidenceSynthesizer.synthesize(gem);
+      if (report) {
+        statement = report.finalVerdict;
+        reasons = report.narrative;
+        signals = report.signals.concat(report.risks).join("\n");
+        invalidation = report.invalidation || invalidation;
+      }
+    }
 
     W.theses.create({
       asset,
-      statement: `Gem Agent alert — score ${gem.analysis.score} (${gem.analysis.scoreVersion}); risk ${assessment ? assessment.verdict.key : "unknown"}. Not financial advice; log the reasoning, decide for yourself.`,
+      statement,
       reasons,
-      signals: riskLine ? `${signals}\n${riskLine}` : signals,
-      invalidation:
-        "Shield verdict turns high-risk, risk flags escalate, liquidity is pulled, or momentum reverses hard — review before acting further.",
+      signals,
+      invalidation,
       horizon: "Short-term",
       sourceRef,
     });
