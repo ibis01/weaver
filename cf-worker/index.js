@@ -36,8 +36,6 @@
 //   HELIUS_KEY is the same secret used by the Solana RPC key
 //   injection in relayAllowedProxy. No new secret.
 //
-// [rest of header comments unchanged from previous version]
-//
 // Deploy: see cf-worker/README.md in this folder.
 
 // ── Imports ──────────────────────────────────────────────────────
@@ -86,8 +84,6 @@ const ALLOWED_EVM_CHAIN_IDS = new Set([
   "100",
 ]);
 
-// [ALLOWED_PROXY_HOSTS unchanged]
-
 const ALLOWED_PROXY_HOSTS = new Set([
   // ── Market data ──
   "api.coinpaprika.com",
@@ -101,10 +97,6 @@ const ALLOWED_PROXY_HOSTS = new Set([
   "api.dexscreener.com",
   "api.llama.fi",
   // ── OHLCV providers ──
-  // Added as Worker-relay fallbacks for clients whose direct route
-  // is blocked by DNS filtering, region blocks, or CSP. Cloudflare's
-  // edge resolves these hosts even when the client cannot, which is
-  // precisely what the relay exists for.
   "api.binance.com",
   "api.kraken.com",
   "api.bybit.com",
@@ -152,6 +144,11 @@ const GOPLUS_BASE_DELAY_MS = 400;
 
 const PROXY_CACHE_FRESH_SECONDS = 60;
 const PROXY_CACHE_STALE_MAX_SECONDS = 600;
+
+// GoPlus caching windows. Caching security data prevents exhausting
+// the shared Cloudflare egress IP rate limit on the GoPlus free tier.
+const GOPLUS_CACHE_FRESH_SECONDS = 300; // 5 minutes
+const GOPLUS_CACHE_STALE_MAX_SECONDS = 900; // 15 minutes
 
 // Request coalescing: concurrent GETs to the same effectiveTarget share
 // one upstream fetch within a single isolate. Cloudflare may run multiple
@@ -235,14 +232,17 @@ function jitter(ms) {
   return Math.floor(Math.random() * ms);
 }
 
-async function fetchGoPlusOnce(upstreamUrl, env) {
+async function fetchGoPlusOnce(upstreamUrl) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
+  // GoPlus v1 (api.gopluslabs.io/api/v1) accepts unauthenticated
+  // requests on the free tier. Sending `Authorization: Bearer <key>`
+  // causes a 4012 "signature verification failure" because GoPlus
+  // expects HMAC-SHA256 signing for authenticated calls, not a Bearer
+  // token. If higher rate limits are needed later, implement signing
+  // with GOPLUS_APP_KEY + GOPLUS_APP_SECRET, not by reusing this block.
   const headers = { "User-Agent": "WeaverProxy/1.0" };
-  if (env && typeof env.GOPLUS_KEY === "string" && env.GOPLUS_KEY) {
-    headers.Authorization = `Bearer ${env.GOPLUS_KEY}`;
-  }
 
   try {
     const resp = await fetch(upstreamUrl, {
@@ -257,13 +257,13 @@ async function fetchGoPlusOnce(upstreamUrl, env) {
   }
 }
 
-async function relay(upstreamUrl, headers, env) {
+async function relay(upstreamUrl, headers) {
   let lastPayload = null;
 
   for (let attempt = 0; attempt < GOPLUS_MAX_ATTEMPTS; attempt++) {
     let result;
     try {
-      result = await fetchGoPlusOnce(upstreamUrl, env);
+      result = await fetchGoPlusOnce(upstreamUrl);
     } catch (e) {
       console.error("[relay] GoPlus fetch failed:", e && e.message);
       return jsonResponse(
@@ -310,6 +310,74 @@ async function relay(upstreamUrl, headers, env) {
     429,
     headers,
   );
+}
+
+// ----------------------------------------------------------------
+// GoPlus caching wrapper
+// ----------------------------------------------------------------
+async function relayGoPlus(upstreamUrl, headers, env, ctx) {
+  const cache = caches.default;
+  const cacheKey = new Request(upstreamUrl, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+
+  // Try cache first
+  const cached = await cache.match(cacheKey);
+  if (cached) {
+    const cachedAt = Number(cached.headers.get("X-Weaver-Cached-At") || 0);
+    const age = (Date.now() - cachedAt) / 1000;
+    if (age <= GOPLUS_CACHE_FRESH_SECONDS) {
+      const body = await cached.text();
+      return new Response(body, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Weaver-Goplus-Cache": "HIT",
+          ...headers,
+        },
+      });
+    }
+  }
+
+  // Cache miss or stale → fetch upstream via existing relay()
+  const response = await relay(upstreamUrl, headers, env);
+
+  // Only cache successful (code:1) responses
+  if (response.status === 200) {
+    const body = await response.clone().text();
+    try {
+      const parsed = JSON.parse(body);
+      if (parsed.code === 1) {
+        const toCache = new Response(body, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": `public, max-age=${GOPLUS_CACHE_STALE_MAX_SECONDS}`,
+            "X-Weaver-Cached-At": String(Date.now()),
+          },
+        });
+        if (ctx && typeof ctx.waitUntil === "function") {
+          ctx.waitUntil(cache.put(cacheKey, toCache));
+        } else {
+          await cache.put(cacheKey, toCache);
+        }
+        return new Response(body, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "X-Weaver-Goplus-Cache": "MISS",
+            ...headers,
+          },
+        });
+      }
+    } catch (_) {
+      // Not JSON, don't cache
+    }
+  }
+
+  // If rate-limited or error, return as-is (don't cache)
+  return response;
 }
 
 // ----------------------------------------------------------------
@@ -642,10 +710,6 @@ async function relayHeliusDeployer(env, address, headers) {
         const mint = findAccount("mint");
         if (typeof mint !== "string" || !mint) continue;
 
-        // The creator may live in args (some instruction versions)
-        // or in a named account role (other versions). Take whichever
-        // is present; if neither, leave it null. It is informational
-        // only — the deployer we queried is the address of record.
         const creator =
           (typeof args.creator === "string" && args.creator) ||
           findAccount("creator") ||
@@ -655,9 +719,6 @@ async function relayHeliusDeployer(env, address, headers) {
         contracts.push({
           address: mint,
           txHash: typeof entry.signature === "string" ? entry.signature : null,
-          // Helius Parsed Events returns slot, not a wall-clock
-          // timestamp. Consumers that need a timestamp should treat
-          // null as unknown rather than fabricating one.
           deployedAt: null,
           slot: Number.isFinite(inner.slot) ? inner.slot : null,
           creator,
@@ -688,8 +749,6 @@ async function relayHeliusDeployer(env, address, headers) {
     headers,
   );
 }
-
-// [relayAllowedProxy unchanged]
 
 async function relayAllowedProxy(request, url, headers, ctx, env) {
   const target = url.searchParams.get("url");
@@ -803,9 +862,6 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
         status: 200,
         headers: {
           "Content-Type": contentType,
-          // Store through the stale ceiling. The handler enforces the
-          // fresh window via X-Weaver-Cached-At; the CDN just needs to
-          // keep the entry alive long enough for the stale branch to read it.
           "Cache-Control": `public, max-age=${PROXY_CACHE_STALE_MAX_SECONDS}`,
           "X-Weaver-Cached-At": String(Date.now()),
         },
@@ -942,7 +998,6 @@ async function handleHeliusDeployerRequest(request, env, headers) {
     );
   }
 
-  // Do NOT lowercase Solana addresses — base58 is case-sensitive.
   return relayHeliusDeployer(env, address, headers);
 }
 
@@ -987,38 +1042,61 @@ async function handleRequest(request, env, ctx) {
 
   // ── Meme alerts listing ─────────────────────────────────────
   // ---- Weaver: provenance bridge (Phase 2) ----
-  if (parts.length === 1 && parts[0] === "provenance" && request.method === "POST") {
+  if (
+    parts.length === 1 &&
+    parts[0] === "provenance" &&
+    request.method === "POST"
+  ) {
     let body = null;
-    try { body = await request.json(); } catch { body = null; }
+    try {
+      body = await request.json();
+    } catch {
+      body = null;
+    }
     if (!body || typeof body.symbol !== "string" || !body.result) {
-      return jsonResponse({ error: "symbol and result required" }, 400, headers);
+      return jsonResponse(
+        { error: "symbol and result required" },
+        400,
+        headers,
+      );
     }
     const ranAt = Number(body.ranAt) || Date.now();
     const key = "provenance:v1:" + body.symbol.toLowerCase() + ":" + ranAt;
     const payload = JSON.stringify({
       schemaVersion: "provenance-v1",
       symbol: body.symbol.toUpperCase(),
-      tokenAddress: typeof body.tokenAddress === "string" ? body.tokenAddress.toLowerCase() : "",
+      tokenAddress:
+        typeof body.tokenAddress === "string"
+          ? body.tokenAddress.toLowerCase()
+          : "",
       ranAt,
       status: typeof body.status === "string" ? body.status : "UNKNOWN",
       reason: typeof body.reason === "string" ? body.reason : "unknown",
       result: body.result,
     });
-    await env.MEME_ALERTS.put(key, payload, { expirationTtl: 7 * 24 * 60 * 60 });
+    await env.MEME_ALERTS.put(key, payload, {
+      expirationTtl: 7 * 24 * 60 * 60,
+    });
     return jsonResponse({ ok: true, key }, 200, headers);
   }
 
-  if (parts.length === 1 && parts[0] === "provenance" && request.method === "GET") {
+  if (
+    parts.length === 1 &&
+    parts[0] === "provenance" &&
+    request.method === "GET"
+  ) {
     const symbol = (url.searchParams.get("symbol") || "").toLowerCase();
     const limit = Math.min(Number(url.searchParams.get("limit")) || 20, 200);
     const prefix = symbol ? "provenance:v1:" + symbol + ":" : "provenance:v1:";
     const list = await env.MEME_ALERTS.list({ prefix, limit: limit * 3 });
-    const keys = list.keys.map(k => k.name);
+    const keys = list.keys.map((k) => k.name);
     const out = [];
     for (const k of keys) {
-      try { const v = await env.MEME_ALERTS.get(k); if (v) out.push(JSON.parse(v)); } catch {}
+      try {
+        const v = await env.MEME_ALERTS.get(k);
+        if (v) out.push(JSON.parse(v));
+      } catch {}
     }
-    // Dedupe by symbol+ranAt (keeps the newest write).
     const seen = new Map();
     for (const e of out) {
       const k = (e.symbol || "") + ":" + (e.ranAt || 0);
@@ -1029,13 +1107,20 @@ async function handleRequest(request, env, ctx) {
     const trimmed = deduped.slice(0, limit);
     return jsonResponse({ entries: trimmed }, 200, headers);
   }
-  if (parts.length === 1 && parts[0] === "provenance" && request.method === "DELETE") {
+  if (
+    parts.length === 1 &&
+    parts[0] === "provenance" &&
+    request.method === "DELETE"
+  ) {
     const prefix = "provenance:v1:";
     let cursor;
     let deleted = 0;
     do {
       const page = await env.MEME_ALERTS.list({ prefix, cursor, limit: 500 });
-      for (const k of page.keys) { await env.MEME_ALERTS.delete(k.name); deleted++; }
+      for (const k of page.keys) {
+        await env.MEME_ALERTS.delete(k.name);
+        deleted++;
+      }
       cursor = page.list_complete ? null : page.cursor;
     } while (cursor);
     return new Response(JSON.stringify({ ok: true, deleted }), {
@@ -1046,9 +1131,17 @@ async function handleRequest(request, env, ctx) {
   // ---- end provenance bridge ----
 
   // ---- Weaver: generic signal bridge (Phase 1) ----
-  if (parts.length === 1 && parts[0] === "signal" && request.method === "POST") {
+  if (
+    parts.length === 1 &&
+    parts[0] === "signal" &&
+    request.method === "POST"
+  ) {
     let body = null;
-    try { body = await request.json(); } catch { body = null; }
+    try {
+      body = await request.json();
+    } catch {
+      body = null;
+    }
     if (!body || !body.signal || typeof body.signal.type !== "string") {
       return new Response(JSON.stringify({ error: "signal required" }), {
         status: 400,
@@ -1056,15 +1149,27 @@ async function handleRequest(request, env, ctx) {
       });
     }
     const signal = body.signal;
-    const id = signal.id || (signal.type + ":" + signal.timestamp + ":" + Math.random().toString(36).slice(2, 10));
+    const id =
+      signal.id ||
+      signal.type +
+        ":" +
+        signal.timestamp +
+        ":" +
+        Math.random().toString(36).slice(2, 10);
     const key = "signals:v1:" + signal.type + ":" + id;
-    await env.MEME_ALERTS.put(key, JSON.stringify(signal), { expirationTtl: 60 * 60 * 24 * 7 });
+    await env.MEME_ALERTS.put(key, JSON.stringify(signal), {
+      expirationTtl: 60 * 60 * 24 * 7,
+    });
     return new Response(JSON.stringify({ ok: true, key }), {
       headers: { "content-type": "application/json" },
     });
   }
 
-  if (parts.length === 1 && parts[0] === "signals" && request.method === "GET") {
+  if (
+    parts.length === 1 &&
+    parts[0] === "signals" &&
+    request.method === "GET"
+  ) {
     const type = url.searchParams.get("type") || "";
     const since = Number(url.searchParams.get("since")) || 0;
     const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 500);
@@ -1116,12 +1221,6 @@ async function handleRequest(request, env, ctx) {
       cursor,
     });
 
-    // Filter the key set in memory first, then read in batches
-    // of concurrent KV gets. A sequential await per key is O(n)
-    // round-trips to KV; with ~360 alerts at ~60ms each the
-    // response takes ~22s. Batched Promise.all collapses that
-    // to a handful of round trips. 25 is well below Cloudflare's
-    // subrequest limit on every plan (50 on free, 1000 on paid).
     const inWindow = [];
     for (const key of result.keys) {
       const keyParts = key.name.split(":");
@@ -1208,11 +1307,11 @@ async function handleRequest(request, env, ctx) {
         );
       }
       const upstream = `${GOPLUS_EVM_BASE}/${chainId}?contract_addresses=${encodeURIComponent(contractAddresses)}`;
-      return relay(upstream, headers, env);
+      return relayGoPlus(upstream, headers, env, ctx);
     }
 
     const upstream = `${GOPLUS_SOLANA_BASE}?contract_addresses=${encodeURIComponent(contractAddresses)}`;
-    return relay(upstream, headers, env);
+    return relayGoPlus(upstream, headers, env, ctx);
   }
 
   return jsonResponse({ error: "Not found" }, 404, headers);

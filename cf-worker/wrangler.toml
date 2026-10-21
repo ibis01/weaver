@@ -5,14 +5,12 @@ compatibility_date = "2024-09-01"
 # Free tier: 100,000 requests/day, no billing required.
 # MEME_ALERTS KV is bound for alert persistence (7d TTL).
 
-# Required secret. Deploy (or `wrangler dev`) will fail if this is
-# not configured. Set it with:
-#   npx wrangler secret put BITQUERY_KEY
+# Secrets are configured via `wrangler secret put`. The Worker reads:
+#   ETHERSCAN_KEY  (required for /etherscan/deployer)
+#   HELIUS_KEY     (required for /helius/deployer and the Solana RPC relay)
+#   GOPLUS_KEY     (optional; GoPlus routes work unauthenticated)
 #
-# The GoPlus routes work without this secret; only the
-# /bitquery/deployer route returns 503 when it is missing.
-[secrets]
-required = ["BITQUERY_KEY"]
+# Missing secrets produce 503 on the affected route, not a deploy failure.
 [[kv_namespaces]]
 binding = "MEME_ALERTS"
 id = "711edb1aa070446ea6ccbf81d26135a4"
