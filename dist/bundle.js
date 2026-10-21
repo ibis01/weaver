@@ -13310,6 +13310,23 @@ console.log(
 //     mirror their underlying and would produce a duplicate of the
 //     base asset's signal with a different symbol.
 //
+// v6.1 changelog (dedupe survivor fix + honest title gate):
+//   - _dedupe rewritten as a Map-based best-keeper. The v6 filter
+//     version decided `return false` for every repeat key before
+//     the replacement logic could matter: a later signal with
+//     higher dataCompleteness overwrote the Map entry (invisible
+//     to the output) and was still dropped, so the FIRST — often
+//     lower-quality — signal was kept and the survivor silently
+//     discarded. Survivors are now returned; key insertion order
+//     is preserved.
+//   - normalize(): removed the "Market Event" fallback that made
+//     the empty-title rejection unreachable — the same
+//     fallback-defeats-check defect the v2 design attributed to
+//     v1. Titleless raw events are now dropped (fail-closed) per
+//     the §2.7 honesty contract.
+//   - _dedupe exposed via _internal so the survivor semantics are
+//     unit-testable from outside the IIFE.
+//
 // References for the gates:
 //   - Upbit multi-indicator pipeline: weighted voting across
 //     Z-Score, Bollinger, RSI, VWAP; combined weight ≥0.5 to fire.
@@ -13451,9 +13468,11 @@ W.events = (() => {
     const symbol = String(
       raw.symbol || raw.id || raw.coin_id || "",
     ).toUpperCase();
+    // v6.1: no fabricated fallback — an empty title must reject
+    // the signal (§2.7), not masquerade as "Market Event".
     const title = String(
-      raw.title || raw.headline || raw.name || "Market Event",
-    );
+      raw.title || raw.headline || raw.name || "",
+    ).trim();
     if (!title) return null;
 
     const assetIdInput = {
@@ -14073,26 +14092,36 @@ W.events = (() => {
     return events;
   }
 
+  // v6.1: Map-based best-keeper (see header changelog). Survivors
+  // are returned; a later higher-dataCompleteness duplicate now
+  // WINS instead of being silently dropped. Trace check:
+  //   [A(.5), A(.9), A(.7)] → [A(.9)]   (v6 returned [A(.5)])
+  //   [A(.9), A(.2)]       → [A(.9)]
+  //   [A(.5), B(.5)]       → [A(.5), B(.5)]
   function _dedupe(signals) {
-    const seen = new Map();
     const DEDUP_WINDOW_MS = 10 * 60 * 1000;
-    return signals.filter((s) => {
-      const bucket = Math.floor(s.timestamp / DEDUP_WINDOW_MS);
-      const key = `${s.type}_${s.assetId.symbol}_${bucket}`;
-      if (!seen.has(key)) {
-        seen.set(key, s);
-        return true;
+    const best = new Map();
+    for (const s of signals) {
+      if (!s || typeof s !== "object") continue;
+      if (!W.intelligence?.is?.signal?.(s)) continue;
+      const sym = String(s.assetId?.symbol ?? "");
+      const ts = Number(s.timestamp);
+      const bucket = Number.isFinite(ts)
+        ? Math.floor(ts / DEDUP_WINDOW_MS)
+        : 0;
+      const key = `${s.type}_${sym}_${bucket}`;
+      const existing = best.get(key);
+      if (!existing) {
+        best.set(key, s);
+        continue;
       }
-      const existing = seen.get(key);
       const ec = existing.metadata?.dataCompleteness;
       const nc = s.metadata?.dataCompleteness;
       const ecScore = Number.isFinite(ec) ? ec : -1;
       const ncScore = Number.isFinite(nc) ? nc : -1;
-      if (ncScore > ecScore) {
-        seen.set(key, s);
-      }
-      return false;
-    });
+      if (ncScore > ecScore) best.set(key, s);
+    }
+    return Array.from(best.values());
   }
 
   // ── Cache read/write ─────────────────────────────────────
@@ -14184,6 +14213,7 @@ W.events = (() => {
     _internal: Object.freeze({
       collectPriceEvents,
       collectSmartMoneyEvents,
+      _dedupe,
       CACHE_VERSION,
       _marketCapTier,
       _thresholdForTier,
@@ -14204,7 +14234,7 @@ W.events = (() => {
 })();
 
 console.log(
-  "[Events] Module loaded (canonical confidence enforced: no local derivation, honest null on missing inputs; v6 tiered PRICE_MOVE with major-z-bypass and symbol exclusions; smart-money collector active).",
+  "[Events] Module loaded (canonical confidence enforced: no local derivation, honest null on missing inputs; v6 tiered PRICE_MOVE with major-z-bypass and symbol exclusions; smart-money collector active; v6.1 dedupe survivor fix + real title gate).",
 );
 // ---- js/intelligence/technical-analysis.js ----
 // ===============================================================

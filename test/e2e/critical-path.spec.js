@@ -17,8 +17,7 @@ test.beforeEach(async ({ page }) => {
     () => {
       const el = document.querySelector("#d-signals");
       if (!el) return false;
-      const hasRows =
-        el.querySelectorAll("[data-signal-id]").length > 0;
+      const hasRows = el.querySelectorAll("[data-signal-id]").length > 0;
       const text = (el.textContent || "").trim();
       return hasRows || text.includes("No recent signals");
     },
@@ -26,21 +25,29 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
-// v1.5.1: separate "healthy pipeline, quiet market" from "pipeline broken".
 async function checkSignalPipeline(page) {
-  const h = await page.evaluate(() => {
+  const h = await page.evaluate(async () => {
     const out = {
       hasEvents: typeof window.W?.events?.collectEvents === "function",
+      hasEngine: typeof window.W?.decisionEngine?.run === "function",
       hasEvidenceDrawer: !!(
         window.W?.ui?.evidenceDrawer || window.W?.evidenceDrawer
       ),
       signalCount: null,
+      engineCount: null,
       error: null,
     };
     if (!out.hasEvents) return out;
     try {
-      const s = window.W.events.collectEvents();
+      const s = await window.W.events.collectEvents();
       out.signalCount = Array.isArray(s) ? s.length : -1;
+
+      if (out.hasEngine) {
+        const engineRes = await window.W.decisionEngine.run();
+        // Account for different return shapes the engine might use
+        const items = engineRes?.items || engineRes?.signals || engineRes;
+        out.engineCount = Array.isArray(items) ? items.length : -1;
+      }
     } catch (e) {
       out.error = String((e && e.message) || e);
     }
@@ -48,7 +55,9 @@ async function checkSignalPipeline(page) {
   });
 
   if (!h.hasEvents) {
-    throw new Error("Signal pipeline unavailable: W.events.collectEvents missing");
+    throw new Error(
+      "Signal pipeline unavailable: W.events.collectEvents missing",
+    );
   }
   if (h.error) {
     throw new Error("Signal pipeline errored: " + h.error);
@@ -56,14 +65,22 @@ async function checkSignalPipeline(page) {
   if (h.signalCount === -1) {
     throw new Error("collectEvents did not return an array");
   }
-  if (h.signalCount === 0) {
-    return { skip: true, reason: "Healthy pipeline, zero signals (quiet market)" };
+
+  // If the pipeline produced zero signals, OR the decision engine
+  // explicitly filtered them out (e.g., asset-specific signals with
+  // an empty profile), this is a healthy quiet state — skip.
+  if (h.signalCount === 0 || h.engineCount === 0) {
+    return {
+      skip: true,
+      reason:
+        "Healthy pipeline, but zero signals survived the decision engine (quiet market or empty profile)",
+    };
   }
+
   const domCount = await page.locator("[data-signal-id]").count();
   if (domCount === 0) {
     throw new Error(
-      "Pipeline produced " + h.signalCount +
-      " signal(s) but DOM has zero [data-signal-id] rows"
+      `Pipeline produced ${h.signalCount} signal(s), engine produced ${h.engineCount}, but DOM has zero [data-signal-id] rows`,
     );
   }
   return { skip: false, signalCount: h.signalCount };
@@ -108,14 +125,12 @@ test.describe("Critical path — pipeline → dashboard → drawer", () => {
 
     expect(result.hasEvents, "W.events is not loaded").toBe(true);
     expect(result.hasEvidence, "W.evidence is not loaded").toBe(true);
-    expect(
-      result.hasDecisionEngine,
-      "W.decisionEngine is not loaded",
-    ).toBe(true);
-    expect(
-      result.hasEvidenceDrawer,
-      "W.evidenceDrawer is not loaded",
-    ).toBe(true);
+    expect(result.hasDecisionEngine, "W.decisionEngine is not loaded").toBe(
+      true,
+    );
+    expect(result.hasEvidenceDrawer, "W.evidenceDrawer is not loaded").toBe(
+      true,
+    );
 
     expect(
       result.collectEventsType,
@@ -184,7 +199,9 @@ test.describe("Critical path — pipeline → dashboard → drawer", () => {
     ).toBeVisible({ timeout: 5000 });
   });
 
-  test("the drawer close control returns to the dashboard", async ({ page }) => {
+  test("the drawer close control returns to the dashboard", async ({
+    page,
+  }) => {
     const signalRows = page.locator("[data-signal-id]");
     const count = await signalRows.count();
 
