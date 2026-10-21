@@ -16730,10 +16730,9 @@ console.log(
 // Detects when N independent, historically-early wallets are
 // accumulating the same token within a short window.
 //
-// Independence v1 = 1 - min(coTiming, amountProx). Two wallets
-// look like the same actor only if they are similar on BOTH
-// axes: same moment AND same size. Similarity on one axis alone
-// is coincidence, not evidence.
+// Independence v2 = Behavioral (co-timing/amount) + Funding Graph.
+// Two wallets look like the same actor if they are similar on BOTH
+// behavioral axes, OR if they share a non-CEX funding source.
 
 window.W = window.W || {};
 W.smartMoney = W.smartMoney || {};
@@ -16741,7 +16740,7 @@ W.smartMoney = W.smartMoney || {};
 W.smartMoney.convergenceDetector = (() => {
   "use strict";
 
-  const MODULE_VERSION = "convergence-detector-v1";
+  const MODULE_VERSION = "convergence-detector-v2";
   const N_MIN = 3;
   const INDEPENDENCE_MIN = 0.7;
   const DEFAULT_WINDOW_MS = 15 * 60 * 1000;
@@ -16755,10 +16754,6 @@ W.smartMoney.convergenceDetector = (() => {
 
   function limitations() {
     return {
-      fundingGraph:
-        "independence uses co-timing and amount-proximity only. " +
-        "Funding-source independence requires the funding route and " +
-        "is deferred.",
       subDayTiming:
         "historical early-entry signal uses daily price maps; the " +
         "detector's own window is short but the historical timing is " +
@@ -16980,7 +16975,7 @@ W.smartMoney.convergenceDetector = (() => {
         buyCount: recent.buys.length,
         totalAmount: totalBuyAmount,
         historicalEarlyEntryRate: hp.earlyEntryRate,
-        _poolSource: __s, // <--- FIXED: Retain the pool source for diagnostics
+        _poolSource: __s,
       });
     }
 
@@ -17015,17 +17010,65 @@ W.smartMoney.convergenceDetector = (() => {
       };
     }
 
-    const mp = minPairwiseIndependence(qualifyingWallets, windowMs);
-    if (mp === null || mp < INDEPENDENCE_MIN) {
+    // ══ NEW: Funding Source Independence Check ══
+    // Even if their behavior is different, if they share a non-CEX funder, they are a Sybil cluster.
+    const sourceToWallets = Object.create(null);
+
+    if (typeof history.fetchFundingSources === "function") {
+      const fundingData = await Promise.all(
+        qualifyingWallets.map(async (w) => {
+          const res = await history.fetchFundingSources(input.chain, w.wallet);
+          return { wallet: w.wallet, sources: res.fundingSources || [] };
+        }),
+      );
+
+      for (const item of fundingData) {
+        for (const fund of item.sources) {
+          if (fund.type !== "wallet") continue; // Ignore CEX/Mint
+          if (!sourceToWallets[fund.source]) sourceToWallets[fund.source] = [];
+          if (!sourceToWallets[fund.source].includes(item.wallet)) {
+            sourceToWallets[fund.source].push(item.wallet);
+          }
+        }
+      }
+    }
+
+    const clusteredWallets = new Set();
+    const clusters = [];
+    for (const [source, wallets] of Object.entries(sourceToWallets)) {
+      if (wallets.length > 1) {
+        clusters.push({
+          fundingSource: source,
+          wallets: wallets,
+          confidence: "high",
+        });
+        wallets.forEach((w) => clusteredWallets.add(w));
+      }
+    }
+
+    const totalWallets = qualifyingWallets.length;
+    const independentCount = totalWallets - clusteredWallets.size;
+
+    // We only care about the behavioral independence of the *unclustered* wallets
+    const independentWallets = qualifyingWallets.filter(
+      (w) => !clusteredWallets.has(w.wallet),
+    );
+    const mp = minPairwiseIndependence(independentWallets, windowMs);
+
+    if (independentCount < N_MIN || (mp !== null && mp < INDEPENDENCE_MIN)) {
       return {
         tokenAddress: input.tokenAddress,
         asOf,
         windowStart: asOf - windowMs,
         convergence: false,
-        reason: "independence-below-floor",
+        reason:
+          independentCount < N_MIN
+            ? "sybil-cluster-detected"
+            : "behavioral-proximity-too-high",
         qualifyingWallets: qualifyingWallets.map(sanitize),
-        independentWalletCount: qualifyingWallets.length,
+        independentWalletCount: independentCount,
         minPairwiseIndependence: mp,
+        clusters: clusters,
         _limitations: limitations(),
       };
     }
@@ -17037,8 +17080,9 @@ W.smartMoney.convergenceDetector = (() => {
       convergence: true,
       reason: "convergence",
       qualifyingWallets: qualifyingWallets.map(sanitize),
-      independentWalletCount: qualifyingWallets.length,
+      independentWalletCount: independentCount,
       minPairwiseIndependence: mp,
+      clusters: clusters,
       _limitations: limitations(),
     };
   }
@@ -17061,7 +17105,7 @@ W.smartMoney.convergenceDetector = (() => {
 })();
 
 console.log(
-  "[ConvergenceDetector] Module loaded — N>=3, independence>=0.7, 15m window.",
+  "[ConvergenceDetector] Module loaded — N>=3, sybil-resistant, 15m window.",
 );
 // ---- js/intelligence/smart-money/momentum-detector.js ----
 // js/intelligence/smart-money/momentum-detector.js
