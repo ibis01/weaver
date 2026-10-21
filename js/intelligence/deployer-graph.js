@@ -109,20 +109,11 @@ W.deployerGraph = (() => {
 
   const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
-  // Worker URL. Defaults to the deployed Weaver proxy; can be
-  // overridden for testing via _internal.setWorkerBase().
   let workerBase = "https://weaver-proxy.ibis01-weaver.workers.dev";
 
-  // In-memory mirror of the index. Populated on first read after
-  // page load or reset. Kept in sync by writeIndex(). Cleared by
-  // reset().
   let cachedIndex = null;
   const warned = new Set();
 
-  // Session-scoped terminal-error flag. Set when the Worker reports
-  // a condition that will not resolve within the session (rate
-  // limit; equivalent permanent failures). Once set, further fetch
-  // attempts are short-circuited. Cleared by reset().
   let terminalError = false;
 
   function warnOnce(tag, message) {
@@ -135,15 +126,6 @@ W.deployerGraph = (() => {
     workerBase = typeof url === "string" ? url.trim().replace(/\/+$/, "") : "";
   }
 
-  // ── Normalization ────────────────────────────────────────
-
-  // Chain-aware address normalization.
-  //   Solana:  base58, case-sensitive — preserve as-is.
-  //   EVM:     lowercase for consistent comparison and cache keys.
-  //
-  // The single-argument form is retained for backward compatibility
-  // with existing tests and EVM-only call sites; it defaults to EVM
-  // semantics (lowercase).
   function normalizeAddress(valueOrChain, maybeValue) {
     const hasChain = typeof maybeValue !== "undefined";
     const chain = hasChain ? valueOrChain : null;
@@ -164,9 +146,6 @@ W.deployerGraph = (() => {
     return trimmed;
   }
 
-  // True only for a syntactically valid 0x-prefixed 40-hex address
-  // that is NOT the zero address. Used to decide whether an EVM
-  // field actually carries a deployed contract address.
   function isNonZeroAddress(value) {
     if (typeof value !== "string") return false;
     const norm = value.trim().toLowerCase();
@@ -180,8 +159,6 @@ W.deployerGraph = (() => {
     if (!chain || !address) return null;
     return KEY_PREFIX + chain + ":" + address;
   }
-
-  // ── Index management ─────────────────────────────────────
 
   function readIndex() {
     if (cachedIndex !== null) return cachedIndex;
@@ -218,8 +195,6 @@ W.deployerGraph = (() => {
     }
   }
 
-  // ── Cache reads ──────────────────────────────────────────
-
   function readEntry(key) {
     try {
       const entry = W.store?.get?.(key, null);
@@ -249,8 +224,6 @@ W.deployerGraph = (() => {
     }
   }
 
-  // ── TTL and eviction ─────────────────────────────────────
-
   function isExpired(entry, now = Date.now()) {
     if (!entry || !Number.isFinite(entry.observedAt)) return true;
     return now - entry.observedAt > RETENTION_MS;
@@ -275,8 +248,6 @@ W.deployerGraph = (() => {
     return kept;
   }
 
-  // ── Clone helper ─────────────────────────────────────────
-
   function cloneValue(value) {
     if (value === null || value === undefined) return value;
     try {
@@ -289,8 +260,6 @@ W.deployerGraph = (() => {
     }
   }
 
-  // ── Token validation ─────────────────────────────────────
-
   function isValidToken(token) {
     if (!token || typeof token !== "object") return false;
     if (typeof token.tokenAddress !== "string" || !token.tokenAddress.trim()) {
@@ -299,10 +268,6 @@ W.deployerGraph = (() => {
     return true;
   }
 
-  // ── Public: record ───────────────────────────────────────
-  // Write entry point. observe() calls this after a successful
-  // provider fetch. Tests use it to prime the cache. Returns true
-  // on success, false on any failure. Never throws.
   function record(chainKey, deployerAddress, profile) {
     try {
       const chain = normalizeChain(chainKey);
@@ -393,16 +358,6 @@ W.deployerGraph = (() => {
     }
   }
 
-  // ── Public: get ──────────────────────────────────────────
-  // Read-only lookup. Never issues a network request. Never
-  // mutates session state. Expired entries are skipped without
-  // being deleted; the next record() performs TTL cleanup.
-  //
-  // This is a SEMANTIC lookup: "find the profile relevant to this
-  // token". A profile with no matching token in its tokens array
-  // is not returned, even if it exists in the cache. Use the
-  // internal readEntry(keyFor(...)) to fetch a profile by deployer
-  // identity.
   function get(chainKey, tokenAddress) {
     try {
       const chain = normalizeChain(chainKey);
@@ -429,8 +384,6 @@ W.deployerGraph = (() => {
     }
   }
 
-  // ── Public: summarise ────────────────────────────────────
-  // Reports counts, never rates.
   function summarise(observation) {
     try {
       if (!observation || typeof observation !== "object") return null;
@@ -450,9 +403,7 @@ W.deployerGraph = (() => {
           ) {
             highRiskCount++;
           }
-        } catch (_) {
-          // Predicate failure: token is not counted as high-risk.
-        }
+        } catch (_) {}
       }
 
       const n = tokens.length;
@@ -476,11 +427,6 @@ W.deployerGraph = (() => {
     }
   }
 
-  // ── Public: reset ────────────────────────────────────────
-  // Test hook. Clears all cached profiles and the index, and
-  // re-arms the terminal-error flag so a fresh test run can
-  // exercise the fetch path. Production callers should not invoke
-  // this while a session is live.
   function reset() {
     try {
       const entries = readAllEntries();
@@ -491,14 +437,9 @@ W.deployerGraph = (() => {
     } catch (e) {
       warnOnce("reset", "reset failed: " + (e && e.message));
     }
-    // Clear the session flag even if cache cleanup above threw. A
-    // stuck flag would silently disable deployer enrichment for the
-    // rest of the session with no way to recover.
     terminalError = false;
     warned.clear();
   }
-
-  // ── Worker fetch ─────────────────────────────────────────
 
   async function fetchDeployerProfile(chain, deployerAddress) {
     if (!workerBase) {
@@ -509,14 +450,8 @@ W.deployerGraph = (() => {
       return null;
     }
 
-    // Fast path: a previous 429 in this session means the provider's
-    // free-tier window has not recovered. Skip the network entirely
-    // rather than fire doomed requests.
     if (terminalError) return null;
 
-    // Chain-appropriate provider. Both return the same normalized
-    // { contracts[] } shape; the client's parsing below is
-    // provider-agnostic.
     const endpoint =
       chain === "solana" ? "/helius/deployer" : "/etherscan/deployer";
 
@@ -541,10 +476,6 @@ W.deployerGraph = (() => {
       clearTimeout(timer);
     }
 
-    // ── Rate limit (both providers) ────────────────────────────
-    // The Worker surfaces rate limits as HTTP 429 with code
-    // "ETHERSCAN_RATE_LIMITED" or "HELIUS_RATE_LIMITED". Latch the
-    // session flag so subsequent scans do not fire doomed requests.
     if (response && response.status === 429) {
       terminalError = true;
       warnOnce(
@@ -571,19 +502,6 @@ W.deployerGraph = (() => {
     }
   }
 
-  // ── Public: observe ──────────────────────────────────────
-  // Async orchestrator. Reads creator.address from the assessment
-  // as the provider query hint, fetches the deployer profile on
-  // cache miss, applies the qualification step, and records.
-  // Returns the profile or null. Never throws.
-  //
-  // On success, the returned profile is read directly by deployer
-  // key — not by token lookup. A profile that qualifies zero
-  // tokens (because the current token was not among the provider's
-  // creation calls) is still a valid recorded result and is
-  // returned. get(chain, tokenAddress) remains a token-keyed
-  // semantic lookup for render consumers and will not surface
-  // such a profile.
   async function observe(assessment, chainKey, tokenAddress, symbol) {
     try {
       if (!assessment || typeof assessment !== "object") return null;
@@ -600,8 +518,6 @@ W.deployerGraph = (() => {
       const creatorAddress = normalizeAddress(chain, creator.address);
       if (!creatorAddress) return null;
 
-      // Cache check — return the cached profile without a network
-      // call when one exists.
       const cached = get(chain, tokenAddr);
       if (cached) return cached;
 
@@ -618,10 +534,6 @@ W.deployerGraph = (() => {
       const profileSource =
         typeof parsed.source === "string" ? parsed.source : evidenceSource;
 
-      // Qualification: only the current token is verified as a
-      // token (GoPlus recognized it — that is why we have a
-      // creator address to query with). All other contracts are
-      // counted in filteredContractCount.
       const tokens = [];
       let filteredContractCount = 0;
 
@@ -647,13 +559,6 @@ W.deployerGraph = (() => {
                 ? contract.blockNumber
                 : null,
               slot: Number.isFinite(contract.slot) ? contract.slot : null,
-              // What this evidence does NOT establish:
-              //   - It does not establish that the deployer is the
-              //     current owner.
-              //   - It does not establish that the deployed contract
-              //     is a token.
-              // For Solana, Pump.fun create instructions are the
-              // source; other launchpads are not (yet) tracked.
             },
             riskScore: null,
             shieldObservedAt: null,
@@ -670,10 +575,6 @@ W.deployerGraph = (() => {
         truncated: parsed.truncated === true,
         creatorMetadata: {
           goplusCreatorAddress: creatorAddress,
-          // We do not have a per-token provider-side deployer
-          // lookup that could be compared against GoPlus's
-          // creator_address. The value is honest: the comparison
-          // was not performed.
           agreement: "unavailable",
         },
         source: profileSource,
@@ -684,11 +585,6 @@ W.deployerGraph = (() => {
         return null;
       }
 
-      // Return the stored profile by deployer key, not by token
-      // lookup. get() is token-keyed and returns null when the
-      // profile has no matching token — which happens when the
-      // current token is not among the provider's creation calls.
-      // The profile is still recorded and should be returned.
       const storedKey = keyFor(chain, creatorAddress);
       if (!storedKey) return null;
       const stored = readEntry(storedKey);
@@ -706,7 +602,6 @@ W.deployerGraph = (() => {
     summarise,
     reset,
     METHODOLOGY_VERSION,
-    // Exposed for tests and diagnostics only.
     _internal: {
       keyFor,
       normalizeAddress,

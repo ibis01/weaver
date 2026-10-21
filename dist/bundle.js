@@ -15518,20 +15518,11 @@ W.deployerGraph = (() => {
 
   const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
-  // Worker URL. Defaults to the deployed Weaver proxy; can be
-  // overridden for testing via _internal.setWorkerBase().
   let workerBase = "https://weaver-proxy.ibis01-weaver.workers.dev";
 
-  // In-memory mirror of the index. Populated on first read after
-  // page load or reset. Kept in sync by writeIndex(). Cleared by
-  // reset().
   let cachedIndex = null;
   const warned = new Set();
 
-  // Session-scoped terminal-error flag. Set when the Worker reports
-  // a condition that will not resolve within the session (rate
-  // limit; equivalent permanent failures). Once set, further fetch
-  // attempts are short-circuited. Cleared by reset().
   let terminalError = false;
 
   function warnOnce(tag, message) {
@@ -15544,15 +15535,6 @@ W.deployerGraph = (() => {
     workerBase = typeof url === "string" ? url.trim().replace(/\/+$/, "") : "";
   }
 
-  // ── Normalization ────────────────────────────────────────
-
-  // Chain-aware address normalization.
-  //   Solana:  base58, case-sensitive — preserve as-is.
-  //   EVM:     lowercase for consistent comparison and cache keys.
-  //
-  // The single-argument form is retained for backward compatibility
-  // with existing tests and EVM-only call sites; it defaults to EVM
-  // semantics (lowercase).
   function normalizeAddress(valueOrChain, maybeValue) {
     const hasChain = typeof maybeValue !== "undefined";
     const chain = hasChain ? valueOrChain : null;
@@ -15573,9 +15555,6 @@ W.deployerGraph = (() => {
     return trimmed;
   }
 
-  // True only for a syntactically valid 0x-prefixed 40-hex address
-  // that is NOT the zero address. Used to decide whether an EVM
-  // field actually carries a deployed contract address.
   function isNonZeroAddress(value) {
     if (typeof value !== "string") return false;
     const norm = value.trim().toLowerCase();
@@ -15589,8 +15568,6 @@ W.deployerGraph = (() => {
     if (!chain || !address) return null;
     return KEY_PREFIX + chain + ":" + address;
   }
-
-  // ── Index management ─────────────────────────────────────
 
   function readIndex() {
     if (cachedIndex !== null) return cachedIndex;
@@ -15627,8 +15604,6 @@ W.deployerGraph = (() => {
     }
   }
 
-  // ── Cache reads ──────────────────────────────────────────
-
   function readEntry(key) {
     try {
       const entry = W.store?.get?.(key, null);
@@ -15658,8 +15633,6 @@ W.deployerGraph = (() => {
     }
   }
 
-  // ── TTL and eviction ─────────────────────────────────────
-
   function isExpired(entry, now = Date.now()) {
     if (!entry || !Number.isFinite(entry.observedAt)) return true;
     return now - entry.observedAt > RETENTION_MS;
@@ -15684,8 +15657,6 @@ W.deployerGraph = (() => {
     return kept;
   }
 
-  // ── Clone helper ─────────────────────────────────────────
-
   function cloneValue(value) {
     if (value === null || value === undefined) return value;
     try {
@@ -15698,8 +15669,6 @@ W.deployerGraph = (() => {
     }
   }
 
-  // ── Token validation ─────────────────────────────────────
-
   function isValidToken(token) {
     if (!token || typeof token !== "object") return false;
     if (typeof token.tokenAddress !== "string" || !token.tokenAddress.trim()) {
@@ -15708,10 +15677,6 @@ W.deployerGraph = (() => {
     return true;
   }
 
-  // ── Public: record ───────────────────────────────────────
-  // Write entry point. observe() calls this after a successful
-  // provider fetch. Tests use it to prime the cache. Returns true
-  // on success, false on any failure. Never throws.
   function record(chainKey, deployerAddress, profile) {
     try {
       const chain = normalizeChain(chainKey);
@@ -15802,16 +15767,6 @@ W.deployerGraph = (() => {
     }
   }
 
-  // ── Public: get ──────────────────────────────────────────
-  // Read-only lookup. Never issues a network request. Never
-  // mutates session state. Expired entries are skipped without
-  // being deleted; the next record() performs TTL cleanup.
-  //
-  // This is a SEMANTIC lookup: "find the profile relevant to this
-  // token". A profile with no matching token in its tokens array
-  // is not returned, even if it exists in the cache. Use the
-  // internal readEntry(keyFor(...)) to fetch a profile by deployer
-  // identity.
   function get(chainKey, tokenAddress) {
     try {
       const chain = normalizeChain(chainKey);
@@ -15838,8 +15793,6 @@ W.deployerGraph = (() => {
     }
   }
 
-  // ── Public: summarise ────────────────────────────────────
-  // Reports counts, never rates.
   function summarise(observation) {
     try {
       if (!observation || typeof observation !== "object") return null;
@@ -15859,9 +15812,7 @@ W.deployerGraph = (() => {
           ) {
             highRiskCount++;
           }
-        } catch (_) {
-          // Predicate failure: token is not counted as high-risk.
-        }
+        } catch (_) {}
       }
 
       const n = tokens.length;
@@ -15885,11 +15836,6 @@ W.deployerGraph = (() => {
     }
   }
 
-  // ── Public: reset ────────────────────────────────────────
-  // Test hook. Clears all cached profiles and the index, and
-  // re-arms the terminal-error flag so a fresh test run can
-  // exercise the fetch path. Production callers should not invoke
-  // this while a session is live.
   function reset() {
     try {
       const entries = readAllEntries();
@@ -15900,14 +15846,9 @@ W.deployerGraph = (() => {
     } catch (e) {
       warnOnce("reset", "reset failed: " + (e && e.message));
     }
-    // Clear the session flag even if cache cleanup above threw. A
-    // stuck flag would silently disable deployer enrichment for the
-    // rest of the session with no way to recover.
     terminalError = false;
     warned.clear();
   }
-
-  // ── Worker fetch ─────────────────────────────────────────
 
   async function fetchDeployerProfile(chain, deployerAddress) {
     if (!workerBase) {
@@ -15918,14 +15859,8 @@ W.deployerGraph = (() => {
       return null;
     }
 
-    // Fast path: a previous 429 in this session means the provider's
-    // free-tier window has not recovered. Skip the network entirely
-    // rather than fire doomed requests.
     if (terminalError) return null;
 
-    // Chain-appropriate provider. Both return the same normalized
-    // { contracts[] } shape; the client's parsing below is
-    // provider-agnostic.
     const endpoint =
       chain === "solana" ? "/helius/deployer" : "/etherscan/deployer";
 
@@ -15950,10 +15885,6 @@ W.deployerGraph = (() => {
       clearTimeout(timer);
     }
 
-    // ── Rate limit (both providers) ────────────────────────────
-    // The Worker surfaces rate limits as HTTP 429 with code
-    // "ETHERSCAN_RATE_LIMITED" or "HELIUS_RATE_LIMITED". Latch the
-    // session flag so subsequent scans do not fire doomed requests.
     if (response && response.status === 429) {
       terminalError = true;
       warnOnce(
@@ -15980,19 +15911,6 @@ W.deployerGraph = (() => {
     }
   }
 
-  // ── Public: observe ──────────────────────────────────────
-  // Async orchestrator. Reads creator.address from the assessment
-  // as the provider query hint, fetches the deployer profile on
-  // cache miss, applies the qualification step, and records.
-  // Returns the profile or null. Never throws.
-  //
-  // On success, the returned profile is read directly by deployer
-  // key — not by token lookup. A profile that qualifies zero
-  // tokens (because the current token was not among the provider's
-  // creation calls) is still a valid recorded result and is
-  // returned. get(chain, tokenAddress) remains a token-keyed
-  // semantic lookup for render consumers and will not surface
-  // such a profile.
   async function observe(assessment, chainKey, tokenAddress, symbol) {
     try {
       if (!assessment || typeof assessment !== "object") return null;
@@ -16009,8 +15927,6 @@ W.deployerGraph = (() => {
       const creatorAddress = normalizeAddress(chain, creator.address);
       if (!creatorAddress) return null;
 
-      // Cache check — return the cached profile without a network
-      // call when one exists.
       const cached = get(chain, tokenAddr);
       if (cached) return cached;
 
@@ -16027,10 +15943,6 @@ W.deployerGraph = (() => {
       const profileSource =
         typeof parsed.source === "string" ? parsed.source : evidenceSource;
 
-      // Qualification: only the current token is verified as a
-      // token (GoPlus recognized it — that is why we have a
-      // creator address to query with). All other contracts are
-      // counted in filteredContractCount.
       const tokens = [];
       let filteredContractCount = 0;
 
@@ -16056,13 +15968,6 @@ W.deployerGraph = (() => {
                 ? contract.blockNumber
                 : null,
               slot: Number.isFinite(contract.slot) ? contract.slot : null,
-              // What this evidence does NOT establish:
-              //   - It does not establish that the deployer is the
-              //     current owner.
-              //   - It does not establish that the deployed contract
-              //     is a token.
-              // For Solana, Pump.fun create instructions are the
-              // source; other launchpads are not (yet) tracked.
             },
             riskScore: null,
             shieldObservedAt: null,
@@ -16079,10 +15984,6 @@ W.deployerGraph = (() => {
         truncated: parsed.truncated === true,
         creatorMetadata: {
           goplusCreatorAddress: creatorAddress,
-          // We do not have a per-token provider-side deployer
-          // lookup that could be compared against GoPlus's
-          // creator_address. The value is honest: the comparison
-          // was not performed.
           agreement: "unavailable",
         },
         source: profileSource,
@@ -16093,11 +15994,6 @@ W.deployerGraph = (() => {
         return null;
       }
 
-      // Return the stored profile by deployer key, not by token
-      // lookup. get() is token-keyed and returns null when the
-      // profile has no matching token — which happens when the
-      // current token is not among the provider's creation calls.
-      // The profile is still recorded and should be returned.
       const storedKey = keyFor(chain, creatorAddress);
       if (!storedKey) return null;
       const stored = readEntry(storedKey);
@@ -16115,7 +16011,6 @@ W.deployerGraph = (() => {
     summarise,
     reset,
     METHODOLOGY_VERSION,
-    // Exposed for tests and diagnostics only.
     _internal: {
       keyFor,
       normalizeAddress,
@@ -16158,20 +16053,46 @@ console.log("[DeployerGraph] Module loaded.");
 //     newest-first reverse the array themselves.
 //   - Independent of js/features/smart.js. This module loads
 //     before W.smart is defined; it must never depend on it.
+//
+// ATTRIBUTION (Phase 3):
+//   Distinguishes between a direct buyer and an intermediary.
+//   DIRECT_ORIGINATOR: Wallet initiated the transaction (sent tokens/sold).
+//   TRACED_ECONOMIC_RECIPIENT: Wallet received tokens from a known DEX router (bought).
+//   INTERMEDIARY: Wallet received tokens from another wallet (airdrop/transfer).
+//   UNRESOLVED: Role cannot be established (e.g., mint from zero address).
 
 window.W = window.W || {};
 W.smartMoney = W.smartMoney || {};
 
 W.smartMoney.walletHistory = (() => {
   const BLOCKSCOUT_API = "https://eth.blockscout.com/api/v2";
-  const MODULE_VERSION = "wallet-history-v1";
-  const CACHE_KEY = "sm.wallet-history.v1";
+  const MODULE_VERSION = "wallet-history-v2"; // Bumped for attribution
+  const CACHE_KEY = "sm.wallet-history.v2"; // Bumped cache key
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   const CACHE_MAX_ENTRIES = 400;
   const FETCH_TIMEOUT_MS = 20000;
   const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
   const MAX_TRANSFERS_PER_QUERY = 2000;
   const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+  const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+  const ATTRIBUTION = Object.freeze({
+    DIRECT_ORIGINATOR: "DIRECT_ORIGINATOR",
+    TRACED_ECONOMIC_RECIPIENT: "TRACED_ECONOMIC_RECIPIENT",
+    INTERMEDIARY: "INTERMEDIARY",
+    UNRESOLVED: "UNRESOLVED",
+    ERROR: "ERROR",
+  });
+
+  // Common DEX Routers (Ethereum)
+  const KNOWN_DEX_ROUTERS = new Set([
+    "0x7a250d5630b4cf539739df2c5dacb4c659f2488d", // Uniswap V2
+    "0xe592427a0aece92de3edee1f18e0157c05861564", // Uniswap V3
+    "0x3fc91a3afd70395cd496c647d5a6cc9d4b2b7fad", // Uniswap Universal
+    "0xd9e1ce17f2641f24ae83637ab66a2cca9c378b9f", // SushiSwap
+    "0x1111111254eeb25477b68fb85ed929f73a960582", // 1inch V5
+    "0x1111111254fb6c44bac0bed2854e76f90643097d", // 1inch V4
+  ]);
 
   function newMap() {
     return Object.create(null);
@@ -16182,10 +16103,6 @@ W.smartMoney.walletHistory = (() => {
   }
 
   // ── Cache ─────────────────────────────────────────────
-  // One localStorage key holds an object keyed by
-  // `${wallet}:${token}`. Entries expire after 24h; the cache is
-  // capped and evicts the oldest observation when it grows.
-
   function loadCache() {
     try {
       const raw = W.store?.get?.(CACHE_KEY, null);
@@ -16249,11 +16166,6 @@ W.smartMoney.walletHistory = (() => {
   }
 
   // ── Fetch with hardening ──────────────────────────────
-  // URL allowlist, timeout, size cap, advisory schema check,
-  // dataHealth mark. Mirrors the shape of W.smart.fetchJSON but
-  // lives independently so this module does not require W.smart
-  // to be loaded.
-
   async function fetchJSON(url, timeoutMs = FETCH_TIMEOUT_MS) {
     if (typeof url !== "string" || !url.startsWith(BLOCKSCOUT_API + "/")) {
       throw new Error("Invalid Blockscout URL");
@@ -16328,16 +16240,8 @@ W.smartMoney.walletHistory = (() => {
     return data;
   }
 
-  // ── Transfer parsing ──────────────────────────────────
-  // Blockscout token-transfer record shape:
-  //   { timestamp, from:{hash}, to:{hash},
-  //     total:{value, decimals}, transaction_hash }
-  //
-  // Parses one record into a canonical trade:
-  //   { side: "in"|"out", amount, at, txHash }
-  //
-  // Returns null on malformed input. Never invents a value.
-
+  // ── Transfer parsing & attribution ────────────────────
+  // Distinguishes between a direct buyer and an intermediary.
   function parseTransfer(record, wallet) {
     if (!record || typeof record !== "object") return null;
 
@@ -16354,9 +16258,23 @@ W.smartMoney.walletHistory = (() => {
 
     const w = wallet.toLowerCase();
     let side = null;
-    if (toHash === w && fromHash !== w) side = "in";
-    else if (fromHash === w && toHash !== w) side = "out";
-    else return null;
+    let attribution = ATTRIBUTION.UNRESOLVED;
+
+    if (toHash === w && fromHash !== w) {
+      side = "in";
+      if (fromHash === ZERO_ADDRESS) {
+        attribution = ATTRIBUTION.UNRESOLVED; // Mint
+      } else if (KNOWN_DEX_ROUTERS.has(fromHash)) {
+        attribution = ATTRIBUTION.TRACED_ECONOMIC_RECIPIENT; // Bought via Router
+      } else {
+        attribution = ATTRIBUTION.INTERMEDIARY; // Received from another wallet
+      }
+    } else if (fromHash === w && toHash !== w) {
+      side = "out";
+      attribution = ATTRIBUTION.DIRECT_ORIGINATOR; // Initiated transfer/sell
+    } else {
+      return null;
+    }
 
     const total = record.total;
     let raw = null;
@@ -16380,6 +16298,7 @@ W.smartMoney.walletHistory = (() => {
 
     return {
       side,
+      attribution,
       amount,
       at: ts,
       txHash:
@@ -16390,12 +16309,8 @@ W.smartMoney.walletHistory = (() => {
   }
 
   // ── Public API ────────────────────────────────────────
-
   async function fetchTrades(chain, wallet, token) {
     if (chain !== "ethereum") {
-      // v1 is ETH-only. Non-ETH chains are refused honestly
-      // rather than silently routed to a host the client cannot
-      // reach from the current allowlist.
       return { trades: [], reason: "unsupported-chain" };
     }
     if (!isValidEthAddress(wallet)) {
@@ -16410,11 +16325,6 @@ W.smartMoney.walletHistory = (() => {
       return { trades: cached, cached: true };
     }
 
-    // PAGINATION_MARK: follow next_page_params until exhausted or
-    // MAX_TRANSFERS_PER_QUERY reached. Prior to this, only the first
-    // ~50 transfers (Blockscout default page size) were ever read,
-    // so a wallet with 500 transfers was scored on its most recent
-    // 10%. That silently disqualified historically-early buyers.
     const baseUrl =
       BLOCKSCOUT_API +
       "/addresses/" +
@@ -16458,11 +16368,9 @@ W.smartMoney.walletHistory = (() => {
     }
 
     if (fetchFailed && allItems.length === 0) {
-      // Cache the failure for the standard TTL. Without this, mega-wallets
-      // (exchange hot wallets, burn addresses) time out every cycle and
-      // consume the entire wallet-history budget without producing data.
-      // Retried after the TTL expires.
-      try { setCached(wallet, token, []); } catch (_) {}
+      try {
+        setCached(wallet, token, []);
+      } catch (_) {}
       return { trades: [], reason: "fetch-failed" };
     }
 
@@ -16472,8 +16380,6 @@ W.smartMoney.walletHistory = (() => {
       if (parsed) trades.push(parsed);
     }
 
-    // Blockscout returns newest-first. Sort oldest-first so
-    // cost-basis reconstruction walks forward in time.
     trades.sort((a, b) => a.at - b.at);
 
     setCached(wallet, token, trades);
@@ -16490,6 +16396,7 @@ W.smartMoney.walletHistory = (() => {
   return Object.freeze({
     fetchTrades,
     version: MODULE_VERSION,
+    ATTRIBUTION,
     _internal: Object.freeze({
       parseTransfer,
       cacheKey,
@@ -16497,12 +16404,13 @@ W.smartMoney.walletHistory = (() => {
       CACHE_KEY,
       CACHE_TTL_MS,
       CACHE_MAX_ENTRIES,
+      KNOWN_DEX_ROUTERS,
     }),
   });
 })();
 
 console.log(
-  "[WalletHistory] Module loaded — Blockscout token-transfer fetch, 24h cache.",
+  "[WalletHistory] Module loaded — Blockscout fetch, attribution logic.",
 );
 // ---- js/intelligence/smart-money/wallet-profiler.js ----
 // js/intelligence/smart-money/wallet-profiler.js
@@ -16535,9 +16443,8 @@ W.smartMoney = W.smartMoney || {};
 W.smartMoney.walletProfiler = (() => {
   "use strict";
 
-  const MODULE_VERSION = "wallet-profiler-v1";
+  const MODULE_VERSION = "wallet-profiler-v2";
   const EARLY_ENTRY_PUMP_PCT = 20;
-  // 14-day horizon per docs/audits/smart-money-early-entry-2026-10-11.md
   const EARLY_ENTRY_LOOKAHEAD_DAYS = 14;
   const DAY_MS = 24 * 60 * 60 * 1000;
   const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -16551,9 +16458,7 @@ W.smartMoney.walletProfiler = (() => {
   }
 
   // Pure. Given a trade list, a price map keyed by Date.toString(),
-  // and an asOf timestamp, returns early-entry stats. Trades after
-  // asOf are excluded. Trades whose next-day price is missing are
-  // dropped from the sample rather than counted as non-early.
+  // and an asOf timestamp, returns early-entry stats.
   function computeEarlyEntry(trades, priceMap, asOf) {
     if (!Array.isArray(trades) || !trades.length) {
       return { buyCount: 0, earlyCount: 0, earlyEntryRate: null };
@@ -16569,11 +16474,18 @@ W.smartMoney.walletProfiler = (() => {
     let earlyCount = 0;
     const lookaheadMs = DAY_MS * EARLY_ENTRY_LOOKAHEAD_DAYS;
 
+    // Only count trades where the wallet was the actual buyer or direct initiator
+    const validAttributions = [
+      W.smartMoney.walletHistory.ATTRIBUTION.DIRECT_ORIGINATOR,
+      W.smartMoney.walletHistory.ATTRIBUTION.TRACED_ECONOMIC_RECIPIENT,
+    ];
+
     for (const t of trades) {
       if (!t || t.side !== "in") continue;
+      if (!validAttributions.includes(t.attribution)) continue; // Ignore INTERMEDIARY / UNRESOLVED
       if (!Number.isFinite(t.at)) continue;
-      if (t.at > asOf) continue;                   // no look-ahead
-      if (t.at + lookaheadMs > asOf) continue;     // window extends past asOf
+      if (t.at > asOf) continue; // no look-ahead
+      if (t.at + lookaheadMs > asOf) continue; // window extends past asOf
 
       const tradeKey = new Date(t.at).toDateString();
       const nextKey = new Date(t.at + lookaheadMs).toDateString();
@@ -16596,7 +16508,6 @@ W.smartMoney.walletProfiler = (() => {
     };
   }
 
-  // Pure. Aggregates per-token results into a wallet profile.
   function aggregate(perToken, wallet, chain, asOf) {
     if (!Array.isArray(perToken) || !perToken.length) {
       return {
@@ -16637,7 +16548,8 @@ W.smartMoney.walletProfiler = (() => {
       totalEarly += Number.isFinite(e.earlyCount) ? e.earlyCount : 0;
     }
 
-    const winningTradeRate = perToken.length > 0 ? winners / perToken.length : null;
+    const winningTradeRate =
+      perToken.length > 0 ? winners / perToken.length : null;
     const earlyEntryRate = totalBuys > 0 ? totalEarly / totalBuys : null;
 
     return {
@@ -16669,14 +16581,6 @@ W.smartMoney.walletProfiler = (() => {
     };
   }
 
-  // Public. Profile a wallet across a list of tokens.
-  //
-  // tokens: [{ tokenAddress, coingeckoId, currentPrice }]
-  //   tokenAddress   required, ETH contract address
-  //   coingeckoId    required for historical price map
-  //   currentPrice   optional; fallback for analyzeWallet
-  //
-  // Returns the aggregate. Never throws.
   async function profile(chain, wallet, tokens, options = {}) {
     const asOf =
       Number.isFinite(options.asOf) && options.asOf > 0
@@ -16718,7 +16622,6 @@ W.smartMoney.walletProfiler = (() => {
       }
       if (!trades.length) continue;
 
-      // asOf gate at the input boundary.
       const filtered = trades.filter(
         (x) => Number.isFinite(x.at) && x.at <= asOf,
       );

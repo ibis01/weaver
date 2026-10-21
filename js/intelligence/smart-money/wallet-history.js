@@ -19,20 +19,46 @@
 //     newest-first reverse the array themselves.
 //   - Independent of js/features/smart.js. This module loads
 //     before W.smart is defined; it must never depend on it.
+//
+// ATTRIBUTION (Phase 3):
+//   Distinguishes between a direct buyer and an intermediary.
+//   DIRECT_ORIGINATOR: Wallet initiated the transaction (sent tokens/sold).
+//   TRACED_ECONOMIC_RECIPIENT: Wallet received tokens from a known DEX router (bought).
+//   INTERMEDIARY: Wallet received tokens from another wallet (airdrop/transfer).
+//   UNRESOLVED: Role cannot be established (e.g., mint from zero address).
 
 window.W = window.W || {};
 W.smartMoney = W.smartMoney || {};
 
 W.smartMoney.walletHistory = (() => {
   const BLOCKSCOUT_API = "https://eth.blockscout.com/api/v2";
-  const MODULE_VERSION = "wallet-history-v1";
-  const CACHE_KEY = "sm.wallet-history.v1";
+  const MODULE_VERSION = "wallet-history-v2"; // Bumped for attribution
+  const CACHE_KEY = "sm.wallet-history.v2"; // Bumped cache key
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   const CACHE_MAX_ENTRIES = 400;
   const FETCH_TIMEOUT_MS = 20000;
   const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
   const MAX_TRANSFERS_PER_QUERY = 2000;
   const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+  const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+  const ATTRIBUTION = Object.freeze({
+    DIRECT_ORIGINATOR: "DIRECT_ORIGINATOR",
+    TRACED_ECONOMIC_RECIPIENT: "TRACED_ECONOMIC_RECIPIENT",
+    INTERMEDIARY: "INTERMEDIARY",
+    UNRESOLVED: "UNRESOLVED",
+    ERROR: "ERROR",
+  });
+
+  // Common DEX Routers (Ethereum)
+  const KNOWN_DEX_ROUTERS = new Set([
+    "0x7a250d5630b4cf539739df2c5dacb4c659f2488d", // Uniswap V2
+    "0xe592427a0aece92de3edee1f18e0157c05861564", // Uniswap V3
+    "0x3fc91a3afd70395cd496c647d5a6cc9d4b2b7fad", // Uniswap Universal
+    "0xd9e1ce17f2641f24ae83637ab66a2cca9c378b9f", // SushiSwap
+    "0x1111111254eeb25477b68fb85ed929f73a960582", // 1inch V5
+    "0x1111111254fb6c44bac0bed2854e76f90643097d", // 1inch V4
+  ]);
 
   function newMap() {
     return Object.create(null);
@@ -43,10 +69,6 @@ W.smartMoney.walletHistory = (() => {
   }
 
   // ── Cache ─────────────────────────────────────────────
-  // One localStorage key holds an object keyed by
-  // `${wallet}:${token}`. Entries expire after 24h; the cache is
-  // capped and evicts the oldest observation when it grows.
-
   function loadCache() {
     try {
       const raw = W.store?.get?.(CACHE_KEY, null);
@@ -110,11 +132,6 @@ W.smartMoney.walletHistory = (() => {
   }
 
   // ── Fetch with hardening ──────────────────────────────
-  // URL allowlist, timeout, size cap, advisory schema check,
-  // dataHealth mark. Mirrors the shape of W.smart.fetchJSON but
-  // lives independently so this module does not require W.smart
-  // to be loaded.
-
   async function fetchJSON(url, timeoutMs = FETCH_TIMEOUT_MS) {
     if (typeof url !== "string" || !url.startsWith(BLOCKSCOUT_API + "/")) {
       throw new Error("Invalid Blockscout URL");
@@ -189,16 +206,8 @@ W.smartMoney.walletHistory = (() => {
     return data;
   }
 
-  // ── Transfer parsing ──────────────────────────────────
-  // Blockscout token-transfer record shape:
-  //   { timestamp, from:{hash}, to:{hash},
-  //     total:{value, decimals}, transaction_hash }
-  //
-  // Parses one record into a canonical trade:
-  //   { side: "in"|"out", amount, at, txHash }
-  //
-  // Returns null on malformed input. Never invents a value.
-
+  // ── Transfer parsing & attribution ────────────────────
+  // Distinguishes between a direct buyer and an intermediary.
   function parseTransfer(record, wallet) {
     if (!record || typeof record !== "object") return null;
 
@@ -215,9 +224,23 @@ W.smartMoney.walletHistory = (() => {
 
     const w = wallet.toLowerCase();
     let side = null;
-    if (toHash === w && fromHash !== w) side = "in";
-    else if (fromHash === w && toHash !== w) side = "out";
-    else return null;
+    let attribution = ATTRIBUTION.UNRESOLVED;
+
+    if (toHash === w && fromHash !== w) {
+      side = "in";
+      if (fromHash === ZERO_ADDRESS) {
+        attribution = ATTRIBUTION.UNRESOLVED; // Mint
+      } else if (KNOWN_DEX_ROUTERS.has(fromHash)) {
+        attribution = ATTRIBUTION.TRACED_ECONOMIC_RECIPIENT; // Bought via Router
+      } else {
+        attribution = ATTRIBUTION.INTERMEDIARY; // Received from another wallet
+      }
+    } else if (fromHash === w && toHash !== w) {
+      side = "out";
+      attribution = ATTRIBUTION.DIRECT_ORIGINATOR; // Initiated transfer/sell
+    } else {
+      return null;
+    }
 
     const total = record.total;
     let raw = null;
@@ -241,6 +264,7 @@ W.smartMoney.walletHistory = (() => {
 
     return {
       side,
+      attribution,
       amount,
       at: ts,
       txHash:
@@ -251,12 +275,8 @@ W.smartMoney.walletHistory = (() => {
   }
 
   // ── Public API ────────────────────────────────────────
-
   async function fetchTrades(chain, wallet, token) {
     if (chain !== "ethereum") {
-      // v1 is ETH-only. Non-ETH chains are refused honestly
-      // rather than silently routed to a host the client cannot
-      // reach from the current allowlist.
       return { trades: [], reason: "unsupported-chain" };
     }
     if (!isValidEthAddress(wallet)) {
@@ -271,11 +291,6 @@ W.smartMoney.walletHistory = (() => {
       return { trades: cached, cached: true };
     }
 
-    // PAGINATION_MARK: follow next_page_params until exhausted or
-    // MAX_TRANSFERS_PER_QUERY reached. Prior to this, only the first
-    // ~50 transfers (Blockscout default page size) were ever read,
-    // so a wallet with 500 transfers was scored on its most recent
-    // 10%. That silently disqualified historically-early buyers.
     const baseUrl =
       BLOCKSCOUT_API +
       "/addresses/" +
@@ -319,11 +334,9 @@ W.smartMoney.walletHistory = (() => {
     }
 
     if (fetchFailed && allItems.length === 0) {
-      // Cache the failure for the standard TTL. Without this, mega-wallets
-      // (exchange hot wallets, burn addresses) time out every cycle and
-      // consume the entire wallet-history budget without producing data.
-      // Retried after the TTL expires.
-      try { setCached(wallet, token, []); } catch (_) {}
+      try {
+        setCached(wallet, token, []);
+      } catch (_) {}
       return { trades: [], reason: "fetch-failed" };
     }
 
@@ -333,8 +346,6 @@ W.smartMoney.walletHistory = (() => {
       if (parsed) trades.push(parsed);
     }
 
-    // Blockscout returns newest-first. Sort oldest-first so
-    // cost-basis reconstruction walks forward in time.
     trades.sort((a, b) => a.at - b.at);
 
     setCached(wallet, token, trades);
@@ -351,6 +362,7 @@ W.smartMoney.walletHistory = (() => {
   return Object.freeze({
     fetchTrades,
     version: MODULE_VERSION,
+    ATTRIBUTION,
     _internal: Object.freeze({
       parseTransfer,
       cacheKey,
@@ -358,10 +370,11 @@ W.smartMoney.walletHistory = (() => {
       CACHE_KEY,
       CACHE_TTL_MS,
       CACHE_MAX_ENTRIES,
+      KNOWN_DEX_ROUTERS,
     }),
   });
 })();
 
 console.log(
-  "[WalletHistory] Module loaded — Blockscout token-transfer fetch, 24h cache.",
+  "[WalletHistory] Module loaded — Blockscout fetch, attribution logic.",
 );

@@ -28,9 +28,8 @@ W.smartMoney = W.smartMoney || {};
 W.smartMoney.walletProfiler = (() => {
   "use strict";
 
-  const MODULE_VERSION = "wallet-profiler-v1";
+  const MODULE_VERSION = "wallet-profiler-v2";
   const EARLY_ENTRY_PUMP_PCT = 20;
-  // 14-day horizon per docs/audits/smart-money-early-entry-2026-10-11.md
   const EARLY_ENTRY_LOOKAHEAD_DAYS = 14;
   const DAY_MS = 24 * 60 * 60 * 1000;
   const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -44,9 +43,7 @@ W.smartMoney.walletProfiler = (() => {
   }
 
   // Pure. Given a trade list, a price map keyed by Date.toString(),
-  // and an asOf timestamp, returns early-entry stats. Trades after
-  // asOf are excluded. Trades whose next-day price is missing are
-  // dropped from the sample rather than counted as non-early.
+  // and an asOf timestamp, returns early-entry stats.
   function computeEarlyEntry(trades, priceMap, asOf) {
     if (!Array.isArray(trades) || !trades.length) {
       return { buyCount: 0, earlyCount: 0, earlyEntryRate: null };
@@ -62,11 +59,18 @@ W.smartMoney.walletProfiler = (() => {
     let earlyCount = 0;
     const lookaheadMs = DAY_MS * EARLY_ENTRY_LOOKAHEAD_DAYS;
 
+    // Only count trades where the wallet was the actual buyer or direct initiator
+    const validAttributions = [
+      W.smartMoney.walletHistory.ATTRIBUTION.DIRECT_ORIGINATOR,
+      W.smartMoney.walletHistory.ATTRIBUTION.TRACED_ECONOMIC_RECIPIENT,
+    ];
+
     for (const t of trades) {
       if (!t || t.side !== "in") continue;
+      if (!validAttributions.includes(t.attribution)) continue; // Ignore INTERMEDIARY / UNRESOLVED
       if (!Number.isFinite(t.at)) continue;
-      if (t.at > asOf) continue;                   // no look-ahead
-      if (t.at + lookaheadMs > asOf) continue;     // window extends past asOf
+      if (t.at > asOf) continue; // no look-ahead
+      if (t.at + lookaheadMs > asOf) continue; // window extends past asOf
 
       const tradeKey = new Date(t.at).toDateString();
       const nextKey = new Date(t.at + lookaheadMs).toDateString();
@@ -89,7 +93,6 @@ W.smartMoney.walletProfiler = (() => {
     };
   }
 
-  // Pure. Aggregates per-token results into a wallet profile.
   function aggregate(perToken, wallet, chain, asOf) {
     if (!Array.isArray(perToken) || !perToken.length) {
       return {
@@ -130,7 +133,8 @@ W.smartMoney.walletProfiler = (() => {
       totalEarly += Number.isFinite(e.earlyCount) ? e.earlyCount : 0;
     }
 
-    const winningTradeRate = perToken.length > 0 ? winners / perToken.length : null;
+    const winningTradeRate =
+      perToken.length > 0 ? winners / perToken.length : null;
     const earlyEntryRate = totalBuys > 0 ? totalEarly / totalBuys : null;
 
     return {
@@ -162,14 +166,6 @@ W.smartMoney.walletProfiler = (() => {
     };
   }
 
-  // Public. Profile a wallet across a list of tokens.
-  //
-  // tokens: [{ tokenAddress, coingeckoId, currentPrice }]
-  //   tokenAddress   required, ETH contract address
-  //   coingeckoId    required for historical price map
-  //   currentPrice   optional; fallback for analyzeWallet
-  //
-  // Returns the aggregate. Never throws.
   async function profile(chain, wallet, tokens, options = {}) {
     const asOf =
       Number.isFinite(options.asOf) && options.asOf > 0
@@ -211,7 +207,6 @@ W.smartMoney.walletProfiler = (() => {
       }
       if (!trades.length) continue;
 
-      // asOf gate at the input boundary.
       const filtered = trades.filter(
         (x) => Number.isFinite(x.at) && x.at <= asOf,
       );
