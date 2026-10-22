@@ -1,97 +1,39 @@
 // js/intelligence/evaluation/predictive-validator.js
 //
-// Phase 4 — CORRECTED 2026-10-22
+// Phase 4 — Fixed-Horizon Evaluation (Commit 1b)
 //
-// WARNING: This module does NOT establish predictive ability.
-// It is a snapshot comparison: entry price at alert time vs current
-// price at validator run time, with heterogeneous holding periods.
-// See _limitations in every report. A true predictive evaluation
-// requires fixed-horizon prices, which this module cannot produce
-// without historical price data.
+// WARNING: This module evaluates a 24-hour fixed holding period.
+// It is no longer a "current price snapshot" comparison.
+// It relies entirely on the Worker's D1 snapshot database.
+// If a snapshot does not exist at exactly alert_time + 24h (±15m),
+// the alert is marked UNRESOLVED, not silently dropped.
 
 window.W = window.W || {};
 
 W.predictiveValidator = (() => {
   "use strict";
 
-  const MODULE_VERSION = "predictive-validator-v5-honest";
+  const MODULE_VERSION = "predictive-validator-v6-d1";
   const WORKER_BASE = "https://weaver-proxy.ibis01-weaver.workers.dev";
-  const BATCH_SIZE = 30;
+  const HORIZON_MS = 24 * 60 * 60 * 1000;
 
-  // Liquidity-tiered cost model. Justification: memecoin slippage scales
-  // inversely with pool depth. A single 3% assumption understates cost on
-  // thin names and overstates cost on deep ones.
+  // Liquidity-tiered cost model.
   function costForLiquidity(liquidityUsd) {
     const l = Number(liquidityUsd) || 0;
     if (l >= 1_000_000) return 0.5;
     if (l >= 100_000) return 1.5;
     if (l >= 30_000) return 3.0;
     if (l > 0) return 10.0;
-    return null; // unknown liquidity → cannot justify a cost
-  }
-
-  function sleep(ms) {
-    return new Promise((r) => setTimeout(r, ms));
-  }
-
-  function isValidAddress(chain, addr) {
-    if (typeof addr !== "string") return false;
-    if (chain === "solana") return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr);
-    return /^0x[a-fA-F0-9]{40}$/i.test(addr);
-  }
-
-  async function fetchPricesInBatches(chain, tokenAddresses, retries = 3) {
-    const priceMap = new Map();
-    const uniqueAddresses = [...new Set(tokenAddresses)].filter((a) =>
-      isValidAddress(chain, a),
-    );
-    if (!uniqueAddresses.length) return priceMap;
-
-    for (let i = 0; i < uniqueAddresses.length; i += BATCH_SIZE) {
-      const chunk = uniqueAddresses.slice(i, i + BATCH_SIZE);
-      const targetUrl = `https://api.dexscreener.com/tokens/v1/${chain}/${chunk.join(",")}`;
-      const url = `${WORKER_BASE}/proxy?url=${encodeURIComponent(targetUrl)}`;
-      try {
-        const res = await fetch(url);
-        if (res.status === 429 && retries > 0) {
-          await sleep(4000);
-          return fetchPricesInBatches(chain, tokenAddresses, retries - 1);
-        }
-        if (!res.ok) continue;
-        const data = await res.json();
-        const pairs = Array.isArray(data) ? data : data.pairs || [];
-        for (const pair of pairs) {
-          if (!pair.baseToken?.address) continue;
-          const addr = pair.baseToken.address.toLowerCase();
-          const price = Number(pair.priceUsd);
-          if (!Number.isFinite(price)) continue;
-          const existing = priceMap.get(addr);
-          if (
-            !existing ||
-            (pair.liquidity?.usd || 0) > (existing.liquidityUsd || 0)
-          ) {
-            priceMap.set(addr, {
-              priceUsd: price,
-              liquidityUsd: pair.liquidity?.usd || 0,
-            });
-          }
-        }
-      } catch (e) {
-        console.warn(`[Validator] Batch failed:`, e.message);
-      }
-      await sleep(1000);
-    }
-    return priceMap;
+    return null; // unknown liquidity -> cannot justify a cost
   }
 
   async function evaluateHistoricalAlerts() {
-    console.log(
-      "[Validator] Snapshot comparison (NOT predictive — see limitations)",
-    );
+    console.log("[Validator] Fetching historical alerts from Worker...");
 
     try {
       const res = await fetch(`${WORKER_BASE}/meme/alerts?limit=100`);
       if (!res.ok) throw new Error(`Worker returned ${res.status}`);
+
       const data = await res.json();
       const rawAlerts = data.alerts || [];
       if (!rawAlerts.length) return null;
@@ -103,9 +45,10 @@ W.predictiveValidator = (() => {
         dropped_no_entry_price: 0,
         dropped_duplicate: 0,
         unique_tokens: 0,
-        dropped_no_current_price: 0,
-        dropped_unknown_liquidity: 0,
         evaluated: 0,
+        unresolved_no_snapshot: 0,
+        unresolved_unknown_liquidity: 0,
+        unresolved_implausible_gain: 0,
       };
 
       const uniqueMap = new Map();
@@ -113,11 +56,9 @@ W.predictiveValidator = (() => {
         const chain = alert.assessment?.identity?.chain;
         const addr = alert.assessment?.identity?.tokenAddress;
         const entry = alert.market?.priceUsd;
-        if (!chain || !addr) {
-          accounting.dropped_invalid_address++;
-          continue;
-        }
-        if (!isValidAddress(chain, addr)) {
+        const observedAtMs = alert.assessment?.observedAtMs;
+
+        if (!chain || !addr || !observedAtMs) {
           accounting.dropped_invalid_address++;
           continue;
         }
@@ -125,6 +66,7 @@ W.predictiveValidator = (() => {
           accounting.dropped_no_entry_price++;
           continue;
         }
+
         const key = `${chain}:${addr.toLowerCase()}`;
         if (uniqueMap.has(key)) {
           accounting.dropped_duplicate++;
@@ -133,86 +75,103 @@ W.predictiveValidator = (() => {
         uniqueMap.set(key, {
           alert,
           chain,
-          tokenAddress: addr.toLowerCase(),
+          tokenAddress: addr,
           entryPrice: entry,
+          observedAtMs,
         });
       }
       accounting.unique_tokens = uniqueMap.size;
 
       const uniqueAlerts = [...uniqueMap.values()];
-      const byChain = {};
-      for (const u of uniqueAlerts) {
-        if (!byChain[u.chain]) byChain[u.chain] = [];
-        byChain[u.chain].push(u);
-      }
-
       const results = [];
       const unresolvedSamples = [];
 
-      for (const [chain, chainAlerts] of Object.entries(byChain)) {
-        const priceMap = await fetchPricesInBatches(
-          chain,
-          chainAlerts.map((a) => a.tokenAddress),
-        );
+      for (const item of uniqueAlerts) {
+        // The fixed 24h horizon
+        const targetTime = item.observedAtMs + HORIZON_MS;
 
-        for (const item of chainAlerts) {
-          const priceData = priceMap.get(item.tokenAddress);
-          if (!priceData || priceData.priceUsd <= 0) {
-            accounting.dropped_no_current_price++;
-            unresolvedSamples.push({
-              symbol: item.alert.symbol || "?",
-              chain,
-              reason: "no-current-price",
-            });
-            continue;
+        // Query the Worker's D1 snapshot layer
+        const queryUrl = `${WORKER_BASE}/snapshot/query?chain=${encodeURIComponent(item.chain)}&address=${encodeURIComponent(item.tokenAddress)}&at=${targetTime}`;
+
+        let snapshot = null;
+        try {
+          const snapRes = await fetch(queryUrl);
+          if (snapRes.ok) {
+            const snapData = await snapRes.json();
+            if (snapData.ok && snapData.snapshot) {
+              snapshot = snapData.snapshot;
+            }
           }
-
-          const currentPrice = priceData.priceUsd;
-          const rawReturnPct =
-            ((currentPrice - item.entryPrice) / item.entryPrice) * 100;
-
-          // Detect data errors (not real outcomes). A token cannot gain
-          // 10,000% between two price reads unless one read is wrong.
-          // Extreme LOSSES are kept — they represent real rug pulls.
-          if (rawReturnPct > 1000) {
-            accounting.dropped_no_current_price++;
-            unresolvedSamples.push({
-              symbol: item.alert.symbol || "?",
-              chain,
-              reason: "implausible-gain-suspected-data-error",
-            });
-            continue;
-          }
-
-          const costPct = costForLiquidity(priceData.liquidityUsd);
-          if (costPct === null) {
-            accounting.dropped_unknown_liquidity++;
-            unresolvedSamples.push({
-              symbol: item.alert.symbol || "?",
-              chain,
-              reason: "unknown-liquidity",
-            });
-            continue;
-          }
-
-          const netReturnPct = rawReturnPct - costPct;
-          accounting.evaluated++;
-          results.push({
-            symbol: item.alert.symbol || "Unknown",
-            chain,
-            entryPrice: item.entryPrice,
-            currentPrice,
-            rawReturnPct: rawReturnPct.toFixed(2),
-            costPct: costPct.toFixed(1),
-            netReturnPct: netReturnPct.toFixed(2),
-            liquidityUsd: priceData.liquidityUsd,
-            isWin: netReturnPct > 0,
-            isRug: rawReturnPct <= -95,
-          });
+        } catch (e) {
+          console.warn(
+            `[Validator] D1 query failed for ${item.tokenAddress}:`,
+            e.message,
+          );
         }
+
+        if (!snapshot) {
+          accounting.unresolved_no_snapshot++;
+          unresolvedSamples.push({
+            symbol: item.alert.symbol || "?",
+            chain: item.chain,
+            reason: "no-snapshot-near-timestamp",
+          });
+          continue;
+        }
+
+        const currentPrice = snapshot.price_usd;
+        const liquidityUsd = snapshot.liquidity_usd;
+
+        const rawReturnPct =
+          ((currentPrice - item.entryPrice) / item.entryPrice) * 100;
+
+        // Detect data errors (not real outcomes). A token cannot gain
+        // 10,000% between two price reads unless one read is wrong.
+        // Extreme LOSSES are kept.
+        if (rawReturnPct > 1000) {
+          accounting.unresolved_implausible_gain++;
+          unresolvedSamples.push({
+            symbol: item.alert.symbol || "?",
+            chain: item.chain,
+            reason: "implausible-gain-suspected-data-error",
+          });
+          continue;
+        }
+
+        const costPct = costForLiquidity(liquidityUsd);
+        if (costPct === null) {
+          accounting.unresolved_unknown_liquidity++;
+          unresolvedSamples.push({
+            symbol: item.alert.symbol || "?",
+            chain: item.chain,
+            reason: "unknown-liquidity",
+          });
+          continue;
+        }
+
+        const netReturnPct = rawReturnPct - costPct;
+        accounting.evaluated++;
+
+        results.push({
+          symbol: item.alert.symbol || "Unknown",
+          chain: item.chain,
+          entryPrice: item.entryPrice,
+          currentPrice,
+          rawReturnPct: rawReturnPct.toFixed(2),
+          costPct: costPct.toFixed(1),
+          netReturnPct: netReturnPct.toFixed(2),
+          liquidityUsd,
+          isWin: netReturnPct > 0,
+          isRug: rawReturnPct <= -95,
+        });
       }
 
-      if (accounting.evaluated === 0) return null;
+      if (accounting.evaluated === 0) {
+        console.log(
+          `[Validator] 0 tokens evaluated. Unresolved: ${accounting.unresolved_no_snapshot} no-snapshot.`,
+        );
+        return { accounting, metrics: null, trades: [], unresolvedSamples };
+      }
 
       // ── Aggregate ──
       const nets = results
@@ -225,17 +184,17 @@ W.predictiveValidator = (() => {
       const rugs = results.filter((r) => r.isRug).length;
       const mean = nets.reduce((s, v) => s + v, 0) / nets.length;
 
-      // Baseline: median return across all evaluated tokens. If Weaver's
-      // alerts have no advantage, this equals the "random pick from the
-      // alerted population" baseline. A more rigorous baseline would
-      // require a population of non-alerted tokens, which we don't have.
       const baseline = median;
+      const coverageRate =
+        ((accounting.evaluated / accounting.unique_tokens) * 100).toFixed(1) +
+        "%";
 
       const report = {
         version: MODULE_VERSION,
         evaluatedAt: new Date().toISOString(),
         accounting,
         metrics: {
+          coverageRate,
           winRate: ((wins / accounting.evaluated) * 100).toFixed(1) + "%",
           medianNetReturn: median.toFixed(2) + "%",
           meanNetReturn: mean.toFixed(2) + "%",
@@ -246,8 +205,7 @@ W.predictiveValidator = (() => {
           description:
             "Median net return across all evaluated tokens in this batch. " +
             "Not a true random-population baseline (would require a " +
-            "matched control set), but reveals whether the aggregate " +
-            "beats the median of its own sample.",
+            "matched control set).",
           medianNetReturn: baseline.toFixed(2) + "%",
         },
         unresolvedSamples: unresolvedSamples.slice(0, 20),
@@ -256,25 +214,21 @@ W.predictiveValidator = (() => {
         ),
         _limitations: {
           horizon:
-            "Holding period is NOT fixed. Each trade measures entry-price " +
-            "at alert time to current-price at validator run time. Alerts " +
-            "from 2 hours ago and 2 weeks ago are mixed in the same statistic.",
+            "Fixed 24-hour holding period. Entry is the alert price. " +
+            "Exit is the D1 snapshot price at alert_time + 24h (±15m).",
           notPredictive:
-            "This is a snapshot comparison, not a walk-forward predictive " +
-            "evaluation. It does not establish whether the alerts have " +
-            "predictive value for future price movements.",
+            "This establishes fixed-horizon performance, but does not " +
+            "prove predictive ability without a matched control baseline.",
           dataErrorsExcluded:
             "Gains >1000% are excluded as suspected data errors. Extreme " +
             "losses (down to -100%) are KEPT and counted as real outcomes.",
           costModel:
             "Cost is per-trade, tiered by liquidity: 0.5% (>$1M), 1.5% " +
-            "($100k-$1M), 3% ($30k-$100k), 10% (<$30k). Trades with " +
-            "unknown liquidity are marked unresolved, not costed at an " +
-            "arbitrary rate.",
-          baseline:
-            "The baseline shown is the median of the evaluated sample " +
-            "itself. A rigorous baseline requires a matched control set " +
-            "of non-alerted tokens, which this validator does not have.",
+            "($100k-$1M), 3% ($30k-$100k), 10% (<$30k).",
+          coverage:
+            "Alerts that do not have a D1 snapshot exactly 24h later " +
+            "are marked unresolved, NOT dropped. This is a coverage limitation " +
+            "of the newly initialized snapshot database.",
         },
       };
 
@@ -290,7 +244,7 @@ W.predictiveValidator = (() => {
         })),
       );
       console.log(
-        `[Validator] SNAPSHOT RESULT (not predictive) | ` +
+        `[Validator] FIXED 24H HORIZON | coverage=${report.metrics.coverageRate} | ` +
           `winRate=${report.metrics.winRate} | ` +
           `medianNet=${report.metrics.medianNetReturn} | ` +
           `rugRate=${report.metrics.rugRate} | ` +
@@ -305,7 +259,7 @@ W.predictiveValidator = (() => {
   }
 
   function renderReport(container, report) {
-    if (!report) {
+    if (!report || !report.accounting) {
       container.innerHTML =
         "<p class='muted'>No valid data to evaluate yet.</p>";
       return;
@@ -313,6 +267,22 @@ W.predictiveValidator = (() => {
 
     const a = report.accounting;
     const m = report.metrics;
+
+    if (!m) {
+      container.innerHTML = `
+        <div class="card">
+          <h3>📊 Fixed 24h Horizon Evaluation</h3>
+          <div class="alert info mt">
+            No tokens could be evaluated yet. The D1 snapshot database was recently initialized. 
+            Coverage requires at least 24 hours of snapshot history.
+          </div>
+          <p class="muted small mt">
+            Total Alerts: ${a.total_alerts} | Unique Tokens: ${a.unique_tokens} | Unresolved (No Snapshot): ${a.unresolved_no_snapshot}
+          </p>
+        </div>
+      `;
+      return;
+    }
 
     const rows = report.trades
       .map(
@@ -332,11 +302,10 @@ W.predictiveValidator = (() => {
 
     container.innerHTML = `
       <div class="card">
-        <h3>📊 Snapshot Comparison — NOT a predictive evaluation</h3>
-        <div class="alert warn mt">
-          This compares entry price at alert time to current price at run time.
-          Holding periods vary. It does not establish predictive ability.
-          See limitations below.
+        <h3>📊 Fixed 24h Horizon Evaluation</h3>
+        <div class="alert info mt">
+          This compares entry price at alert time to the snapshot price exactly 24 hours later.
+          Coverage is currently limited because the D1 snapshot database was recently initialized.
         </div>
         <div class="grid-2 mt">
           <div class="card stat">
@@ -357,12 +326,8 @@ W.predictiveValidator = (() => {
           </div>
         </div>
         <p class="muted small mt">
-          Evaluated ${a.evaluated} of ${a.unique_tokens} unique tokens.
-          Dropped: invalid=${a.dropped_invalid_address},
-          no-entry=${a.dropped_no_entry_price},
-          dup=${a.dropped_duplicate},
-          no-current-price=${a.dropped_no_current_price},
-          unknown-liquidity=${a.dropped_unknown_liquidity}.
+          Coverage: <b>${m.coverageRate}</b> (Evaluated ${a.evaluated} of ${a.unique_tokens} unique tokens).
+          Unresolved: no-snapshot=${a.unresolved_no_snapshot}, unknown-liquidity=${a.unresolved_unknown_liquidity}, implausible-gain=${a.unresolved_implausible_gain}.
         </p>
         <p class="muted small mt"><b>Baseline:</b> ${report.baseline.medianNetReturn} (${report.baseline.description})</p>
         <details class="mt">
@@ -372,13 +337,35 @@ W.predictiveValidator = (() => {
             <li><b>Not predictive:</b> ${report._limitations.notPredictive}</li>
             <li><b>Data errors:</b> ${report._limitations.dataErrorsExcluded}</li>
             <li><b>Cost model:</b> ${report._limitations.costModel}</li>
-            <li><b>Baseline:</b> ${report._limitations.baseline}</li>
+            <li><b>Coverage:</b> ${report._limitations.coverage}</li>
           </ul>
         </details>
+        ${
+          report.unresolvedSamples.length > 0
+            ? `
+          <details class="mt">
+            <summary class="muted small" style="cursor:pointer;">▶ Unresolved Samples (first 20)</summary>
+            <div class="table-wrap mt">
+              <table>
+                <thead><tr><th>Token</th><th>Chain</th><th>Reason</th></tr></thead>
+                <tbody>
+                  ${report.unresolvedSamples
+                    .map(
+                      (u) =>
+                        `<tr><td>${u.symbol}</td><td>${u.chain}</td><td class="muted">${u.reason}</td></tr>`,
+                    )
+                    .join("")}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        `
+            : ""
+        }
         <div class="table-wrap mt">
           <table>
             <thead>
-              <tr><th>Token</th><th>Entry</th><th>Current</th><th>Raw</th><th>Cost</th><th>Net</th><th></th></tr>
+              <tr><th>Token</th><th>Entry</th><th>24h Snapshot</th><th>Raw</th><th>Cost</th><th>Net</th><th></th></tr>
             </thead>
             <tbody>${rows}</tbody>
           </table>
@@ -395,5 +382,5 @@ W.predictiveValidator = (() => {
 })();
 
 console.log(
-  "[PredictiveValidator] Module loaded — v5-honest snapshot comparison.",
+  "[PredictiveValidator] Module loaded — v6-d1 fixed-horizon evaluator.",
 );
