@@ -17307,18 +17307,10 @@ W.smartMoney.entryAssessment = (() => {
 
   async function profileWallets(chain, wallets) {
     if (chain === "solana") {
-      // Solana profiler is not yet implemented (needs Helius RPC).
-      // We return a neutral profile so the convergence detector can
-      // evaluate funding-source independence.
-      return wallets.map((w) => ({
-        wallet: w,
-        historicalProfile: {
-          priced: true,
-          tokenCount: 1,
-          earlyEntryRate: 0.5,
-          earlyEntrySampleCount: 10,
-        },
-      }));
+      // Solana profiler not implemented yet. Return [] so the caller honestly
+      // reports "insufficient-profiled-wallets" rather than fabricating a
+      // skill signal the transaction data does not support.
+      return [];
     }
 
     const profiler = W.smartMoney.walletProfiler;
