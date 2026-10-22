@@ -72,11 +72,11 @@
 - Exit rule: results are NOT evidence of trading skill.
 
 ## Pre-flight decision
-- Pre-flight report: docs/phase-2/preflight-<UTC>.md
-- Check 1 (REJECTED attribution): <PASS|BLOCKED> — <evidence line or reason>
-- Check 2 (silent catches): <PASS|BLOCKED> — <evidence line or reason>
-- Check 3 (/meme/alert reconstructability): <PASS|BLOCKED> — <evidence line or reason>
-- Decision: <START|BLOCKED>
-- If START — actual start timestamp (UTC): 2026-10-22T<HH:MM>Z
-- If BLOCKED — in-phase fix required before start: <one sentence naming the
-  check that failed and the file that must change>
+- Pre-flight evidence:
+  - Check 1 (REJECTED attribution): PASS — 3 emit sites in wallet-history.js (mint, CEX inbound, wallet-level exclusion); empty-array caching removed; cache key bumped to v3.
+  - Check 2 (silent catches): PASS — deployer-graph.js cloneValue catch is a JSON fallback chain (not a provider swallow); deployer-graph.js isHighRisk catch now records `highRiskUnknown` and qualifies the summary. wallet-history.js and predictive-validator.js carry no silent provider catches.
+  - Check 3 (/meme/alert reconstructability): PASS — handler persists assessment + market{priceUsd,liquidityUsd,observedAt} + pairAddress + symbol + receivedAt; key encodes chain + token + observedAtMs.
+- Decision: START
+- Actual start timestamp (UTC): 2026-10-22T__:__Z   ← fill at the moment you run the next scan
+- Planned end timestamp (UTC): 2026-10-29T__:__Z
+- Window shift note: roadmap window was 2026-10-21 → 2026-10-28; baseline was not frozen until 2026-10-22, so the trial is shifted one day. Duration remains seven full days.
