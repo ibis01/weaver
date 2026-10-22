@@ -25645,9 +25645,6 @@ W.gems = (() => {
   const DEPLOYER_STORE_KEY = "gems.deployerHistory.v1";
   const DEPLOYER_STORE_MAX = 500;
 
-  // Circuit breaker for the deployer route so we do not spam
-  // /etherscan/deployer for 6 tokens on every scan when the upstream
-  // is failing. Any failure suspends deployer enrichment for 5 minutes.
   const DEPLOYER_BACKOFF_MS = 5 * 60 * 1000;
   let deployerBackoffUntil = 0;
 
@@ -26736,8 +26733,6 @@ W.gems = (() => {
   }
 
   // ── Phase 5 helper ─────────────────────────────────────────────
-  // Coerce a synthesizer field (which may be a string OR an array)
-  // into a single string for W.theses.create. Never invents content.
   function _safeJoinArray(v, sep = "\n") {
     if (v == null) return "";
     if (typeof v === "string") return v.trim();
@@ -26752,12 +26747,6 @@ W.gems = (() => {
   }
 
   // ── Phase 5: Reasoning Layer wiring ───────────────────────────
-  // Phase 4/5 boundary: this function ONLY selects thesis text.
-  // It does not change scores, thresholds, evidence, or security
-  // decisions. The synthesizer's output is treated as an *explanation*
-  // of what `gem` already contains; if the synthesizer is missing,
-  // throws, or returns an empty thesis, we fall back to the
-  // score-based default. See roadmap Phase 5 exit rule.
   function autoCreateThesis(gem, addr, shield, assessment) {
     if (!W.theses) return;
     if (!gem || !gem.pair || !gem.pair.baseToken) return;
@@ -26774,7 +26763,6 @@ W.gems = (() => {
         ? gem.analysis.score
         : null;
 
-    // Fallback thesis (used if synthesizer is absent/throws/empty).
     let statement =
       scoreNum != null
         ? `Gem Agent alert — score ${scoreNum}.`
@@ -26783,8 +26771,6 @@ W.gems = (() => {
     let signals = shieldSummary(shield);
     let invalidation = "Shield verdict turns high-risk or liquidity is pulled.";
 
-    // Attempt synthesis. Any failure must not silently swallow the
-    // fallback thesis; the try/catch below preserves it.
     if (
       W.evidenceSynthesizer &&
       typeof W.evidenceSynthesizer.synthesize === "function"
@@ -26798,8 +26784,6 @@ W.gems = (() => {
       }
 
       if (report && typeof report === "object") {
-        // The synthesizer builds a `finalStatement` string. Older /
-        // alternative shapes may use `finalVerdict` or `statement`.
         const synthStatement =
           (typeof report.finalStatement === "string" &&
             report.finalStatement.trim()) ||
@@ -26809,18 +26793,15 @@ W.gems = (() => {
           "";
         if (synthStatement) statement = synthStatement;
 
-        // `narrative` may be a string OR an array of paragraphs.
         const narrativeText = _safeJoinArray(report.narrative, " ");
         if (narrativeText) reasons = narrativeText;
 
-        // `signals` and `risks` are arrays of short bullet strings.
         const signalParts = [
           _safeJoinArray(report.signals, "\n"),
           _safeJoinArray(report.risks, "\n"),
         ].filter(Boolean);
         if (signalParts.length) signals = signalParts.join("\n");
 
-        // `invalidation` may be string OR array.
         const invText = _safeJoinArray(report.invalidation, "\n");
         if (invText) invalidation = invText;
       }
@@ -27241,7 +27222,6 @@ W.gems = (() => {
           ].slice(0, 10);
         }
 
-        // ── Smart Money: distinguish "no data" from "evaluated and rejected" ──
         const sm = g.smartMoneySignal;
         if (sm && sm.hasConvergence === true) {
           g.analysis.score = Math.min(100, g.analysis.score + 20);
@@ -27596,7 +27576,12 @@ W.gems = (() => {
         }
 
         if (!report.metrics) {
-          // Zero tokens were evaluable (e.g., D1 recently initialized)
+          // ── FIX (Phase 4 audit Issue C): use the new accounting shape.
+          //     total_alerts_recorded / eligible_for_evaluation / evaluated
+          //     are the honest six-count breakdown. The old `total_alerts`
+          //     and `unique_tokens` keys no longer exist after the validator
+          //     change, so displaying them here would show `undefined`.
+          const a0 = report.accounting;
           W.ui.modal({
             title: "📊 Fixed 24h Horizon Evaluation",
             body: `
@@ -27607,9 +27592,13 @@ W.gems = (() => {
                   before a fixed-horizon return can be calculated.
                 </p>
                 <p class="small muted mt">
-                  Total Alerts: ${report.accounting.total_alerts}<br>
-                  Unique Tokens: ${report.accounting.unique_tokens}<br>
-                  Unresolved (No Snapshot): ${report.accounting.unresolved_no_snapshot}
+                  Total Alerts Recorded: ${a0.total_alerts_recorded}<br>
+                  Eligible for Evaluation: ${a0.eligible_for_evaluation}<br>
+                  Evaluated: ${a0.evaluated}<br>
+                  Unresolved (No Snapshot): ${a0.unresolved_no_snapshot}<br>
+                  Unresolved (Unknown Liquidity): ${a0.unresolved_unknown_liquidity}<br>
+                  Unresolved (Implausible Gain): ${a0.unresolved_implausible_gain}<br>
+                  Excluded by Pre-Registered Rules: ${a0.excluded_by_rules === null ? "not computable (field not persisted)" : a0.excluded_by_rules}
                 </p>
                 <p class="small muted mt">Check back after ${new Date(Date.now() + 24 * 3600 * 1000).toLocaleString()}</p>
               </div>
@@ -27620,6 +27609,7 @@ W.gems = (() => {
         }
 
         const m = report.metrics;
+        const a = report.accounting;
         const tradesHtml = report.trades
           .map(
             (t) => `
@@ -27658,7 +27648,16 @@ W.gems = (() => {
               </div>
             </div>
             <p class="muted small mt">
-              Evaluated ${report.accounting.evaluated} of ${report.accounting.unique_tokens} unique tokens.
+              <!-- ── FIX (Phase 4 audit Issue C): coverage denominator is
+                   total_alerts_recorded, not unique_tokens. The validator
+                   returns the six-count breakdown in report.accounting. -->
+              Coverage = Evaluated ${a.evaluated} of ${a.total_alerts_recorded} recorded alerts
+              (eligible: ${a.eligible_for_evaluation}).<br>
+              Unresolved: no-snapshot=${a.unresolved_no_snapshot},
+              unknown-liquidity=${a.unresolved_unknown_liquidity},
+              implausible-gain=${a.unresolved_implausible_gain}.<br>
+              Excluded by pre-registered rules:
+              ${a.excluded_by_rules === null ? "not computable (field not persisted in alert payload)" : a.excluded_by_rules}.
             </p>
             <details class="mt">
               <summary class="muted small" style="cursor:pointer;">▶ Limitations</summary>
