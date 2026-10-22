@@ -1,4 +1,4 @@
-// SKIP_CACHE_MARK: shorten timeout + cache failures
+
 // js/intelligence/smart-money/wallet-history.js
 //
 // Fetch and cache per-wallet, per-token transfer history from
@@ -19,17 +19,27 @@
 //     newest-first reverse the array themselves.
 //   - Independent of js/features/smart.js. This module loads
 //     before W.smart is defined; it must never depend on it.
+//   - REJECTED is a first-class attribution state (Phase 3):
+//       * a wallet that is itself a DEX router, CEX hot wallet,
+//         or the zero address is REJECTED at the wallet level;
+//       * a transfer whose sender is the zero address (mint) or
+//         a known CEX wallet is REJECTED at the transfer level,
+//         because it cannot be a market purchase.
+//   - Provider failures and partial fetches are NEVER cached;
+//     the caller always sees an explicit `reason` on failure.
 
 window.W = window.W || {};
 W.smartMoney = W.smartMoney || {};
 
 W.smartMoney.walletHistory = (() => {
   const BLOCKSCOUT_API = "https://eth.blockscout.com/api/v2";
-  const MODULE_VERSION = "wallet-history-v2";
+  const MODULE_VERSION = "wallet-history-v3";
   const CACHE_KEY = "sm.wallet-history.v2";
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   const CACHE_MAX_ENTRIES = 400;
-  const FETCH_TIMEOUT_MS = 20000;
+  // Shorter per-request timeout; overall operation is bounded below.
+  const FETCH_TIMEOUT_MS = 8000;
+  const OVERALL_DEADLINE_MS = 45000;
   const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
   const MAX_TRANSFERS_PER_QUERY = 2000;
   const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -40,6 +50,7 @@ W.smartMoney.walletHistory = (() => {
     TRACED_ECONOMIC_RECIPIENT: "TRACED_ECONOMIC_RECIPIENT",
     INTERMEDIARY: "INTERMEDIARY",
     UNRESOLVED: "UNRESOLVED",
+    REJECTED: "REJECTED",
     ERROR: "ERROR",
   });
 
@@ -74,6 +85,16 @@ W.smartMoney.walletHistory = (() => {
 
   function isValidEthAddress(addr) {
     return typeof addr === "string" && ETH_ADDRESS_RE.test(addr);
+  }
+
+  // Wallet-level exclusion: these addresses are definitively not
+  // economic buyers under any reading of on-chain evidence.
+  function isExcludedWallet(addr) {
+    if (typeof addr !== "string") return false;
+    const a = addr.toLowerCase();
+    return (
+      a === ZERO_ADDRESS || KNOWN_DEX_ROUTERS.has(a) || KNOWN_CEX_WALLETS.has(a)
+    );
   }
 
   // ── Cache ─────────────────────────────────────────────
@@ -236,9 +257,13 @@ W.smartMoney.walletHistory = (() => {
     if (toHash === w && fromHash !== w) {
       side = "in";
       if (fromHash === ZERO_ADDRESS) {
-        attribution = ATTRIBUTION.UNRESOLVED; // Mint
+        // A minted balance is definitively not a market purchase.
+        attribution = ATTRIBUTION.REJECTED;
       } else if (KNOWN_DEX_ROUTERS.has(fromHash)) {
         attribution = ATTRIBUTION.TRACED_ECONOMIC_RECIPIENT; // Bought via Router
+      } else if (KNOWN_CEX_WALLETS.has(fromHash)) {
+        // Withdrawal from a centralized exchange — not a market buy.
+        attribution = ATTRIBUTION.REJECTED;
       } else {
         attribution = ATTRIBUTION.INTERMEDIARY; // Received from another wallet
       }
@@ -253,8 +278,11 @@ W.smartMoney.walletHistory = (() => {
     let raw = null;
     let decimals = 18;
     if (total && typeof total === "object") {
-      if (typeof total.value === "string" || typeof total.value === "number") {
-        raw = String(total.value);
+      // Blockscout v2 returns `total.value` as a string to preserve
+      // uint256 precision. Accept only strings; a JS number may already
+      // have lost precision above 2^53.
+      if (typeof total.value === "string") {
+        raw = total.value;
       }
       const d = Number(total.decimals);
       if (Number.isFinite(d) && d >= 0 && d <= 36) decimals = d;
@@ -266,8 +294,10 @@ W.smartMoney.walletHistory = (() => {
     const amount = n / Math.pow(10, decimals);
     if (!Number.isFinite(amount) || amount < 0) return null;
 
-    const ts = new Date(record.timestamp || 0).getTime();
-    if (!Number.isFinite(ts)) return null;
+    // Reject missing/empty timestamps instead of silently mapping to epoch 0.
+    if (typeof record.timestamp !== "string" || !record.timestamp) return null;
+    const ts = new Date(record.timestamp).getTime();
+    if (!Number.isFinite(ts) || ts <= 0) return null;
 
     return {
       side,
@@ -293,6 +323,16 @@ W.smartMoney.walletHistory = (() => {
       return { trades: [], reason: "invalid-token" };
     }
 
+    // Wallet-level exclusion — before cache, before fetch.
+    if (isExcludedWallet(wallet)) {
+      return {
+        trades: [],
+        reason: "excluded-wallet",
+        attribution: ATTRIBUTION.REJECTED,
+        cached: false,
+      };
+    }
+
     const cached = getCached(wallet, token);
     if (cached) {
       return { trades: cached, cached: true };
@@ -306,11 +346,18 @@ W.smartMoney.walletHistory = (() => {
       token.toLowerCase();
 
     const MAX_PAGES = 40;
+    const overallDeadline = Date.now() + OVERALL_DEADLINE_MS;
     const allItems = [];
     let url = baseUrl;
     let fetchFailed = false;
+    let truncated = false;
 
     for (let page = 0; page < MAX_PAGES && url; page++) {
+      if (Date.now() > overallDeadline) {
+        fetchFailed = true;
+        truncated = true;
+        break;
+      }
       let data;
       try {
         data = await fetchJSON(url);
@@ -322,13 +369,20 @@ W.smartMoney.walletHistory = (() => {
             e && e.message,
           );
           fetchFailed = true;
+        } else {
+          // Partial failure — record, do not cache.
+          fetchFailed = true;
+          truncated = true;
         }
         break;
       }
       const items = Array.isArray(data && data.items) ? data.items : [];
       if (items.length === 0) break;
       allItems.push(...items);
-      if (allItems.length >= MAX_TRANSFERS_PER_QUERY) break;
+      if (allItems.length >= MAX_TRANSFERS_PER_QUERY) {
+        truncated = true;
+        break;
+      }
       const next = data && data.next_page_params;
       if (!next || typeof next !== "object") break;
       const qs = new URLSearchParams();
@@ -340,11 +394,9 @@ W.smartMoney.walletHistory = (() => {
       url = baseUrl + "&" + qs.toString();
     }
 
+    // Failure with no data — never cache an empty array.
     if (fetchFailed && allItems.length === 0) {
-      try {
-        setCached(wallet, token, []);
-      } catch (_) {}
-      return { trades: [], reason: "fetch-failed" };
+      return { trades: [], reason: "fetch-failed", cached: false };
     }
 
     const trades = [];
@@ -355,9 +407,19 @@ W.smartMoney.walletHistory = (() => {
 
     trades.sort((a, b) => a.at - b.at);
 
-    setCached(wallet, token, trades);
+    // Only cache complete, non-truncated successes.
+    if (!truncated) {
+      setCached(wallet, token, trades);
+      return { trades, cached: false };
+    }
 
-    return { trades, cached: false };
+    // Partial / truncated: return data with an explicit reason; do not cache.
+    return {
+      trades,
+      cached: false,
+      reason: fetchFailed ? "partial-fetch" : "truncated",
+      truncated: true,
+    };
   }
 
   async function fetchFundingSources(chain, wallet) {
@@ -396,7 +458,11 @@ W.smartMoney.walletHistory = (() => {
       return { fundingSources, cached: false };
     } catch (e) {
       console.warn("[WalletHistory] Funding source fetch failed:", e.message);
-      return { fundingSources: [], reason: "fetch-failed" };
+      return {
+        fundingSources: [],
+        reason: "fetch-failed",
+        error: e && e.message,
+      };
     }
   }
 
@@ -413,6 +479,7 @@ W.smartMoney.walletHistory = (() => {
     ATTRIBUTION,
     _internal: Object.freeze({
       parseTransfer,
+      isExcludedWallet,
       cacheKey,
       resetCache,
       CACHE_KEY,
