@@ -70,3 +70,11 @@
   duplicate signals, missing-evidence cases, incorrect classifications,
   system interruptions, reconstructability rate.
 - Exit rule: results are NOT evidence of trading skill. Any such claim is forbidden.
+## Pre-flight decision
+- Pre-flight report: <paste the preflight filename>
+- Check 1 (REJECTED attribution): PASS
+- Check 2 (silent catches):   PASS
+- Check 3 (reconstructability): PASS
+- Window: 2026-10-22T__:__Z → 2026-10-29T__:__Z (Option A — shifted one day,
+  baseline not frozen until 2026-10-22; reason documented)
+- Decision: **START**
