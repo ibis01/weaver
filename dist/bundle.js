@@ -27442,64 +27442,114 @@ W.gems = (() => {
     view.querySelector("#g-hide-risk").onchange = () => scan(view);
     view.querySelector("#g-only-pass").onchange = () => scan(view);
 
-    view.querySelector("#g-validate").onclick = async () => {
-      const btn = view.querySelector("#g-validate");
-      btn.textContent = "Evaluating...";
-      btn.disabled = true;
+       view.querySelector("#g-validate").onclick = async () => {
+         const btn = view.querySelector("#g-validate");
+         btn.textContent = "Evaluating...";
+         btn.disabled = true;
 
-      try {
-        const report = await W.predictiveValidator.evaluateHistoricalAlerts();
-        if (!report) {
-          W.ui.toast("No historical alerts available to evaluate yet.", "warn");
-          return;
-        }
+         try {
+           const report =
+             await W.predictiveValidator.evaluateHistoricalAlerts();
+           if (!report || !report.accounting) {
+             W.ui.toast(
+               "No historical alerts available to evaluate yet.",
+               "warn",
+             );
+             return;
+           }
 
-        const tradesHtml = report.trades
-          .map(
-            (t) => `
+           if (!report.metrics) {
+             // Zero tokens were evaluable (e.g., D1 recently initialized)
+             W.ui.modal({
+               title: "📊 Fixed 24h Horizon Evaluation",
+               body: `
+              <div class="card">
+                <h3>📊 Waiting for 24h horizon data</h3>
+                <p class="muted mt">
+                  No tokens could be evaluated yet. The D1 snapshot database requires at least 24 hours of history 
+                  before a fixed-horizon return can be calculated.
+                </p>
+                <p class="small muted mt">
+                  Total Alerts: ${report.accounting.total_alerts}<br>
+                  Unique Tokens: ${report.accounting.unique_tokens}<br>
+                  Unresolved (No Snapshot): ${report.accounting.unresolved_no_snapshot}
+                </p>
+                <p class="small muted mt">Check back after ${new Date(Date.now() + 24 * 3600 * 1000).toLocaleString()}</p>
+              </div>
+            `,
+               footer: `<button class="btn primary" data-a="modal-close">Close</button>`,
+             });
+             return;
+           }
+
+           const m = report.metrics;
+           const tradesHtml = report.trades
+             .map(
+               (t) => `
           <tr>
             <td><b>${W.gems._internal.esc(t.symbol)}</b> (${W.gems._internal.esc(t.chain)})</td>
             <td>$${t.entryPrice.toPrecision(4)}</td>
             <td>$${t.currentPrice.toPrecision(4)}</td>
             <td class="${t.isWin ? "text-up" : "text-down"}">${t.rawReturnPct}%</td>
+            <td>${t.costPct}%</td>
             <td class="${t.isWin ? "text-up" : "text-down"}"><b>${t.netReturnPct}%</b></td>
+            ${t.isRug ? '<td><span class="tag sell">RUG</span></td>' : "<td></td>"}
           </tr>
         `,
-          )
-          .join("");
+             )
+             .join("");
 
-        W.ui.modal({
-          title: "📊 Strategy Validation (Phase 4)",
-          body: `
+           W.ui.modal({
+             title: "📊 Fixed 24h Horizon Evaluation",
+             body: `
             <div class="grid-2">
               <div class="card stat">
+                <div class="stat-label">Coverage</div>
+                <div class="stat-big">${m.coverageRate}</div>
+              </div>
+              <div class="card stat">
                 <div class="stat-label">Win Rate</div>
-                <div class="stat-big ${parseFloat(report.winRate) >= 50 ? "text-up" : "text-down"}">${report.winRate}</div>
+                <div class="stat-big ${parseFloat(m.winRate) >= 50 ? "text-up" : "text-down"}">${m.winRate}</div>
               </div>
               <div class="card stat">
                 <div class="stat-label">Median Net Return</div>
-                <div class="stat-big ${parseFloat(report.medianNetReturn) >= 0 ? "text-up" : "text-down"}">${report.medianNetReturn}</div>
+                <div class="stat-big ${parseFloat(m.medianNetReturn) >= 0 ? "text-up" : "text-down"}">${m.medianNetReturn}</div>
+              </div>
+              <div class="card stat">
+                <div class="stat-label">Rug Rate</div>
+                <div class="stat-big text-down">${m.rugRate}</div>
               </div>
             </div>
-            <p class="muted small mt">Cost Assumption: -${report.costAssumption} per trade (slippage + gas). Evaluated over ${report.uniqueTokensEvaluated} unique tokens (deduplicated from ${report.totalAlertsFound} alerts).</p>
+            <p class="muted small mt">
+              Evaluated ${report.accounting.evaluated} of ${report.accounting.unique_tokens} unique tokens.
+            </p>
+            <details class="mt">
+              <summary class="muted small" style="cursor:pointer;">▶ Limitations</summary>
+              <ul class="tx-list mt">
+                <li><b>Horizon:</b> ${report._limitations.horizon}</li>
+                <li><b>Data:</b> ${report._limitations.dataErrorsExcluded}</li>
+                <li><b>Costs:</b> ${report._limitations.costModel}</li>
+                <li><b>Coverage:</b> ${report._limitations.coverage}</li>
+              </ul>
+            </details>
             <div class="table-wrap mt">
               <table>
                 <thead>
-                  <tr><th>Token</th><th>Entry</th><th>Current</th><th>Raw %</th><th>Net %</th></tr>
+                  <tr><th>Token</th><th>Entry</th><th>24h Snapshot</th><th>Raw</th><th>Cost</th><th>Net</th><th></th></tr>
                 </thead>
                 <tbody>${tradesHtml}</tbody>
               </table>
             </div>
           `,
-          footer: `<button class="btn primary" data-a="modal-close">Close</button>`,
-        });
-      } catch (e) {
-        W.ui.toast("Validation failed: " + e.message, "error");
-      } finally {
-        btn.textContent = "📊 Performance";
-        btn.disabled = false;
-      }
-    };
+             footer: `<button class="btn primary" data-a="modal-close">Close</button>`,
+           });
+         } catch (e) {
+           W.ui.toast("Validation failed: " + e.message, "error");
+         } finally {
+           btn.textContent = "📊 Performance";
+           btn.disabled = false;
+         }
+       };
 
     view.querySelector("#g-auto").onchange = (e) => {
       auto = e.target.checked;
