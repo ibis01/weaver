@@ -1,47 +1,47 @@
 # Phase 2 — Paper Trial Baseline
 
 ## Identity
-- Baseline commit: c07d617
-- Commit subject: feat(phase-5): wire evidence synthesizer into gem thesis generation (text only, no decision-logic change)
+- Baseline code commit: c07d617
+- Baseline doc commit: 742ed9d
+- Pre-flight decision commit: f2fcc79 (commit message contained a placeholder
+  "<specific reason>"; actual decision is recorded in this file — see
+  §Pre-flight decision)
 - Repo: git@github.com:ibis01/weaver.git
-- Baseline recorded at (UTC): YYYY-MM-DDTHH:MM:SSZ
+- Baseline recorded at (UTC): 2026-10-22T<HH:MM>Z
 - Recorded by: Ibismuh
 
-## Deviations from prior baseline (d58d43c → c07d617)
-- Phase 5 narrow wiring of W.evidenceSynthesizer.synthesize() into autoCreateThesis.
-- Removed two dead placeholder comments in _scanImpl.
-- Added a null-guard around W.predictiveValidator in the #g-validate handler.
-- No changes to: thresholds, scoring weights, Token Shield, evidence-sufficiency rules,
-  wallet attribution, or decision engine.
-- Note: branch protection rule ("pull request required" + "test-and-build" status
-  check) was bypassed on push. Recorded as a deviation; no rule change was made.
+## Deviations carried into the baseline
+- 35ee644 → f2fcc79: branch protection bypassed on push (pull-request-required
+  and test-and-build status check not satisfied). Recorded; no rule change made.
+- f2fcc79 commit subject contained a literal `<specific reason>` placeholder.
+  History preserved; the real reason is the Decision below.
 
 ## Trial window
 - Planned window (roadmap): 2026-10-21 → 2026-10-28
-- Actual start (UTC): YYYY-MM-DDTHH:MM:SSZ
-- Actual end (UTC): YYYY-MM-DDTHH:MM:SSZ (to be filled at close)
-- Reason for shift: baseline not frozen until 2026-10-22; trial cannot begin without
-  a documented baseline.
+- Actual start (UTC): TBD — to be filled at the moment of START decision
+- Actual end (UTC): TBD — start + 7 days
+- Shift reason: baseline not frozen until 2026-10-22; a trial cannot begin
+  without a documented baseline.
 
 ## Active configuration (freeze — no changes permitted mid-trial)
 - Chains enabled: <list>
 - Min score threshold(s): <values>
 - Risk verdict gates: pass / caution / danger / unknown (as coded)
-- Smart-money thresholds: <values as coded>
-- Wallet-graph thresholds (CONF.STRONG / MEDIUM / WEAK): 0.85 / 0.60 / 0.35
+- Smart-money thresholds: <as coded>
+- Wallet-graph CONF: STRONG 0.85 / MEDIUM 0.60 / WEAK 0.35
 - Deployer store max: 500
 - Shield cache TTL: 300 s
 - Auto-scan interval: 5 min (if armed)
 
 ## Data providers enabled
 - DEX Screener (boosts, profiles, pairs)
-- CoinPaprika trending (via W.api.trending)
+- CoinPaprika trending
 - GoPlus (EVM) / RugCheck (Solana)
 - honeypot.is (EVM excluding Base)
-- Worker snapshot (/discovery/snapshot) as primary when available
-- D1 price_snapshots (Worker cron every 15 min)
+- Worker /discovery/snapshot (primary when available)
+- D1 price_snapshots (Worker cron, 15 min)
 - Helius (Solana fee-payer extraction)
-- <any others: list>
+- <any others>
 
 ## Meaning of every recorded signal status
 - DIRECT_ORIGINATOR — evidence supports the wallet as the direct transaction originator.
@@ -53,35 +53,30 @@
 - ERROR — verification could not complete (technical or provider failure).
 
 ## Logging and failure handling
-- Provider failures MUST produce ERROR / unresolved states, never a silent negative.
+- Provider failures MUST produce ERROR/UNRESOLVED, never a silent negative.
 - Token Shield rejections take precedence over positive signals.
 - Duplicate alerts deduplicated via localStorage `gems.recent.v1` and seen map.
-- Alerts persisted to Worker `/meme/alert` (payload contains assessment + market snapshot).
-- Reconstructability: every alert record must contain enough to replay the assessment
-  against its original inputs.
+- Alerts persisted to Worker `/meme/alert`.
+- Reconstructability: every alert record must contain token + chain + assessment
+  + market snapshot + timestamp sufficient to replay.
 
 ## Rules for evaluating the trial
 - The trial measures operational reliability, NOT predictive ability.
 - No threshold changes are permitted mid-trial.
-- If a critical defect invalidates the data, record the interruption and the affected
-  time range; determine whether that range must be repeated. Do not combine
+- If a critical defect invalidates the data, record the interruption and the
+  affected time range; determine whether it must be repeated. Do not combine
   incompatible configurations.
 - Final report must identify: total alerts, unique tokens, provider failures,
-  duplicate signals, missing-evidence cases, incorrect classifications,
+  duplicates, missing-evidence cases, misclassified attributions,
   system interruptions, reconstructability rate.
-- Exit rule: results are NOT evidence of trading skill. Any such claim is forbidden.
-## Pre-flight decision
-- Pre-flight report: <paste the preflight filename>
-- Check 1 (REJECTED attribution): PASS
-- Check 2 (silent catches):   PASS
-- Check 3 (reconstructability): PASS
-- Window: 2026-10-22T__:__Z → 2026-10-29T__:__Z (Option A — shifted one day,
-  baseline not frozen until 2026-10-22; reason documented)
-- Decision: **START**
+- Exit rule: results are NOT evidence of trading skill.
 
 ## Pre-flight decision
-- Pre-flight report: <paste filename>
-- Check 1: <PASS|BLOCKED> — <reason if blocked>
-- Check 2: <PASS|BLOCKED> — <reason if blocked>
-- Check 3: <PASS|BLOCKED> — <reason if blocked>
-- Decision: **BLOCKED** — trial not started; fix in-phase before start.
+- Pre-flight report: docs/phase-2/preflight-<UTC>.md
+- Check 1 (REJECTED attribution): <PASS|BLOCKED> — <evidence line or reason>
+- Check 2 (silent catches): <PASS|BLOCKED> — <evidence line or reason>
+- Check 3 (/meme/alert reconstructability): <PASS|BLOCKED> — <evidence line or reason>
+- Decision: <START|BLOCKED>
+- If START — actual start timestamp (UTC): 2026-10-22T<HH:MM>Z
+- If BLOCKED — in-phase fix required before start: <one sentence naming the
+  check that failed and the file that must change>
