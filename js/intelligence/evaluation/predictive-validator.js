@@ -7,24 +7,49 @@
 // It relies entirely on the Worker's D1 snapshot database.
 // If a snapshot does not exist at exactly alert_time + 24h (±15m),
 // the alert is marked UNRESOLVED, not silently dropped.
+//
+// ALIGNMENT WITH docs/phase-4/pre-registration.md:
+//   - Issue A: net return uses the pre-registered formula
+//     netReturnPct = ((exit × (1 - costFrac)) / entry - 1) × 100.
+//   - Issue B: identity is one alert = one observation, keyed by
+//     observedAtMs + chain + normalized address. Solana addresses
+//     are case-sensitive; EVM addresses are lowercased.
+//   - Issue C: coverage is evaluated / total_alerts_recorded, with
+//     an explicit six-count accounting block. No silent drops.
+//
+// NOT YET IMPLEMENTED (separate commit, audit Issue D):
+//   - Mann-Whitney U test and bootstrap confidence interval, as
+//     specified in the pre-registration's §Statistical test.
 
 window.W = window.W || {};
 
 W.predictiveValidator = (() => {
   "use strict";
 
-  const MODULE_VERSION = "predictive-validator-v6-d1";
+  const MODULE_VERSION = "predictive-validator-v7-d1-prereg";
   const WORKER_BASE = "https://weaver-proxy.ibis01-weaver.workers.dev";
   const HORIZON_MS = 24 * 60 * 60 * 1000;
 
-  // Liquidity-tiered cost model.
+  // Liquidity-tiered cost model. Returns cost as a fraction (0.005..0.10)
+  // or null when liquidity is unknown. The fraction is used directly in
+  // the pre-registered net-return formula; the display value multiplies
+  // by 100 to show a percentage.
   function costForLiquidity(liquidityUsd) {
     const l = Number(liquidityUsd) || 0;
-    if (l >= 1_000_000) return 0.5;
-    if (l >= 100_000) return 1.5;
-    if (l >= 30_000) return 3.0;
-    if (l > 0) return 10.0;
-    return null; // unknown liquidity -> cannot justify a cost
+    if (l >= 1_000_000) return 0.005;
+    if (l >= 100_000) return 0.015;
+    if (l >= 30_000) return 0.03;
+    if (l > 0) return 0.1;
+    return null;
+  }
+
+  // Chain-aware address normalization. Solana addresses are case-sensitive
+  // base58; EVM addresses are hex and case-insensitive. Lowercasing a Solana
+  // address can collide distinct accounts, so we must not do it.
+  function normalizeAddress(chain, addr) {
+    if (typeof addr !== "string" || !addr) return null;
+    if (typeof chain !== "string" || !chain) return null;
+    return chain === "solana" ? addr : addr.toLowerCase();
   }
 
   async function evaluateHistoricalAlerts() {
@@ -38,19 +63,25 @@ W.predictiveValidator = (() => {
       const rawAlerts = data.alerts || [];
       if (!rawAlerts.length) return null;
 
-      // ── Dedup + accounting counters ──
+      // ── Explicit accounting — no silent drops (Issue C) ──
       const accounting = {
-        total_alerts: rawAlerts.length,
+        total_alerts_recorded: rawAlerts.length,
         dropped_invalid_address: 0,
         dropped_no_entry_price: 0,
         dropped_duplicate: 0,
-        unique_tokens: 0,
+        eligible_for_evaluation: 0,
         evaluated: 0,
         unresolved_no_snapshot: 0,
         unresolved_unknown_liquidity: 0,
         unresolved_implausible_gain: 0,
+        // Pre-registered exclusion (danger verdict) is NOT computable on
+        // historical alerts because persistMemeAlert does not forward
+        // gem.risk.verdict into the payload. Recorded as null to
+        // distinguish "not computable" from "zero excluded."
+        excluded_by_rules: null,
       };
 
+      // ── Alert identity (Issue B): one alert = one observation ──
       const uniqueMap = new Map();
       for (const alert of rawAlerts) {
         const chain = alert.assessment?.identity?.chain;
@@ -67,12 +98,13 @@ W.predictiveValidator = (() => {
           continue;
         }
 
-        const key = `${chain}:${addr.toLowerCase()}`;
-        if (uniqueMap.has(key)) {
+        const normalized = normalizeAddress(chain, addr);
+        const alertId = `${observedAtMs}:${chain}:${normalized}`;
+        if (uniqueMap.has(alertId)) {
           accounting.dropped_duplicate++;
           continue;
         }
-        uniqueMap.set(key, {
+        uniqueMap.set(alertId, {
           alert,
           chain,
           tokenAddress: addr,
@@ -80,17 +112,19 @@ W.predictiveValidator = (() => {
           observedAtMs,
         });
       }
-      accounting.unique_tokens = uniqueMap.size;
+      accounting.eligible_for_evaluation =
+        accounting.total_alerts_recorded -
+        accounting.dropped_invalid_address -
+        accounting.dropped_no_entry_price -
+        accounting.dropped_duplicate;
 
       const uniqueAlerts = [...uniqueMap.values()];
       const results = [];
       const unresolvedSamples = [];
 
       for (const item of uniqueAlerts) {
-        // The fixed 24h horizon
         const targetTime = item.observedAtMs + HORIZON_MS;
 
-        // Query the Worker's D1 snapshot layer
         const queryUrl = `${WORKER_BASE}/snapshot/query?chain=${encodeURIComponent(item.chain)}&address=${encodeURIComponent(item.tokenAddress)}&at=${targetTime}`;
 
         let snapshot = null;
@@ -125,9 +159,8 @@ W.predictiveValidator = (() => {
         const rawReturnPct =
           ((currentPrice - item.entryPrice) / item.entryPrice) * 100;
 
-        // Detect data errors (not real outcomes). A token cannot gain
-        // 10,000% between two price reads unless one read is wrong.
-        // Extreme LOSSES are kept.
+        // Data-error guard: >1000% between two reads is not a real outcome.
+        // Extreme losses are KEPT — they are real.
         if (rawReturnPct > 1000) {
           accounting.unresolved_implausible_gain++;
           unresolvedSamples.push({
@@ -138,8 +171,8 @@ W.predictiveValidator = (() => {
           continue;
         }
 
-        const costPct = costForLiquidity(liquidityUsd);
-        if (costPct === null) {
+        const costFrac = costForLiquidity(liquidityUsd);
+        if (costFrac === null) {
           accounting.unresolved_unknown_liquidity++;
           unresolvedSamples.push({
             symbol: item.alert.symbol || "?",
@@ -149,7 +182,13 @@ W.predictiveValidator = (() => {
           continue;
         }
 
-        const netReturnPct = rawReturnPct - costPct;
+        // Pre-registered formula (audit Issue A):
+        //   netReturnPct = ((exit × (1 - costFrac)) / entry - 1) × 100
+        // Since exit/entry = 1 + rawReturnPct/100, this is exactly:
+        //   ((1 + rawReturnPct/100) × (1 - costFrac) - 1) × 100
+        const netReturnPct =
+          ((1 + rawReturnPct / 100) * (1 - costFrac) - 1) * 100;
+
         accounting.evaluated++;
 
         results.push({
@@ -158,7 +197,7 @@ W.predictiveValidator = (() => {
           entryPrice: item.entryPrice,
           currentPrice,
           rawReturnPct: rawReturnPct.toFixed(2),
-          costPct: costPct.toFixed(1),
+          costPct: (costFrac * 100).toFixed(1),
           netReturnPct: netReturnPct.toFixed(2),
           liquidityUsd,
           isWin: netReturnPct > 0,
@@ -185,9 +224,14 @@ W.predictiveValidator = (() => {
       const mean = nets.reduce((s, v) => s + v, 0) / nets.length;
 
       const baseline = median;
+      // Coverage denominator is the recorded alert population (Issue C).
       const coverageRate =
-        ((accounting.evaluated / accounting.unique_tokens) * 100).toFixed(1) +
-        "%";
+        accounting.total_alerts_recorded > 0
+          ? (
+              (accounting.evaluated / accounting.total_alerts_recorded) *
+              100
+            ).toFixed(1) + "%"
+          : "0.0%";
 
       const report = {
         version: MODULE_VERSION,
@@ -218,17 +262,23 @@ W.predictiveValidator = (() => {
             "Exit is the D1 snapshot price at alert_time + 24h (±15m).",
           notPredictive:
             "This establishes fixed-horizon performance, but does not " +
-            "prove predictive ability without a matched control baseline.",
+            "prove predictive ability without a matched control baseline " +
+            "and the pre-registered Mann-Whitney U test (Issue D, pending).",
           dataErrorsExcluded:
             "Gains >1000% are excluded as suspected data errors. Extreme " +
             "losses (down to -100%) are KEPT and counted as real outcomes.",
           costModel:
             "Cost is per-trade, tiered by liquidity: 0.5% (>$1M), 1.5% " +
-            "($100k-$1M), 3% ($30k-$100k), 10% (<$30k).",
+            "($100k-$1M), 3% ($30k-$100k), 10% (<$30k). Applied via the " +
+            "pre-registered multiplicative formula, not subtraction.",
           coverage:
-            "Alerts that do not have a D1 snapshot exactly 24h later " +
-            "are marked unresolved, NOT dropped. This is a coverage limitation " +
-            "of the newly initialized snapshot database.",
+            "Coverage = evaluated / total_alerts_recorded. Alerts without " +
+            "a D1 snapshot at alert_time + 24h (±15m), with unknown " +
+            "liquidity, or with an implausible >1000% gain are counted as " +
+            "unresolved and reported separately — never silently dropped. " +
+            "The pre-registered danger-verdict exclusion is not computable " +
+            "on historical alerts because gem.risk.verdict was not " +
+            "persisted in the meme/alert payload.",
         },
       };
 
@@ -248,7 +298,7 @@ W.predictiveValidator = (() => {
           `winRate=${report.metrics.winRate} | ` +
           `medianNet=${report.metrics.medianNetReturn} | ` +
           `rugRate=${report.metrics.rugRate} | ` +
-          `evaluated=${accounting.evaluated}/${accounting.unique_tokens}`,
+          `evaluated=${accounting.evaluated}/${accounting.total_alerts_recorded}`,
       );
 
       return report;
@@ -273,11 +323,14 @@ W.predictiveValidator = (() => {
         <div class="card">
           <h3>📊 Fixed 24h Horizon Evaluation</h3>
           <div class="alert info mt">
-            No tokens could be evaluated yet. The D1 snapshot database was recently initialized. 
+            No tokens could be evaluated yet. The D1 snapshot database was recently initialized.
             Coverage requires at least 24 hours of snapshot history.
           </div>
           <p class="muted small mt">
-            Total Alerts: ${a.total_alerts} | Unique Tokens: ${a.unique_tokens} | Unresolved (No Snapshot): ${a.unresolved_no_snapshot}
+            Total Alerts Recorded: ${a.total_alerts_recorded} |
+            Eligible for Evaluation: ${a.eligible_for_evaluation} |
+            Evaluated: ${a.evaluated} |
+            Unresolved (No Snapshot): ${a.unresolved_no_snapshot}
           </p>
         </div>
       `;
@@ -326,8 +379,10 @@ W.predictiveValidator = (() => {
           </div>
         </div>
         <p class="muted small mt">
-          Coverage: <b>${m.coverageRate}</b> (Evaluated ${a.evaluated} of ${a.unique_tokens} unique tokens).
+          Coverage: <b>${m.coverageRate}</b>
+          (Evaluated ${a.evaluated} of ${a.total_alerts_recorded} recorded alerts; eligible ${a.eligible_for_evaluation}).
           Unresolved: no-snapshot=${a.unresolved_no_snapshot}, unknown-liquidity=${a.unresolved_unknown_liquidity}, implausible-gain=${a.unresolved_implausible_gain}.
+          Excluded by pre-registered rules: ${a.excluded_by_rules === null ? "not computable (field not persisted)" : a.excluded_by_rules}.
         </p>
         <p class="muted small mt"><b>Baseline:</b> ${report.baseline.medianNetReturn} (${report.baseline.description})</p>
         <details class="mt">
@@ -382,5 +437,5 @@ W.predictiveValidator = (() => {
 })();
 
 console.log(
-  "[PredictiveValidator] Module loaded — v6-d1 fixed-horizon evaluator.",
+  "[PredictiveValidator] Module loaded — v7-d1 pre-registered evaluator.",
 );
