@@ -78,3 +78,10 @@
 - Window: 2026-10-22T__:__Z → 2026-10-29T__:__Z (Option A — shifted one day,
   baseline not frozen until 2026-10-22; reason documented)
 - Decision: **START**
+
+## Pre-flight decision
+- Pre-flight report: <paste filename>
+- Check 1: <PASS|BLOCKED> — <reason if blocked>
+- Check 2: <PASS|BLOCKED> — <reason if blocked>
+- Check 3: <PASS|BLOCKED> — <reason if blocked>
+- Decision: **BLOCKED** — trial not started; fix in-phase before start.
