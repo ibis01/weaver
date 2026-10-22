@@ -34,7 +34,7 @@ W.smartMoney = W.smartMoney || {};
 W.smartMoney.walletHistory = (() => {
   const BLOCKSCOUT_API = "https://eth.blockscout.com/api/v2";
   const MODULE_VERSION = "wallet-history-v3";
-  const CACHE_KEY = "sm.wallet-history.v2";
+  const CACHE_KEY = "sm.wallet-history.v3";
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   const CACHE_MAX_ENTRIES = 400;
   // Shorter per-request timeout; overall operation is bounded below.

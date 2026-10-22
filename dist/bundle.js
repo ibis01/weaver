@@ -15801,19 +15801,29 @@ W.deployerGraph = (() => {
         : null;
       if (!tokens || !tokens.length) return null;
 
-      let highRiskCount = 0;
-      for (const token of tokens) {
-        if (!token || !Number.isFinite(token.riskScore)) continue;
-        try {
-          if (
-            W.shield &&
-            typeof W.shield.isHighRisk === "function" &&
-            W.shield.isHighRisk({ riskScore: token.riskScore }) === true
-          ) {
-            highRiskCount++;
-          }
-        } catch (_) {}
-      }
+   let highRiskCount = 0;
+   let highRiskUnknown = 0;
+   for (const token of tokens) {
+     if (!token || !Number.isFinite(token.riskScore)) continue;
+     try {
+       if (
+         W.shield &&
+         typeof W.shield.isHighRisk === "function" &&
+         W.shield.isHighRisk({ riskScore: token.riskScore }) === true
+       ) {
+         highRiskCount++;
+       }
+     } catch (e) {
+       // Unknown risk is not "safe". Record it so the summary can be
+       // qualified rather than silently optimistic.
+       highRiskUnknown++;
+       console.warn(
+         "[DeployerGraph] isHighRisk failed for token",
+         token.tokenAddress,
+         e && e.message,
+       );
+     }
+   }
 
       const n = tokens.length;
       const noun = n === 1 ? "qualified token" : "qualified tokens";
@@ -16068,7 +16078,7 @@ W.smartMoney = W.smartMoney || {};
 W.smartMoney.walletHistory = (() => {
   const BLOCKSCOUT_API = "https://eth.blockscout.com/api/v2";
   const MODULE_VERSION = "wallet-history-v3";
-  const CACHE_KEY = "sm.wallet-history.v2";
+  const CACHE_KEY = "sm.wallet-history.v3";
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   const CACHE_MAX_ENTRIES = 400;
   // Shorter per-request timeout; overall operation is bounded below.
