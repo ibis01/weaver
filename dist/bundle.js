@@ -26658,26 +26658,94 @@ W.gems = (() => {
       : `🛡️ Shield: ${level} (${score}/100 identified-risk score${external})`;
   }
 
+  // ── Phase 5 helper ─────────────────────────────────────────────
+  // Coerce a synthesizer field (which may be a string OR an array)
+  // into a single string for W.theses.create. Never invents content.
+  function _safeJoinArray(v, sep = "\n") {
+    if (v == null) return "";
+    if (typeof v === "string") return v.trim();
+    if (Array.isArray(v)) {
+      return v
+        .filter((x) => x != null)
+        .map((x) => String(x).trim())
+        .filter(Boolean)
+        .join(sep);
+    }
+    return String(v).trim();
+  }
+
+  // ── Phase 5: Reasoning Layer wiring ───────────────────────────
+  // Phase 4/5 boundary: this function ONLY selects thesis text.
+  // It does not change scores, thresholds, evidence, or security
+  // decisions. The synthesizer's output is treated as an *explanation*
+  // of what `gem` already contains; if the synthesizer is missing,
+  // throws, or returns an empty thesis, we fall back to the
+  // score-based default. See roadmap Phase 5 exit rule.
   function autoCreateThesis(gem, addr, shield, assessment) {
     if (!W.theses) return;
+    if (!gem || !gem.pair || !gem.pair.baseToken) return;
+
     const chain = gem.pair.chainId;
     const sourceRef = { type: "gem", addr, chain };
     if (W.theses.findBySourceRef && W.theses.findBySourceRef(sourceRef)) return;
 
-    const asset = `$${gem.pair.baseToken.symbol} (${chain})`;
+    const symbol = gem.pair.baseToken.symbol || "unknown";
+    const asset = `$${symbol} (${chain})`;
 
-    let statement = `Gem Agent alert — score ${gem.analysis.score}.`;
-    let reasons = (gem.analysis.reasons || []).join("; ");
+    const scoreNum =
+      gem.analysis && Number.isFinite(gem.analysis.score)
+        ? gem.analysis.score
+        : null;
+
+    // Fallback thesis (used if synthesizer is absent/throws/empty).
+    let statement =
+      scoreNum != null
+        ? `Gem Agent alert — score ${scoreNum}.`
+        : "Gem Agent alert — score unavailable.";
+    let reasons = _safeJoinArray(gem.analysis && gem.analysis.reasons, "; ");
     let signals = shieldSummary(shield);
     let invalidation = "Shield verdict turns high-risk or liquidity is pulled.";
 
-    if (W.evidenceSynthesizer) {
-      const report = W.evidenceSynthesizer.synthesize(gem);
-      if (report) {
-        statement = report.finalVerdict;
-        reasons = report.narrative;
-        signals = report.signals.concat(report.risks).join("\n");
-        invalidation = report.invalidation || invalidation;
+    // Attempt synthesis. Any failure must not silently swallow the
+    // fallback thesis; the try/catch below preserves it.
+    if (
+      W.evidenceSynthesizer &&
+      typeof W.evidenceSynthesizer.synthesize === "function"
+    ) {
+      let report = null;
+      try {
+        report = W.evidenceSynthesizer.synthesize(gem);
+      } catch (e) {
+        console.warn("[Gems] evidenceSynthesizer failed:", e && e.message);
+        report = null;
+      }
+
+      if (report && typeof report === "object") {
+        // The synthesizer builds a `finalStatement` string. Older /
+        // alternative shapes may use `finalVerdict` or `statement`.
+        const synthStatement =
+          (typeof report.finalStatement === "string" &&
+            report.finalStatement.trim()) ||
+          (typeof report.finalVerdict === "string" &&
+            report.finalVerdict.trim()) ||
+          (typeof report.statement === "string" && report.statement.trim()) ||
+          "";
+        if (synthStatement) statement = synthStatement;
+
+        // `narrative` may be a string OR an array of paragraphs.
+        const narrativeText = _safeJoinArray(report.narrative, " ");
+        if (narrativeText) reasons = narrativeText;
+
+        // `signals` and `risks` are arrays of short bullet strings.
+        const signalParts = [
+          _safeJoinArray(report.signals, "\n"),
+          _safeJoinArray(report.risks, "\n"),
+        ].filter(Boolean);
+        if (signalParts.length) signals = signalParts.join("\n");
+
+        // `invalidation` may be string OR array.
+        const invText = _safeJoinArray(report.invalidation, "\n");
+        if (invText) invalidation = invText;
       }
     }
 
@@ -27010,9 +27078,6 @@ W.gems = (() => {
         const shield = key ? getCachedShield(key) : null;
         const observation = buildObservation(shield, g.pair);
 
-        // ── NEW: Inject holders from shield into observation ──
-        // ─────────────────────────────────────────────────────
-
         let smartMoneySignal = null;
         if (
           (chainKey === "ethereum" || chainKey === "solana") &&
@@ -27051,9 +27116,6 @@ W.gems = (() => {
         const key = shieldCacheKey(addr, chainKey);
         const shield = key ? getCachedShield(key) : null;
         const observation = buildObservation(shield, g.pair);
-
-        // ── NEW: Inject holders from shield into observation ──
-        // ─────────────────────────────────────────────────────
 
         let graphReport = null;
         if (
@@ -27105,13 +27167,11 @@ W.gems = (() => {
         // ── Smart Money: distinguish "no data" from "evaluated and rejected" ──
         const sm = g.smartMoneySignal;
         if (sm && sm.hasConvergence === true) {
-          // Confirmed convergence — reward
           g.analysis.score = Math.min(100, g.analysis.score + 20);
           g.analysis.reasons.unshift(
             `💰 Smart Money confirmed (${sm.independentCount} wallets)`,
           );
         } else if (sm && sm.reason === "sybil-cluster-detected") {
-          // Active coordination detected — heavy penalty
           g.analysis.score = Math.floor(g.analysis.score * 0.3);
           g.analysis.reasons.unshift(
             "🚩 Smart money: coordinated sybil cluster",
@@ -27122,18 +27182,15 @@ W.gems = (() => {
             sm.reason === "insufficient-profiled-wallets" ||
             sm.reason === "no-candidates")
         ) {
-          // Not enough data to judge — neutral, no penalty
           g.analysis.reasons.unshift(
             `ℹ️ Smart money: ${String(sm.reason).replace(/-/g, " ")}`,
           );
         } else if (sm && sm.ok === true) {
-          // Evaluated but not convergent — mild penalty
           g.analysis.score = Math.max(0, g.analysis.score - 10);
           g.analysis.reasons.unshift(
             `⚠️ Smart money: ${String(sm.reason).replace(/-/g, " ")}`,
           );
         }
-        // No signal at all — neutral (do nothing)
 
         g.analysis.score = Math.max(0, Math.min(100, g.analysis.score));
       }
@@ -27237,7 +27294,6 @@ W.gems = (() => {
         const danger = results.filter(
           (g) => g.risk && g.risk.verdict.key === "danger",
         ).length;
-        // FIX: use `enriched` not `results` for chains covered
         statsEl.innerHTML = `
           <div class="card stat"><div class="stat-label">Candidates scanned</div><div class="stat-big">${esc(addresses.length)}</div></div>
           <div class="card stat"><div class="stat-label">Chains covered</div><div class="stat-big">${esc(new Set(enriched.map((g) => g.pair.chainId)).size)}</div></div>
@@ -27359,7 +27415,7 @@ W.gems = (() => {
         <div class="kv-row"><span class="muted">1h / 6h / 24h</span><span>${esc(W.fmt.pct(a.h1))} ${esc(W.fmt.pct(a.h6))} ${esc(W.fmt.pct(a.h24))}</span></div>
         <div class="shield-slot">${shieldSection}</div>
         ${smartMoneySection}
-        
+
         <!-- Collapsible Details Section -->
         <details class="mt-8">
           <summary class="muted small" style="cursor: pointer; outline: none; user-select: none;">
@@ -27442,31 +27498,35 @@ W.gems = (() => {
     view.querySelector("#g-hide-risk").onchange = () => scan(view);
     view.querySelector("#g-only-pass").onchange = () => scan(view);
 
-       view.querySelector("#g-validate").onclick = async () => {
-         const btn = view.querySelector("#g-validate");
-         btn.textContent = "Evaluating...";
-         btn.disabled = true;
+    view.querySelector("#g-validate").onclick = async () => {
+      const btn = view.querySelector("#g-validate");
+      btn.textContent = "Evaluating...";
+      btn.disabled = true;
 
-         try {
-           const report =
-             await W.predictiveValidator.evaluateHistoricalAlerts();
-           if (!report || !report.accounting) {
-             W.ui.toast(
-               "No historical alerts available to evaluate yet.",
-               "warn",
-             );
-             return;
-           }
+      try {
+        if (
+          !W.predictiveValidator ||
+          typeof W.predictiveValidator.evaluateHistoricalAlerts !== "function"
+        ) {
+          W.ui.toast("Predictive validator not available.", "warn");
+          return;
+        }
 
-           if (!report.metrics) {
-             // Zero tokens were evaluable (e.g., D1 recently initialized)
-             W.ui.modal({
-               title: "📊 Fixed 24h Horizon Evaluation",
-               body: `
+        const report = await W.predictiveValidator.evaluateHistoricalAlerts();
+        if (!report || !report.accounting) {
+          W.ui.toast("No historical alerts available to evaluate yet.", "warn");
+          return;
+        }
+
+        if (!report.metrics) {
+          // Zero tokens were evaluable (e.g., D1 recently initialized)
+          W.ui.modal({
+            title: "📊 Fixed 24h Horizon Evaluation",
+            body: `
               <div class="card">
                 <h3>📊 Waiting for 24h horizon data</h3>
                 <p class="muted mt">
-                  No tokens could be evaluated yet. The D1 snapshot database requires at least 24 hours of history 
+                  No tokens could be evaluated yet. The D1 snapshot database requires at least 24 hours of history
                   before a fixed-horizon return can be calculated.
                 </p>
                 <p class="small muted mt">
@@ -27477,15 +27537,15 @@ W.gems = (() => {
                 <p class="small muted mt">Check back after ${new Date(Date.now() + 24 * 3600 * 1000).toLocaleString()}</p>
               </div>
             `,
-               footer: `<button class="btn primary" data-a="modal-close">Close</button>`,
-             });
-             return;
-           }
+            footer: `<button class="btn primary" data-a="modal-close">Close</button>`,
+          });
+          return;
+        }
 
-           const m = report.metrics;
-           const tradesHtml = report.trades
-             .map(
-               (t) => `
+        const m = report.metrics;
+        const tradesHtml = report.trades
+          .map(
+            (t) => `
           <tr>
             <td><b>${W.gems._internal.esc(t.symbol)}</b> (${W.gems._internal.esc(t.chain)})</td>
             <td>$${t.entryPrice.toPrecision(4)}</td>
@@ -27496,12 +27556,12 @@ W.gems = (() => {
             ${t.isRug ? '<td><span class="tag sell">RUG</span></td>' : "<td></td>"}
           </tr>
         `,
-             )
-             .join("");
+          )
+          .join("");
 
-           W.ui.modal({
-             title: "📊 Fixed 24h Horizon Evaluation",
-             body: `
+        W.ui.modal({
+          title: "📊 Fixed 24h Horizon Evaluation",
+          body: `
             <div class="grid-2">
               <div class="card stat">
                 <div class="stat-label">Coverage</div>
@@ -27541,15 +27601,15 @@ W.gems = (() => {
               </table>
             </div>
           `,
-             footer: `<button class="btn primary" data-a="modal-close">Close</button>`,
-           });
-         } catch (e) {
-           W.ui.toast("Validation failed: " + e.message, "error");
-         } finally {
-           btn.textContent = "📊 Performance";
-           btn.disabled = false;
-         }
-       };
+          footer: `<button class="btn primary" data-a="modal-close">Close</button>`,
+        });
+      } catch (e) {
+        W.ui.toast("Validation failed: " + e.message, "error");
+      } finally {
+        btn.textContent = "📊 Performance";
+        btn.disabled = false;
+      }
+    };
 
     view.querySelector("#g-auto").onchange = (e) => {
       auto = e.target.checked;
