@@ -2155,20 +2155,6 @@ W.gems = (() => {
         const observation = buildObservation(shield, g.pair);
 
         // ── NEW: Inject holders from shield into observation ──
-        if (
-          observation &&
-          (!observation.holders || !Array.isArray(observation.holders))
-        ) {
-          if (shield && shield.holders && Array.isArray(shield.holders.top10)) {
-            observation.holders = shield.holders.top10.map((h) => ({
-              address: h.address,
-              pct: h.percent || 0,
-              boughtAt: 0,
-              amount: 0,
-              fundingSource: null,
-            }));
-          }
-        }
         // ─────────────────────────────────────────────────────
 
         let smartMoneySignal = null;
@@ -2211,20 +2197,6 @@ W.gems = (() => {
         const observation = buildObservation(shield, g.pair);
 
         // ── NEW: Inject holders from shield into observation ──
-        if (
-          observation &&
-          (!observation.holders || !Array.isArray(observation.holders))
-        ) {
-          if (shield && shield.holders && Array.isArray(shield.holders.top10)) {
-            observation.holders = shield.holders.top10.map((h) => ({
-              address: h.address,
-              pct: h.percent || 0,
-              boughtAt: 0,
-              amount: 0,
-              fundingSource: null,
-            }));
-          }
-        }
         // ─────────────────────────────────────────────────────
 
         let graphReport = null;
