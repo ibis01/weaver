@@ -45,3 +45,21 @@ Baseline doc:  7d975ed
   through 7d975ed (pull-request-required and test-and-build check not
   satisfied). No rule change made. Once threshold changes begin in
   Phase 6, PR discipline must be restored.
+
+## Phase 4 — pre-registration interpretation note (2026-10-22)
+
+The pre-registration's unit ("one alert = one observation") is
+unambiguous for deduplication, but ambiguous for cohort analysis when
+the scanner re-fires on the same token within a short window. Observed
+in the 2026-10-05 batch: token
+`12xjqnGsRxQHwWiTDETQxzUmrBgp4ARqWDKXQfjvpump` appears 6 times within
+40 minutes. Two interpretations are possible; the evaluation report
+must declare which it used:
+
+  (A) Strict: each alertId is one observation.
+  (B) Per-token-per-window: same token within 1 hour = one observation.
+
+Also noted: the KV store currently contains 100 alerts from
+2026-10-05, all of which predate the trial start (2026-10-22T19:07:44Z).
+Whether they count toward the trial population is a similar open
+question and must be declared in the evaluation report.
