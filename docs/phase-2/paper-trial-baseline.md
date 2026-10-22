@@ -18,7 +18,7 @@
 
 ## Trial window
 - Planned window (roadmap): 2026-10-21 → 2026-10-28
-- Actual start (UTC): TBD — to be filled at the moment of START decision
+- Actual start (UTC): 2026-10-22T19:07:44Z
 - Actual end (UTC): TBD — start + 7 days
 - Shift reason: baseline not frozen until 2026-10-22; a trial cannot begin
   without a documented baseline.
@@ -101,3 +101,11 @@
   discipline must be restored.
 - f2fcc79 commit subject contained a literal `<specific reason>`
   placeholder. History preserved. The real reason is this section.
+## Additional deviations (recorded 2026-10-22)
+- Two commits in the pre-flight history carry literal placeholder subjects
+  and record no specific reason:
+    * f2fcc79 — "pre-flight BLOCKED — <specific reason>"
+    * 4376551 — "BLOCKED — <check name> failed; in-phase fix required before start"
+  History preserved per roadmap Phase 0 rule. The actual blockers that
+  prompted those commits — and their fixes — are recorded in
+  §Pre-flight decision above and in commits 9c18b9b and b45db6a.
