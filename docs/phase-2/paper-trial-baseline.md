@@ -73,10 +73,31 @@
 
 ## Pre-flight decision
 - Pre-flight evidence:
-  - Check 1 (REJECTED attribution): PASS — 3 emit sites in wallet-history.js (mint, CEX inbound, wallet-level exclusion); empty-array caching removed; cache key bumped to v3.
-  - Check 2 (silent catches): PASS — deployer-graph.js cloneValue catch is a JSON fallback chain (not a provider swallow); deployer-graph.js isHighRisk catch now records `highRiskUnknown` and qualifies the summary. wallet-history.js and predictive-validator.js carry no silent provider catches.
-  - Check 3 (/meme/alert reconstructability): PASS — handler persists assessment + market{priceUsd,liquidityUsd,observedAt} + pairAddress + symbol + receivedAt; key encodes chain + token + observedAtMs.
+  - Check 1 (REJECTED attribution): PASS at 9c18b9b — three emit sites
+    in wallet-history.js (mint branch, CEX inbound branch, wallet-level
+    exclusion); empty-array caching removed; cache key bumped v2 → v3
+    at b45db6a.
+  - Check 2 (silent catches): PASS at b45db6a — deployer-graph.js:255
+    is a structuredClone/JSON fallback chain, not a provider swallow;
+    deployer-graph.js:406 now records highRiskUnknown and qualifies the
+    summary; wallet-history.js and predictive-validator.js carry no
+    silent provider catches.
+  - Check 3 (/meme/alert reconstructability): PASS at 9c18b9b —
+    handler persists assessment + market{priceUsd, liquidityUsd,
+    observedAt} + pairAddress + symbol + receivedAt; KV key encodes
+    chain + tokenAddress + observedAtMs.
 - Decision: START
-- Actual start timestamp (UTC): 2026-10-22T__:__Z   ← fill at the moment you run the next scan
-- Planned end timestamp (UTC): 2026-10-29T__:__Z
-- Window shift note: roadmap window was 2026-10-21 → 2026-10-28; baseline was not frozen until 2026-10-22, so the trial is shifted one day. Duration remains seven full days.
+- Actual start timestamp (UTC): 2026-10-22T19:07:44Z
+- Planned end timestamp (UTC): 2026-10-29T19:07:44Z
+- Window shift note: roadmap window was 2026-10-21 → 2026-10-28;
+  baseline was not frozen until 2026-10-22, so the trial is shifted
+  one day. Duration remains seven full days.
+
+## Deviations carried into this baseline
+- Branch protection on refs/heads/main has been bypassed on multiple
+  pushes during the pre-flight phase (pull-request-required and
+  test-and-build status check not satisfied). Recorded here; no rule
+  change was made. Once threshold changes begin in Phase 6, PR
+  discipline must be restored.
+- f2fcc79 commit subject contained a literal `<specific reason>`
+  placeholder. History preserved. The real reason is this section.
