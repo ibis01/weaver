@@ -2,18 +2,16 @@ name = "weaver-proxy"
 main = "index.js"
 compatibility_date = "2024-09-01"
 
-# Free tier: 100,000 requests/day, no billing required.
-# MEME_ALERTS KV is bound for alert persistence (7d TTL).
-
-# Secrets are configured via `wrangler secret put`. The Worker reads:
-#   ETHERSCAN_KEY  (required for /etherscan/deployer)
-#   HELIUS_KEY     (required for /helius/deployer and the Solana RPC relay)
-#
-# Missing secrets produce 503 on the affected route, not a deploy failure.
+# Existing KV binding
 [[kv_namespaces]]
 binding = "MEME_ALERTS"
 id = "711edb1aa070446ea6ccbf81d26135a4"
 
-# Wake up every 15 minutes to scan for new tokens
+# New D1 binding for Phase 4 snapshots
+[[d1_databases]]
+binding = "weaver_snapshots"
+database_name = "weaver-snapshots"
+database_id = "d3a7b2ee-0a47-4b6e-b6ac-a6eec1845399"
+
 [triggers]
 crons = ["*/15 * * * *"]

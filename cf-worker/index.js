@@ -130,6 +130,35 @@ const SUPPORTED_DISCOVERY_CHAINS = new Set([
   "arbitrum",
 ]);
 
+// ── D1 Snapshot Helper ──
+async function insertSnapshot(
+  env,
+  chain,
+  address,
+  priceUsd,
+  liquidityUsd,
+  observedAt,
+  source = "dexscreener",
+) {
+  if (!env?.weaver_snapshots) {
+    console.warn("[Snapshot] D1 binding missing");
+    return false;
+  }
+  try {
+    await env.weaver_snapshots
+      .prepare(
+        `INSERT OR IGNORE INTO price_snapshots (chain, address, price_usd, liquidity_usd, observed_at, source)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(chain, address, priceUsd, liquidityUsd, observedAt, source)
+      .run();
+    return true;
+  } catch (e) {
+    console.error("[Snapshot] Insert failed:", e.message);
+    return false;
+  }
+}
+
 async function runDiscoveryScan(env) {
   console.log("[Discovery] Starting scheduled scan...");
 
@@ -149,6 +178,7 @@ async function runDiscoveryScan(env) {
       .slice(0, 10);
 
     const enrichedTokens = [];
+    const now = Date.now();
 
     for (const token of uniqueTokens) {
       const chainId = token.chainId;
@@ -177,17 +207,32 @@ async function runDiscoveryScan(env) {
         }
       }
 
+      const priceUsd = Number(token.priceUsd);
+      const liquidityUsd = Number(token.liquidity?.usd) || 0;
+
       enrichedTokens.push({
         address: token.baseToken.address,
         symbol: token.baseToken.symbol,
         chainId: chainId,
-        priceUsd: token.priceUsd,
-        liquidity: token.liquidity?.usd || 0,
+        priceUsd: priceUsd,
+        liquidity: liquidityUsd,
         security: secData,
       });
+
+      // NEW: Persist snapshot to D1
+      if (Number.isFinite(priceUsd)) {
+        await insertSnapshot(
+          env,
+          chainId,
+          token.baseToken.address,
+          priceUsd,
+          liquidityUsd,
+          now,
+          "dexscreener",
+        );
+      }
     }
 
-    const now = Date.now();
     const snapshot = {
       _meta: {
         generatedAt: now,
@@ -204,7 +249,7 @@ async function runDiscoveryScan(env) {
 
     await env.MEME_ALERTS.put(DISCOVERY_KV_KEY, JSON.stringify(snapshot));
     console.log(
-      `[Discovery] Scan complete. Saved ${enrichedTokens.length} tokens to KV.`,
+      `[Discovery] Scan complete. Saved ${enrichedTokens.length} tokens to KV and D1.`,
     );
   } catch (error) {
     console.error("[Discovery] Scan failed:", error.message);
@@ -1273,6 +1318,56 @@ async function handleRequest(request, env, ctx) {
       200,
       headers,
     );
+  }
+
+  // ── D1 Snapshot Query Route ───────────────────────────────
+  if (parts.length === 2 && parts[0] === "snapshot" && parts[1] === "query") {
+    if (request.method !== "GET")
+      return jsonResponse({ error: "Method not allowed" }, 405, headers);
+    const chain = url.searchParams.get("chain") || "";
+    const address = url.searchParams.get("address") || "";
+    const atStr = url.searchParams.get("at") || "";
+    const at = Number(atStr);
+
+    if (!chain || !address || !Number.isFinite(at)) {
+      return jsonResponse(
+        { error: "Missing chain, address, or at params" },
+        400,
+        headers,
+      );
+    }
+
+    try {
+      // Look for a snapshot within ±15 minutes (900,000 ms) of the requested time
+      const tolerance = 15 * 60 * 1000;
+      const minTime = at - tolerance;
+      const maxTime = at + tolerance;
+
+      const result = await env.weaver_snapshots
+        .prepare(
+          `SELECT chain, address, price_usd, liquidity_usd, observed_at, source
+           FROM price_snapshots
+           WHERE chain = ? AND address = ?
+             AND observed_at >= ? AND observed_at <= ?
+           ORDER BY ABS(observed_at - ?) ASC
+           LIMIT 1`,
+        )
+        .bind(chain, address, minTime, maxTime, at)
+        .first();
+
+      if (!result) {
+        return jsonResponse(
+          { ok: false, reason: "no-snapshot-near-timestamp" },
+          404,
+          headers,
+        );
+      }
+
+      return jsonResponse({ ok: true, snapshot: result }, 200, headers);
+    } catch (e) {
+      console.error("[Snapshot Query] Failed:", e.message);
+      return jsonResponse({ error: "Snapshot query failed" }, 500, headers);
+    }
   }
 
   // ── Solana Funding Sources (via Helius RPC fallback) ──
