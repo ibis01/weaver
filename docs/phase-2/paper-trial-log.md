@@ -197,3 +197,19 @@ this window and its (zero) observations do not count toward this trial.
     pool is narrow
   * CSP blocks inline style — cosmetic, does not affect persistence
 - Config or threshold change this day? → **No**
+
+## Day 1 — observation entry (recorded 2026-10-23T19:44:42Z)
+- Verification boundary: 1792775127260
+- Persistence fix verified via intercept test:
+  * hasConvergence=false → cohort="control" ✅
+  * hasConvergence=true  → cohort="treatment" ✅
+- Scan performed with Worker snapshot disabled (forced live DexScreener
+  discovery path).
+- Candidates scanned: <fill from stats card>
+- Gems ≥ 40: <fill>
+- Pass / Danger: <fill>
+- Alerts persisted since SCAN_AT: 0 — none of the discovered candidates
+  reached score >= 70 with a non-danger verdict.
+- This is a market-availability observation, not a defect. The persistence
+  pipeline is verified working.
+- Config or threshold change this day? → **No**
