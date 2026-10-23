@@ -1919,10 +1919,22 @@ W.gems = (() => {
 
     const liquidityUsd = Number(gem.pair.liquidity && gem.pair.liquidity.usd);
 
+    // Phase 4 — cohort marker for the pre-registered §Control comparison.
+    // Treatment = smart-money convergence observed at alert time.
+    // Control   = alert persisted without convergence.
+    // This field is what allows the Mann-Whitney U comparison to split
+    // observations into treatment/control from the KV record alone,
+    // without retroactively re-running smart-money evaluation against
+    // historical state (which would not be reproducible).
+    const hasConvergence =
+      gem.smartMoneySignal && gem.smartMoneySignal.hasConvergence === true;
+    const cohort = hasConvergence ? "treatment" : "control";
+
     const payload = {
       assessment: Object.assign({}, assessment, {
         observedAtMs: Date.now(),
         identity: { chain, tokenAddress: addr },
+        cohort,
       }),
       market: {
         priceUsd,

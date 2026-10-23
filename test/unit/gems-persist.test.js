@@ -1,10 +1,12 @@
 // test/unit/gems-persist.test.js
 //
-// Phase 4 — persistence gate.
+// Phase 4 — persistence gate + cohort marker.
 // Persistence is an observation record for cohort comparison and must
 // fire for every alert-worthy gem, not only smart-money-converged ones.
 // Pre-registration §Control requires both converged (treatment) and
-// non-converged (control) alerts in the corpus.
+// non-converged (control) alerts in the corpus, AND the persisted record
+// must carry a cohort marker so the comparison is reproducible without
+// retroactive recomputation.
 
 const { expect } = require("chai");
 
@@ -54,7 +56,6 @@ describe("Gem Agent — persistence gate (Phase 4)", () => {
         return { ok: true, json: async () => ({ pairs }) };
       }
       if (u.includes("/meme/alert")) {
-        // Persistence endpoint — accept and record.
         return { ok: true, json: async () => ({ ok: true, key: "test" }) };
       }
       throw new Error("Unexpected fetch: " + u);
@@ -116,7 +117,7 @@ describe("Gem Agent — persistence gate (Phase 4)", () => {
     }
   });
 
-  it("persists non-converged alerts (control cohort)", async () => {
+  it("persists non-converged alerts with cohort=control", async () => {
     installFetch([mockPair("ethereum", ADDR_A, "CONTROL")]);
 
     // Mock smart-money to explicitly NOT converge.
@@ -157,13 +158,13 @@ describe("Gem Agent — persistence gate (Phase 4)", () => {
     const key = global.W.gems._internal.shieldCacheKey(ADDR_A, "ethereum");
     global.W.gems._internal.setCachedShield(key, shieldAssessment);
 
-    // Spy on the persistence endpoint — count /meme/alert POSTs.
-    let persistCalls = 0;
+    // Capture persistence payloads.
+    const persistBodies = [];
     const savedFetch = global.fetch;
     global.fetch = async (url, opts) => {
       const u = String(url);
       if (u.includes("/meme/alert")) {
-        persistCalls++;
+        persistBodies.push(JSON.parse(opts.body));
         return { ok: true, json: async () => ({ ok: true, key: "test" }) };
       }
       return savedFetch(url, opts);
@@ -176,12 +177,25 @@ describe("Gem Agent — persistence gate (Phase 4)", () => {
       root.remove();
 
       // Non-converged alert with score >= 70 must be persisted.
-      // Without this fix, persistCalls === 0 because persistence was
-      // gated on hasConvergence.
+      // Without this fix, persistBodies.length === 0 because persistence
+      // was gated on hasConvergence.
       expect(
-        persistCalls,
+        persistBodies.length,
         "non-converged alert should still be persisted for control cohort",
       ).to.be.at.least(1);
+
+      // The persisted record must carry a cohort marker so the eventual
+      // Mann-Whitney U comparison can split treatment/control from KV
+      // alone — no retroactive re-evaluation.
+      const record = persistBodies[0];
+      expect(
+        record.assessment.cohort,
+        "persisted assessment must include a cohort marker",
+      ).to.be.oneOf(["treatment", "control"]);
+      expect(
+        record.assessment.cohort,
+        "non-converged alert must be marked as control",
+      ).to.equal("control");
     } finally {
       global.W.smartMoney = savedSmartMoney;
     }
