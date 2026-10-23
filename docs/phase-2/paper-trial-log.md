@@ -82,3 +82,37 @@ this window and its (zero) observations do not count toward this trial.
 - 20 alerts persisted; provenance unverifiable; excluded from cohort.
 - Restart condition: fixed bundle verified via `has persistence fix: true`
   in a fresh tab before the clock restarts.
+
+## Window 2 — ABORTED (2026-10-23)
+
+- Window: 2026-10-23T15:55:17Z → (clock not allowed to run to completion)
+- Reason: two structural defects surfaced during the window:
+  1. **Bundle cache-buster defect.** `index.html` served
+     `dist/bundle.min.js?v=20261009d`, which the browser had cached
+     from before the persistence fix was deployed. The console confirmed
+     two different bundle versions across the observation period
+     (`?v=20261007q` in the first session, `?v=20261009d` in the second).
+     Cannot prove which bundle produced the 40 alerts in KV.
+  2. **Cohort-marker defect.** Persisted alert payloads do not contain
+     a `cohort` or `hasConvergence` field. Even if all 40 alerts were
+     produced by the fixed bundle, there is no way to split them into
+     treatment/control without re-running smart-money evaluation
+     retroactively — which is not reproducible.
+- 40 alerts were persisted (2 batches of 20, ~3 min apart). Their
+  provenance and cohort are unverifiable. They are retained in KV as
+  audit evidence and excluded from Phase 4 cohort analysis.
+- Restart condition for window 3:
+  (a) bundle cache-buster bumped and verified via a fresh tab that
+      `has persistence fix: true`
+  (b) `persistMemeAlert` payload extended with a `cohort` marker so
+      treatment/control is derivable from KV alone
+  (c) baseline commit hash recorded at the moment of verified deploy
+  (d) fresh start timestamp recorded before the first scan of the window
+
+## Window 2 — restart conditions checklist
+- [ ] index.html bundle version bumped to new value
+- [ ] Fresh tab loads bundle where `persist every alert-worthy observation` appears
+- [ ] `persistMemeAlert` includes `cohort: ...` in payload
+- [ ] test asserting cohort marker present in persisted payload
+- [ ] new baseline commit hash recorded
+- [ ] new start timestamp recorded
