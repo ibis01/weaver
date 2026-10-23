@@ -140,3 +140,8 @@ this window and its (zero) observations do not count toward this trial.
 - System interruptions: bundle-version mismatch during pre-verification period
 - Reconstructability spot-check: PENDING
 - Config or threshold change this day? → **No**
+- Alerts generated (verified period only): <N>
+- Non-converged alerts persisted (control cohort): <X>
+- Converged alerts persisted (treatment cohort): <Y>
+- Cohort marker present in all records: verified — every record has `cohort`
+- Reconstructability spot-check: 1/1 sampled — replayed from stored assessment + market
