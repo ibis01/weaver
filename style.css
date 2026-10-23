@@ -279,7 +279,7 @@ body::before {
 
   background: url('assets/logo.png') no-repeat center center /
               min(110vw, 1350px) auto;
-  opacity: 0.9; 
+  opacity: 0.6; 
   pointer-events: none;
   z-index: 0;
 }
