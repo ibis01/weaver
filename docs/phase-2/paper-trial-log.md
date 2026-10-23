@@ -213,3 +213,14 @@ this window and its (zero) observations do not count toward this trial.
 - This is a market-availability observation, not a defect. The persistence
   pipeline is verified working.
 - Config or threshold change this day? → **No**
+
+## Day 1 — FIRST VERIFIED OBSERVATIONS (recorded 2026-10-23T19:44:51Z)
+- Verification boundary: 1792775127260
+- Persistence fix verified via intercept test (both control and treatment)
+- First real production alerts persisted with cohort markers:
+  * control: <N>
+  * treatment: <M>
+- Scan timestamp: __________
+- All persisted records since SCAN_AT carry `cohort` field.
+- The trial is now producing valid Phase 4 observations.
+- Config or threshold change this day? → **No**
