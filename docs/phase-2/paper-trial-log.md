@@ -116,3 +116,27 @@ this window and its (zero) observations do not count toward this trial.
 - [ ] test asserting cohort marker present in persisted payload
 - [ ] new baseline commit hash recorded
 - [ ] new start timestamp recorded
+
+## Day 1 — 2026-10-23 (UTC)
+- Window: 2026-10-23T15:55:17Z → 2026-10-30T15:55:17Z (partial first day)
+- **Verification boundary**: pre-verification period (15:55:17Z → 2026-10-23T16:44:31Z)
+  served mixed bundle versions (?v=20261007q, ?v=20261009d). Alerts persisted
+  before the boundary are excluded from cohort analysis — their bundle
+  provenance is unverifiable. The boundary is the moment a fresh tab confirmed:
+  - `persistence fix: true`
+  - `cohort marker: true`
+  - `version: ...?v=20261023b`
+  - `[PredictiveValidator] Module loaded — v7-d1`
+- **Observation period** (from 2026-10-23T16:44:31Z): all subsequent alerts are
+  from the verified bundle and are usable for Phase 4 cohort comparison.
+- Alerts generated (verified period only): PENDING — fill after next scan
+- Non-converged alerts persisted (control cohort): PENDING
+- Converged alerts persisted (treatment cohort): PENDING
+- Cohort marker present in all records: PENDING — verify by inspecting KV
+- Provider failures observed: Worker `/etherscan/deployer` 502 (known defect)
+- Duplicate signals suppressed: PENDING
+- Missing-evidence cases: PENDING
+- Misclassified attributions spotted: PENDING
+- System interruptions: bundle-version mismatch during pre-verification period
+- Reconstructability spot-check: PENDING
+- Config or threshold change this day? → **No**
