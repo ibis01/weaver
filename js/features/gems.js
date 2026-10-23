@@ -2352,13 +2352,29 @@ W.gems = (() => {
         const chainKey = g.pair.chainId;
         const cacheKey = shieldCacheKey(addr, chainKey);
         const isDanger = g.risk && g.risk.verdict.key === "danger";
+        const isFirstSeen = !!(cacheKey && !seen[cacheKey]);
 
+        // ── Phase 4: persist every alert-worthy observation ──────────
+        // Persistence is an observation record for the cohort comparison,
+        // NOT a user notification. The pre-registration's §Control
+        // definition requires both smart-money-converged alerts
+        // (treatment) AND non-converged alerts (control). Gating
+        // persistence on hasConvergence makes the control cohort
+        // impossible to construct. See docs/phase-status.md
+        // §"Phase 4 — persistence gate discovery".
+        if (isFirstSeen && g.analysis.score >= 70 && !isDanger) {
+          persistMemeAlert(g).catch(() => {});
+        }
+
+        // ── Notification gate — what the user actually sees ──────────
+        // Remains gated on smart-money convergence: the toast, Telegram,
+        // thesis, and track-record entries are user-visible signals that
+        // need the extra evidence. Persistence is NOT here.
         if (
+          isFirstSeen &&
           g.analysis.score >= 70 &&
           g.smartMoneySignal &&
           g.smartMoneySignal.hasConvergence &&
-          cacheKey &&
-          !seen[cacheKey] &&
           !isDanger
         ) {
           const shield = g.shield || null;
@@ -2405,7 +2421,6 @@ W.gems = (() => {
               methodologyVersion: g.analysis.scoreVersion,
             });
           }
-          persistMemeAlert(g).catch(() => {});
         }
         if (cacheKey) seen[cacheKey] = 1;
       }
