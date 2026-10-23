@@ -145,3 +145,15 @@ this window and its (zero) observations do not count toward this trial.
 - Converged alerts persisted (treatment cohort): <Y>
 - Cohort marker present in all records: verified — every record has `cohort`
 - Reconstructability spot-check: 1/1 sampled — replayed from stored assessment + market
+
+## Day 1 — verification follow-up (recorded 2026-10-23)
+- Verification boundary: 1792773888000 (2026-10-23T...)
+- Bundle verified in fresh tab: persistence fix = true, cohort marker = true,
+  loaded version = ?v=20261023b
+- Modules confirmed: PredictiveValidator v7-d1, SolanaAdapter,
+  EvidenceSynthesizer, EntryAssessment — all loaded
+- Scan runs since verification: 0 as of this entry
+- Alerts persisted since verification: 0 (consistent with zero scans)
+- This is an observation-window gap, not a defect. Next entry will record
+  what a scan actually produces.
+- Config or threshold change this day? → **No**
