@@ -59,3 +59,26 @@ this window and its (zero) observations do not count toward this trial.
 - System interruptions: PENDING
 - Reconstructability spot-check: PENDING
 - Config or threshold change this day? → **No**
+
+## Window 2 — observation gap (2026-10-23T16:00Z)
+- ⚠️ Browser cache served the pre-fix bundle (`?v=20261007q`) during
+  the first observation period of window 2. Cannot prove which alerts
+  in the KV store came from the fixed bundle.
+- ⚠️ Worker `/etherscan/deployer` returned 502 throughout the session;
+  deployer reputation enrichment non-functional during the window.
+- ⚠️ Worker `/discovery/snapshot` failing; all scans fell back to live
+  DexScreener discovery.
+- 20 alerts persisted since 2026-10-23T15:55:17Z, but their source
+  bundle is unverifiable.
+- Window 2 is therefore ABORTED. A new window (window 3) will start
+  after: (a) the bundle version string is bumped and verified in a
+  fresh tab, (b) the 20 ambiguous alerts are marked as pre-fix-verification
+  in the baseline doc, (c) the Worker state is either fixed or documented
+  as a known operational limitation.
+
+## Trial status — window 2 ABORTED (2026-10-23T16:XXZ)
+- Reason: browser cache / bundle version defect prevented confirmation
+  that the persistence fix was in effect during the observation.
+- 20 alerts persisted; provenance unverifiable; excluded from cohort.
+- Restart condition: fixed bundle verified via `has persistence fix: true`
+  in a fresh tab before the clock restarts.
