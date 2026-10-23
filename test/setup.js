@@ -93,6 +93,25 @@ require("../js/intelligence/thesis-health.js");
 require("../js/intelligence/decision-engine.js");
 require("../js/intelligence/calibration.js");
 
+// ── Global test isolation ──────────────────────────────────────
+// W.gems holds module-level `deployerBackoffUntil`. One test that
+// triggers a provider failure sets a 5-minute backoff that bleeds
+// into every subsequent test in the same mocha process. Reset it
+// before each test so failures stay local.
+if (typeof beforeEach === "function") {
+  beforeEach(() => {
+    if (
+      typeof window !== "undefined" &&
+      window.W &&
+      window.W.gems &&
+      window.W.gems._internal &&
+      typeof window.W.gems._internal.resetDeployerBackoff === "function"
+    ) {
+      window.W.gems._internal.resetDeployerBackoff();
+    }
+  });
+}
+
 // Load the real gems and shield modules so the chain-parity test
 // exercises the actual chain lists. If either throws, the parity
 // test will fail on empty CHAINS rather than crash on undefined.

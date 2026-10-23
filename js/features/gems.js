@@ -2814,6 +2814,13 @@ W.gems = (() => {
         deployerStore = newMap();
         saveDeployerStore();
       },
+      // ── Phase 4 test isolation: `deployerBackoffUntil` is module-level
+      //    state. One test that triggers a provider failure sets a 5-minute
+      //    backoff that cascades into every later test in the same mocha
+      //    process. Expose a reset so tests can isolate.
+      resetDeployerBackoff: () => {
+        deployerBackoffUntil = 0;
+      },
     },
   };
 })();
