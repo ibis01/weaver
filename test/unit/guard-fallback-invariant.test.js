@@ -24,21 +24,23 @@ const JS = path.join(REPO, "js");
 // endpoints validated separately, or the guard-fallback pattern where
 // the primary path goes through W.requestGuard.fetch.
 const ALLOWED = new Set([
-  "js/utils/format.js",                                   // FX rates, static
-  "js/api/prices.js",                                     // guard-fallback
-  "js/ai/providers.js",                                   // user-configured endpoint
-  "js/intelligence/deployer-graph.js",                    // Weaver's own worker
-  "js/intelligence/smart-money/wallet-history.js",        // Blockscout, public
-  "js/features/ai.js",                                    // user-configured endpoint
-  "js/features/news.js",                                  // RSS, public
-  "js/features/gems.js",                                  // DexScreener + own worker
-  "js/features/smart.js",                                 // guard-fallback
-  "js/features/shield.js",                                // GoPlus/RugCheck, public
-  "js/features/track-record.js",                          // public price lookups
-  "js/features/evidence-card.js",                         // public data lookups
-  "js/features/walletsync.js",                            // own worker
-  "js/features/smart-radar-auto.js",                      // own worker
-  "js/features/telegram.js",                              // user-supplied webhook
+  "js/utils/format.js", // FX rates, static
+  "js/api/prices.js", // guard-fallback
+  "js/ai/providers.js", // user-configured endpoint
+  "js/intelligence/deployer-graph.js", // Weaver's own worker
+  "js/intelligence/smart-money/wallet-history.js", // Blockscout, public
+  "js/features/ai.js", // user-configured endpoint
+  "js/features/news.js", // RSS, public
+  "js/features/gems.js", // DexScreener + own worker
+  "js/features/smart.js", // guard-fallback
+  "js/features/shield.js", // GoPlus/RugCheck, public
+  "js/features/track-record.js", // public price lookups
+  "js/features/evidence-card.js", // public data lookups
+  "js/features/walletsync.js", // own worker
+  "js/features/smart-radar-auto.js", // own worker
+  "js/intelligence/evaluation/predictive-validator.js", // Worker endpoints only
+  "js/intelligence/smart-money/solana-adapter.js", // Worker endpoints only
+  "js/features/telegram.js", // user-supplied webhook
 ]);
 
 function walk(dir, acc = []) {

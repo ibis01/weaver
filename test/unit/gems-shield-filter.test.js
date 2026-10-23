@@ -1,4 +1,3 @@
-
 // P0 — Gem Agent high-risk filter correctness.
 //
 // NOTE: These tests bypass W.gems.render() and construct the scan
@@ -133,6 +132,9 @@ describe("Gem Agent — Shield filter correctness (P0)", () => {
   beforeEach(() => {
     global.W.gems._internal.resetShieldCache();
     global.W.gems._internal.resetSeen();
+    if (typeof global.W.gems._internal.resetDeployerBackoff === "function") {
+      global.W.gems._internal.resetDeployerBackoff();
+    }
   });
 
   // ── Test 1 ────────────────────────────────────────────
@@ -384,8 +386,14 @@ describe("Gem Agent — Shield filter correctness (P0)", () => {
   // ── Test 13 ───────────────────────────────────────────
   it("Test 13 — seen candidate is not notified again on second scan", async () => {
     installFetch([mockPair("ethereum", ADDR_A, "SEEN")]);
+
     let notifyCount = 0;
     let thesesCount = 0;
+    const savedTg = global.W.tg;
+    const savedTheses = global.W.theses;
+    const savedSmartMoney = global.W.smartMoney;
+    const savedMarketStructure = global.W.marketStructure;
+
     global.W.tg = {
       notify: () => {
         notifyCount++;
@@ -398,39 +406,92 @@ describe("Gem Agent — Shield filter correctness (P0)", () => {
       },
     };
 
-    // FIX: Use a LOW risk score so the token is eligible for notification.
-    // High-risk tokens are intentionally excluded from notifications (!isDanger).
-    global.W.shield.check = async () => ({
+    // Mock smart-money convergence. Without this, the notification gate
+    // (which requires g.smartMoneySignal.hasConvergence === true) never
+    // fires, and the test's expect(firstNotify).to.equal(1) fails.
+    global.W.smartMoney = global.W.smartMoney || {};
+    global.W.smartMoney.entryAssessment = {
+      evaluate: async () => ({
+        ok: true,
+        hasConvergence: true,
+        independentCount: 3,
+        reason: "convergence-detected",
+      }),
+    };
+
+    // Mock marketStructure.observe() directly. test/setup.js does not load
+    // market-structure.js, so buildObservation() returns null without this,
+    // and the smart-money gate in _scanImpl is never reached. The mock
+    // returns holders directly, bypassing whatever shape the real
+    // observe() requires from the shield assessment.
+    global.W.marketStructure = {
+      observe: () => ({
+        source: "mock",
+        concentration: { top10Pct: 6, status: "distributed" },
+        liquidity: { status: "locked", usd: 200000 },
+        holders: [
+          { address: "0xaaa0000000000000000000000000000000000001", pct: 2 },
+          { address: "0xaaa0000000000000000000000000000000000002", pct: 2 },
+          { address: "0xaaa0000000000000000000000000000000000003", pct: 2 },
+        ],
+      }),
+      summariseTrajectory: () => null,
+    };
+
+    // Shield assessment with the same holders, so the composite-risk
+    // calculation sees a low-risk verdict (not danger) and the
+    // notification gate's !isDanger check passes.
+    const shieldAssessment = {
       riskScore: 10,
       riskLevel: ["🟢 No identified risk indicators", "no-identified-risk"],
       scoreVersion: "shield-evm-v1",
-    });
-
+      holders: {
+        count: 100,
+        top10: [
+          { address: "0xaaa0000000000000000000000000000000000001", pct: 2 },
+          { address: "0xaaa0000000000000000000000000000000000002", pct: 2 },
+          { address: "0xaaa0000000000000000000000000000000000003", pct: 2 },
+        ],
+        top10Pct: 6,
+        lpCount: 3,
+        lockedLpCount: 2,
+        hasLockedLp: true,
+        source: "goplus-evm",
+      },
+      owner: { address: null, source: "unavailable" },
+      creator: { address: null, source: "unavailable" },
+    };
+    global.W.shield.check = async () => shieldAssessment;
     const key = global.W.gems._internal.shieldCacheKey(ADDR_A, "ethereum");
-    global.W.gems._internal.setCachedShield(key, {
-      riskScore: 10,
-      riskLevel: ["🟢 No identified risk indicators", "no-identified-risk"],
-      scoreVersion: "shield-evm-v1",
-    });
+    global.W.gems._internal.setCachedShield(key, shieldAssessment);
 
-    let root = buildScanDom({ hideRisk: false });
-    await scanAndSettle(root);
-    const firstNotify = notifyCount;
-    const firstTheses = thesesCount;
-    expect(firstNotify, "first scan should notify once").to.equal(1);
-    expect(firstTheses, "first scan should create one thesis").to.equal(1);
-    root.remove();
+    try {
+      let root = buildScanDom({ hideRisk: false });
+      await scanAndSettle(root);
+      const firstNotify = notifyCount;
+      const firstTheses = thesesCount;
+      expect(firstNotify, "first scan should notify once").to.equal(1);
+      expect(firstTheses, "first scan should create one thesis").to.equal(1);
+      root.remove();
 
-    // Second scan — `seen` should suppress notification/thesis.
-    root = buildScanDom({ hideRisk: false });
-    await scanAndSettle(root);
-    expect(notifyCount).to.equal(firstNotify);
-    expect(thesesCount).to.equal(firstTheses);
-    root.remove();
-
-    global.W.tg = originalTg;
-    global.W.theses = originalTheses;
+      // Second scan — `seen` should suppress notification/thesis.
+      root = buildScanDom({ hideRisk: false });
+      await scanAndSettle(root);
+      expect(notifyCount, "second scan should not notify").to.equal(
+        firstNotify,
+      );
+      expect(thesesCount, "second scan should not create a thesis").to.equal(
+        firstTheses,
+      );
+      root.remove();
+    } finally {
+      global.W.tg = savedTg;
+      global.W.theses = savedTheses;
+      global.W.smartMoney = savedSmartMoney;
+      global.W.marketStructure = savedMarketStructure;
+    }
   });
+
   // ── Amendment 7 regression ────────────────────────────
   it("Amendment 7 — cross-chain cache isolation (Ethereum vs Base)", () => {
     const { shieldCacheKey, getCachedShield, setCachedShield } =
