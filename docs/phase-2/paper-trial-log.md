@@ -157,3 +157,23 @@ this window and its (zero) observations do not count toward this trial.
 - This is an observation-window gap, not a defect. Next entry will record
   what a scan actually produces.
 - Config or threshold change this day? → **No**
+
+## Window 2 — scan history (2026-10-23)
+- Fresh verification boundary: 1792775127260 (bundle ?v=20261023d verified:
+  has cohort: true, has persistence fix: n/a due to comment stripping)
+- Scans since boundary: at least 1 (`[Gems] Loaded 10 tokens from Worker
+  snapshot`)
+- Alerts persisted since boundary: **0** as of this entry
+- 176 total alerts in KV, all predate the fresh boundary. Every one shows
+  `cohort: MISSING`, which is expected — they were produced by
+  pre-cohort-fix bundles.
+- The 17 alerts between boundary 1792773888000 (earlier "verified"
+  ?v=20261023b) and 1792775127260 also show `cohort: MISSING`. That
+  earlier verification checked `dist/bundle.js` (unminified) rather than
+  `dist/bundle.min.js` (the file actually loaded by the page). It was a
+  false positive. The current verification checks the minified file and
+  reports `has cohort: true`.
+- Pending: confirm the current bundle's persistMemeAlert actually writes
+  `cohort` by intercepting the payload in the browser console (a direct
+  call to `W.gems._internal.persistMemeAlert` with a fake gem).
+- Config or threshold change this day? → **No**
