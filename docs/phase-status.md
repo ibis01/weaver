@@ -116,3 +116,24 @@ question and must be declared in the evaluation report.
   ABORTED because it produced only converged observations (0 usable
   data, no control cohort).
 - New trial window to be recorded after this fix is committed.
+
+## Commit hygiene note — 2026-10-23
+- Commit `76e71f7` is titled "docs(phase-4)…" but also contains the rebuilt
+  `dist/bundle.js` and `dist/bundle.min.js`. This is what resolved the
+  `dist/ is stale` CI failures for all subsequent commits. Going forward:
+  any commit that touches `js/` MUST include the rebuilt `dist/` in the
+  same commit. Consider a pre-commit hook to enforce this.
+
+  ## Phase 4 — persistence fix is insufficient without cohort marking (2026-10-23)
+- `persistMemeAlert` now fires for both converged and non-converged alerts
+  (window 2 fix), but the persisted `assessment` payload does not include a
+  `cohort` field or `hasConvergence` marker.
+- The pre-registration §Control definition requires the control cohort to
+  be identifiable from the record. Without a cohort marker, the eventual
+  Mann-Whitney U comparison (Issue D) cannot split observations into
+  treatment/control without re-running smart-money evaluation retroactively
+  against historical state — which is not reproducible.
+- Fix required before window 3 starts: `persistMemeAlert` must include
+  `cohort: sm.hasConvergence ? "treatment" : "control"` (or equivalent) in
+  the payload. This is a small change in `js/features/gems.js` at the point
+  the payload is constructed.
