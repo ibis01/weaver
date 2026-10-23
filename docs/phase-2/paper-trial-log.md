@@ -266,3 +266,26 @@ this window and its (zero) observations do not count toward this trial.
 - Trial observations: 0 real alerts since verification boundary
   (GoPlus 429 rate limits still active as of this entry).
 - Config or threshold change this day? → **No**
+
+## Day 1 — persistence + cohort verified; Issue D implemented (2026-10-24 UTC)
+- Baseline code: d7f9463 (Mann-Whitney U + bootstrap CI committed)
+- Verification boundary: 1792775127260 (bundle ?v=20261023d)
+- Persistence fix verified end-to-end via intercept test in the loaded bundle:
+  * `persistMemeAlert` with `hasConvergence: false` → `assessment.cohort: "control"`
+  * `persistMemeAlert` with `hasConvergence: true`  → `assessment.cohort: "treatment"`
+  * Full payload keys: opportunityScore, methodologyVersion, observedAtMs,
+    identity, cohort
+- Phase 4 Issue D implemented and committed (d7f9463):
+  * Mann-Whitney U with normal approximation + tie correction
+  * Bootstrap 95% CI for the median (10,000 resamples)
+  * Sample-size gate: MIN_OBSERVATIONS_PER_COHORT = 10 per pre-registration
+  * Cohort provenance: records with `assessment.cohort` in {control, treatment}
+    are counted; pre-fix records (cohort missing) are excluded from the
+    statistical comparison but reported under `evaluated_unknown_cohort`
+- Scans since verification: multiple; GoPlus proxy returns 429 on every
+  shield check → `shield.error` → verdict UNKNOWN → score < 70 → no persist
+- Alerts persisted with cohort field: **0** (consistent with 429 blocker)
+- All 176 historical alerts in KV predate the boundary and correctly show
+  `cohort: MISSING`
+- Trial clock: started 2026-10-23T15:55:17Z, ends 2026-10-30T15:55:17Z
+- Config or threshold change this day? → **No**
