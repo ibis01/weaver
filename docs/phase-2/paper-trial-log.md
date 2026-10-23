@@ -1,29 +1,24 @@
-# Phase 2 — Paper Trial Daily Log
-
-Baseline code: b45db6a
-Baseline doc: <fill after the START commit lands>
-Trial start (UTC): 2026-10-22T19:07:44Z
-Trial planned end (UTC): 2026-10-29T19:07:44Z
-Window: Option A — one-day shift from the roadmap's 21–28 Oct window,
-        because the baseline was not frozen until 22 Oct.
-
-## Rules
-- One entry per calendar day, appended under the day header.
-- The final line of every day ("Config or threshold change this day?")
-  must read **No**. Any "Yes" invalidates the trial from that day and
-  the affected window must be repeated.
-- Do not edit a prior day's entry after the day has closed. Corrections
-  go in a new entry labelled "Correction — Day N".
-
----
-
 ## Day 1 — 2026-10-22 (UTC)
-- Alerts generated: TBD
-- Unique tokens: TBD
-- Provider failures observed: TBD
-- Duplicate signals suppressed: TBD
-- Missing-evidence cases: TBD
-- Misclassified attributions spotted: TBD
-- System interruptions: TBD
-- Reconstructability spot-check: TBD
+- Observation window: 2026-10-22T19:07:44Z → 2026-10-23T00:00:00Z
+- Alerts generated: 0
+- Reason for zero: `persistMemeAlert` in `gems.js:_scanImpl` fires only
+  inside the smart-money notification gate. No smart-money convergence
+  occurred during this window, so no alerts were persisted. This is the
+  persistence-gate defect recorded in `docs/phase-status.md` under
+  "Phase 4 — persistence gate discovery (2026-10-23)".
 - Config or threshold change this day? → **No**
+
+## Day 1 — Correction (recorded 2026-10-23)
+- The persistence-gate defect invalidates this day's data for Phase 2
+  purposes. The trial window 2026-10-22T19:07:44Z → 2026-10-29T19:07:44Z
+  is being ABORTED because it cannot produce a non-converged control
+  cohort. A new trial window will start after the persistence gate is
+  fixed. See `docs/phase-status.md` for the fix plan.
+
+## Trial status — ABORTED (2026-10-23)
+- Original window: 2026-10-22T19:07:44Z → 2026-10-29T19:07:44Z
+- Reason: persistence-gate defect (only converged alerts persisted;
+  no control cohort possible)
+- Restart condition: `persistMemeAlert` separated from the notification
+  gate in `gems.js:_scanImpl`, verified by a test that asserts both
+  converged and non-converged alerts are persisted.

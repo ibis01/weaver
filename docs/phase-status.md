@@ -85,3 +85,17 @@ question and must be declared in the evaluation report.
   trial data consistency. Fix will split the persistence path from the
   notification path and be committed as:
     fix(phase-4): persist non-converged alerts to enable control cohort
+
+## Test hygiene note — 2026-10-23
+- `test/setup.js` still contains a dead `beforeEach` that calls
+  `resetDeployerBackoff()`. It is a no-op (the per-file `beforeEach`
+  in gems-deployer.test.js is what actually resets the backoff between
+  tests), but should be removed in a future cleanup commit. Not removed
+  during the current Phase 2 window to avoid re-testing a green state.
+
+## Phase 2 — trial aborted (2026-10-23)
+- Trial window 2026-10-22T19:07:44Z → 2026-10-29T19:07:44Z produced zero
+  usable observations due to the persistence-gate defect.
+- The trial was aborted, not failed. It will be restarted after the
+  persistence gate is fixed and a new baseline is committed.
+- A new 7-day window will be recorded with fresh start/end timestamps.
