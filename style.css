@@ -278,8 +278,8 @@ body::before {
   inset: 0;
 
   background: url("assets/logo.png") no-repeat center center / 
-   min(95vw, 1200px) auto;
-  opacity: 0.1;
+   min(90vw, 1200px) auto;
+  opacity: 0.09;
   pointer-events: none;
   z-index: 0;
 }
