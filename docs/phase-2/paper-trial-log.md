@@ -224,3 +224,28 @@ this window and its (zero) observations do not count toward this trial.
 - All persisted records since SCAN_AT carry `cohort` field.
 - The trial is now producing valid Phase 4 observations.
 - Config or threshold change this day? → **No**
+
+## Day 1 — persistence fix verified, provider rate-limited (2026-10-24 UTC)
+- Verification boundary: 1792775127260
+- Bundle in use: ?v=20261023d, confirmed `has cohort: true`
+- Persistence fix verified via intercept test in production bundle:
+  * `persistMemeAlert(gem)` with `hasConvergence: false` →
+    `assessment.cohort: "control"` ✅
+  * `persistMemeAlert(gem)` with `hasConvergence: true` →
+    `assessment.cohort: "treatment"` ✅
+  * Full payload keys: opportunityScore, methodologyVersion,
+    observedAtMs, identity, cohort
+- Scans since verification: multiple, both Worker-snapshot and (attempted)
+  live-discovery paths.
+- Alerts persisted with cohort field: **0**
+- Root cause of zero alerts:
+  * Worker `/goplus/*` proxy returns 429 (rate limit) on every shield check
+  * `checkShield` correctly returns `{ error: true }` on 429
+  * `computeRiskAssessment` correctly classifies as `UNKNOWN` when shield
+    errored (no fabricated verdict)
+  * `memeOpportunity.analyze` scores a shield-errored candidate below 70
+  * Persistence gate (`score >= 70 && !isDanger`) correctly does not fire
+- This is a provider-availability observation, not a code defect.
+- 176 older alerts in KV (from Oct 5 and Oct 23) all predate the
+  verification boundary and correctly show `cohort: MISSING`.
+- Config or threshold change this day? → **No**
