@@ -249,3 +249,20 @@ this window and its (zero) observations do not count toward this trial.
 - 176 older alerts in KV (from Oct 5 and Oct 23) all predate the
   verification boundary and correctly show `cohort: MISSING`.
 - Config or threshold change this day? → **No**
+
+## Day 1 — Issue D implemented (2026-10-24 UTC)
+- Phase 4 Issue D (Mann-Whitney U + bootstrap CI) implemented and
+  committed. The validator now returns:
+  * `metrics.cohort_comparison.status` — "computed" or "insufficient_sample"
+  * `mann_whitney: { U, z, p }` when sample sufficient
+  * `control_median_ci` / `treatment_median_ci` — 95% bootstrap CIs
+    (10,000 resamples)
+- Sample-size gate: MIN_OBSERVATIONS_PER_COHORT = 10 per §Sample size.
+- Cohort provenance: records with `assessment.cohort` in {control,
+  treatment} counted. Pre-fix records (cohort missing) excluded from
+  the statistical comparison but reported via
+  `accounting.evaluated_unknown_cohort`.
+- No thresholds, scoring weights, or shield logic changed.
+- Trial observations: 0 real alerts since verification boundary
+  (GoPlus 429 rate limits still active as of this entry).
+- Config or threshold change this day? → **No**
