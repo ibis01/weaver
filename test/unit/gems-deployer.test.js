@@ -180,6 +180,13 @@ describe("Gem Agent — deployer observation integration", () => {
     global.W.store.clearAll();
     global.W.gems._internal.resetShieldCache();
     global.W.gems._internal.resetSeen();
+    if (
+      global.W.gems &&
+      global.W.gems._internal &&
+      typeof global.W.gems._internal.resetDeployerBackoff === "function"
+    ) {
+      global.W.gems._internal.resetDeployerBackoff();
+    }
     if (global.W.ownerAssociations) global.W.ownerAssociations.reset();
     if (global.W.deployerGraph) {
       global.W.deployerGraph.reset();
@@ -304,7 +311,6 @@ describe("Gem Agent — deployer observation integration", () => {
       let observeCalls = 0;
       global.W.deployerGraph.observe = async (assessment, chain, addr) => {
         observeCalls++;
-        // Simulate a successful fetch by recording directly.
         global.W.deployerGraph.record(chain, CREATOR, {
           tokens: [
             {
@@ -346,7 +352,13 @@ describe("Gem Agent — deployer observation integration", () => {
       let observeCalls = 0;
       global.W.deployerGraph.observe = async () => {
         observeCalls++;
-        return null;
+        // Return truthy so the enrichment loop continues past each
+        // candidate. A `null` return here is the "upstream failing"
+        // sentinel and would trigger the 5-minute backoff break on the
+        // first candidate, defeating the purpose of this test — which
+        // is to verify that the per-scan cap (MAX_FRESH_DEPLOYER_PER_SCAN
+        // = 6) limits fresh fetches when more candidates are eligible.
+        return { deployerAddress: CREATOR_LOWER, tokens: [] };
       };
 
       const root = buildScanDom();
@@ -365,7 +377,6 @@ describe("Gem Agent — deployer observation integration", () => {
       ]);
       global.W.shield.check = async () => evmAssessment();
 
-      // Prime the cache for ADDR_A.
       global.W.deployerGraph.record("ethereum", CREATOR, {
         tokens: [{ tokenAddress: ADDR_A, deploymentEvidence: null }],
         source: "bitquery",
@@ -374,14 +385,13 @@ describe("Gem Agent — deployer observation integration", () => {
       let observeCalls = 0;
       global.W.deployerGraph.observe = async (assessment, chain, addr) => {
         observeCalls++;
-        return null;
+        return { deployerAddress: CREATOR_LOWER, tokens: [] };
       };
 
       const root = buildScanDom();
       await global.W.gems.scan(root);
       await new Promise((r) => setTimeout(r, 30));
 
-      // Only ADDR_B should have triggered a fresh fetch.
       expect(observeCalls).to.equal(1);
       root.remove();
     });
@@ -393,7 +403,7 @@ describe("Gem Agent — deployer observation integration", () => {
       let observeCalls = 0;
       global.W.deployerGraph.observe = async () => {
         observeCalls++;
-        return null;
+        return { deployerAddress: CREATOR_LOWER, tokens: [] };
       };
 
       const root = buildScanDom();
@@ -428,7 +438,7 @@ describe("Gem Agent — deployer observation integration", () => {
       let observeCalls = 0;
       global.W.deployerGraph.observe = async () => {
         observeCalls++;
-        return null;
+        return { deployerAddress: CREATOR_LOWER, tokens: [] };
       };
       let getCalls = 0;
       const originalGet = global.W.deployerGraph.get;
@@ -442,14 +452,9 @@ describe("Gem Agent — deployer observation integration", () => {
         await global.W.gems.scan(root);
         await new Promise((r) => setTimeout(r, 30));
 
-        // observe was called once by the recording pool.
         expect(observeCalls).to.equal(1);
-        // get was called at least once by the render path (in
-        // addition to any calls by the pool cache check).
         expect(getCalls).to.be.at.least(1);
 
-        // The rendered HTML should contain the card, and the
-        // deployer row is omitted because the profile is empty.
         const html = root.querySelector("#g-body").innerHTML;
         expect(html).to.include("RENDER");
         expect(html).to.not.include("Deployer:");
