@@ -109,3 +109,40 @@
   History preserved per roadmap Phase 0 rule. The actual blockers that
   prompted those commits — and their fixes — are recorded in
   §Pre-flight decision above and in commits 9c18b9b and b45db6a.
+
+## Trial restart — window 2
+
+### Previous window (ABORTED, preserved as audit record)
+- Window: 2026-10-22T19:07:44Z → 2026-10-29T19:07:44Z
+- Status: **ABORTED**
+- Reason: `persistMemeAlert` fired only inside the smart-money notification
+  gate, so only converged alerts could ever reach the KV store. Zero
+  non-converged alerts were recorded during the window. The pre-registration
+  §Control definition requires a non-converged control cohort; without one,
+  the eventual Mann-Whitney U comparison (Issue D) is not computable.
+- Fix landed: `fix(phase-4): persist non-converged alerts to enable control
+  cohort` — the persistence call was moved outside the notification gate.
+  `test/unit/gems-persist.test.js` asserts that a non-converged alert with
+  score >= 70 is persisted.
+- The window is not being extended or merged with the new window.
+
+### New window (ACTIVE)
+- Baseline code commit: 76e71f7
+- Baseline is CI-green (`Test and Build` run 39980710999, 2m58s)
+- Start (UTC): 2026-10-23T15:55:17Z
+- Planned end (UTC): 2026-10-30T15:55:17Z
+- Duration: 7 days
+- Config freeze: identical to the previous window — no threshold changes
+  permitted mid-trial.
+- Restart condition verified: persistence gate fixed; new test passes;
+  full suite green at 706 + 30 + 16 passing, 0 failing.
+
+### What "restart" means here
+- The trial clock is real from 2026-10-23T15:55:17Z.
+- Day entries are recorded honestly, one per calendar day, from that point.
+- A day that produces zero alerts is not edited to look like a day that
+  produced alerts. If the persistence fix does not produce non-converged
+  alerts within 24h, the log must say so and that is a Phase 4 defect to
+  investigate — not a day to fabricate.
+- The trial exit rule remains: results are NOT evidence of predictive
+  ability. Operational reliability only.
