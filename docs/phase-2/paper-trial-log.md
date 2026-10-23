@@ -177,3 +177,23 @@ this window and its (zero) observations do not count toward this trial.
   `cohort` by intercepting the payload in the browser console (a direct
   call to `W.gems._internal.persistMemeAlert` with a fake gem).
 - Config or threshold change this day? → **No**
+
+## Day 1 — persistence fix VERIFIED (2026-10-23 / 2026-10-24 UTC)
+- Verification boundary: 1792775127260 (bundle ?v=20261023d)
+- **Intercept test PASS**: direct call to `W.gems._internal.persistMemeAlert`
+  with `hasConvergence: false` produced a POST body containing
+  `cohort: "control"`. Persistence gate + cohort marker confirmed
+  working in the loaded production bundle.
+- Scans since boundary: 1 (observed `[Gems] Loaded 10 tokens from
+  Worker snapshot`)
+- Alerts persisted since boundary: **0** — the 10-token Worker snapshot
+  did not include any candidate scoring >= 70 with non-danger verdict.
+  This is a market-availability observation, not a defect.
+- The 176 older alerts in KV (all with `cohort: MISSING`) predate
+  the fix and remain excluded from cohort analysis.
+- Known operational limitations active today:
+  * `/etherscan/deployer` 502 — deployer reputation enrichment suspended
+  * Worker `/discovery/snapshot` returns 10 fixed tokens — the candidate
+    pool is narrow
+  * CSP blocks inline style — cosmetic, does not affect persistence
+- Config or threshold change this day? → **No**
