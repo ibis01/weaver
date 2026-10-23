@@ -99,3 +99,11 @@ question and must be declared in the evaluation report.
 - The trial was aborted, not failed. It will be restarted after the
   persistence gate is fixed and a new baseline is committed.
 - A new 7-day window will be recorded with fresh start/end timestamps.
+## Phase 4 — persistence gate fix (2026-10-23)
+- Persistence gate moved outside the smart-money notification gate in
+  `gems.js:_scanImpl`. Non-converged alerts are now persisted, enabling
+  the control cohort required by pre-registration §Control definition.
+- This unblocks Phase 4's eventual cohort comparison. Prior trial window
+  2026-10-22T19:07:44Z → 2026-10-29T19:07:44Z was ABORTED because it
+  produced only converged observations (0 data, no control cohort).
+- New trial window to be recorded after this fix is committed.
