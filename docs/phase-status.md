@@ -63,3 +63,25 @@ Also noted: the KV store currently contains 100 alerts from
 2026-10-05, all of which predate the trial start (2026-10-22T19:07:44Z).
 Whether they count toward the trial population is a similar open
 question and must be declared in the evaluation report.
+
+## Commit hygiene note — 2026-10-22
+- Commit `cc1b797` was intended to remove js/features/shield.min.js and
+  classify two Worker-only modules in the guard-fallback invariant, but
+  it committed neither change. It included unrelated `assets/` edits and
+  the (non-functional) reset additions to gems.js and test/setup.js.
+- History is preserved per roadmap discipline; the actual fixes land in
+  the follow-up commit.
+- Once follow-up lands and `npm test` is green, branch protection can be
+  re-enabled in the repository settings so this cannot recur.
+
+## Phase 4 — persistence gate discovery (2026-10-23)
+- `persistMemeAlert(g)` fires only inside the smart-money notification gate
+  in `gems.js:_scanImpl`. Non-converged alerts are never persisted.
+- Pre-registration §Control definition requires both converged and
+  non-converged alerts to be recorded for the cohort comparison.
+- Without non-converged alerts, Phase 4 has no control cohort and the
+  pre-registered Mann-Whitney U test (Issue D) cannot be run honestly.
+- Deferred to after the trial closes (2026-10-29T19:07:44Z) to preserve
+  trial data consistency. Fix will split the persistence path from the
+  notification path and be committed as:
+    fix(phase-4): persist non-converged alerts to enable control cohort
