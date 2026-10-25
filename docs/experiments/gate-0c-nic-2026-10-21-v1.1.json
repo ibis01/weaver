@@ -2,11 +2,11 @@
   "generatedAtUTC": "2026-10-21T00:00:00Z",
   "executionDate": "2026-10-21",
   "determinismNote": "generatedAtUTC is pinned to the execution date for byte-determinism (wall-clock intentionally not recorded); all float operations in fixed order; the companion verifier (aw-nic-verify-v11.js) recomputes G2-P by exact integer arithmetic and must agree to 10 decimal places.",
-  "prereg": "docs/experiments/gate-0c-skill-test-preregistration-v1.md (amended v1.1, 2026-10-21; sha256 0b5eaa6e07d531d3f5d49e61d40e85c6d1222143a3073c086c880671bb5ce576)",
+  "prereg": "docs/experiments/gate-0c-skill-test-preregistration-v1.md (amended v1.1, 2026-10-21; sha256 36201d78c588b9523c5ece3e38cd22ddb5da18ad969379da891c7e2247db7fc7)",
   "amendment": {
     "record": {
       "path": "docs/experiments/gate-0c-amendment-v1.1-draft-2026-10-21.md",
-      "sha256": "284a852d0666230382aa760e9ebb7c9427a0346276cba111465076a4dae0de7c"
+      "sha256": "7964e7ae1d358843b20e90c14614072500942670d9c12df03dbe47b284418e30"
     },
     "patch": {
       "path": "docs/experiments/gate-0c-amendment-v1.1-draft-2026-10-21.patch",
@@ -14,7 +14,7 @@
     },
     "baselinePreregSha256": "85468ac76b37c20b0db53581abc0ae395e93dd1730f19d43a05ed9051a04b6f1",
     "reviewGate": "RQ1=a (generalized-inverse quantiles on the exact discrete distribution); RQ2=yes (single wallet below floor -> UNTESTABLE, hard, no wallet-dropping); RQ3=yes (Branch Q as documented fallback only; Branch P remains primary); RQ4=approved (binding Q1/Q2 text inspected on hash-verified copies; approval realized by patch application and owner go-ahead); RQ5=yes (legacy k-draw IQRs descriptive, non-gating)",
-    "executionProtocol": "amendment record \u00a75 (steps 1-6); this run executes steps 2-4"
+    "executionProtocol": "amendment record §5 (steps 1-6); this run executes steps 2-4"
   },
   "frozenPairReferenced": {
     "json": {
@@ -23,9 +23,9 @@
     "md": {
       "sha256": "07cb0ffcd25ce4465b36d491500d817dc409f52a6d2937b312ad5889ebbfb2f0"
     },
-    "note": "frozen 2026-10-20 P4 FAIL pair \u2014 referenced, never altered; D1 and legacy columns reproduce its numbers exactly (incident rule enforced at run time)"
+    "note": "frozen 2026-10-20 P4 FAIL pair — referenced, never altered; D1 and legacy columns reproduce its numbers exactly (incident rule enforced at run time)"
   },
-  "scope": "P4 NIC v1.1 \u2014 D1 descriptive (price-only) + G2-P anti-degeneracy guard (assignment-only, seed-free) + legacy k-draw IQRs (descriptive); offline, no RPC, pre-unblinding; contains no wallet-level outcome statistic",
+  "scope": "P4 NIC v1.1 — D1 descriptive (price-only) + G2-P anti-degeneracy guard (assignment-only, seed-free) + legacy k-draw IQRs (descriptive); offline, no RPC, pre-unblinding; contains no wallet-level outcome statistic",
   "inputs": {
     "v2json": {
       "gitBlob": "73024f5f5e4b6dc67125fd674e30c9c1b8499c40"
@@ -54,11 +54,11 @@
   },
   "conventions": {
     "return": "close-to-close, r(day) = close(day)/close(prev day) - 1 (UTC day boundaries)",
-    "percentile": "type-7 linear interpolation (D1 thresholds and legacy k-draw IQRs, unchanged from frozen run); G2-P uses exact generalized-inverse quantiles on the discrete grid \u2014 no interpolation, no Monte Carlo",
+    "percentile": "type-7 linear interpolation (D1 thresholds and legacy k-draw IQRs, unchanged from frozen run); G2-P uses exact generalized-inverse quantiles on the discrete grid — no interpolation, no Monte Carlo",
     "d1": "identical machinery to frozen-run G1: up-day := close-to-close return >= P90 of the trailing 90 daily returns as of the band start; band primary excl [d-b..d-1], sensitivity incl [d-b+1..d]; pooled frac_up over acquisition days; REPORTED NOT GATING; kill-switch removed",
-    "g2p": "per-wallet exact marginal null of a single day-position on the A_w grid: P(D_w = i/(|A_w|-1)) = q_w(d_i)/\u03a3 q_w(d) with q_w the \u00a78.2 weights (leave-self-out crowd counts + 0.25; Option-A uniform fallback if ESS_w < 5, logged); IQR_w = Q_D_w(0.75) - Q_D_w(0.25) with generalized-inverse Q; gate: min over eligible wallets >= 0.10",
-    "legacy": "per-wallet k-draw null IQR of the \u00a79.1 entry-day percentile under \u00a78.2 weights; k_w i.i.d. draws with replacement; B_W=10000 draws; provisional seeds identical to the frozen run (sha256(\"gate0c:nic:\"+address+\":\"+priceSha+\":\"+v2blob), xorshift128+ canonical, low word of s1+s0); DESCRIPTIVE, NON-GATING (F7 scope discipline); no \u00a78 null-model machinery changes",
-    "bandSelection": "none \u2014 the \u00a79.1 primary is band-free; D1 feeds no decision; no (band, horizon) pair is selected or pass-listed"
+    "g2p": "per-wallet exact marginal null of a single day-position on the A_w grid: P(D_w = i/(|A_w|-1)) = q_w(d_i)/Σ q_w(d) with q_w the §8.2 weights (leave-self-out crowd counts + 0.25; Option-A uniform fallback if ESS_w < 5, logged); IQR_w = Q_D_w(0.75) - Q_D_w(0.25) with generalized-inverse Q; gate: min over eligible wallets >= 0.10",
+    "legacy": "per-wallet k-draw null IQR of the §9.1 entry-day percentile under §8.2 weights; k_w i.i.d. draws with replacement; B_W=10000 draws; provisional seeds identical to the frozen run (sha256(\"gate0c:nic:\"+address+\":\"+priceSha+\":\"+v2blob), xorshift128+ canonical, low word of s1+s0); DESCRIPTIVE, NON-GATING (F7 scope discipline); no §8 null-model machinery changes",
+    "bandSelection": "none — the §9.1 primary is band-free; D1 feeds no decision; no (band, horizon) pair is selected or pass-listed"
   },
   "population": {
     "eligibleWallets": 49,
@@ -314,7 +314,7 @@
     ]
   },
   "g1_descriptive": {
-    "disclosure": "Binding disclosure (F6): band-day up-variance is absent in this era \u2014 P4 NIC 2026-10-20: pooled frac_up 0.00\u20130.05 across all bands under both constructions (trailing-era P90 \u2248 2.9\u20133.3%/day vs band-day returns \u22125.6%..+1.5%); the era's discriminating signal exists at horizon scale (14d forward +33.9..+45.5% through 08-18).",
+    "disclosure": "Binding disclosure (F6): band-day up-variance is absent in this era — P4 NIC 2026-10-20: pooled frac_up 0.00–0.05 across all bands under both constructions (trailing-era P90 ≈ 2.9–3.3%/day vs band-day returns −5.6%..+1.5%); the era's discriminating signal exists at horizon scale (14d forward +33.9..+45.5% through 08-18).",
     "killSwitchRemoved": true,
     "feedsDecision": false,
     "bands": {
@@ -777,7 +777,7 @@
     }
   },
   "g2p": {
-    "definition": "exact marginal null of a single day-position under \u00a78.2 weights; generalized-inverse quantiles; seed-free and deterministic (F7 Branch P)",
+    "definition": "exact marginal null of a single day-position under §8.2 weights; generalized-inverse quantiles; seed-free and deterministic (F7 Branch P)",
     "gate": "min over eligible wallets of exact marginal IQR_w >= 0.10 (Q1 floor)",
     "perWallet": [
       {
@@ -1132,11 +1132,11 @@
     "untestableWallet": null
   },
   "bindingQualifications": {
-    "Q1": "Binding qualification Q1 (threshold provenance). The 0.10 floor is **structurally and purposively justified, not empirically derived**: it is carried over unchanged from the original \u00a77 gate for pre-registration continuity, as a minimal non-degeneracy floor (the middle 50% of the wallet's day-position null must span \u2265 0.10 of the [0,1] percentile scale \u2248 1.5 grid steps on the 16-day grid). No empirical optimization or calibration supports it; it is not claimed to be empirically optimal. Any post-hoc threshold re-derivation is threshold-shopping and prohibited.",
+    "Q1": "Binding qualification Q1 (threshold provenance). The 0.10 floor is **structurally and purposively justified, not empirically derived**: it is carried over unchanged from the original §7 gate for pre-registration continuity, as a minimal non-degeneracy floor (the middle 50% of the wallet's day-position null must span ≥ 0.10 of the [0,1] percentile scale ≈ 1.5 grid steps on the 16-day grid). No empirical optimization or calibration supports it; it is not claimed to be empirically optimal. Any post-hoc threshold re-derivation is threshold-shopping and prohibited.",
     "Q2": "Binding qualification Q2 (non-sufficiency). Passing this floor establishes non-degeneracy only. An IQR of 0.10 on the 16-day grid corresponds to roughly **two distinct day-positions** of interquartile spread; **two day-positions do not establish scientific sufficiency** of the design, detectability of the primary effect, or any strategy property. Passing G2-P must not be cited as evidence of discriminative adequacy beyond the floor's literal content. Q1 and Q2 are binding text and must be reproduced verbatim in every results artifact's interpretation fields."
   },
   "legacy": {
-    "note": "k-draw null IQRs under the frozen run's provisional-seed convention \u2014 descriptive, non-gating (RQ5); values reproduce the frozen artifact g2.perWallet exactly (incident rule enforced at run time)",
+    "note": "k-draw null IQRs under the frozen run's provisional-seed convention — descriptive, non-gating (RQ5); values reproduce the frozen artifact g2.perWallet exactly (incident rule enforced at run time)",
     "perWallet": [
       {
         "address": "0x033fe3aa194bb5df79964edaa846c99cf7c14fba",
@@ -1501,11 +1501,11 @@
   "verdict": "P4 v1.1 PASS",
   "untestableReason": null,
   "notes": [
-    "Executed under amended prereg v1.1 (36201d78\u2026); amendment chain hash-verified before execution (record 7964e7ae\u2026, patch 200531e9\u2026, baseline prereg 85468ac7\u2026).",
-    "D1 reproduces the frozen artifact's G1 numbers exactly and the legacy column reproduces the frozen per-wallet k-draw IQRs exactly \u2014 verified at run time; any difference is an incident and aborts.",
-    "The frozen 2026-10-20 P4 FAIL pair (e064f625\u2026/07cb0ffc\u2026) remains untouched; its verdict stands for the v1 analysis.",
-    "G2-P is seed-free: an exact quantity verifiable without PRNG reproduction (strengthens \u00a712 recount).",
-    "Q1/Q2 binding text reproduced verbatim in this artifact's interpretation fields (amended prereg \u00a77 requirement).",
+    "Executed under amended prereg v1.1 (36201d78…); amendment chain hash-verified before execution (record 7964e7ae…, patch 200531e9…, baseline prereg 85468ac7…).",
+    "D1 reproduces the frozen artifact's G1 numbers exactly and the legacy column reproduces the frozen per-wallet k-draw IQRs exactly — verified at run time; any difference is an incident and aborts.",
+    "The frozen 2026-10-20 P4 FAIL pair (e064f625…/07cb0ffc…) remains untouched; its verdict stands for the v1 analysis.",
+    "G2-P is seed-free: an exact quantity verifiable without PRNG reproduction (strengthens §12 recount).",
+    "Q1/Q2 binding text reproduced verbatim in this artifact's interpretation fields (amended prereg §7 requirement).",
     "This artifact is frozen before unblinding; no wallet-level outcome statistic appears in it."
   ]
 }
