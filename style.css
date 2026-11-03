@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
-   WEAVER · "COMMAND CENTER" DESIGN SYSTEM v3.3
+   WEAVER · "COMMAND CENTER" DESIGN SYSTEM v3.4
    (Calm Fintech Base + Institutional Data-Viz + Cross-Device +
-    Intelligence Layer)
+    Intelligence Layer + Linear-dark Premium Polish)
    ═══════════════════════════════════════════════════════════════
    Changelog v3.3:
      - Added sections 17–23 for the new Command Center layout:
@@ -14,6 +14,13 @@
        22 Key insights
        23 Dashboard responsive
      - Sections 1–16 are unchanged.
+   Changelog v3.4 (ui/premium-dark):
+     - Linear-dark token refresh in :root (same variable names,
+       new values + motion/focus/glass tokens).
+     - New section 24: glass surfaces, violet accent, focus rings,
+       button gradients, skeleton shimmer, tabular numerals, full
+       [data-theme="light"] block, reduced-motion/transparency
+       guards. CSS-only — no markup or JS changes required.
    ═══════════════════════════════════════════════════════════════ */
 
 /* ═══════════════════════════════════════════════════════════════
@@ -200,33 +207,51 @@
 }
 
 :root {
-  --bg: #0b0d12;
-  --card: #12151e;
-  --card-hover: #181c27;
-  --border: rgba(255, 255, 255, 0.06);
-  --border-highlight: rgba(255, 255, 255, 0.14);
-  --text: #eef1f9;
-  --muted: #8b94a7;
+  /* ── Linear-dark canvas ──────────────────────────────────────
+     Premium dark refresh. Variable names are UNCHANGED — only
+     values moved, plus new motion/focus/glass tokens below.
+     Component treatments live in section 24 (end of file). */
+  --bg: #0b0e14;
+  --card: #12161f;
+  --card-hover: #171c27;
+  --border: rgba(255, 255, 255, 0.07);
+  --border-highlight: rgba(255, 255, 255, 0.16);
+  --text: #edeff7;
+  --muted: #9aa2b1;
 
-  --brand: #6366f1;
-  --brand-hover: #4f46e5;
-  --up: #10b981;
-  --down: #ef4444;
-  --warn: #f59e0b;
+  --brand: #7c6cff;
+  --brand-hover: #8f80ff;
+  --up: #34d399;
+  --down: #f87171;
+  --warn: #fbbf24;
 
   --primary: var(--brand);
   --text-muted: var(--muted);
 
+  /* New in v3.4: motion, focus ring, glass surfaces */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 130ms;
+  --dur-med: 190ms;
+  --ring:
+    0 0 0 1px rgba(124, 108, 255, 0.55),
+    0 0 0 4px rgba(124, 108, 255, 0.14);
+  --accent-soft: rgba(124, 108, 255, 0.13);
+  --glass-bg: rgba(18, 22, 31, 0.72);
+  --glass-blur: saturate(150%) blur(14px);
+  --topbar-bg: rgba(11, 14, 20, 0.72);
+
   --radius: 12px;
+  --radius-lg: 16px;
+  --radius-sm: 9px;
   --shadow:
-    0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+    0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px -8px rgba(0, 0, 0, 0.45);
   --shadow-hover:
-    0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
+    0 2px 4px rgba(0, 0, 0, 0.4), 0 16px 40px -12px rgba(0, 0, 0, 0.55);
   --shadow-sm:
-    0 2px 4px rgba(0, 0, 0, 0.3), inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
+    0 1px 2px rgba(0, 0, 0, 0.35), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
   --font-d:
-    "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, sans-serif;
+    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
   --font-mono:
     ui-monospace, "SF Mono", "Cascadia Code", "Source Code Pro", Menlo,
     Consolas, monospace;
@@ -242,14 +267,14 @@ body {
   min-height: 100%;
   background:
     radial-gradient(
-      circle at 15% 15%,
-      rgba(99, 102, 241, 0.04) 0%,
-      transparent 40%
+      1100px 700px at 12% -8%,
+      rgba(124, 108, 255, 0.075) 0%,
+      transparent 60%
     ),
     radial-gradient(
-      circle at 85% 85%,
-      rgba(16, 185, 129, 0.02) 0%,
-      transparent 40%
+      900px 620px at 105% 108%,
+      rgba(59, 130, 246, 0.05) 0%,
+      transparent 55%
     ),
     var(--bg);
   color: var(--text);
@@ -292,7 +317,7 @@ body::before {
 }
 
 ::selection {
-  background: rgba(99, 102, 241, 0.35);
+  background: rgba(124, 108, 255, 0.38);
   color: #fff;
 }
 
@@ -4679,4 +4704,311 @@ body {
 }
 .ec-detail .ec-section li {
   margin-bottom: 3px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   24. PREMIUM DARK — LINEAR-STYLE POLISH LAYER (v3.4)
+   ═══════════════════════════════════════════════════════════════
+   CSS-only presentation layer. No markup or JS changes. Every
+   effect added here is guarded: @supports for glass, and explicit
+   prefers-reduced-motion / prefers-reduced-transparency blocks at
+   the end of this section.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 24.1 Cards: frosted glass + violet hover glow ──────────────
+   Solid --card is declared first as the fallback; browsers with
+   backdrop-filter upgrade to the glass treatment. */
+.card {
+  background: var(--card);
+}
+
+@supports
+  (
+    (backdrop-filter: blur(1px)) or
+      (-webkit-backdrop-filter: blur(1px))
+  ) {
+  .card {
+    background:
+      linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.03) 0%,
+        rgba(255, 255, 255, 0.008) 55%
+      ),
+      var(--glass-bg);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+  }
+}
+
+.card:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow:
+    var(--shadow-hover),
+    0 0 0 1px rgba(124, 108, 255, 0.1),
+    0 8px 32px -8px rgba(124, 108, 255, 0.12);
+}
+
+/* ── 24.2 KPI strip: numerals + hover accent ───────────────── */
+.kpi-value,
+.stat-big,
+.alt-num,
+.dom-value,
+.fg-value,
+.coin-price,
+.signal-confidence {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.kpi-value {
+  font-weight: 700;
+}
+
+.kpi:hover {
+  border-color: rgba(124, 108, 255, 0.35);
+}
+
+/* ── 24.3 Top navigation: translucent command bar ───────────── */
+.topnav {
+  background: var(--topbar-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+#topnav-search {
+  border-radius: var(--radius-sm);
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+
+#topnav-search:focus {
+  outline: none;
+  border-color: rgba(124, 108, 255, 0.55);
+  box-shadow: var(--ring);
+}
+
+/* ── 24.4 Buttons: gradient primary + calm hovers ───────────── */
+.btn {
+  border-radius: var(--radius-sm);
+  transition:
+    background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.btn:hover:not(:disabled) {
+  background: #1d2230;
+}
+
+.btn.primary {
+  background: linear-gradient(180deg, #8677ff 0%, #6f5ef8 100%);
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.22),
+    0 4px 14px -4px rgba(124, 108, 255, 0.5);
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #8f80ff 0%, #7c6cff 100%);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.25),
+    0 6px 20px -4px rgba(124, 108, 255, 0.6);
+}
+
+.btn.primary:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+/* ── 24.5 Focus visibility (keyboard) — violet, consistent ───── */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid rgba(124, 108, 255, 0.6);
+  outline-offset: 2px;
+}
+
+/* ── 24.6 Inputs: quiet until touched ─────────────────────── */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+select,
+textarea {
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+
+input:focus:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+select:focus,
+textarea:focus {
+  border-color: rgba(124, 108, 255, 0.55);
+}
+
+/* ── 24.7 Modals & evidence drawer: glass panels ───────────── */
+.modal {
+  background: var(--card);
+  border-radius: var(--radius-lg);
+}
+
+@supports
+  (
+    (backdrop-filter: blur(1px)) or
+      (-webkit-backdrop-filter: blur(1px))
+  ) {
+  .modal,
+  .evidence-drawer {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+  }
+
+  .modal-backdrop {
+    background: rgba(4, 6, 10, 0.66);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+
+  .drawer-overlay {
+    background: rgba(4, 6, 10, 0.66);
+  }
+
+  .sidebar {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+  }
+}
+
+.evidence-drawer {
+  transition: transform 280ms var(--ease);
+}
+
+/* ── 24.8 Skeletons: violet shimmer sweep ─────────────────── */
+.skeleton {
+  background:
+    linear-gradient(
+      100deg,
+      rgba(255, 255, 255, 0.04) 40%,
+      rgba(124, 108, 255, 0.1) 50%,
+      rgba(255, 255, 255, 0.04) 60%
+    )
+    rgba(255, 255, 255, 0.03);
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.6s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+@keyframes skeleton-sweep {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -80% 0;
+  }
+}
+
+/* ── 24.9 Chips & tags: accent tint ───────────────────────── */
+.chip {
+  border-radius: 999px;
+}
+
+.border-l-brand {
+  border-left-color: var(--brand);
+}
+
+/* ── 24.10 Light theme — full token set ──────────────────────
+   theme.js sets inline --bg/--text/--card/--muted for light mode;
+   the four values below intentionally match those so CSS and JS
+   never disagree. Everything else (borders, shadows, glass) now
+   also adapts — previously light mode kept dark borders. */
+[data-theme="light"] {
+  --bg: #f5f7fa;
+  --card: #ffffff;
+  --card-hover: #f2f4f8;
+  --border: rgba(18, 24, 38, 0.1);
+  --border-highlight: rgba(18, 24, 38, 0.2);
+  --text: #1a1a2e;
+  --muted: #6b7280;
+
+  --accent-soft: rgba(124, 108, 255, 0.1);
+  --glass-bg: rgba(255, 255, 255, 0.78);
+  --topbar-bg: rgba(255, 255, 255, 0.75);
+
+  --shadow:
+    0 1px 2px rgba(16, 24, 40, 0.06),
+    0 8px 24px -8px rgba(16, 24, 40, 0.1);
+  --shadow-hover:
+    0 2px 4px rgba(16, 24, 40, 0.06),
+    0 16px 40px -12px rgba(16, 24, 40, 0.16);
+  --shadow-sm:
+    0 1px 2px rgba(16, 24, 40, 0.05),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
+
+  color-scheme: light;
+}
+
+[data-theme="light"] .card:hover {
+  border-color: rgba(18, 24, 38, 0.18);
+  box-shadow:
+    var(--shadow-hover),
+    0 0 0 1px rgba(124, 108, 255, 0.14),
+    0 8px 32px -8px rgba(124, 108, 255, 0.16);
+}
+
+[data-theme="light"] .btn:hover:not(:disabled) {
+  background: #eef0f5;
+}
+
+[data-theme="light"] .skeleton {
+  background:
+    linear-gradient(
+      100deg,
+      rgba(16, 24, 40, 0.05) 40%,
+      rgba(124, 108, 255, 0.12) 50%,
+      rgba(16, 24, 40, 0.05) 60%
+    )
+    rgba(16, 24, 40, 0.04);
+  background-size: 200% 100%;
+}
+
+/* ── 24.11 Accessibility guards ─────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .btn,
+  .evidence-drawer,
+  #topnav-search,
+  input,
+  select,
+  textarea {
+    transition: none !important;
+  }
+
+  .skeleton {
+    animation: none !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .card,
+  .modal,
+  .evidence-drawer,
+  .sidebar {
+    background: var(--card) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .topnav {
+    background: var(--card) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  body::before {
+    display: none;
+  }
 }
