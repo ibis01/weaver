@@ -381,3 +381,41 @@ start, before the first scan of the window.
   if the worker deploy has not changed since 2026-11-08T12:53Z; the
   operator re-probes if it has.
 - Config or threshold change this day? → **No**
+
+## Window 3 — START (2026-11-08T13:16:47Z, recorded before first scan)
+
+- Precondition (c) — new baseline commit hash: **`e7afc81f0641cb425370e79ae0d4c965bf7ab19e`**
+  (= e7afc81, main; CI green on this commit; Pages deployed; worker
+  unchanged since the 2026-11-08 probe evidence in the precondition
+  entry above — re-verified below).
+- Precondition (d) — fresh start timestamp: **2026-11-08T13:16:47Z**
+  (epoch ms: 1794143807000). Recorded BEFORE the first scan of the window; the
+  first scan follows this entry in the same session.
+- Window: 2026-11-08T13:16:47Z → start + 7 days.
+- Config freeze: identical to windows 1-2 — no threshold changes
+  permitted mid-trial.
+- Pre-window KV baseline (measured 2026-11-08T13:16:47Z, full-store pagination):
+  **933 alerts, all `cohort: MISSING`, latest receivedAt
+  2026-10-23T16:54:00.509Z**. In-window population is therefore
+  unambiguous: alerts with receivedAt ≥ 1794143807000 (all of which carry the
+  post-fix cohort field).
+- Trial exit rule unchanged: results are NOT evidence of predictive
+  ability. Operational reliability only.
+
+## Day 1 — 2026-11-08T13:21:07Z (UTC)
+
+- First scans of the window (2 manual rounds, live Pages deployment at
+  baseline e7afc81, fresh session per round):
+  - Round 1 ~13:18Z: 10 candidates, 3 chains, 7 gems ≥ 40,
+    PASS/DANGER 0/0. Shield verdicts flowed through the worker
+    (non-UNKNOWN; e.g. Solana candidate rendered shield-solana-v1,
+    risk 25). Highest observed analysis score: 68.
+  - Round 2 ~13:23Z: same shape; no new alert-worthy candidates.
+- Alerts persisted to KV: **0** (no candidate reached the score ≥ 70
+  persistence gate). No POST /meme/alert attempts were observed — the
+  gate did not fire; there was no delivery failure. A zero-alert day
+  is recorded as a zero-alert day.
+- Deployer enrichment suspended (known Etherscan 502 issue) — degrades
+  gracefully, does not touch the persistence path.
+- In-window KV check (since  placeholder): 0 records.
+- Config or threshold change this day? → **No**
