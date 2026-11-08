@@ -152,7 +152,18 @@ async function main() {
   const buyers = JSON.parse(fs.readFileSync("data/pepe-buyer-list/v2.json", "utf8")).buyers;
   log("scanning " + buyers.length + " wallets from " + (state.last_scanned_block + 1) + " to " + latestBlock);
 
-  let newBuys = 0, errors = 0;
+  let newBuys = 0, errors = 0, dupesSkipped = 0;
+  // Load known tx hashes so rescans (cursor frozen by a partial failure)
+  // cannot append the same transaction twice.
+  const seen = new Set();
+  if (fs.existsSync(buysPath)) {
+    for (const line of fs.readFileSync(buysPath, "utf8").split("\n")) {
+      const s = line.trim();
+      if (!s) continue;
+      try { const j = JSON.parse(s); if (j.txHash) seen.add(j.txHash); } catch (e) { /* skip malformed line */ }
+    }
+  }
+  log("dedupe set loaded: " + seen.size + " known tx hashes");
   const outFh = fs.openSync(buysPath, "a");
 
   for (let i = 0; i < buyers.length; i++) {
@@ -167,9 +178,12 @@ async function main() {
       if (lower(r.contractAddress) !== PEPE) continue;
       const ts = Number(r.timeStamp) * 1000;
       if (!Number.isFinite(ts)) continue;
+      const txHash = lower(r.hash);
+      if (seen.has(txHash)) { dupesSkipped++; continue; }
+      seen.add(txHash);
       fs.writeSync(outFh, JSON.stringify({
         wallet: addr,
-        txHash: lower(r.hash),
+        txHash,
         blockNumber: Number(r.blockNumber),
         timestamp: ts,
         timestampIso: new Date(ts).toISOString(),
@@ -186,12 +200,17 @@ async function main() {
 
   if (errors === 0) state.last_scanned_block = latestBlock;
   state.last_run_at = new Date().toISOString();
+  state.last_run_partial = errors > 0;
+  state.last_run_errors = errors;
   state.buys_collected += newBuys;
   fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
 
   log("");
   log("new buys: " + newBuys + "  total: " + state.buys_collected + "  errors: " + errors);
-  if (errors > 0) log("state NOT advanced — will retry next run");
+  log("duplicates skipped by tx-hash dedupe: " + dupesSkipped);
+  if (errors > 0) {
+    log("PARTIAL COVERAGE — " + errors + " wallet fetch(es) failed; rows from successful wallets are kept (dedupe makes the next rescan safe) and the cursor is NOT advanced. last_run_partial=true recorded in state.json. This run MUST NOT be treated as a clean success.");
+  }
 }
 
 main().catch((e) => { console.error(e.stack || e); process.exit(1); });
