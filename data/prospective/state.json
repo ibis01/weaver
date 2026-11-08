@@ -3,6 +3,23 @@
   "freeze_date": "2026-10-18T00:00:00Z",
   "last_scanned_block": 26367752,
   "first_run_at": "2026-10-18T01:51:58.230Z",
-  "buys_collected": 16,
-  "last_run_at": "2026-11-08T04:28:31.403Z"
+  "buys_collected": 10,
+  "last_run_at": "2026-11-08T04:28:31.403Z",
+  "reconciliation": {
+    "at": "2026-11-08T18:13:29.919Z",
+    "script": "scripts/oneoff/reconcile-gate0d-2026-11-08.js",
+    "doc": "docs/audits/gate-0d-reconciliation-2026-11-08.md",
+    "buys_before": {
+      "rows": 17,
+      "unique": 10,
+      "state_counter": 16
+    },
+    "buys_after": {
+      "rows": 10
+    },
+    "dropped_buy_rows": 7,
+    "dropped_outcome_rows": 1,
+    "rule": "first occurrence per txHash; originals archived byte-exact",
+    "archive": "data/prospective/archive/2026-11-08-pre-reconciliation/"
+  }
 }
