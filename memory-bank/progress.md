@@ -31,10 +31,10 @@ are green on CI.
 ## Test Suite Counts (current)
 | Suite | Command | Count |
 |---|---|---|
-| Unit | `npm run test:unit` | 564 |
-| Integration | `npm run test:integration` | 29 |
+| Unit | `npm run test:unit` | 713 (2 pending) |
+| Integration | `npm run test:integration` | 30 |
 | Security | `npm run test:security` | 16 |
-| E2E | `npm run test:e2e` | 35 |
+| E2E | `npm run test:e2e` | 36 |
 
 ## Recently Completed
 - Portfolio accounting: `sell(id, qty, price)`, average-cost basis,
@@ -71,3 +71,13 @@ are green on CI.
 - Real-device mobile pass (DevTools emulation is not exact).
 - Signal-transform unit test (`signal shape → decision engine →
   decision output`) — optional follow-up.
+## Session 2026-11-08 (remote, via API token)
+- Merged PR #24 (gate-0d collector dedupe), #25 (window 2 closeout
+  docs), #26 (premium dark UI polish) — all with green CI.
+- Opened PR #27: shield tri-state LP-lock + flag coercion (GoPlus
+  shape drift); dist rebuilt with pinned Node 22 (local Node 24
+  produced different minified bytes — CI bundle check caught it).
+- Verified window-3 preconditions (a) worker probes + (b) in-app
+  verdict; evidence in paper-trial-log.md. Clock not started.
+- Deleted 171 stale branches (10 superseded/merged, 161 bot snapshots).
+- PR #23 remains open, gated on external auditor acknowledgment.

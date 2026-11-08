@@ -327,3 +327,57 @@ this window and its (zero) observations do not count toward this trial.
   verdicts confirmed, new baseline hash, fresh start timestamp recorded
   before first scan). Window 2 is not extended or merged.
 - Config or threshold change this day? → **No**
+
+## Window 3 — activation precondition verification (2026-11-08, UTC)
+
+Precondition (a) — cf-worker GoPlus fix deployed and probe-verified: **VERIFIED**
+
+- EVM probe: `GET /goplus/evm/1?contract_addresses=0x1f9840a85d5af5bf1d1762f925bdaddc4201f984`
+  → HTTP 200, body `code:1`, header `X-Weaver-Goplus-Cache: MISS`
+  → immediate repeat → HTTP 200, `code:1`, `X-Weaver-Goplus-Cache: HIT`
+- Solana probe: `GET /goplus/solana?contract_addresses=JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN`
+  → HTTP 200, body `code:1`
+- Discovery health: `GET /discovery/health` → `ok:true`,
+  `budgets.goplus.used = 23` (limit 500), snapshot available
+  (worker-cron, generatedAt 2026-11-08T12:30:31Z, discovery-v2).
+- Honest deviation note: the restart declaration's probe spec named the
+  header `X-Weaver-Goplus-Auth: minted|kv|memo`. The deployed mitigation
+  is the response-caching relay (b325ea0: broken Bearer auth removed,
+  GoPlus response caching added) and the header is
+  `X-Weaver-Goplus-Cache` with MISS→HIT semantics. The substance the
+  precondition is about — upstream accepts the call and repeat calls are
+  served from cache — is verified. The header-name drift is recorded
+  here so the probe spec can be corrected at the next baseline addendum.
+- Prepared-patch note: the prepared patch (sha256 239f9bfd, bearer auth
+  + budget guard + stale-on-error) was NOT the code deployed. The
+  deployed fix is the caching relay + provider budget guard present in
+  `cf-worker/index.js`. Recorded to prevent future reconciliation
+  confusion between the prepared patch and the shipped fix.
+- 429 risk is mitigated (call volume reduced by caching + budget guard),
+  not eliminated. If a full-window 429 recurs in window 3, the window is
+  INCONCLUSIVE for the same reason as window 2 — no interpretation
+  change.
+
+Precondition (b) — in-app shield verdicts non-UNKNOWN on a fresh scan: **VERIFIED**
+
+- Live Pages deployment, Shield section, Ethereum,
+  UNI `0x1f9840a85d5af5bf1d1762f925bdaddc4201f984`:
+  verdict "NO IDENTIFIED RISK INDICATORS", Risk Score **5/100**,
+  `shield-evm-v1`, 405,742 holders rendered. Concrete verdict — not
+  UNKNOWN, not an error surface.
+- Tri-state honesty observed in the deployed UI: "Liquidity Locked:
+  UNKNOWN ⚠️" where GoPlus returned no `lp_holders` for the token — not
+  a false "unlocked" — consistent with unknown ≠ safe.
+- Probe time: ~2026-11-08T12:52Z, against the deployed bundle at that
+  time (post premium-dark Pages deploy).
+
+Precondition (c) — new baseline commit hash: to be recorded at window
+start, at the verified deploy.
+
+Precondition (d) — fresh start timestamp: to be recorded at window
+start, before the first scan of the window.
+
+- Window 3 clock: **NOT started.** (a)/(b) evidence above is valid only
+  if the worker deploy has not changed since 2026-11-08T12:53Z; the
+  operator re-probes if it has.
+- Config or threshold change this day? → **No**

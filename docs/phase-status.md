@@ -137,3 +137,25 @@ question and must be declared in the evaluation report.
   `cohort: sm.hasConvergence ? "treatment" : "control"` (or equivalent) in
   the payload. This is a small change in `js/features/gems.js` at the point
   the payload is constructed.
+
+## Session record — 2026-11-08
+- PR #24 (gate-0d collector tx-hash dedupe + honest partial-run status)
+  MERGED after green CI.
+- PR #25 (window 2 closeout, INCONCLUSIVE, window 3 restart declared)
+  MERGED.
+- PR #26 (premium Linear-dark CSS polish) MERGED — live on Pages.
+- PR #27 (shield tri-state LP-lock + defensive flag coercion) opened:
+  GoPlus is_locked/is_contract arrive as number or string depending on
+  endpoint/version; strict numeric compare could misreport a locked LP
+  as unlocked. Now tri-state with unknown-degradation, unit-tested.
+- Branch cleanup: 10 stale branches deleted (superseded or
+  already-merged content), 161 stale bot/news-snapshot-* branches
+  deleted. Remaining: fix/gate-0c-restore-and-sidecar (PR #23, still
+  gated on external auditor acknowledgment).
+- Window 3 activation preconditions (a) and (b) VERIFIED — evidence in
+  paper-trial-log.md (2026-11-08 entry). (c)/(d) remain for window
+  start. Clock NOT started.
+- Known CI observation: Playwright critical-path E2E depends on live
+  upstream providers; a provider outage can fail CI on main (observed
+  2026-11-08T12:44Z on the premium-dark merge). Test-infra follow-up:
+  route-mock provider calls in E2E so CI is hermetic.
