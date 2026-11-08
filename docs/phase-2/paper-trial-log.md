@@ -289,3 +289,41 @@ this window and its (zero) observations do not count toward this trial.
   `cohort: MISSING`
 - Trial clock: started 2026-10-23T15:55:17Z, ends 2026-10-30T15:55:17Z
 - Config or threshold change this day? → **No**
+
+## Days 2-7 — operator-absent gap, reconstructed 2026-11-01 (UTC)
+
+- No contemporaneous entries were recorded for 2026-10-25 → 2026-10-30.
+  This entry reconstructs the period from committed evidence only:
+  - Verification boundary unchanged: 1792775127260 (bundle ?v=20261023d).
+    dist/ is byte-identical across all window commits (aef49bc..28b6c24).
+  - Cohort observations: 0 for the entire period. GoPlus 429 persisted on
+    every shield check (consistent with the 2026-10-24 UTC entry):
+    verdict UNKNOWN → score < 70 → persistence gate silent.
+  - Buys collector (Blockscout path, not GoPlus-gated) kept running.
+    In-window rows: 4 (2026-10-26T02:07:35Z, 2026-10-29T23:32:11Z,
+    2026-10-30T04:48:59Z, 2026-10-30T13:23:59Z).
+  - Root cause diagnosed 2026-10-25: cf-worker/index.js called
+    api.gopluslabs.io with no API key; the provider deliberately
+    throttles keyless access. A verified fix (bearer auth + budget guard
+    + stale-on-error; patch sha256 239f9bfd…) was prepared 2026-10-25
+    but NOT deployed before the window ended. The 2026-10-25 →
+    2026-11-01 execution gap is an operator failure, recorded as such.
+- Config or threshold change during 2026-10-25 → 2026-10-30? → **No**
+  (no deploy, no config change of any kind)
+
+## Window 2 — END (2026-10-30T15:55:17Z, recorded 2026-11-01)
+
+- Window: 2026-10-23T15:55:17Z → 2026-10-30T15:55:17Z — ran to completion.
+- Verification boundary: 1792775127260 (unchanged for the whole window).
+- Cohort observations at window end: control 0, treatment 0.
+- Minimum-observations gate (10 per cohort): NOT met → **INCONCLUSIVE**
+  under the frozen pre-registration. See paper-trial-report.md.
+- Provider failure: GoPlus 429 (keyless throttling) for the full window —
+  the single decisive blocker. /etherscan/deployer 502 persisted.
+- Duplicate signals suppressed: 0 outcome records existed to suppress;
+  1 pre-window duplicate buys pair noted in the report.
+- Disposition: window 3 restart declared in paper-trial-baseline.md
+  (activation preconditions: fix deployed + probe-verified, non-UNKNOWN
+  verdicts confirmed, new baseline hash, fresh start timestamp recorded
+  before first scan). Window 2 is not extended or merged.
+- Config or threshold change this day? → **No**

@@ -146,3 +146,25 @@
   investigate — not a day to fabricate.
 - The trial exit rule remains: results are NOT evidence of predictive
   ability. Operational reliability only.
+
+## Trial restart — window 3 (declared 2026-11-01, activation pending)
+
+- Window 2 outcome: INCONCLUSIVE — 0 cohort observations; the decisive
+  blocker was a full-window provider outage (GoPlus 429, keyless
+  throttling). Recorded in paper-trial-log.md (Window 2 END entry) and
+  paper-trial-report.md.
+- Justification for restart: report template §Duration ("or the repeated
+  window if a blocker occurred"); the window 1 → window 2 restart above.
+- Restart preconditions — ALL required before the clock starts:
+  (a) cf-worker GoPlus fix deployed and probe-verified (HTTP 200,
+      body code:1, X-Weaver-Goplus-Auth: minted|kv|memo, cache MISS→HIT,
+      discovery/health goplus.used > 0)
+  (b) in-app shield verdicts confirmed non-UNKNOWN on a fresh scan
+  (c) new baseline commit hash recorded at the verified deploy
+  (d) fresh start timestamp recorded before the first scan of the window
+- Start (UTC): TBD — filled at (d). Planned end: start + 7 days.
+- Config freeze: identical to windows 1-2 — no threshold changes
+  permitted mid-trial.
+- Window 2 is not extended or merged with this window.
+- The trial exit rule is unchanged: results are NOT evidence of
+  predictive ability. Operational reliability only.
