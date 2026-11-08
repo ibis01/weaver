@@ -419,3 +419,21 @@ start, before the first scan of the window.
   gracefully, does not touch the persistence path.
 - In-window KV check (since  placeholder): 0 records.
 - Config or threshold change this day? → **No**
+
+## Day 1 (cont.) — automated scan rounds begin
+
+- 2026-11-08T14:00:01Z — **cron round 1** (headless browser, live
+  Pages deployment at baseline e7afc81): Gems page loaded, '▶ Scan
+  now' clicked, 60s settle. Alerts query since 1794143807000 →
+  **0 in-window alerts**, cohort split n/a (no records in window),
+  store healthy (pre-window records present, structure valid —
+  `{"alerts":[],"list_complete":false,"scanned":100}`). Consistent
+  with the two manual rounds above: persistence gate (score ≥ 70)
+  did not fire.
+- Operational note: scan rounds are now automated via cron every
+  2 hours (UTC even hours) for the remainder of the window. Each
+  round reports to the operator chat; this log records rounds in
+  batches (not per-round) to avoid log noise. Cron rounds run the
+  public deployment at the frozen baseline — no config drift is
+  possible from the automation itself.
+- Config or threshold change this day? → **No**
