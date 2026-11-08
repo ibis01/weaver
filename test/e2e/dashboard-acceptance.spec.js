@@ -2,7 +2,7 @@
 // UI-002 acceptance — the automatable half.
 // Run with: npx playwright test test/e2e/dashboard-acceptance.spec.js
 
-const { test, expect } = require("@playwright/test");
+const { test, expect } = require("./fixtures");
 
 // ── Shared setup ────────────────────────────────────────
 // Every test starts from a fully-booted Dashboard.

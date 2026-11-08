@@ -1,5 +1,5 @@
 // test/e2e/weaver.spec.js
-const { test, expect } = require("@playwright/test");
+const { test, expect } = require("./fixtures");
 
 test.describe("Weaver E2E", () => {
   test.beforeEach(async ({ page }) => {

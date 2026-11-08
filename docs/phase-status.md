@@ -179,3 +179,18 @@ question and must be declared in the evaluation report.
 - Remaining known gap: Playwright E2E still depends on live
   upstreams (see 2026-11-08 session record) — hermetic route-mock
   conversion pending.
+- Playwright E2E converted to hermetic CI (closes the 2026-11-08 CI
+  observation): test/e2e/fixtures.js installs a page-level route
+  interceptor that serves deterministic vendor-shaped payloads
+  (CoinLore, CoinPaprika, Coinbase, Alternative.me, Binance) for
+  both the worker /proxy walk and direct DIRECT_ONLY hits, answers
+  worker-native endpoints with deterministic 502 (exercising the
+  documented refusal-fallthrough and error paths), and aborts every
+  other non-localhost request so no test traffic reaches the live
+  internet. Interception is at the network edge only: the app runs
+  its real fetch path (proxy walk, cache, schema validation,
+  normalization). Per-test route overrides still win (Playwright
+  LIFO) — dashboard-acceptance offline-resilience cases unchanged.
+  Escape hatch: WEAVER_E2E_LIVE=1 skips mock installation for
+  explicit live smoke runs; never set in CI. All 6 specs now import
+  the fixture. 36/36 E2E green twice consecutively.
