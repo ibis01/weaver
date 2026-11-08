@@ -1,0 +1,9 @@
+# Pre-reconciliation archive — Gate 0d, 2026-11-08
+# Created by scripts/oneoff/reconcile-gate0d-2026-11-08.js
+# These bytes are the ORIGINAL (pre-correction) evidence. Do not edit.
+# Canonical post-reconciliation hashes are recorded in docs/audits/gate-0d-reconciliation-2026-11-08.md
+
+24af58f45fdb56d6e3e5cffcbd53fc2a46fec69932a67e3d835d05e7e3e48fba  buys.jsonl
+d0d39f1b9512ebf6af61fcf0441cc4cc808b877d0f19f747b2713a1b1dd4c585  outcomes.jsonl
+eecad3447f20b608a2949a2a1f4de1d16abf7e0296ffcfd535cebbc59df8b228  state.json
+ee157a46dd8d85083c37847be921783fb9afb0d717ab44d8c2e31fbd018dfba1  freeze-hashes.txt

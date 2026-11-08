@@ -17,6 +17,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Refresh price history
+        # The scorer cannot resolve outcomes without a price series that
+        # extends past each buy + 14d. A failed refresh must never block
+        # collection; scoring will mark uncovered outcomes unresolved
+        # (retry-eligible) and the next run re-attempts them.
+        env:
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+        continue-on-error: true
+        run: node scripts/oneoff/fetch-pepe-prices.js
       - name: Collect + score
         env:
           BLOCKSCOUT_API_KEY: ${{ secrets.BLOCKSCOUT_API_KEY }}
