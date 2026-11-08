@@ -54,12 +54,7 @@ function eqNum(name, got, want, dp) {
 // ---------- 0. amendment chain + frozen pair integrity ----------
 const sha256 = p => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
 eq('chain: amended prereg sha256', sha256(ROOT + '/docs/experiments/gate-0c-skill-test-preregistration-v1.md'),
-// Post-amendment reconciliation (2026-10-21): prereg file was edited to 
-// add execution-status notes after the amendment was executed. The hash 
-// below reflects the reconciled file, not the pre-reconciliation version. 
-// The historical hash (36201d78…) is preserved in the JSON amendment record.
-
-  '0b5eaa6e07d531d3f5d49e61d40e85c6d1222143a3073c086c880671bb5ce576');
+  A.amendment && '36201d78c588b9523c5ece3e38cd22ddb5da18ad969379da891c7e2247db7fc7');
 eq('chain: amendment record sha256', sha256(ROOT + '/docs/experiments/gate-0c-amendment-v1.1-draft-2026-10-21.md'), A.amendment.record.sha256);
 eq('chain: amendment patch sha256', sha256(ROOT + '/docs/experiments/gate-0c-amendment-v1.1-draft-2026-10-21.patch'), A.amendment.patch.sha256);
 eq('chain: baseline prereg sha recorded', A.amendment.baselinePreregSha256, '85468ac76b37c20b0db53581abc0ae395e93dd1730f19d43a05ed9051a04b6f1');
