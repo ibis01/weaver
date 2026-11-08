@@ -1,7 +1,7 @@
 // test/e2e/critical-path.spec.js
 // Critical-path integration: portfolio → pipeline → signal → drawer.
 
-const { test, expect } = require("@playwright/test");
+const { test, expect } = require("./fixtures");
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");

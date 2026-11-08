@@ -1,4 +1,4 @@
-const { test, expect } = require("@playwright/test");
+const { test, expect } = require("./fixtures");
 
 const CSP_VIOLATION_RE =
   /Refused to .+? because it violates|violates the following Content Security Policy/i;

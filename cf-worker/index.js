@@ -449,13 +449,40 @@ async function relayGoPlus(upstreamUrl, headers, env, ctx) {
   return response;
 }
 
-async function relayEtherscanDeployer(env, chainId, address, headers) {
+async function relayEtherscanDeployer(env, chainId, address, headers, ctx) {
   if (!env || typeof env.ETHERSCAN_KEY !== "string" || !env.ETHERSCAN_KEY) {
     return jsonResponse(
       { error: "Etherscan not configured on this Worker (set ETHERSCAN_KEY)" },
       503,
       headers,
     );
+  }
+  // ── KV cache (24h TTL) ─────────────────────────────────
+  // Etherscan rate-limits the shared Cloudflare egress pool, which
+  // turned repeated deployer lookups into 502 loops. A deployer's
+  // contract-creation history is effectively immutable, so cache the
+  // successful response for 24h in the existing MEME_ALERTS namespace
+  // under a dedicated prefix (same pattern as weaver:meme:alert:v2:*).
+  // Cache reads happen BEFORE the budget check: a hit must not consume
+  // the daily Etherscan budget.
+  const DEPLOYER_CACHE_TTL_SECONDS = 86400;
+  const deployerCacheKey =
+    "weaver:deployer:v1:" + String(chainId) + ":" + String(address);
+  if (env.MEME_ALERTS && typeof env.MEME_ALERTS.get === "function") {
+    try {
+      const cached = await env.MEME_ALERTS.get(deployerCacheKey, "json");
+      if (cached && typeof cached === "object") {
+        return jsonResponse(cached, 200, {
+          ...headers,
+          "X-Weaver-Deployer-Cache": "HIT",
+        });
+      }
+    } catch (e) {
+      console.error(
+        "[relayEtherscanDeployer] cache read failed:",
+        e && e.message,
+      );
+    }
   }
   const hasBudget = await checkAndIncrementBudget(env, "etherscan");
   if (!hasBudget) {
@@ -595,17 +622,40 @@ async function relayEtherscanDeployer(env, chainId, address, headers) {
       deployedAt: Number.isFinite(timestamp) ? timestamp * 1000 : null,
     });
   }
-  return jsonResponse(
-    {
-      deployer: address,
-      chainId,
-      contracts,
-      truncated: result.length >= 10000,
-      source: "etherscan",
-    },
-    200,
-    headers,
-  );
+  const successPayload = {
+    deployer: address,
+    chainId,
+    contracts,
+    truncated: result.length >= 10000,
+    source: "etherscan",
+  };
+  // Cache the success response. Only successes are cached — errors,
+  // rate limits, and budget exhaustion are never cached (fail-explicit).
+  if (
+    env.MEME_ALERTS &&
+    typeof env.MEME_ALERTS.put === "function" &&
+    typeof DEPLOYER_CACHE_TTL_SECONDS === "number"
+  ) {
+    try {
+      const put = env.MEME_ALERTS.put(
+        deployerCacheKey,
+        JSON.stringify(successPayload),
+        { expirationTtl: DEPLOYER_CACHE_TTL_SECONDS },
+      );
+      if (ctx && typeof ctx.waitUntil === "function") {
+        ctx.waitUntil(put.catch(() => {}));
+      }
+    } catch (e) {
+      console.error(
+        "[relayEtherscanDeployer] cache write failed:",
+        e && e.message,
+      );
+    }
+  }
+  return jsonResponse(successPayload, 200, {
+    ...headers,
+    "X-Weaver-Deployer-Cache": "MISS",
+  });
 }
 
 async function relayHeliusDeployer(env, address, headers) {
@@ -909,7 +959,7 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
   );
 }
 
-async function handleEtherscanDeployerRequest(request, env, headers) {
+async function handleEtherscanDeployerRequest(request, env, headers, ctx) {
   let body;
   try {
     body = await request.json();
@@ -940,7 +990,13 @@ async function handleEtherscanDeployerRequest(request, env, headers) {
       headers,
     );
   }
-  return relayEtherscanDeployer(env, chainId, address.toLowerCase(), headers);
+  return relayEtherscanDeployer(
+    env,
+    chainId,
+    address.toLowerCase(),
+    headers,
+    ctx,
+  );
 }
 
 async function handleHeliusDeployerRequest(request, env, headers) {
@@ -993,7 +1049,7 @@ async function handleRequest(request, env, ctx) {
   ) {
     if (request.method !== "POST")
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
-    return handleEtherscanDeployerRequest(request, env, headers);
+    return handleEtherscanDeployerRequest(request, env, headers, ctx);
   }
 
   if (parts.length === 2 && parts[0] === "helius" && parts[1] === "deployer") {

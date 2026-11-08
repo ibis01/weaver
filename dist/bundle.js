@@ -6355,6 +6355,14 @@ W.api = (() => {
     near: "NEAR",
     filecoin: "FIL",
     aptos: "APT",
+    // Wrapped / staked variants. These ids are CoinLore nameids —
+    // the resolution path is SYMBOL_TO_ID[symbol] || ticker.nameid,
+    // so the keys must match CoinLore's nameid field exactly.
+    "wrapped-bitcoin": "WBTC",
+    weth: "WETH",
+    "staked-ether": "STETH",
+    reth: "RETH",
+    "coinbase-wrapped-btc": "CBBTC",
   });
 
   const SYMBOL_TO_ID = Object.create(null);
@@ -6391,6 +6399,19 @@ W.api = (() => {
     near: "near-near-protocol",
     filecoin: "fil-filecoin",
     aptos: "apt-aptos",
+    // Wrapped / staked variants. Slugs verified against the live
+    // CoinPaprika search API 2026-11-08 (canonical top-ranked entry
+    // for each ticker). Unblocks radar + Smart Money Tracker OHLCV
+    // on these tokens (they previously failed with
+    // "CoinPaprika: no slug for <id>").
+    "wrapped-bitcoin": "wbtc-wrapped-bitcoin",
+    weth: "weth-weth",
+    "staked-ether": "steth-lido-staked-ether",
+    reth: "reth-rocket-pool-eth",
+    "coinbase-wrapped-btc": "cbbtc-coinbase-wrapped-btc",
+    // wstETH intentionally absent: CoinLore does not index it, so no
+    // asset id ever resolves to it — an entry here would be dead code.
+    // Revisit if the CoinLore listing or the id-resolution source changes.
   });
 
   const COINBASE_PAIRS = Object.freeze({
@@ -6414,6 +6435,7 @@ W.api = (() => {
     filecoin: "FIL-USD",
     "avalanche-2": "AVAX-USD",
     matic: "MATIC-USD",
+    "wrapped-bitcoin": "WBTC-USD",
   });
 
   // ── Binance pair mapping ────────────────────────────
@@ -7693,6 +7715,9 @@ W.api = (() => {
       binanceIntervalFor,
       BINANCE_EXCLUDED,
       BINANCE_INTERVAL_MAP,
+      ID_TO_SYMBOL,
+      ID_TO_PAPRIKA,
+      COINBASE_PAIRS,
     }),
   });
 })();
@@ -32721,6 +32746,8 @@ W.smartRadar.auto = (() => {
   const MAX_SIGNALS   = 100;
 
   let timer = null;
+  let bootTimer = null; // initial delayed cycle armed by start()
+  let mountPoll = null; // ensureMounted safety-net interval (bootstrap)
   let scanning = false;
 
   function isValidEthAddress(a) {
@@ -32953,6 +32980,65 @@ W.smartRadar.auto = (() => {
     });
   }
 
+  // ── Telegram (opt-in, fire-and-forget) ───────────
+  // A persisted radar alert is also eligible for a Telegram
+  // notification, mirroring the gems.js precedent. notify() owns the
+  // enabled gate (Settings opt-in), rate limiting, and per-key dedup;
+  // it silently no-ops when the user has not enabled Telegram, so a
+  // disabled or misconfigured integration can never spam. The dedup
+  // key is per token per session — the same conservative choice
+  // gems.js makes — and message bodies are HTML-escaped before they
+  // leave the app.
+  function notifyRadarTelegram(result) {
+    if (!result || typeof result !== "object") return;
+    if (result.ok !== true) return;
+    const signal = result.signal;
+    if (!signal || signal.type !== "SMART_MONEY_ENTRY") return;
+    if (!W.tg || typeof W.tg.notify !== "function") return;
+
+    const addressSafe =
+      typeof result.tokenAddress === "string" ? result.tokenAddress : "";
+    if (!addressSafe) return;
+
+    const symbolRaw =
+      result.coin && typeof result.coin.symbol === "string"
+        ? result.coin.symbol.slice(0, 24)
+        : "";
+    const symbolSafe = symbolRaw ? esc(symbolRaw) : "Unknown";
+
+    const lines = [
+      "📡 <b>Smart Radar</b>: " + symbolSafe + " — smart-money entry",
+    ];
+    if (
+      result.convergence &&
+      result.convergence.convergence === true &&
+      Number.isFinite(result.convergence.independentWalletCount)
+    ) {
+      lines.push(
+        "• Convergence: " +
+          esc(String(result.convergence.independentWalletCount)) +
+          " independent wallets",
+      );
+    }
+    if (
+      result.momentum &&
+      typeof result.momentum.momentumState === "string" &&
+      result.momentum.momentumState
+    ) {
+      lines.push("• Momentum: " + esc(result.momentum.momentumState));
+    }
+    const price = Number(result.currentPrice);
+    if (Number.isFinite(price) && price > 0) {
+      const priceText =
+        W.fmt && typeof W.fmt.price === "function"
+          ? W.fmt.price(price)
+          : "$" + price.toPrecision(6);
+      lines.push("• Price: " + esc(priceText));
+    }
+
+    W.tg.notify("radar:" + addressSafe, lines.join("\n"));
+  }
+
   function recordSignal(result) {
     if (!result || typeof result !== "object") return;
     const entry = {
@@ -33049,6 +33135,10 @@ W.smartRadar.auto = (() => {
     // Fire-and-forget persistence. Same contract as gems.js:
     // failures are silent and never affect the auto-scan cycle.
     persistRadarAlert(result).catch(() => {});
+    // Telegram wiring (opt-in, fire-and-forget). Same eligibility
+    // gate as persistence; notify() dedups and no-ops when Telegram
+    // is disabled. Never blocks or fails the cycle.
+    notifyRadarTelegram(result);
     setState({
       lastRunAt: Date.now(),
       cursor: (idx + 1) % Math.max(1, watchlist.length),
@@ -33081,7 +33171,8 @@ W.smartRadar.auto = (() => {
         console.warn("[SmartRadar.auto] cycle failed:", e && e.message);
       });
     }, TICK_MS);
-    setTimeout(() => {
+    bootTimer = setTimeout(() => {
+      bootTimer = null;
       runCycle().catch((e) => {
         console.warn("[SmartRadar.auto] initial cycle failed:", e && e.message);
       });
@@ -33092,6 +33183,23 @@ W.smartRadar.auto = (() => {
     if (timer) {
       clearInterval(timer);
       timer = null;
+    }
+    if (bootTimer) {
+      clearTimeout(bootTimer);
+      bootTimer = null;
+    }
+  }
+
+  // Test/diagnostics-only: releases every live handle this module
+  // owns (scheduler interval, initial cycle timer, ensureMounted
+  // polling interval) so a mocha process run without --exit can
+  // drain the event loop. Production code never calls this; the
+  // module is expected to live for the page's lifetime.
+  function dispose() {
+    stop();
+    if (mountPoll) {
+      clearInterval(mountPoll);
+      mountPoll = null;
     }
   }
 
@@ -33253,7 +33361,7 @@ W.smartRadar.auto = (() => {
       window.addEventListener("hashchange", () => setTimeout(ensureMounted, 100));
     } catch (_) {}
     try {
-      setInterval(ensureMounted, 2000);
+      mountPoll = setInterval(ensureMounted, 2000);
     } catch (_) {}
     const kick = () => {
       setTimeout(ensureMounted, 300);
@@ -33293,7 +33401,9 @@ W.smartRadar.auto = (() => {
       MAX_SIGNALS,
       recordSignal,
       persistRadarAlert,
+      notifyRadarTelegram,
       ensureMounted,
+      dispose,
     }),
   });
 })();

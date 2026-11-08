@@ -1,4 +1,4 @@
-const { test, expect } = require("@playwright/test");
+const { test, expect } = require("./fixtures");
 
 test.describe("Track Record", () => {
   test("opens the Track Record route with a historical-only empty state", async ({

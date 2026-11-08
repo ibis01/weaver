@@ -23,7 +23,7 @@ are green on CI.
 - **Dashboard / UI** — ~85%
   Feature-complete. Manual UI-002 visual pass remains open.
 - **Testing / CI** — ~95%
-  Unit (564), Integration (29), Security (16), Worker, E2E (35)
+  Unit (728), Integration (30), Security (16), Worker (43), E2E (36, hermetic)
   all run on CI and pass.
 - **Documentation / Memory Bank** — ~85%
   Full sync applied 2026-10-01.
@@ -31,7 +31,7 @@ are green on CI.
 ## Test Suite Counts (current)
 | Suite | Command | Count |
 |---|---|---|
-| Unit | `npm run test:unit` | 713 (2 pending) |
+| Unit | `npm run test:unit` | 728 (2 pending) |
 | Integration | `npm run test:integration` | 30 |
 | Security | `npm run test:security` | 16 |
 | E2E | `npm run test:e2e` | 36 |
