@@ -37,6 +37,8 @@ W.smartRadar.auto = (() => {
   const MAX_SIGNALS   = 100;
 
   let timer = null;
+  let bootTimer = null; // initial delayed cycle armed by start()
+  let mountPoll = null; // ensureMounted safety-net interval (bootstrap)
   let scanning = false;
 
   function isValidEthAddress(a) {
@@ -460,7 +462,8 @@ W.smartRadar.auto = (() => {
         console.warn("[SmartRadar.auto] cycle failed:", e && e.message);
       });
     }, TICK_MS);
-    setTimeout(() => {
+    bootTimer = setTimeout(() => {
+      bootTimer = null;
       runCycle().catch((e) => {
         console.warn("[SmartRadar.auto] initial cycle failed:", e && e.message);
       });
@@ -471,6 +474,23 @@ W.smartRadar.auto = (() => {
     if (timer) {
       clearInterval(timer);
       timer = null;
+    }
+    if (bootTimer) {
+      clearTimeout(bootTimer);
+      bootTimer = null;
+    }
+  }
+
+  // Test/diagnostics-only: releases every live handle this module
+  // owns (scheduler interval, initial cycle timer, ensureMounted
+  // polling interval) so a mocha process run without --exit can
+  // drain the event loop. Production code never calls this; the
+  // module is expected to live for the page's lifetime.
+  function dispose() {
+    stop();
+    if (mountPoll) {
+      clearInterval(mountPoll);
+      mountPoll = null;
     }
   }
 
@@ -632,7 +652,7 @@ W.smartRadar.auto = (() => {
       window.addEventListener("hashchange", () => setTimeout(ensureMounted, 100));
     } catch (_) {}
     try {
-      setInterval(ensureMounted, 2000);
+      mountPoll = setInterval(ensureMounted, 2000);
     } catch (_) {}
     const kick = () => {
       setTimeout(ensureMounted, 300);
@@ -674,6 +694,7 @@ W.smartRadar.auto = (() => {
       persistRadarAlert,
       notifyRadarTelegram,
       ensureMounted,
+      dispose,
     }),
   });
 })();

@@ -44,14 +44,28 @@ describe("SmartRadar.auto — Telegram wiring", () => {
   let originalFetch;
   let originalPipeline;
   let calls;
+  let auto;
 
   before(() => {
     originalTg = global.W.tg;
     originalFetch = global.fetch;
     originalPipeline = global.W.smartRadar;
+
+    // Load the module exactly ONCE. Every require() re-runs the
+    // module bootstrap, which arms a 2s ensureMounted interval and
+    // starts the scheduler — reloading per test would leak a handle
+    // per load and keep the mocha process alive forever (CI hang,
+    // observed 2026-11-08). Tests isolate state through W.store and
+    // mock collaborators instead of reloading.
+    auto = loadAuto();
+    // Kill the scheduler the bootstrap kicked off: tests call
+    // runCycle() explicitly. dispose() in after() releases the
+    // remaining handles so the suite exits cleanly.
+    auto.stop();
   });
 
   after(() => {
+    auto._internal.dispose();
     global.W.tg = originalTg;
     global.fetch = originalFetch;
     global.W.smartRadar = originalPipeline;
@@ -68,11 +82,9 @@ describe("SmartRadar.auto — Telegram wiring", () => {
     // in-memory mock), not localStorage directly. Reset it so each
     // test starts from a clean watchlist/signals/state slate.
     global.W.store._data = {};
-    loadAuto();
   });
 
   it("notifies for an ok SMART_MONEY_ENTRY result with a per-token key", () => {
-    const auto = global.W.smartRadar.auto;
     auto._internal.notifyRadarTelegram(goodResult());
     expect(calls).to.have.lengthOf(1);
     expect(calls[0].key).to.equal("radar:" + ADDR);
@@ -83,7 +95,6 @@ describe("SmartRadar.auto — Telegram wiring", () => {
   });
 
   it("HTML-escapes the symbol in the message body", () => {
-    const auto = global.W.smartRadar.auto;
     auto._internal.notifyRadarTelegram(
       goodResult({ coin: { symbol: "PEPE<script>alert(1)</script>" } }),
     );
@@ -93,7 +104,6 @@ describe("SmartRadar.auto — Telegram wiring", () => {
   });
 
   it("falls back to Unknown when the coin block is missing", () => {
-    const auto = global.W.smartRadar.auto;
     auto._internal.notifyRadarTelegram(
       goodResult({ coin: undefined, convergence: null, momentum: null }),
     );
@@ -104,7 +114,6 @@ describe("SmartRadar.auto — Telegram wiring", () => {
   });
 
   it("omits the price line when the price is not usable", () => {
-    const auto = global.W.smartRadar.auto;
     auto._internal.notifyRadarTelegram(
       goodResult({ currentPrice: Number.NaN, convergence: null, momentum: null }),
     );
@@ -113,13 +122,11 @@ describe("SmartRadar.auto — Telegram wiring", () => {
   });
 
   it("skips when the result is not ok", () => {
-    const auto = global.W.smartRadar.auto;
     auto._internal.notifyRadarTelegram(goodResult({ ok: false }));
     expect(calls).to.be.empty;
   });
 
   it("skips when the signal type is not SMART_MONEY_ENTRY", () => {
-    const auto = global.W.smartRadar.auto;
     auto._internal.notifyRadarTelegram(
       goodResult({ signal: { type: "OTHER", timestamp: 1700000000000 } }),
     );
@@ -127,19 +134,16 @@ describe("SmartRadar.auto — Telegram wiring", () => {
   });
 
   it("skips when the token address is missing", () => {
-    const auto = global.W.smartRadar.auto;
     auto._internal.notifyRadarTelegram(goodResult({ tokenAddress: "" }));
     expect(calls).to.be.empty;
   });
 
   it("skips when W.tg is absent (Telegram module not loaded)", () => {
     global.W.tg = undefined;
-    const auto = global.W.smartRadar.auto;
     expect(() => auto._internal.notifyRadarTelegram(goodResult())).to.not.throw();
   });
 
   it("never throws on null or hostile inputs", () => {
-    const auto = global.W.smartRadar.auto;
     expect(() => auto._internal.notifyRadarTelegram(null)).to.not.throw();
     expect(() => auto._internal.notifyRadarTelegram(undefined)).to.not.throw();
     expect(() => auto._internal.notifyRadarTelegram(42)).to.not.throw();
@@ -147,7 +151,6 @@ describe("SmartRadar.auto — Telegram wiring", () => {
   });
 
   it("runCycle wiring: an alert-worthy scan produces exactly one notification", async () => {
-    const auto = global.W.smartRadar.auto;
     auto.toggle(true);
 
     global.W.store.set(
@@ -185,7 +188,6 @@ describe("SmartRadar.auto — Telegram wiring", () => {
   });
 
   it("runCycle wiring: a failed scan never notifies", async () => {
-    const auto = global.W.smartRadar.auto;
     auto.toggle(true);
 
     global.W.store.set(
