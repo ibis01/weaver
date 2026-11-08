@@ -32978,6 +32978,65 @@ W.smartRadar.auto = (() => {
     });
   }
 
+  // ── Telegram (opt-in, fire-and-forget) ───────────
+  // A persisted radar alert is also eligible for a Telegram
+  // notification, mirroring the gems.js precedent. notify() owns the
+  // enabled gate (Settings opt-in), rate limiting, and per-key dedup;
+  // it silently no-ops when the user has not enabled Telegram, so a
+  // disabled or misconfigured integration can never spam. The dedup
+  // key is per token per session — the same conservative choice
+  // gems.js makes — and message bodies are HTML-escaped before they
+  // leave the app.
+  function notifyRadarTelegram(result) {
+    if (!result || typeof result !== "object") return;
+    if (result.ok !== true) return;
+    const signal = result.signal;
+    if (!signal || signal.type !== "SMART_MONEY_ENTRY") return;
+    if (!W.tg || typeof W.tg.notify !== "function") return;
+
+    const addressSafe =
+      typeof result.tokenAddress === "string" ? result.tokenAddress : "";
+    if (!addressSafe) return;
+
+    const symbolRaw =
+      result.coin && typeof result.coin.symbol === "string"
+        ? result.coin.symbol.slice(0, 24)
+        : "";
+    const symbolSafe = symbolRaw ? esc(symbolRaw) : "Unknown";
+
+    const lines = [
+      "📡 <b>Smart Radar</b>: " + symbolSafe + " — smart-money entry",
+    ];
+    if (
+      result.convergence &&
+      result.convergence.convergence === true &&
+      Number.isFinite(result.convergence.independentWalletCount)
+    ) {
+      lines.push(
+        "• Convergence: " +
+          esc(String(result.convergence.independentWalletCount)) +
+          " independent wallets",
+      );
+    }
+    if (
+      result.momentum &&
+      typeof result.momentum.momentumState === "string" &&
+      result.momentum.momentumState
+    ) {
+      lines.push("• Momentum: " + esc(result.momentum.momentumState));
+    }
+    const price = Number(result.currentPrice);
+    if (Number.isFinite(price) && price > 0) {
+      const priceText =
+        W.fmt && typeof W.fmt.price === "function"
+          ? W.fmt.price(price)
+          : "$" + price.toPrecision(6);
+      lines.push("• Price: " + esc(priceText));
+    }
+
+    W.tg.notify("radar:" + addressSafe, lines.join("\n"));
+  }
+
   function recordSignal(result) {
     if (!result || typeof result !== "object") return;
     const entry = {
@@ -33074,6 +33133,10 @@ W.smartRadar.auto = (() => {
     // Fire-and-forget persistence. Same contract as gems.js:
     // failures are silent and never affect the auto-scan cycle.
     persistRadarAlert(result).catch(() => {});
+    // Telegram wiring (opt-in, fire-and-forget). Same eligibility
+    // gate as persistence; notify() dedups and no-ops when Telegram
+    // is disabled. Never blocks or fails the cycle.
+    notifyRadarTelegram(result);
     setState({
       lastRunAt: Date.now(),
       cursor: (idx + 1) % Math.max(1, watchlist.length),
@@ -33318,6 +33381,7 @@ W.smartRadar.auto = (() => {
       MAX_SIGNALS,
       recordSignal,
       persistRadarAlert,
+      notifyRadarTelegram,
       ensureMounted,
     }),
   });

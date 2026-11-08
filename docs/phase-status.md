@@ -159,3 +159,23 @@ question and must be declared in the evaluation report.
   upstream providers; a provider outage can fail CI on main (observed
   2026-11-08T12:44Z on the premium-dark merge). Test-infra follow-up:
   route-mock provider calls in E2E so CI is hermetic.
+
+## Session record — 2026-11-08 (premium follow-ups)
+- Window 3 STARTED — baseline e7afc81, start timestamp
+  2026-11-08T13:16:47Z recorded in paper-trial-log.md (preconditions
+  (c) and (d) satisfied). Day-1 scan pass executed.
+- Premium follow-ups shipped on feat/premium-followups-2026-11-08:
+  wrapped-token index coverage (prices.js), /etherscan/deployer 24h
+  KV cache (cf-worker, cache reads precede the budget check, only
+  successes cached), test hygiene (dead global beforeEach removed).
+- Telegram alert wiring completed: smart-radar-auto.js now notifies
+  (opt-in, fire-and-forget) on the same eligibility gate as
+  persistence (ok === true && SMART_MONEY_ENTRY). Dedup key is
+  per-token-per-session, matching the gems.js precedent. Message
+  bodies are HTML-escaped. 11 new unit tests (eligibility gate,
+  escaping, fallbacks, hostile-input safety, runCycle wiring both
+  ways). Suite: 728 unit / 30 integration / 16 security, run under
+  pinned Node 22.23.3; dist/ rebuilt with the same pin.
+- Remaining known gap: Playwright E2E still depends on live
+  upstreams (see 2026-11-08 session record) — hermetic route-mock
+  conversion pending.
