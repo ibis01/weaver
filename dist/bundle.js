@@ -6355,6 +6355,14 @@ W.api = (() => {
     near: "NEAR",
     filecoin: "FIL",
     aptos: "APT",
+    // Wrapped / staked variants. These ids are CoinLore nameids —
+    // the resolution path is SYMBOL_TO_ID[symbol] || ticker.nameid,
+    // so the keys must match CoinLore's nameid field exactly.
+    "wrapped-bitcoin": "WBTC",
+    weth: "WETH",
+    "staked-ether": "STETH",
+    reth: "RETH",
+    "coinbase-wrapped-btc": "CBBTC",
   });
 
   const SYMBOL_TO_ID = Object.create(null);
@@ -6391,6 +6399,19 @@ W.api = (() => {
     near: "near-near-protocol",
     filecoin: "fil-filecoin",
     aptos: "apt-aptos",
+    // Wrapped / staked variants. Slugs verified against the live
+    // CoinPaprika search API 2026-11-08 (canonical top-ranked entry
+    // for each ticker). Unblocks radar + Smart Money Tracker OHLCV
+    // on these tokens (they previously failed with
+    // "CoinPaprika: no slug for <id>").
+    "wrapped-bitcoin": "wbtc-wrapped-bitcoin",
+    weth: "weth-weth",
+    "staked-ether": "steth-lido-staked-ether",
+    reth: "reth-rocket-pool-eth",
+    "coinbase-wrapped-btc": "cbbtc-coinbase-wrapped-btc",
+    // wstETH intentionally absent: CoinLore does not index it, so no
+    // asset id ever resolves to it — an entry here would be dead code.
+    // Revisit if the CoinLore listing or the id-resolution source changes.
   });
 
   const COINBASE_PAIRS = Object.freeze({
@@ -6414,6 +6435,7 @@ W.api = (() => {
     filecoin: "FIL-USD",
     "avalanche-2": "AVAX-USD",
     matic: "MATIC-USD",
+    "wrapped-bitcoin": "WBTC-USD",
   });
 
   // ── Binance pair mapping ────────────────────────────
@@ -7693,6 +7715,9 @@ W.api = (() => {
       binanceIntervalFor,
       BINANCE_EXCLUDED,
       BINANCE_INTERVAL_MAP,
+      ID_TO_SYMBOL,
+      ID_TO_PAPRIKA,
+      COINBASE_PAIRS,
     }),
   });
 })();
