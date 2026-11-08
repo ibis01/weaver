@@ -299,6 +299,13 @@ W.shield = (() => {
   // ── Risk Assessment (pure — no DOM, reusable by other modules) ────
 
   function assessEvmRisk(result) {
+    // GoPlus field types have drifted between responses: boolean flags
+    // arrive as either number (0/1) or string ("0"/"1") depending on
+    // endpoint and version. A strict numeric comparison on is_locked
+    // would misreport a string "1" as unlocked — a false "not locked"
+    // verdict. Coerce defensively on both shapes (unknown ≠ safe).
+    const flagOn = (v) => v === 1 || v === "1";
+    const flagOff = (v) => v === 0 || v === "0";
     const isHoneypot = result.is_honeypot === "1";
     const isMintable = result.is_mintable === "1";
     const isProxy = result.is_proxy === "1";
@@ -310,8 +317,24 @@ W.shield = (() => {
       ? result.lp_holders
       : [];
     const hasLpData = lpHoldersRaw.length > 0;
-    const isLpLocked = hasLpData
-      ? lpHoldersRaw.some((lp) => lp.is_locked === 1)
+    // Tri-state: any locked LP → true; every LP known-unlocked → false;
+    // any unrecognized value → null (unknown). Never coerces unknown to
+    // unlocked, and never coerces unknown to a numeric score.
+    const lpLockStates = hasLpData
+      ? lpHoldersRaw.map((lp) =>
+          lp && flagOn(lp.is_locked)
+            ? true
+            : lp && flagOff(lp.is_locked)
+              ? false
+              : null,
+        )
+      : null;
+    const isLpLocked = lpLockStates
+      ? lpLockStates.some((s) => s === true)
+        ? true
+        : lpLockStates.every((s) => s === false)
+          ? false
+          : null
       : null;
 
     const buyTaxRaw = parseFloat(result.buy_tax);
@@ -382,8 +405,8 @@ W.shield = (() => {
         return {
           address: typeof h.address === "string" ? h.address : null,
           percent: Number.isFinite(pct) ? pct * 100 : null,
-          isContract: h.is_contract === 1,
-          isLocked: h.is_locked === 1,
+          isContract: flagOn(h.is_contract),
+          isLocked: flagOn(h.is_locked),
           tag: typeof h.tag === "string" ? h.tag : null,
         };
       })
@@ -397,7 +420,7 @@ W.shield = (() => {
       ? result.lp_holders
       : [];
     const lockedLpCount = lpHoldersList.filter(
-      (lp) => lp.is_locked === 1,
+      (lp) => lp && flagOn(lp.is_locked),
     ).length;
 
     const holders = {
@@ -561,7 +584,7 @@ W.shield = (() => {
                     <td><code>${shortAddr(h.address)}</code></td>
                     <td>${h.tag ? `<span class="tag rank">${escapeHTML(h.tag)}</span>` : '<span class="muted">—</span>'}</td>
                     <td><b>${(parseFloat(h.percent) * 100).toFixed(2)}%</b></td>
-                    <td>${h.is_contract === 1 ? '<span class="tag">Contract</span>' : h.is_locked === 1 ? '<span class="tag buy">Locked</span>' : '<span class="tag neutral">Wallet</span>'}</td>
+                    <td>${flagOn(h.is_contract) ? '<span class="tag">Contract</span>' : flagOn(h.is_locked) ? '<span class="tag buy">Locked</span>' : '<span class="tag neutral">Wallet</span>'}</td>
                   </tr>
                 `,
                   )
@@ -585,7 +608,7 @@ W.shield = (() => {
                     <tr>
                       <td><code>${shortAddr(lp.address)}</code></td>
                       <td>${(parseFloat(lp.percent) * 100).toFixed(2)}%</td>
-                      <td>${lp.is_locked === 1 ? '<span class="tag buy">🔒 Locked</span>' : '<span class="tag sell">⚠️ Unlocked</span>'}</td>
+                      <td>${lp && flagOn(lp.is_locked) ? '<span class="tag buy">🔒 Locked</span>' : lp && flagOff(lp.is_locked) ? '<span class="tag sell">⚠️ Unlocked</span>' : '<span class="tag muted">Unknown</span>'}</td>
                     </tr>
                   `,
                     )

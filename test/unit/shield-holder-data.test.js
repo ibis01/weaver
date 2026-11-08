@@ -34,6 +34,63 @@ describe("Shield — holder data on the assessment", () => {
     expect(a.holders.source).to.equal("goplus-evm");
   });
 
+  it("assessEvmRisk coerces string is_locked/is_contract flags from GoPlus", () => {
+    // GoPlus has been observed returning lp_holders/holders flags as
+    // strings ("0"/"1") as well as numbers. A strict numeric compare
+    // would misreport a locked LP as unlocked. Both shapes must read
+    // identically (unknown ≠ safe).
+    const numeric = W.shield.assessEvmRisk({
+      is_honeypot: "0",
+      is_mintable: "0",
+      is_proxy: "0",
+      owner_change: "1",
+      buy_tax: "0",
+      sell_tax: "0",
+      holders: [
+        { address: "0xa", percent: "0.125", is_contract: 1, is_locked: 0 },
+      ],
+      lp_holders: [
+        { address: "0xlp1", percent: "0.5", is_locked: 1 },
+        { address: "0xlp2", percent: "0.3", is_locked: 0 },
+      ],
+    });
+    const string = W.shield.assessEvmRisk({
+      is_honeypot: "0",
+      is_mintable: "0",
+      is_proxy: "0",
+      owner_change: "1",
+      buy_tax: "0",
+      sell_tax: "0",
+      holders: [
+        { address: "0xa", percent: "0.125", is_contract: "1", is_locked: "0" },
+      ],
+      lp_holders: [
+        { address: "0xlp1", percent: "0.5", is_locked: "1" },
+        { address: "0xlp2", percent: "0.3", is_locked: "0" },
+      ],
+    });
+    expect(string.holders.lockedLpCount).to.equal(
+      numeric.holders.lockedLpCount,
+    );
+    expect(string.holders.lockedLpCount).to.equal(1);
+    expect(string.holders.hasLockedLp).to.equal(true);
+    expect(string.flags.isLpLocked).to.equal(true);
+    expect(string.holders.top10[0].isContract).to.equal(true);
+    expect(string.holders.top10[0].isLocked).to.equal(false);
+    // Unrecognized values degrade to unknown, never to a false verdict.
+    const weird = W.shield.assessEvmRisk({
+      is_honeypot: "0",
+      is_mintable: "0",
+      is_proxy: "0",
+      owner_change: "1",
+      buy_tax: "0",
+      sell_tax: "0",
+      lp_holders: [{ address: "0xlp1", percent: "0.5", is_locked: "yes" }],
+    });
+    expect(weird.flags.isLpLocked).to.equal(null);
+    expect(weird.holders.lockedLpCount).to.equal(0);
+  });
+
   it("assessEvmRisk returns null holder fields when raw data lacks them", () => {
     const raw = {
       is_honeypot: "0",
