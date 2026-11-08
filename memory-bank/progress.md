@@ -23,7 +23,7 @@ are green on CI.
 - **Dashboard / UI** — ~85%
   Feature-complete. Manual UI-002 visual pass remains open.
 - **Testing / CI** — ~95%
-  Unit (728), Integration (30), Security (16), Worker (43), E2E (36, hermetic)
+  Unit (737), Integration (30), Security (16), Worker (43), E2E (36, hermetic)
   all run on CI and pass.
 - **Documentation / Memory Bank** — ~85%
   Full sync applied 2026-10-01.
@@ -31,12 +31,17 @@ are green on CI.
 ## Test Suite Counts (current)
 | Suite | Command | Count |
 |---|---|---|
-| Unit | `npm run test:unit` | 728 (2 pending) |
+| Unit | `npm run test:unit` | 737 (2 pending) |
 | Integration | `npm run test:integration` | 30 |
 | Security | `npm run test:security` | 16 |
 | E2E | `npm run test:e2e` | 36 |
 
 ## Recently Completed
+- Gate 0d data reconciliation (2026-11-08): historical duplicates removed
+  via committed idempotent script (buys 17→10, outcomes 4→3, counter
+  16→10), originals archived + hashed, scorer ledger contract fixed
+  (retry-eligible unresolved, latest-wins), price-history refresh pipeline
+  added. See docs/audits/gate-0d-reconciliation-2026-11-08.md.
 - Portfolio accounting: `sell(id, qty, price)`, average-cost basis,
   partial sells, full liquidation, realized P&L accumulation, and
   invalid-input rejection — 22 tests against the real module.
