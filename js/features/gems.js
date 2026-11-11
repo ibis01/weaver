@@ -1996,15 +1996,28 @@ W.gems = (() => {
 
             if (snapData.tokens && snapData.tokens.length > 0) {
               console.log(
-                `[Gems] Loaded ${snapData.tokens.length} tokens from Worker snapshot.`,
+                `[Gems] Loaded ${snapData.tokens.length} tokens from Worker snapshot` +
+                  (snapData._meta &&
+                  snapData._meta.methodologyVersion === "discovery-v3"
+                    ? " (v3 multi-source)"
+                    : ""),
               );
 
               discoveredPairs = snapData.tokens.map((t) => {
                 const chainId = t.chainId || "ethereum";
+                // discovery-v3 snapshots carry REAL market fields
+                // (volume24h, priceChange, pairCreatedAt, pairAddress).
+                // Older v2 snapshots lack them — fall back to the
+                // previous zeroed placeholders so scores stay honest.
+                const pc = t.priceChange || {};
+                const finiteOr = (v, fallback) =>
+                  Number.isFinite(Number(v)) ? Number(v) : fallback;
 
                 const pair = {
                   chainId: chainId,
-                  pairAddress: "unknown",
+                  pairAddress: typeof t.pairAddress === "string" && t.pairAddress
+                    ? t.pairAddress
+                    : "unknown",
                   url: `https://dexscreener.com/${chainId}/${t.address}`,
                   priceUsd: t.priceUsd,
                   liquidity: { usd: t.liquidity },
@@ -2013,10 +2026,20 @@ W.gems = (() => {
                     symbol: t.symbol,
                     name: t.symbol,
                   },
-                  pairCreatedAt: Date.now() - 12 * 3600000,
-                  volume: { h24: 0 },
-                  priceChange: { h1: 0, h6: 0, h24: 0 },
-                  discoverySources: ["worker-snapshot"],
+                  pairCreatedAt: finiteOr(
+                    t.pairCreatedAt,
+                    Date.now() - 12 * 3600000,
+                  ),
+                  volume: { h24: finiteOr(t.volume24h, 0) },
+                  priceChange: {
+                    h1: finiteOr(pc.h1, 0),
+                    h6: finiteOr(pc.h6, 0),
+                    h24: finiteOr(pc.h24, 0),
+                  },
+                  discoverySources:
+                    Array.isArray(t.sources) && t.sources.length
+                      ? t.sources
+                      : ["worker-snapshot"],
                 };
 
                 if (t.security) {

@@ -1,4 +1,4 @@
-# Phase Status — as of 2026-11-08T18:30:00Z
+# Phase Status — as of 2026-11-11T08:45:00Z
 
 Current HEAD at update: `16815e6` (merge of PR #28). Baseline doc lineage:
 this file supersedes the 2026-10-22 summary below; all historical dated
@@ -51,6 +51,22 @@ evidence; do not cite infrastructure completion as a performance claim.
   next weekly run (2026-11-15) — through the workflow, not by hand.
 - No pre-registered baseline, no walk-forward evaluation, no
   negative-outcome accounting yet. No performance claim is made.
+
+## Phase 2 trial data feed — OPERATIONAL REPAIR (discovery-v3, 2026-11-11)
+- Root cause of the 0-alert funnel found: worker discovery cron used a
+  hardcoded `search?q=PEPE` (first 10 pairs, since `dcd4a06`), while the
+  client preferred the worker snapshot over its own multi-source crawler
+  — scoring inputs (volume/momentum/age) were structurally zeroed, so
+  scores capped ≈ 68 < the frozen ≥ 70 persistence gate. Zero writes
+  since 2026-10-23 was therefore by construction, not by outage.
+- Repair (this branch): discovery-v3 multi-source cron (boosts +
+  profiles + CoinPaprika movers → batched lookup + per-symbol search,
+  dedupe, liquidity-rank, cap 40) carrying REAL market fields;
+  backward-compatible client mapping; `/discovery/health` funnel stats;
+  cache-buster bump. NO threshold, scoring, or cohort-definition change
+  — trial config freeze intact.
+- Discontiguity marker recorded in docs/phase-2/paper-trial-log.md
+  §Day 3: in-window alerts split pre-/post-repair by receivedAt.
 
 ## Phase 5 — Reasoning layer: PARTIAL
 - Unchanged: evidence synthesizer wired (c07d617); completion criteria

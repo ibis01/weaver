@@ -159,72 +159,245 @@ async function insertSnapshot(
   }
 }
 
+async function fetchJsonSafe(url, label) {
+  try {
+    const res = await fetch(url, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      console.warn(`[Discovery] ${label} HTTP ${res.status}`);
+      return null;
+    }
+    return await res.json();
+  } catch (e) {
+    console.warn(`[Discovery] ${label} failed:`, e.message);
+    return null;
+  }
+}
+
+// ── Discovery v3 — multi-source candidate pipeline ──────────────────
+// Mirrors the client-side fallback crawler (js/features/gems.js):
+//   1. DEX Screener token boosts   (community-boosted tokens)
+//   2. DEX Screener token profiles (recently published profiles)
+//   3. CoinPaprika tickers ranked by |24h % change| → per-symbol DEX search
+//   4. Batched DEX Screener token lookup for boost/profile addresses
+// Candidates are deduped by chain+address (highest-liquidity pair wins),
+// filtered to supported chains, ranked by liquidity, and capped. Each
+// snapshot token carries REAL market fields (volume24h, priceChange,
+// pairCreatedAt, pairAddress) so the client scorer receives genuine
+// momentum inputs instead of the zeroed placeholders that previously
+// starved the ≥70 persistence gate. See docs/phase-2/paper-trial-log.md
+// §"Operational repair — discovery feed restored" (2026-11-11).
+const DISCOVERY_TOKEN_CAP = 40;
+const DISCOVERY_BATCH_ADDRESSES = 30;
+const DISCOVERY_TRENDING_SYMBOLS = 8;
+const COINPAPRIKA_TICKERS_URL =
+  "https://api.coinpaprika.com/v1/tickers?quotes=USD&limit=250";
+
+async function fetchTrendingSymbols() {
+  const data = await fetchJsonSafe(COINPAPRIKA_TICKERS_URL, "coinpaprika");
+  if (!Array.isArray(data)) return [];
+  return data
+    .filter(
+      (t) =>
+        t &&
+        t.symbol &&
+        t.quotes &&
+        t.quotes.USD &&
+        Number.isFinite(t.quotes.USD.percent_change_24h),
+    )
+    .sort(
+      (a, b) =>
+        Math.abs(b.quotes.USD.percent_change_24h) -
+        Math.abs(a.quotes.USD.percent_change_24h),
+    )
+    .slice(0, DISCOVERY_TRENDING_SYMBOLS)
+    .map((t) => String(t.symbol).toLowerCase())
+    .filter(Boolean);
+}
+
+function collectCandidatePairs(rawPairs, sources) {
+  const out = [];
+  if (!Array.isArray(rawPairs)) return out;
+  for (const p of rawPairs) {
+    if (!p || !p.baseToken || typeof p.baseToken.address !== "string") continue;
+    if (!SUPPORTED_DISCOVERY_CHAINS.has(p.chainId)) continue;
+    out.push({ pair: p, sources });
+  }
+  return out;
+}
+
 async function runDiscoveryScan(env) {
-  console.log("[Discovery] Starting scheduled scan...");
+  console.log("[Discovery] Starting scheduled scan (v3 multi-source)...");
+
+  const errors = [];
+  const sourceCounts = {
+    "dex-boosts": 0,
+    "dex-profiles": 0,
+    "coinpaprika-trending": 0,
+    "dex-market-pair": 0,
+  };
 
   try {
-    const dexRes = await fetch(
-      "https://api.dexscreener.com/latest/dex/search?q=PEPE",
+    // ── 1. Boosts + profiles + trending symbols (parallel) ─────────
+    const [boostsRes, profilesRes] = await Promise.all([
+      fetchJsonSafe(
+        "https://api.dexscreener.com/token-boosts/latest/v1",
+        "token-boosts",
+      ),
+      fetchJsonSafe(
+        "https://api.dexscreener.com/token-profiles/latest/v1",
+        "token-profiles",
+      ),
+    ]);
+    const trendingSymbols = await fetchTrendingSymbols();
+
+    const boosts = Array.isArray(boostsRes) ? boostsRes : [];
+    const profiles = Array.isArray(profilesRes) ? profilesRes : [];
+    if (!boostsRes) errors.push("token-boosts unavailable");
+    if (!profilesRes) errors.push("token-profiles unavailable");
+
+    // ── 2. Boost/profile addresses → batched pair lookup ───────────
+    const boostAddresses = boosts
+      .map((b) => b && b.tokenAddress)
+      .filter((a) => typeof a === "string" && a);
+    const profileAddresses = profiles
+      .map((p) => p && p.tokenAddress)
+      .filter((a) => typeof a === "string" && a);
+    const batchAddresses = [
+      ...new Set([...boostAddresses, ...profileAddresses]),
+    ].slice(0, DISCOVERY_BATCH_ADDRESSES);
+
+    let batchPairs = [];
+    if (batchAddresses.length) {
+      const batchRes = await fetchJsonSafe(
+        "https://api.dexscreener.com/latest/dex/tokens/" +
+          batchAddresses.join(","),
+        "batch-tokens",
+      );
+      const pairs = batchRes && Array.isArray(batchRes.pairs) ? batchRes.pairs : [];
+      const boostSet = new Set(boostAddresses);
+      const profileSet = new Set(profileAddresses);
+      batchPairs = collectCandidatePairs(pairs, []).map(({ pair }) => {
+        const sources = ["dex-market-pair"];
+        if (boostSet.has(pair.baseToken.address)) sources.unshift("dex-boosts");
+        if (profileSet.has(pair.baseToken.address)) sources.unshift("dex-profiles");
+        return { pair, sources };
+      });
+    }
+
+    // ── 3. Trending symbols → per-symbol DEX search ────────────────
+    const searchResults = await Promise.allSettled(
+      trendingSymbols.map((symbol) =>
+        fetchJsonSafe(
+          "https://api.dexscreener.com/latest/dex/search?q=" +
+            encodeURIComponent(symbol),
+          `search:${symbol}`,
+        ),
+      ),
     );
-    if (!dexRes.ok) throw new Error(`DexScreener returned ${dexRes.status}`);
+    const trendingPairs = [];
+    for (const r of searchResults) {
+      if (r.status !== "fulfilled" || !r.value) continue;
+      const pairs = Array.isArray(r.value.pairs) ? r.value.pairs : [];
+      trendingPairs.push(
+        ...collectCandidatePairs(pairs, ["coinpaprika-trending", "dex-search"]),
+      );
+    }
 
-    const dexData = await dexRes.json();
-    const rawPairs = dexData.pairs || [];
+    // ── 4. Dedupe by chain+address, keep highest-liquidity pair ────
+    const byKey = new Map();
+    const consider = ({ pair, sources }) => {
+      const key = `${pair.chainId}:${pair.baseToken.address}`;
+      const liquidity = Number(pair.liquidity && pair.liquidity.usd) || 0;
+      const existing = byKey.get(key);
+      if (!existing) {
+        byKey.set(key, { pair, sources: [...sources], liquidity });
+        return;
+      }
+      const merged = new Set([...existing.sources, ...sources]);
+      if (liquidity > existing.liquidity) {
+        byKey.set(key, { pair, sources: [...merged], liquidity });
+      } else {
+        existing.sources = [...merged];
+      }
+    };
+    batchPairs.forEach(consider);
+    trendingPairs.forEach(consider);
 
-    const uniqueTokens = [
-      ...new Map(rawPairs.map((p) => [p.baseToken.address, p])).values(),
-    ]
-      .filter((p) => SUPPORTED_DISCOVERY_CHAINS.has(p.chainId))
-      .slice(0, 10);
+    // Rank by liquidity and cap
+    const ranked = [...byKey.values()]
+      .sort((a, b) => b.liquidity - a.liquidity)
+      .slice(0, DISCOVERY_TOKEN_CAP);
+    for (const { sources } of ranked) {
+      for (const s of sources) {
+        if (s in sourceCounts) sourceCounts[s]++;
+      }
+    }
 
-    const enrichedTokens = [];
+    // ── 5. Enrich (GoPlus security, ethereum only, budget-checked) ─
     const now = Date.now();
-
-    for (const token of uniqueTokens) {
-      const chainId = token.chainId;
+    const enrichedTokens = [];
+    for (const { pair, sources } of ranked) {
+      const chainId = pair.chainId;
+      const address = pair.baseToken.address;
       let secData = null;
 
       if (chainId === "ethereum") {
         const hasBudget = await checkAndIncrementBudget(env, "goplus");
         if (hasBudget) {
           try {
-            const url = `${GOPLUS_EVM_BASE}/1?contract_addresses=${token.baseToken.address}`;
-            const secRes = await fetch(url);
-            const data = await secRes.json();
-            if (data.code === 1) {
-              secData = data.result[token.baseToken.address.toLowerCase()];
+            const url = `${GOPLUS_EVM_BASE}/1?contract_addresses=${address}`;
+            const data = await fetchJsonSafe(url, `goplus:${address}`);
+            if (data && data.code === 1 && data.result) {
+              secData = data.result[address.toLowerCase()] || null;
             }
           } catch (err) {
             console.warn(
-              `[Discovery] GoPlus failed for ${token.baseToken.symbol}:`,
+              `[Discovery] GoPlus failed for ${pair.baseToken.symbol}:`,
               err.message,
             );
           }
         } else {
           console.warn(
-            `[Discovery] Skipping GoPlus for ${token.baseToken.symbol} — budget exhausted`,
+            `[Discovery] Skipping GoPlus for ${pair.baseToken.symbol} — budget exhausted`,
           );
         }
       }
 
-      const priceUsd = Number(token.priceUsd);
-      const liquidityUsd = Number(token.liquidity?.usd) || 0;
+      const priceUsd = Number(pair.priceUsd);
+      const liquidityUsd = Number(pair.liquidity && pair.liquidity.usd) || 0;
+      const vol = pair.volume || {};
+      const pc = pair.priceChange || {};
+      const finite = (v) => Number.isFinite(Number(v)) ? Number(v) : null;
 
       enrichedTokens.push({
-        address: token.baseToken.address,
-        symbol: token.baseToken.symbol,
-        chainId: chainId,
-        priceUsd: priceUsd,
+        address,
+        symbol: pair.baseToken.symbol || null,
+        chainId,
+        pairAddress: pair.pairAddress || null,
+        priceUsd: finite(priceUsd),
         liquidity: liquidityUsd,
+        // Real market fields — consumed by the client scorer (v3)
+        volume24h: finite(vol.h24),
+        priceChange: {
+          h1: finite(pc.h1),
+          h6: finite(pc.h6),
+          h24: finite(pc.h24),
+        },
+        pairCreatedAt: finite(pair.pairCreatedAt),
+        txns24h: pair.txns && pair.txns.h24 ? finite(pair.txns.h24.buys) : null,
         security: secData,
+        sources,
       });
 
-      // NEW: Persist snapshot to D1
+      // Persist snapshot to D1
       if (Number.isFinite(priceUsd)) {
         await insertSnapshot(
           env,
           chainId,
-          token.baseToken.address,
+          address,
           priceUsd,
           liquidityUsd,
           now,
@@ -240,19 +413,29 @@ async function runDiscoveryScan(env) {
         staleAfter: now + 30 * 60 * 1000,
         source: "worker-cron",
         chains: [...SUPPORTED_DISCOVERY_CHAINS],
-        methodologyVersion: "discovery-v2",
+        methodologyVersion: "discovery-v3",
+        sourceCounts,
+        errors,
       },
       timestamp: now,
       tokenCount: enrichedTokens.length,
       tokens: enrichedTokens,
     };
 
-    await env.MEME_ALERTS.put(DISCOVERY_KV_KEY, JSON.stringify(snapshot));
-    console.log(
-      `[Discovery] Scan complete. Saved ${enrichedTokens.length} tokens to KV and D1.`,
-    );
+    try {
+      await env.MEME_ALERTS.put(DISCOVERY_KV_KEY, JSON.stringify(snapshot));
+      console.log(
+        `[Discovery] Scan complete. Saved ${enrichedTokens.length} tokens ` +
+          `(sources: ${JSON.stringify(sourceCounts)}) to KV and D1.`,
+      );
+      return { ok: true, tokenCount: enrichedTokens.length, sourceCounts, errors };
+    } catch (e) {
+      console.error("[Discovery] KV write failed:", e.message);
+      return { ok: false, error: `kv-write: ${e.message}`, sourceCounts, errors };
+    }
   } catch (error) {
     console.error("[Discovery] Scan failed:", error.message);
+    return { ok: false, error: error.message, sourceCounts, errors };
   }
 }
 
@@ -1363,6 +1546,48 @@ async function handleRequest(request, env, ctx) {
         snapshotMeta = parsed._meta || null;
       } catch {}
     }
+    // Meme alert funnel stats — alert keys are timestamp-first
+    // (weaver:meme:alert:v2:<observedAtMs>:<chain>:<address>), so the
+    // key listing alone yields both volume and recency.
+    let memeFunnel = null;
+    try {
+      const DAY_MS = 24 * 60 * 60 * 1000;
+      const cutoff = Date.now() - DAY_MS;
+      let cursor;
+      let latestObservedAtMs = 0;
+      let alertsLast24h = 0;
+      let alertKeys = 0;
+      let listComplete = false;
+      while (!listComplete && alertKeys < 5000) {
+        const page = await env.MEME_ALERTS.list({
+          prefix: "weaver:meme:alert:v2:",
+          cursor,
+          limit: 1000,
+        });
+        for (const k of page.keys) {
+          alertKeys++;
+          const m = k.name.match(/^weaver:meme:alert:v2:(\d+):/);
+          if (m) {
+            const ts = Number(m[1]);
+            if (ts > latestObservedAtMs) latestObservedAtMs = ts;
+            if (ts >= cutoff) alertsLast24h++;
+          }
+        }
+        listComplete = page.list_complete;
+        cursor = page.cursor;
+      }
+      memeFunnel = {
+        alertKeys,
+        alertsLast24h,
+        latestObservedAtMs: latestObservedAtMs || null,
+        latestObservedAtIso: latestObservedAtMs
+          ? new Date(latestObservedAtMs).toISOString()
+          : null,
+        listComplete,
+      };
+    } catch (e) {
+      memeFunnel = { error: e.message };
+    }
     return jsonResponse(
       {
         ok: true,
@@ -1370,6 +1595,7 @@ async function handleRequest(request, env, ctx) {
         budgets,
         snapshot: snapshotMeta ? "available" : "empty",
         snapshotMeta,
+        memeFunnel,
       },
       200,
       headers,
@@ -1642,6 +1868,14 @@ export { handleRequest };
 export default {
   fetch: (request, env, ctx) => handleRequest(request, env, ctx),
   scheduled: (event, env, ctx) => {
-    ctx.waitUntil(runDiscoveryScan(env));
+    ctx.waitUntil(
+      runDiscoveryScan(env).then((r) => {
+        if (r && r.ok) {
+          console.log(`[Cron] discovery ok — ${r.tokenCount} tokens`);
+        } else {
+          console.error("[Cron] discovery FAILED:", r && r.error);
+        }
+      }),
+    );
   },
 };

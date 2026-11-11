@@ -437,3 +437,54 @@ start, before the first scan of the window.
   public deployment at the frozen baseline — no config drift is
   possible from the automation itself.
 - Config or threshold change this day? → **No**
+
+## Day 3 — 2026-11-11 (UTC) — ROOT CAUSE + OPERATIONAL REPAIR (discovery feed)
+
+- Scan rounds on 2026-11-09 and 2026-11-11 (cron, automated): both
+  COMPLETED with **0 in-window alerts**; store unchanged (933
+  pre-window records, latest receivedAt 2026-10-23T16:54:00.509Z).
+- Root-cause investigation (2026-11-11, code audit + live network
+  trace) — the empty funnel is **by construction, not by outage**:
+  1. Worker `runDiscoveryScan` (cron */15) used a single hardcoded
+     query — `dexscreener search?q=PEPE` — first 10 pairs, refreshed
+     every 15 min since commit `dcd4a06` (2026-10-21). The candidate
+     pool was therefore ~10 near-constant PEPE-related pairs.
+  2. Client Gems scan prefers `/discovery/snapshot` over live crawling
+     (`9a3d54c`, 2026-10-21), so the real multi-source crawler
+     (token-boosts + token-profiles + CoinPaprika trending — present
+     in the client as a fallback) never executed.
+  3. Snapshot-derived pairs were synthesized with zeroed
+     `volume.h24 = 0`, `priceChange = 0`, fixed 12h pair age — the
+     scorer's momentum/volume inputs were structurally empty, so
+     scores capped ≈ 68 (observed repeatedly), below the frozen
+     ≥ 70 persistence gate → no POST /meme/alert → 0 alerts.
+  - Historical corroboration: the 933 stored alerts (live-scan era)
+    include scores up to 85 with real momentum data — the write path
+    itself was never broken (also confirmed by the 2026-10-23
+    intercept test).
+- **Operational repair shipped (this branch):** discovery-v3.
+  Worker cron now runs the full multi-source pipeline (DEX Screener
+  token-boosts + token-profiles + CoinPaprika top-movers → batched
+  pair lookup + per-symbol searches), dedupe by chain+address,
+  liquidity-ranked, capped at 40. Snapshot tokens now carry REAL
+  `volume24h`, `priceChange{h1,h6,h24}`, `pairCreatedAt`,
+  `pairAddress`, and per-token `sources`; `_meta.methodologyVersion`
+  bumped to `discovery-v3` with `sourceCounts` for audit. Client
+  mapping consumes the real fields (backward compatible with v2
+  snapshots). `/discovery/health` extended with meme-funnel stats
+  (alertKeys, alertsLast24h, latestObservedAt). Cache-buster bumped.
+- **Freeze compliance:** NO threshold change (≥ 70 persistence gate
+  unchanged), NO scoring-methodology change (meme-opportunity-v1
+  untouched), NO cohort-definition change (treatment = smart-money
+  convergence at alert time, unchanged). This repair restores the
+  intended *data feed* only — it changes WHICH candidates are
+  discovered, not HOW they are measured.
+- **Discontiguity marker:** Window 3 alert population is separated
+  into pre-repair (receivedAt < repair deploy time; observed count:
+  0) and post-repair (receivedAt ≥ deploy time; carries cohort field
+  + discovery-v3 candidate pool). The §Control comparison is
+  within-population (treatment vs control per alert), so the repair
+  does not invalidate the pre-registered analysis for the
+  post-repair segment. Deploy time to be recorded below at deploy.
+- Config or threshold change this day? → **No** (data-feed repair
+  only, as documented above).
