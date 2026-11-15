@@ -1,10 +1,10 @@
 {
   "freeze_block": 26216278,
   "freeze_date": "2026-10-18T00:00:00Z",
-  "last_scanned_block": 26367752,
+  "last_scanned_block": 26418090,
   "first_run_at": "2026-10-18T01:51:58.230Z",
-  "buys_collected": 10,
-  "last_run_at": "2026-11-08T04:28:31.403Z",
+  "buys_collected": 11,
+  "last_run_at": "2026-11-15T04:49:43.571Z",
   "reconciliation": {
     "at": "2026-11-08T18:13:29.919Z",
     "script": "scripts/oneoff/reconcile-gate0d-2026-11-08.js",
@@ -21,5 +21,7 @@
     "dropped_outcome_rows": 1,
     "rule": "first occurrence per txHash; originals archived byte-exact",
     "archive": "data/prospective/archive/2026-11-08-pre-reconciliation/"
-  }
+  },
+  "last_run_partial": false,
+  "last_run_errors": 0
 }
