@@ -71,13 +71,26 @@ evidence; do not cite infrastructure completion as a performance claim.
 - Unchanged from the 2026-10-22 assessment; not independently audited.
   NOT marked PASS.
 
-## Phase 2 — Paper trial: ACTIVE — Window 3 (protect until close)
-- Window 3 STARTED 2026-11-08T13:16:47Z, closes 2026-11-15T13:16:47Z.
-  Baseline e7afc81. Threshold 70. Automated scans: cron every 2h
-  (even hours UTC); round 1 (14:00 UTC) recorded 0 in-window alerts.
+## Phase 2 — Paper trial: Window 3 CLOSED — verdict FAIL (documented 2026-11-17); Window 4 gated on deploy
+- Window 3 (2026-11-08T13:16:47Z → 2026-11-15T13:16:47Z) is CLOSED. Verdict:
+  **alert production FAIL** (0 in-window alerts across the full window —
+  discovery stub feed live the entire time; root cause Day 3 + PR #30
+  merged-but-undeployed, Cloudflare deploy blocked at credential level);
+  **persistence PASS with caveat** (store unchanged at 933 records,
+  observer gap 11-12→11-17 documented); **efficacy NOT EVALUABLE** (no
+  alert population, no cohort data — no performance claim citable).
+  Full closeout with scan-round ledger and evidence queries:
+  docs/phase-2/paper-trial-log.md §"Window 3 — CLOSEOUT".
+- Window 4: 7 days, same frozen threshold (≥ 70) / scoring / cohort
+  definition. Opens ONLY after (1) discovery-v3 verified live
+  (`methodologyVersion = discovery-v3`, real volume24h/pairCreatedAt,
+  sourceCounts) and (2) a 24h soak with memeFunnel populated. Observer
+  gaps ≥ 24h require outage notes.
 - Prior windows: window 1 ABORTED (persistence-gate defect, see
-  2026-10-23 sections), window 2 INCONCLUSIVE (PR #25).
-- Do NOT lower the threshold or touch scan configuration before close.
+  2026-10-23 sections), window 2 INCONCLUSIVE (PR #25), window 3 FAIL
+  (this entry). Phase 2 remains NOT PASSED.
+- Threshold, scoring methodology and cohort definition remain frozen —
+  unchanged through the closeout; do not touch to manufacture results.
 
 ## Phase 3 — Smart-money: PARTIAL
 - Unchanged: Gate 0B evidence, reproducible candidate discovery,

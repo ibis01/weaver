@@ -488,3 +488,89 @@ start, before the first scan of the window.
   post-repair segment. Deploy time to be recorded below at deploy.
 - Config or threshold change this day? → **No** (data-feed repair
   only, as documented above).
+
+---
+
+# Window 3 — CLOSEOUT (recorded 2026-11-17; window closed 2026-11-15T13:16:47Z)
+
+This closeout documents the window outcome instead of assuming success.
+No alerts were recorded at any point during Window 3.
+
+## Scan-round ledger (all recorded observation rounds)
+
+| When (UTC)            | Mechanism                              | Result                        |
+|-----------------------|----------------------------------------|-------------------------------|
+| 2026-11-08 13:16:47   | Window 3 opened                        | baseline e7afc81, thr ≥ 70    |
+| 2026-11-09 14:00      | cron scan round                        | COMPLETED, 0 in-window alerts |
+| 2026-11-11            | cron scan round                        | COMPLETED, 0 in-window alerts |
+| 2026-11-11 ~16:00     | automated scan round (Job 514906)      | COMPLETED, 0 alerts           |
+| 2026-11-11 ~18:00     | automated scan round (Job 514906)      | COMPLETED, 0 alerts           |
+| 2026-11-15 04:49      | Gate 0d weekly collection (65158cb)    | Phase 4 only; no P2 effect    |
+| 2026-11-15 13:16:47   | Window 3 closed                        | no closeout recorded until now |
+| 2026-11-17 10:00      | automated scan round (Job 514906)      | COMPLETED, 0 alerts           |
+
+Observer gap: no recorded scan rounds 2026-11-12 → 2026-11-17 (scheduled
+observer outage). The worker cron (*/15) continued refreshing the discovery
+snapshot throughout — evidenced by fresh snapshot `generatedAt` values in
+2026-11-17 probes — so the candidate feed stayed live; only the client-side
+observation rounds paused.
+
+## Evidence queries (executed 2026-11-17, live store)
+
+- `GET /meme/alerts?since=1794143807000` (window start) → **0 rows**.
+- `GET /meme/alerts?limit=2000` → **933 rows total**, all `meme-alert-v2`,
+  earliest 2026-10-05T03:32:31.549Z, latest **2026-10-23T16:54:00.509Z** —
+  byte-identical to the pre-window state recorded on Day 3. Nothing was
+  written during Window 3.
+- `GET /discovery/snapshot` → `_meta.methodologyVersion = "discovery-v2"`,
+  10 tokens — the stub feed remained live for the ENTIRE window.
+- `GET /discovery/health` → ok=true, no `memeFunnel` block (v3-only field) —
+  confirms discovery-v3 was never deployed.
+
+## Discontiguity marker resolution (Day 3 placeholder)
+
+- Pre-repair segment (receivedAt < repair deploy time): observed count **0**.
+- Post-repair segment: **NOT STARTED.** PR #30 (discovery-v3) merged
+  2026-11-11T09:02:50Z with green CI, but deployment was blocked at the
+  credential level — Cloudflare API tokens (two issued 2026-11-11 and
+  2026-11-17) verified to lack Workers Scripts:Edit (wrangler ×3, manual
+  multipart version-upload ×1, legacy PUT ×1 all 403). The Day 3 deploy-time
+  placeholder therefore has no value to record for this window; no
+  post-repair population exists.
+
+## Verdict (per phase-status status vocabulary)
+
+- **Alert production (primary trial criterion): FAIL.** Zero alerts across
+  the full 7-day window; the funnel was empty by construction (stub feed
+  zeroed momentum inputs → scores capped ≈ 68 < frozen ≥ 70 gate; root
+  cause and repair documented in Day 3 and PR #30). This is a FAIL of the
+  data feed under test, NOT of the persistence write path (933 historical
+  records and the 2026-10-23 intercept test prove writes work when alerts
+  fire).
+- **Persistence infrastructure: PASS (with caveat).** Store healthy and
+  unchanged; automation ran on schedule when present; caveat = the
+  documented observer gap above.
+- **Efficacy / cohort analysis: NOT EVALUABLE.** No alert exists, therefore
+  no treatment/control population exists. No performance claim is made or
+  citable from this window.
+
+## Freeze compliance through close
+
+Threshold ≥ 70 unchanged; scoring (meme-opportunity-v1) untouched; cohort
+definition (treatment = smart-money convergence at alert time) untouched.
+No configuration was altered mid-window — the Day 3 repair was repo-side
+only and never deployed, so the running window was unaffected by it.
+
+## Decision — Window 4 gate
+
+Window 4 (7 days, same frozen threshold/scoring/cohort) opens ONLY after:
+
+1. discovery-v3 is live: `/discovery/snapshot` shows
+   `methodologyVersion = "discovery-v3"`, ~40 tokens with real
+   `volume24h`/`pairCreatedAt`, and `sourceCounts` present;
+2. a 24h soak shows `/discovery/health` `memeFunnel` populated and at
+   least one completed automated scan round against the live feed.
+
+Scan rounds must run on the documented 2-hour cadence; any observer gap
+≥ 24h requires an outage note in this log. Window history: 1 ABORTED,
+2 INCONCLUSIVE, 3 FAIL — Phase 2 remains NOT PASSED.
