@@ -9,7 +9,50 @@ Infrastructure vs validation — read this first: everything marked
 Experimental validation (phases 2/4) is only as strong as its recorded
 evidence; do not cite infrastructure completion as a performance claim.
 
-## Phase 0 — Foundation: PARTIAL (re-verified 2026-11-08, evidence explicit)
+## Phase 0 — Foundation: PARTIAL → verifier repair shipped 2026-11-17 (input pinning + exit-code agreement)
+
+### 2026-11-17 — verifier input-pinning repair (fix/phase0-verifier-input-pinning-2026-11-17)
+
+- **New root cause found for the DIFF instability**: the verifier's
+  legacy-table RNG is seeded with
+  `sha256('gate0c:nic:' + address + ':' + priceSha + ':' + v2blob)` —
+  i.e. the hash of the LIVE price file. The Gate 0d price-history
+  pipeline (introduced `a2bf2bd`, PR #29) refreshes
+  `data/prices/pepe-usd-daily-365d.json` on a rolling window; every
+  refresh re-seeds every legacy draw. Observed DIFF composition moved
+  over time for this reason alone.
+- **File-lineage evidence** (sha256 of the price series per commit):
+  `91e002e`=ae47b4e7… (artifact era), `c3bc386a`=1251696d… (refreshed,
+  PR #29), `16815e6`=ae47b4e7… — the flip-flop that made records
+  mutually unreproducible.
+- **Repair**: verifier now pins its price input to a byte-exact frozen
+  copy `data/audit-records/pepe-usd-daily-365d.frozen-2026-10-20.json`
+  (sha256 `ae47b4e74167259b75a6d6e589e30fc608d19e6bc30ae72c168c35dea5c0100c`,
+  extracted from `91e002e`; provenance sidecar committed). Delta
+  classification added: checks comparing v1.1-recomputed legacy values
+  against the v1.0-carried table are registered as DOCUMENTED DELTAS and
+  reported separately without flipping the exit code; any unclassified
+  mismatch still exits 1. Artifact, frozen pair, and all hashes
+  untouched.
+- **Reproduction result (2026-11-17, Node 24.22.2)**: with pinned
+  inputs — **416 checks passed / 0 unclassified DIFF / 0 documented
+  deltas, exit 0**, verdict line `P4 v1.1 PASS` — exit code now agrees
+  with the verdict. The live refreshed file remains in place for Gate 0d
+  and is explicitly not a verification anchor.
+- **Record correction (honest disclosure)**: the 2026-11-08 record below
+  ("406/10, all legacy") is **not reproducible under either input
+  state**: with the refreshed file the run shows 406/10 as
+  2 anchor/span + 8 legacy seed-drift diffs (observed 2026-11-17 audit);
+  with the artifact-era file it shows 416/0 (observed 2026-11-17).
+  The 2026-11-08 session most plausibly ran with the refreshed working
+  tree after `a2bf2bd` landed mid-PR and misattributed seed-drift to
+  amendment deltas. The record is retained unmodified below per
+  evidence-preservation rules; this entry supersedes its conclusion.
+- Phase 0 remains PARTIAL overall: CI/build reproducibility and
+  clean-checkout reproduction of all other gates are still to be
+  re-verified as a set.
+
+### Superseded record — 2026-11-08 (retained unmodified)
 - aw-nic-verify-v11.js at HEAD 16815e6 (Node 22.23.3): **406 checks
   passed / 10 DIFF, exit 1**. All 10 DIFFs are `legacy:` v1.0-table
   comparisons — the documented, expected deltas of the v1.1 amendment
@@ -19,8 +62,10 @@ evidence; do not cite infrastructure completion as a performance claim.
   post-amendment and must not be cited as current.
 - aw-nic-verify-frozen.js reports FAIL/exit 1 on the superseded v1.0
   artifact — expected.
-- Follow-up (not done): classify documented amendment deltas separately
-  in the verifier so exit code matches the verdict line.
+- Follow-up (not done): ~~classify documented amendment deltas separately
+  in the verifier so exit code matches the verdict line~~ → **done
+  2026-11-17** (see above; with pinned inputs even the legacy deltas
+  reproduce exactly, so the registered-delta path currently reports 0).
 
 ## Phase 1 — Trustworthy signals: PARTIAL
 - Unchanged from the 2026-10-22 assessment; not independently audited.
