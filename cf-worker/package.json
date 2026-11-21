@@ -6,6 +6,7 @@
   "description": "Replaces the public CORS-relay fallback chain in shield.js with a small Worker you control.",
   "main": "index.js",
   "scripts": {
+    "build": "echo 'no build step: wrangler deploy packages index.js directly'",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vitest run",
