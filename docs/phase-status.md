@@ -52,6 +52,46 @@ evidence; do not cite infrastructure completion as a performance claim.
   clean-checkout reproduction of all other gates are still to be
   re-verified as a set.
 
+### 2026-11-21 — clean-checkout gate set re-verification (Phase 0 leftover item) + Window 4 pre-registration
+
+- **Clean-checkout reproduction, as a set** (fresh public clone of
+  origin/main `75d85a1`, Node v24.22.3, no local state):
+  - `aw-nic-verify-v11.js`: **416 checks passed / 0 unclassified DIFF /
+    0 documented deltas, exit 0**, verdict `P4 v1.1 PASS` (g2p min
+    IQR_w 0.2 ≥ 0.10 gate) — reproduces the 2026-11-17 result on a
+    different Node patch release, confirming the pinned-input repair
+    is stable across environments.
+  - Frozen price input hash re-verified byte-exact:
+    `ae47b4e74167259b75a6d6e589e30fc608d19e6bc30ae72c168c35dea5c0100c`.
+  - `aw-nic-verify-frozen.js`: FAIL/exit 1 on the superseded v1.0
+    artifact — **matches its recorded expected state** (2026-11-08
+    entry below); no regression.
+  - `aw-nic-p4-v11.js` excluded from the set by design: it is an
+    executor (writes artifacts, refuses overwrite), not a read-only
+    verifier.
+  - CI status at HEAD **not re-probed live** on 2026-11-21 (GitHub
+    Actions API returned 403/rate-limited from this environment); last
+    recorded green CI: `a46207b` (PR #31 merge, 2026-11-17) with
+    docs-only `75d85a1` on top. CI/build reproducibility therefore
+    stays an explicit PARTIAL component, not silently marked.
+- **Gate ledger cross-check at HEAD** (`data/prospective/`): 11 buys,
+  9 resolved outcomes (scoredAt 2026-11-15T04:49:43.603Z, distribution
+  matches the 2026-11-17 reconciliation), 3 stale unresolved rows
+  (attempt-ledger latest-wins semantics — by design), **2 pending
+  buys**: `0xc57f6a85` (bought 11-07, matures ~2026-11-21) and
+  `0xef5bcd2e` (bought 11-12, matures ~2026-11-26). Next weekly
+  collection (~2026-11-22) should resolve the first; its `fwdReturn`
+  lands as new Gate 0d evidence through the workflow, not by hand.
+- **Window 4 pre-registration shipped**:
+  `docs/phase-2/window-4-preregistration.md` — protocol locked BEFORE
+  discovery-v3 deployment (live probe at recording: worker still
+  `discovery-v2`, 2026-11-21T22:23Z). Trial log carries the matching
+  §"Window 4 — PRE-REGISTRATION" pointer; window clock NOT started.
+- Phase 0 status after this entry: clean-checkout reproduction of the
+  gate set is DONE (this entry); remaining PARTIAL components:
+  CI/build reproducibility re-probe, Gate 0c external-auditor
+  acknowledgment (Gate 0c remains OPEN), Gate 0b evidence work.
+
 ### Superseded record — 2026-11-08 (retained unmodified)
 - aw-nic-verify-v11.js at HEAD 16815e6 (Node 22.23.3): **406 checks
   passed / 10 DIFF, exit 1**. All 10 DIFFs are `legacy:` v1.0-table

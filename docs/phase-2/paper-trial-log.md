@@ -574,3 +574,25 @@ Window 4 (7 days, same frozen threshold/scoring/cohort) opens ONLY after:
 Scan rounds must run on the documented 2-hour cadence; any observer gap
 ≥ 24h requires an outage note in this log. Window history: 1 ABORTED,
 2 INCONCLUSIVE, 3 FAIL — Phase 2 remains NOT PASSED.
+
+---
+
+# Window 4 — PRE-REGISTRATION (recorded 2026-11-21, BEFORE discovery-v3 deploy)
+
+- Protocol is LOCKED in `docs/phase-2/window-4-preregistration.md`,
+  written before any v3 data exists. Live probe at recording time:
+  `/discovery/health` still reports `methodologyVersion = "discovery-v2"`
+  (2026-11-21T22:23Z) — deployment remains pending, so no deploy
+  timestamp, baseline commit, or T0 can be recorded yet.
+- Preconditions to open are exactly the "Decision — Window 4 gate"
+  section above (v3 verified live + 24h soak with one completed scan
+  round + deploy timestamp). The pre-registration adds: cohort
+  integrity checks, abort/invalidation conditions, an amendment policy,
+  and the pre-registered verdict criteria (alert production ≥ 1
+  in-window alert → PASS; persistence integrity; descriptive-only
+  cohort split — no efficacy claim).
+- Window 4 clock: **NOT started.** Precondition (c) baseline commit and
+  (d) fresh start timestamp remain to be recorded at the verified
+  deploy, per the same procedure used for Window 3.
+- Config or threshold change this day? → **No** (docs-only recording;
+  no runtime configuration was touched).
