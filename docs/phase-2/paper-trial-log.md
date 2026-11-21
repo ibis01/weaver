@@ -596,3 +596,30 @@ Scan rounds must run on the documented 2-hour cadence; any observer gap
   deploy, per the same procedure used for Window 3.
 - Config or threshold change this day? → **No** (docs-only recording;
   no runtime configuration was touched).
+
+## Deploy attempt — 2026-11-21T23:22Z (Workers Builds first trigger)
+
+- Trigger commit `cec4602` pushed to `main` at 2026-11-21T23:22Z
+  (no-op `"build"` script added to `cf-worker/package.json` so an
+  auto-filled `npm run build` build command cannot fail the first
+  Workers Builds run).
+- Repo CI `test-and-build` on `cec4602`: **PASS** (includes
+  `cf-worker` vitest suite). GitHub Pages `build`/`deploy`/
+  `report-build-status`: **PASS** — frontend auto-deployed at the new
+  commit. This also upgrades the Gate 0d "CI not re-probed live"
+  PARTIAL note: CI re-probed live on 2026-11-21, exit 0.
+- Cloudflare Workers Builds: **NOT triggered.** No Cloudflare
+  check-run or commit status on `cec4602` after 5+ minutes
+  (poll 23:22–23:28Z). Dashboard had shown "disconnected from your
+  Git account" — confirmed real: the push event never reached
+  Cloudflare. GitHub App is installed on the repo (code+deployments
+  write, ibis01/weaver) but the account-level GitHub link from
+  Cloudflare is severed and must be re-authorized in the dashboard
+  before any push can fire a build.
+- Worker probe after CI: `/discovery/snapshot` still
+  `_meta.methodologyVersion = "discovery-v2"`, source `worker-cron`,
+  snapshot fresh (generatedAt 2026-11-21T23:00:31.398Z, 10 tokens).
+- Deploy timestamp, baseline commit, and T0 remain **not recorded**.
+  Window 4 clock: **NOT started.**
+- Config or threshold change this day? → **No** (no-op build script
+  in cf-worker/package.json only; no runtime configuration touched).
