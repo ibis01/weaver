@@ -473,3 +473,4 @@ circuit breakers.
 - `docs/` — additional design documents and historical audits.
 - `data-path-audit.md` — a review of how data flows between the storage
   and intelligence layers.
+  2026-11-21: Workers Builds connected; first deploy of discovery-v3
