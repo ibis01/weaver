@@ -1,10 +1,10 @@
 {
   "freeze_block": 26216278,
   "freeze_date": "2026-10-18T00:00:00Z",
-  "last_scanned_block": 26418090,
+  "last_scanned_block": 26468414,
   "first_run_at": "2026-10-18T01:51:58.230Z",
-  "buys_collected": 11,
-  "last_run_at": "2026-11-15T04:49:43.571Z",
+  "buys_collected": 14,
+  "last_run_at": "2026-11-22T05:04:43.781Z",
   "reconciliation": {
     "at": "2026-11-08T18:13:29.919Z",
     "script": "scripts/oneoff/reconcile-gate0d-2026-11-08.js",
