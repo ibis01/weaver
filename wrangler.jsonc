@@ -1,0 +1,65 @@
+// ================================================================
+// Root-level wrangler config — deploy-path hardening (2026-11-24).
+//
+// WHY THIS EXISTS
+// The Cloudflare connector build (Workers Builds) has twice produced an
+// assets-only deployment of `weaver-proxy` regardless of the contents of
+// cf-worker/wrangler.toml:
+//   - commit f90b0c3 (toml had NO [assets]): live worker served repo-root
+//     files (/, /dist/bundle.min.js) while every script route returned an
+//     empty-body 404 with no CORS headers — the discovery-v3 script never
+//     received a request.
+//   - commit 083c8b7 (toml WITH [assets] + run_worker_first): same live
+//     behavior (POST /index.html → 405 from the assets system proves no
+//     script is bound), while .assetsignore semantics WERE honored — the
+//     deploy pipeline reads the [assets] block but never deploys the
+//     script.
+// That signature matches a static-assets deployment rooted at the REPO
+// ROOT, not at cf-worker. This root-level config makes a repo-root
+// `wrangler deploy` fully determined: script + assets + bindings, so
+// whichever working directory the pipeline uses, a wrangler-based deploy
+// now includes the script.
+//
+// Mirrors cf-worker/wrangler.toml exactly (same bindings, same ids, same
+// cron) with root-relative paths. Keep the two files in sync — the
+// canonical config for in-directory deploys remains cf-worker/wrangler.toml.
+// ================================================================
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "weaver-proxy",
+  "main": "cf-worker/index.js",
+  "compatibility_date": "2024-09-01",
+  "kv_namespaces": [
+    {
+      "binding": "MEME_ALERTS",
+      "id": "711edb1aa070446ea6ccbf81d26135a4"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "weaver_snapshots",
+      "database_name": "weaver-snapshots",
+      "database_id": "d3a7b2ee-0a47-4b6e-b6ac-a6eec1845399"
+    }
+  ],
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
+  "assets": {
+    "directory": ".",
+    "not_found_handling": "none",
+    "run_worker_first": [
+      "/discovery/*",
+      "/meme/*",
+      "/proxy",
+      "/goplus/*",
+      "/etherscan/*",
+      "/helius/*",
+      "/provenance",
+      "/signal",
+      "/signals",
+      "/snapshot/*",
+      "/solana/*"
+    ]
+  }
+}

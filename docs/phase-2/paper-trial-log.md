@@ -645,3 +645,88 @@ Scan rounds must run on the documented 2-hour cadence; any observer gap
   Workers Builds build of discovery-v3.
 - Config or threshold change this day? → **No** (docs-only; no runtime
   configuration touched).
+
+## Deploy regression root-cause + infrastructure hardening — 2026-11-24 (audit push 2)
+
+### Live verification of 083c8b7 (the [assets] fix commit)
+
+- CI on `083c8b7`: test-and-build / build / deploy / report-build-status
+  all PASS; **Workers Builds: weaver-proxy** — Build `b7f0b4b1`,
+  Version `e3a4f734-1529-4c32-becc-694c4ac73678`, success 05:32:55Z.
+- Live probes (06:10–06:17Z): assets serve (`/` 200 text/html,
+  `/dist/bundle.min.js` 200, 738277 bytes) but **every script route**
+  (`/discovery/health`, `/discovery/snapshot`, `/meme/alerts`,
+  `/goplus/evm/1`, `/proxy`) still returns empty-body 404 with **no
+  content-type and no CORS headers**.
+- Script-exclusion proof: `POST /index.html` → 405 (assets system
+  rejects non-GET on asset paths; with a script bound, POST falls
+  through to the router); the router fallback would always emit JSON
+  with CORS headers — these responses are not from the script.
+- Config-partial-honoring proof: `/docs/phase-status.md` and
+  `/cf-worker/wrangler.toml` 404 (excluded via `.assetsignore`), while
+  `/`, `/dist/*` 200 — the deployed pipeline reads the `[assets]`
+  directory + `.assetsignore` but **never deploys `main`**.
+- Conclusion (audit): the connector's deployment is a **static-assets
+  deploy rooted at the repo root**; wrangler.toml's script entry is not
+  executed regardless of config content. The trial-log note from the
+  re-bind ("root directory cf-worker, deploy command npx wrangler
+  deploy") records dashboard display state, not effective behavior.
+
+### Infrastructure hardening applied (this commit — no frozen config touched)
+
+- Worker write/probe surface hardened in `cf-worker`:
+  - per-IP KV fixed-window rate limits on POST /meme/alert (20/5min),
+    /provenance POST (30/5min), /signal POST (30/5min),
+    /etherscan+/helius deployer POST (30/5min), /solana/* POST (30/5min),
+    /proxy (120/60s), /goplus GET (60/60s), /discovery/scan (3/15min
+    per IP + global 4-min cooldown — budget-burn guard); all fail open
+    on KV outage;
+  - `DELETE /provenance` (evidence-store wipe, unused by the client)
+    now fails closed: requires `WEAVER_ADMIN_TOKEN` secret + matching
+    header, 503 when unset, 403 on mismatch (SHA-256 constant-shape
+    compare);
+  - CORS: `Access-Control-Allow-Origin` is no longer emitted as the
+    literal `"null"` for disallowed/no-origin requests (header omitted
+    instead); `/signals` GET no longer hardcodes `allow-origin: *` and
+    now uses the shared allowlist;
+  - input validation: meme alert write path (body ≤ 256KB, chain and
+    address shape, observedAtMs bounded to now+24h/now−90d, embedded
+    score values sanity-checked 0–100 when present), GoPlus
+    `contract_addresses` list shape (≤ 30 items, 4–96 alnum each),
+    Solana routes require base58 addresses + HELIUS_KEY presence (503);
+    POST /proxy body cap 1MB.
+  - Test fixtures updated to satisfy the hardened validation (full EVM
+    address, runtime-relative timestamp); CORS test updated to assert
+    header **absence** (previously `"null"`). Suite: 43/43 PASS
+    (vitest-pool-workers, local run 2026-11-24).
+- Static-asset security headers via `_headers` (CSP with jsdelivr for
+  Chart.js, nosniff, frame-ancestors none, strict referrer policy) —
+  applies to worker-hosted assets; GitHub Pages site unaffected.
+- Deploy-path repair (three independent levers, see
+  `docs/deployment-runbook.md`):
+  1. root-level `wrangler.jsonc` (script+assets config, root-relative)
+     — covers a repo-root wrangler-based pipeline;
+  2. `.github/workflows/deploy-worker.yml` — always-on config dry-run
+     validation; real wrangler deploy as soon as a
+     `CLOUDFLARE_API_TOKEN` repo secret exists (needs the "Edit
+     Cloudflare Workers" template scope — the 2026-11-11/11-17 tokens
+     were verified to lack Workers Scripts:Edit);
+  3. dashboard connector fix instructions (Option C in runbook).
+- Both wrangler configs validated locally with wrangler@4.135.0
+  `deploy --dry-run` (bindings KV MEME_ALERTS + D1 weaver_snapshots
+  intact; assets enumerated from repo root honoring `.assetsignore`).
+
+### Window/verdict status
+
+- **Window 4 clock: NOT started.** Preconditions unchanged: (1)
+  discovery-v3 verified live (blocked on deploy path — see runbook),
+  (2) 24h soak with memeFunnel populated. This commit is pre-window
+  infrastructure hardening, recorded BEFORE any Window 4 observation
+  begins.
+- **Window 3 verdict FAIL stands unchanged**; no historical record
+  modified.
+- Config or threshold change this day? → **No.** Rate limits,
+  validation, headers, and deploy plumbing are transport/infra-level
+  controls. Threshold ≥ 70, `meme-opportunity-v1` scoring, cohort
+  definitions, KV/D1 ids, and the */15 cron are byte-identical to the
+  2026-11-11 frozen state.

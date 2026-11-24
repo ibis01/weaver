@@ -1,0 +1,76 @@
+# Deploys the Cloudflare Worker (script + assets + bindings) with
+# wrangler — deterministic, script-inclusive, independent of the
+# connector's static-assets pipeline (which produced assets-only
+# deployments on 2026-11-24, see docs/deployment-runbook.md).
+#
+# Behavior:
+#   - The dry-run validation step ALWAYS runs (no credentials needed):
+#     config parsing, bindings, asset enumeration are verified on every
+#     push touching cf-worker/.
+#   - The real deploy runs only when the repository secret
+#     CLOUDFLARE_API_TOKEN is present (token needs the "Edit Cloudflare
+#     Workers" template permission). Without the secret the job
+#     self-skips and stays green.
+
+name: Deploy Worker (wrangler)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "cf-worker/**"
+      - "wrangler.jsonc"
+      - "_headers"
+      - ".assetsignore"
+
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Exposed to steps as 'true'/'false' so the deploy/verify steps can
+      # self-skip when the token has not been configured yet.
+      CF_TOKEN_CONFIGURED: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Validate root config (dry-run, no credentials)
+        run: npx --yes wrangler@4.135.0 deploy --dry-run --outdir=.wrangler-dryrun
+
+      - name: Validate cf-worker config (dry-run, no credentials)
+        working-directory: cf-worker
+        run: npx --yes wrangler@4.135.0 deploy --dry-run --outdir=.wrangler-dryrun
+
+      - name: Deploy worker (script + assets)
+        if: env.CF_TOKEN_CONFIGURED == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx --yes wrangler@4.135.0 deploy
+
+      - name: Verify script reachability (informational)
+        if: env.CF_TOKEN_CONFIGURED == 'true'
+        run: |
+          sleep 20
+          echo "Probing /discovery/health for discovery-v3 + memeFunnel..."
+          if curl -fsS --max-time 20 https://weaver-proxy.ibis01-weaver.workers.dev/discovery/health -o /tmp/health.json; then
+            head -c 500 /tmp/health.json; echo
+            grep -q '"methodologyVersion":"discovery-v3"' /tmp/health.json \
+              && echo "OK: discovery-v3 live" \
+              || echo "::warning::health reachable but methodologyVersion is not discovery-v3 — check which deploy path ran"
+          else
+            echo "::warning::/discovery/health not reachable after deploy — inspect Cloudflare build logs"
+          fi
