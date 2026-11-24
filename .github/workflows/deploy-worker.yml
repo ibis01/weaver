@@ -3,14 +3,25 @@
 # connector's static-assets pipeline (which produced assets-only
 # deployments on 2026-11-24, see docs/deployment-runbook.md).
 #
-# Behavior:
-#   - The dry-run validation step ALWAYS runs (no credentials needed):
-#     config parsing, bindings, asset enumeration are verified on every
-#     push touching cf-worker/.
-#   - The real deploy runs only when the repository secret
-#     CLOUDFLARE_API_TOKEN is present (token needs the "Edit Cloudflare
-#     Workers" template permission). Without the secret the job
-#     self-skips and stays green.
+# Hardened pipeline (see docs/deployment-runbook.md):
+#   1. validate-worker: config dry-runs for BOTH configs, no credentials.
+#      Blocks the pipeline before anything touches production.
+#   2. deploy-production: gated by the GitHub environment
+#      "deploy-production" (configure a required reviewer in repo
+#      Settings > Environments before relying on it), HARD-FAILS when
+#      CLOUDFLARE_API_TOKEN is not configured (no more silent green
+#      self-skip), records the previous + new Version IDs, runs four
+#      job-failing smoke tests against the live worker, and uploads a
+#      release manifest kept for 90 days.
+#
+# Smoke tests (all four MUST pass or the job fails):
+#   A. CORS preflight: OPTIONS /signal with the production origin
+#      returns 204 and Access-Control-Allow-Origin: https://ibis01.github.io
+#   B. Validation gate: POST /signal with an empty payload returns 400
+#   C. Methodology gate: GET /discovery/health reports
+#      "methodologyVersion":"discovery-v3"
+#   D. Fail-closed auth: DELETE /provenance without the admin token is
+#      rejected (403, or 503 when WEAVER_ADMIN_TOKEN is unconfigured)
 
 name: Deploy Worker (wrangler)
 
@@ -25,20 +36,16 @@ on:
       - ".assetsignore"
 
 concurrency:
-  group: deploy-worker
+  group: deploy-production
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  deploy:
+  validate-worker:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      # Exposed to steps as 'true'/'false' so the deploy/verify steps can
-      # self-skip when the token has not been configured yet.
-      CF_TOKEN_CONFIGURED: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -55,22 +62,134 @@ jobs:
         working-directory: cf-worker
         run: npx --yes wrangler@4.135.0 deploy --dry-run --outdir=.wrangler-dryrun
 
-      - name: Deploy worker (script + assets)
-        if: env.CF_TOKEN_CONFIGURED == 'true'
+  deploy-production:
+    needs: validate-worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Configure this environment in Settings > Environments > deploy-production
+    # (required reviewers + main-only deployment branch policy).
+    environment: deploy-production
+    env:
+      WORKER_URL: https://weaver-proxy.ibis01-weaver.workers.dev
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Hard gate — require Cloudflare API token
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: npx --yes wrangler@4.135.0 deploy
-
-      - name: Verify script reachability (informational)
-        if: env.CF_TOKEN_CONFIGURED == 'true'
         run: |
-          sleep 20
-          echo "Probing /discovery/health for discovery-v3 + memeFunnel..."
-          if curl -fsS --max-time 20 https://weaver-proxy.ibis01-weaver.workers.dev/discovery/health -o /tmp/health.json; then
-            head -c 500 /tmp/health.json; echo
-            grep -q '"methodologyVersion":"discovery-v3"' /tmp/health.json \
-              && echo "OK: discovery-v3 live" \
-              || echo "::warning::health reachable but methodologyVersion is not discovery-v3 — check which deploy path ran"
-          else
-            echo "::warning::/discovery/health not reachable after deploy — inspect Cloudflare build logs"
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN is not configured in repository secrets. Refusing to deploy an unvalidated worker configuration to production."
+            exit 1
           fi
+          echo "CLOUDFLARE_API_TOKEN configured; proceeding with deploy."
+
+      - name: Record previous deployed version (informational)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          PREV="$(npx --yes wrangler@4.135.0 deployments list 2>/dev/null \
+            | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
+            | head -n1 || true)"
+          echo "PREVIOUS_VERSION_ID=${PREV:-unknown}" >> "$GITHUB_ENV"
+          echo "Previous Version ID: ${PREV:-unknown (could not resolve — non-fatal)}"
+
+      - name: Deploy worker (script + assets)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -o pipefail
+          OUT="$(npx --yes wrangler@4.135.0 deploy 2>&1 | tee /tmp/deploy.log)"
+          VID="$(printf '%s\n' "$OUT" | grep -oE 'Current Version ID: [0-9a-f-]+' | awk '{print $NF}')"
+          if [ -z "${VID:-}" ]; then
+            echo "::error::wrangler deploy did not report a Version ID; treating deploy as failed."
+            tail -n 40 /tmp/deploy.log
+            exit 1
+          fi
+          echo "DEPLOYED_VERSION_ID=$VID" >> "$GITHUB_ENV"
+          echo "Deployed Version ID: $VID"
+
+      - name: "Smoke test A: CORS preflight from production origin"
+        run: |
+          sleep 10
+          CODE="$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' \
+            -X OPTIONS "$WORKER_URL/signal" \
+            -H 'Origin: https://ibis01.github.io' \
+            -H 'Access-Control-Request-Method: POST')"
+          ACAO="$(curl -sS --max-time 20 -D - -o /dev/null \
+            -X OPTIONS "$WORKER_URL/signal" \
+            -H 'Origin: https://ibis01.github.io' \
+            -H 'Access-Control-Request-Method: POST' | tr -d '\r' | grep -i '^access-control-allow-origin:' || true)"
+          echo "preflight status: $CODE; $ACAO"
+          [ "$CODE" = "204" ] || { echo "::error::Smoke A failed: expected 204 preflight, got $CODE"; exit 1; }
+          grep -qi 'ibis01.github.io' <<<"$ACAO" || { echo "::error::Smoke A failed: Access-Control-Allow-Origin missing production origin"; exit 1; }
+
+      - name: "Smoke test B: /signal rejects empty payload"
+        run: |
+          CODE="$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' \
+            -X POST "$WORKER_URL/signal" \
+            -H 'content-type: application/json' --data '{}')"
+          echo "POST /signal {{}} status: $CODE"
+          [ "$CODE" = "400" ] || { echo "::error::Smoke B failed: expected 400 for empty payload, got $CODE"; exit 1; }
+
+      - name: "Smoke test C: /discovery/health reports discovery-v3"
+        run: |
+          BODY="$(curl -fsS --max-time 20 "$WORKER_URL/discovery/health")"
+          head -c 500 <<<"$BODY"; echo
+          grep -q '"methodologyVersion":"discovery-v3"' <<<"$BODY" \
+            || { echo "::error::Smoke C failed: methodologyVersion is not discovery-v3"; exit 1; }
+
+      - name: "Smoke test D: provenance wipe fails closed without admin token"
+        run: |
+          CODE="$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' \
+            -X DELETE "$WORKER_URL/provenance")"
+          echo "DELETE /provenance (no token) status: $CODE"
+          [ "$CODE" = "403" ] || [ "$CODE" = "503" ] || {
+            echo "::error::Smoke D failed: unauthenticated provenance wipe must be rejected (403/503), got $CODE";
+            exit 1;
+          }
+
+      - name: Write release manifest
+        run: |
+          DIGEST="$(
+            {
+              printf '%s\n' "weaver-worker-bundle-v1"
+              find cf-worker -type f -print0 | sort -z | xargs -0 sha256sum
+              sha256sum wrangler.jsonc _headers .assetsignore 2>/dev/null
+            } | sha256sum | cut -d' ' -f1
+          )"
+          cat > RELEASE_MANIFEST.md <<MANIFEST
+          # Release manifest
+
+          | Field | Value |
+          | --- | --- |
+          | Commit | ${GITHUB_SHA} |
+          | Run | ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} |
+          | Bundle digest | ${DIGEST} |
+          | Previous Version ID | ${PREVIOUS_VERSION_ID:-unknown} |
+          | Deployed Version ID | ${DEPLOYED_VERSION_ID} |
+          | Smoke A (CORS preflight 204) | PASS |
+          | Smoke B (empty /signal -> 400) | PASS |
+          | Smoke C (discovery-v3 health) | PASS |
+          | Smoke D (fail-closed provenance wipe) | PASS |
+          | Rollback target for this deploy | ${PREVIOUS_VERSION_ID:-use 'wrangler rollback' previous-version semantics} |
+
+          Roll back with the "Rollback Worker (wrangler)" workflow
+          (.github/workflows/rollback-worker.yml), passing
+          DEPLOYED_VERSION_ID above only when you need to step further back
+          than the immediately previous version.
+          MANIFEST
+          cat RELEASE_MANIFEST.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload release manifest (90-day retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest-${{ github.run_id }}
+          path: RELEASE_MANIFEST.md
+          retention-days: 90
