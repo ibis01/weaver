@@ -21,10 +21,10 @@ jobs:
       BASE_URL: ${{ inputs.base_url || secrets.PERFORMANCE_BASE_URL }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Validate target configuration
         run: test -n "$BASE_URL"
       - name: Run k6 benchmark
-        uses: grafana/k6-action@v0.3.1
+        uses: grafana/k6-action@e4714b734f2b0afaabeb7b4a69142745548ab9ec # v0.3.1
         with:
           filename: performance/k6-proxy.js

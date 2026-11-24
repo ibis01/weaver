@@ -1,0 +1,36 @@
+# Dependabot: dependency freshness automation.
+#
+# npm (root + cf-worker) and github-actions are checked weekly. Minor
+# and patch bumps are grouped so routine updates land as a single PR
+# and consume one CI run; major bumps stay separate for individual
+# review. The npm audit gates in test-and-build.yml catch anything
+# Dependabot misses between scheduled runs.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /cf-worker
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
