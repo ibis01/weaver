@@ -1,8 +1,10 @@
 # Deployment Runbook — weaver-proxy Worker
 
-Status: **2026-11-24** — written after the second assets-only connector
-deployment. Read this before touching Cloudflare settings or running a
-manual deploy.
+Status: **RESOLVED 2026-11-24 06:41Z via Option A** (root
+`wrangler.jsonc` — the connector pipeline picked it up and deployed
+script + assets; discovery-v3 verified live 06:43Z, see
+`docs/phase-2/paper-trial-log.md` §RESOLUTION). Options B/C remain
+documented as permanent/fallback paths.
 
 ## Current state (facts, verified live)
 
