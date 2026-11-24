@@ -730,3 +730,48 @@ Scan rounds must run on the documented 2-hour cadence; any observer gap
   controls. Threshold ≥ 70, `meme-opportunity-v1` scoring, cohort
   definitions, KV/D1 ids, and the */15 cron are byte-identical to the
   2026-11-11 frozen state.
+
+### RESOLUTION — deploy regression fixed via Option A (root wrangler.jsonc), 06:41–06:45Z
+
+- Push of `7cc7a98` (root wrangler.jsonc + hardening) triggered Workers
+  Builds build `8dcf96d5` (success ~06:41Z). The pipeline picked up the
+  root-level config and deployed **script + assets** for the first time
+  since the re-bind. No dashboard action and no Cloudflare token were
+  required.
+- Interpretation: when no root config exists, the connector's pipeline
+  generates a static-assets-only deployment (explaining both prior
+  assets-only builds); with a root config present it executes a real
+  wrangler deploy. cf-worker/wrangler.toml remains the canonical config
+  for in-directory deploys; the root jsonc mirrors it with root-relative
+  paths.
+- Live verification checklist (docs/deployment-runbook.md) — all PASS:
+  1. `/discovery/health` → 200 JSON, CORS headers, budgets, memeFunnel
+     present (v3-only field). alertKeys 933, alertsLast24h 0 (expected —
+     no client alert traffic this deployment era), listComplete true.
+  2. `/discovery/scan` trigger → ok; immediate second call → 429
+     SCAN_COOLDOWN with Retry-After 240 (rate limiter live).
+  3. `/discovery/snapshot` regenerated 06:43:33Z:
+     **methodologyVersion discovery-v3**, sourceCounts {dex-boosts: 13,
+     dex-profiles: 8, dex-market-pair: 20, coinpaprika-trending: 0},
+     20 tokens with REAL market fields (sample: JOB/solana, liq
+     $144,777, vol24h $341,787, +10.92% h24, sources [dex-boosts,
+     dex-market-pair]), errors []. The Window 3 root cause (zeroed
+     momentum inputs) is repaired in production.
+  4. `/proxy` relay 200 (X-Weaver-Cache MISS→HIT pattern intact); SSRF
+     guard rejects non-allowlisted hosts (example.com → 403 body).
+  5. `/meme/alerts` returns store contents.
+  6. Hardened write path live: POST /meme/alert with malformed address
+     → 400; DELETE /provenance → 503 fail-closed (admin token unset).
+  7. Strict CORS live: allowed origin gets ACAO echo; disallowed origin
+     gets NO ACAO header (preflight 204 without it).
+  8. `_headers` live on assets: CSP (self + jsdelivr), nosniff, DENY,
+     strict referrer, permissions lock-down.
+- Known limitation (pre-existing): GoPlus upstream rate-limits the
+  shared Cloudflare egress pool (code 4029 relayed as 429 with retry
+  semantics). Unchanged by this work.
+- **Window 4 precondition status: 1 of 2 MET** (discovery-v3 verified
+  live per checklist). The 24h soak (precondition 2) can now begin —
+  memeFunnel must remain populated and the cron must keep regenerating
+  v3 snapshots. **Window 4 clock: NOT started**; it opens only after the
+  soak completes and the operator records T0 per the pre-registration.
+- Config or threshold change this day? → **No.**
