@@ -1,0 +1,17 @@
+# Cloudflare Workers static-assets header rules. Applies to asset
+# responses served by the worker host (weaver-proxy.workers.dev).
+# Must live at the root of the assets directory. Not secret — safe to
+# be a public file.
+#
+# CSP notes:
+# - script-src needs cdn.jsdelivr.net (Chart.js UMD).
+# - style-src keeps 'unsafe-inline' because the app injects inline
+#   style attributes via JS-generated markup.
+# - connect-src is 'self' https: wss: — the client talks to many public
+#   market-data APIs and the worker proxy; all https.
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'self' https: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'none'

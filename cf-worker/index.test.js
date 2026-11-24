@@ -430,7 +430,11 @@ describe("origin handling", () => {
       env,
     );
     expect(resp.status).toBe(200);
-    expect(resp.headers.get("Access-Control-Allow-Origin")).toBe("null");
+    // Hardened CORS (2026-11-24): no Origin → no Access-Control-Allow-Origin
+    // at all. The old behavior echoed the literal string "null", which the
+    // browser accepts as a match for Origin: null (sandboxed iframe), widening
+    // the CORS surface beyond the allowlist.
+    expect(resp.headers.get("Access-Control-Allow-Origin")).toBeNull();
   });
 
   it("rejects disallowed Origin with 403", async () => {

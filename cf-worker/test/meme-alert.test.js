@@ -42,7 +42,10 @@ describe("POST /meme/alert", () => {
     const r = await handleMemeAlert(
       req({
         assessment: {
-          identity: { chain: "ethereum", tokenAddress: "0xabc" },
+          identity: {
+            chain: "ethereum",
+            tokenAddress: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+          },
           observedAtMs: Date.now(),
         },
         market: {},
@@ -54,10 +57,17 @@ describe("POST /meme/alert", () => {
 
   it("stores a well-formed alert", async () => {
     const env = makeEnv();
+    // Hardened write path (2026-11-24): address must look like an address
+    // and observedAtMs must be within ±[24h future / 90d past] of now, so
+    // fixtures use a full EVM address and a runtime-relative timestamp.
+    const observedAtMs = Date.now();
     const body = {
       assessment: {
-        identity: { chain: "ethereum", tokenAddress: "0xabc" },
-        observedAtMs: 1700000000000,
+        identity: {
+          chain: "ethereum",
+          tokenAddress: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        },
+        observedAtMs,
         confidence: 0.72,
         scores: { opportunity: 65, survivability: null, executionRisk: 20 },
         category: "WATCH_FOR_CONFIRMATION",
@@ -73,7 +83,7 @@ describe("POST /meme/alert", () => {
     const r = await handleMemeAlert(req(body), env);
     expect(r.status).toBe(200);
     const stored = await env.MEME_ALERTS.get(
-      "weaver:meme:alert:v2:1700000000000:ethereum:0xabc",
+      `weaver:meme:alert:v2:${observedAtMs}:ethereum:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045`,
     );
     expect(typeof stored).toBe("string");
     const parsed = JSON.parse(stored);
@@ -92,7 +102,10 @@ describe("POST /meme/alert", () => {
     };
     const body = {
       assessment: {
-        identity: { chain: "ethereum", tokenAddress: "0xabc" },
+        identity: {
+          chain: "ethereum",
+          tokenAddress: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+        },
         observedAtMs: Date.now(),
       },
       market: { priceUsd: 1 },

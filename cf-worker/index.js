@@ -119,6 +119,79 @@ async function checkAndIncrementBudget(env, provider) {
   }
 }
 
+// ── Per-IP fixed-window rate limiting (KV, eventually consistent) ──
+// Flood guard for the write/proxy surface. Approximate by design: KV is
+// eventually consistent, so concurrent requests inside one window may
+// slightly overshoot the limit. The limiter FAILS OPEN when KV is
+// unavailable — a storage outage must never take the read/probe paths
+// down with it. Limits chosen generously above legitimate client
+// behavior (client scans fire at most a few posts per session).
+const RATE_LIMITS = {
+  "meme-alert-post": { limit: 20, windowSeconds: 300 },
+  "provenance-post": { limit: 30, windowSeconds: 300 },
+  "signal-post": { limit: 30, windowSeconds: 300 },
+  "etherscan-post": { limit: 30, windowSeconds: 300 },
+  "helius-post": { limit: 30, windowSeconds: 300 },
+  "solana-post": { limit: 30, windowSeconds: 300 },
+  "proxy": { limit: 120, windowSeconds: 60 },
+  "goplus-get": { limit: 60, windowSeconds: 60 },
+  "discovery-scan": { limit: 3, windowSeconds: 900 },
+};
+
+function clientIp(request) {
+  const cip = request.headers.get("CF-Connecting-IP");
+  if (cip) return cip;
+  const xff = request.headers.get("X-Forwarded-For");
+  if (xff) return xff.split(",")[0].trim() || "unknown";
+  return "unknown";
+}
+
+async function rateLimit(request, env, bucket) {
+  const cfg = RATE_LIMITS[bucket];
+  if (!cfg || !env?.MEME_ALERTS) return null; // fail-open, see comment above
+  try {
+    const ip = clientIp(request);
+    const windowId = Math.floor(Date.now() / 1000 / cfg.windowSeconds);
+    const key = `rl:${bucket}:${ip}:${windowId}`;
+    const current = Number(await env.MEME_ALERTS.get(key)) || 0;
+    if (current >= cfg.limit) {
+      const elapsed = Math.floor((Date.now() / 1000) % cfg.windowSeconds);
+      return { retryAfter: Math.max(1, cfg.windowSeconds - elapsed) };
+    }
+    await env.MEME_ALERTS.put(key, String(current + 1), {
+      expirationTtl: Math.max(cfg.windowSeconds * 2, 120),
+    });
+    return null;
+  } catch (e) {
+    console.warn(`[RateLimit] failed open for ${bucket}:`, e && e.message);
+    return null;
+  }
+}
+
+function tooManyRequests(headers, retryAfter) {
+  return jsonResponse(
+    { error: "Rate limit exceeded", code: "RATE_LIMITED", retryable: true },
+    429,
+    { ...headers, "Retry-After": String(retryAfter) },
+  );
+}
+
+// Constant-shape comparison for admin tokens: hash both sides so the
+// comparison cost does not depend on where the first differing byte is.
+async function secretsMatch(a, b) {
+  if (typeof a !== "string" || typeof b !== "string" || !a || !b) return false;
+  const enc = new TextEncoder();
+  const [ha, hb] = await Promise.all([
+    crypto.subtle.digest("SHA-256", enc.encode(a)),
+    crypto.subtle.digest("SHA-256", enc.encode(b)),
+  ]);
+  const va = new Uint8Array(ha);
+  const vb = new Uint8Array(hb);
+  let diff = 0;
+  for (let i = 0; i < va.length; i++) diff |= va[i] ^ vb[i];
+  return diff === 0;
+}
+
 const __inflightFetches = new Map();
 
 const DISCOVERY_KV_KEY = "discovery:snapshot:latest";
@@ -474,14 +547,22 @@ function fetchWithCoalesce(effectiveTarget, init, method) {
 }
 
 function corsHeaders(origin) {
-  const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : "null";
-  return {
-    "Access-Control-Allow-Origin": allowOrigin,
+  // Emit Access-Control-Allow-Origin ONLY for allowlisted origins.
+  // Previously a disallowed/no-origin request got "null" — which the
+  // browser treats as a valid match for an Origin: null (sandboxed
+  // iframe / redirected cross-origin) request, widening the CORS
+  // surface beyond the allowlist. Omitting the header is the strict,
+  // correct behavior.
+  const headers = {
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   };
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+  return headers;
 }
 
 function jsonResponse(obj, status, headers) {
@@ -1045,7 +1126,15 @@ async function relayAllowedProxy(request, url, headers, ctx, env) {
   };
   const init = { method, headers: upstreamHeaders, redirect: "manual" };
   if (method === "POST") {
-    init.body = await request.text();
+    const rawBody = await request.text();
+    if (rawBody.length > 1024 * 1024) {
+      return jsonResponse(
+        { error: "Request body too large (max 1MB)" },
+        413,
+        headers,
+      );
+    }
+    init.body = rawBody;
     init.headers["Content-Type"] = "application/json";
   }
   const cache = caches.default;
@@ -1232,12 +1321,16 @@ async function handleRequest(request, env, ctx) {
   ) {
     if (request.method !== "POST")
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
+    const limited = await rateLimit(request, env, "etherscan-post");
+    if (limited) return tooManyRequests(headers, limited.retryAfter);
     return handleEtherscanDeployerRequest(request, env, headers, ctx);
   }
 
   if (parts.length === 2 && parts[0] === "helius" && parts[1] === "deployer") {
     if (request.method !== "POST")
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
+    const limited = await rateLimit(request, env, "helius-post");
+    if (limited) return tooManyRequests(headers, limited.retryAfter);
     return handleHeliusDeployerRequest(request, env, headers);
   }
 
@@ -1246,6 +1339,8 @@ async function handleRequest(request, env, ctx) {
     parts[0] === "provenance" &&
     request.method === "POST"
   ) {
+    const limited = await rateLimit(request, env, "provenance-post");
+    if (limited) return tooManyRequests(headers, limited.retryAfter);
     let body = null;
     try {
       body = await request.json();
@@ -1308,6 +1403,27 @@ async function handleRequest(request, env, ctx) {
     parts[0] === "provenance" &&
     request.method === "DELETE"
   ) {
+    // Evidence-store wipe guard. The client never calls this route; it
+    // exists for operator maintenance only. Fail closed when the admin
+    // secret is not configured, and require a matching header otherwise.
+    const adminToken = env?.WEAVER_ADMIN_TOKEN;
+    if (!adminToken || typeof adminToken !== "string") {
+      return jsonResponse(
+        {
+          error:
+            "Provenance deletion disabled (WEAVER_ADMIN_TOKEN not configured)",
+        },
+        503,
+        headers,
+      );
+    }
+    const provided = request.headers.get("x-weaver-admin-token") || "";
+    if (!(await secretsMatch(provided, adminToken))) {
+      console.warn(
+        `[Auth] rejected provenance DELETE from ${clientIp(request)}`,
+      );
+      return jsonResponse({ error: "Forbidden" }, 403, headers);
+    }
     let cursor;
     let deleted = 0;
     do {
@@ -1332,6 +1448,8 @@ async function handleRequest(request, env, ctx) {
     parts[0] === "signal" &&
     request.method === "POST"
   ) {
+    const limited = await rateLimit(request, env, "signal-post");
+    if (limited) return tooManyRequests(headers, limited.retryAfter);
     let body = null;
     try {
       body = await request.json();
@@ -1385,9 +1503,7 @@ async function handleRequest(request, env, ctx) {
     return new Response(JSON.stringify({ signals }), {
       headers: {
         "content-type": "application/json",
-        "access-control-allow-origin": "*",
-        "access-control-allow-methods": "GET, OPTIONS",
-        "access-control-allow-headers": "content-type",
+        ...headers,
       },
     });
   }
@@ -1448,6 +1564,8 @@ async function handleRequest(request, env, ctx) {
   if (parts.length === 2 && parts[0] === "meme" && parts[1] === "alert") {
     if (request.method !== "POST")
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
+    const limited = await rateLimit(request, env, "meme-alert-post");
+    if (limited) return tooManyRequests(headers, limited.retryAfter);
     const res = await handleMemeAlert(request, env);
     const merged = new Headers(res.headers);
     for (const [k, v] of Object.entries(headers)) merged.set(k, v);
@@ -1457,6 +1575,8 @@ async function handleRequest(request, env, ctx) {
   if (parts.length === 1 && parts[0] === "proxy") {
     if (request.method !== "GET" && request.method !== "POST")
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
+    const limited = await rateLimit(request, env, "proxy");
+    if (limited) return tooManyRequests(headers, limited.retryAfter);
     return relayAllowedProxy(request, url, headers, ctx, env);
   }
 
@@ -1472,6 +1592,24 @@ async function handleRequest(request, env, ctx) {
         400,
         headers,
       );
+    // Validate the address list shape before relaying: comma-separated
+    // items, each 4-96 alphanumeric characters (covers 0x-prefixed EVM
+    // hex and base58 Solana addresses; rejects junk that would only
+    // waste the GoPlus daily budget). Lenient by design — this is a
+    // sanity gate, not a chain-specific parser.
+    const addressItems = contractAddresses.split(",");
+    if (
+      addressItems.length > 30 ||
+      addressItems.some((s) => !/^[0-9a-zA-Z]{4,96}$/.test(s.trim()))
+    ) {
+      return jsonResponse(
+        { error: "Invalid contract_addresses format" },
+        400,
+        headers,
+      );
+    }
+    const limited = await rateLimit(request, env, "goplus-get");
+    if (limited) return tooManyRequests(headers, limited.retryAfter);
     if (isGoplusEvm) {
       const chainId = parts[2];
       if (!ALLOWED_EVM_CHAIN_IDS.has(chainId))
@@ -1492,6 +1630,35 @@ async function handleRequest(request, env, ctx) {
   if (parts.length === 2 && parts[0] === "discovery" && parts[1] === "scan") {
     if (request.method !== "GET")
       return jsonResponse({ error: "Method not allowed" }, 405, headers);
+    // Each scan consumes the shared GoPlus daily budget during
+    // enrichment, so an unauthenticated trigger must not become a
+    // budget-burn vector: per-IP cap plus a global cooldown aligned
+    // with the */15 cron (a manual scan closer than 4 min apart adds
+    // nothing — cron refreshes the snapshot anyway).
+    const limited = await rateLimit(request, env, "discovery-scan");
+    if (limited) return tooManyRequests(headers, limited.retryAfter);
+    try {
+      const lastTrigger =
+        Number(await env.MEME_ALERTS.get("discovery:scan:last-trigger")) || 0;
+      if (Date.now() - lastTrigger < 4 * 60 * 1000) {
+        return jsonResponse(
+          {
+            error: "Scan cooldown active — cron refreshes the snapshot every 15 minutes",
+            code: "SCAN_COOLDOWN",
+            retryable: true,
+          },
+          429,
+          { ...headers, "Retry-After": "240" },
+        );
+      }
+      ctx.waitUntil(
+        env.MEME_ALERTS
+          .put("discovery:scan:last-trigger", String(Date.now()))
+          .catch(() => {}),
+      );
+    } catch {
+      // KV unavailable — fail open (scan proceeds; budget still enforced)
+    }
     ctx.waitUntil(runDiscoveryScan(env));
     return jsonResponse(
       {
@@ -1679,6 +1846,29 @@ async function handleRequest(request, env, ctx) {
         headers,
       );
     }
+    const allValid = addresses.every(
+      (a) => typeof a === "string" && SOLANA_ADDRESS_PATTERN.test(a),
+    );
+    if (!allValid) {
+      return jsonResponse(
+        { error: "addresses must be base58 Solana addresses" },
+        400,
+        headers,
+      );
+    }
+    if (
+      !env ||
+      typeof env.HELIUS_KEY !== "string" ||
+      !env.HELIUS_KEY
+    ) {
+      return jsonResponse(
+        { error: "Helius not configured on this Worker (set HELIUS_KEY)" },
+        503,
+        headers,
+      );
+    }
+    const limited = await rateLimit(request, env, "solana-post");
+    if (limited) return tooManyRequests(headers, limited.retryAfter);
 
     const hasBudget = await checkAndIncrementBudget(env, "helius");
     if (!hasBudget) {
@@ -1772,6 +1962,29 @@ async function handleRequest(request, env, ctx) {
         headers,
       );
     }
+    if (
+      !SOLANA_ADDRESS_PATTERN.test(wallet) ||
+      !SOLANA_ADDRESS_PATTERN.test(tokenMint)
+    ) {
+      return jsonResponse(
+        { error: "wallet and tokenMint must be base58 Solana addresses" },
+        400,
+        headers,
+      );
+    }
+    if (
+      !env ||
+      typeof env.HELIUS_KEY !== "string" ||
+      !env.HELIUS_KEY
+    ) {
+      return jsonResponse(
+        { error: "Helius not configured on this Worker (set HELIUS_KEY)" },
+        503,
+        headers,
+      );
+    }
+    const limited = await rateLimit(request, env, "solana-post");
+    if (limited) return tooManyRequests(headers, limited.retryAfter);
 
     const hasBudget = await checkAndIncrementBudget(env, "helius");
     if (!hasBudget) {
