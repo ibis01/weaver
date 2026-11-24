@@ -447,11 +447,13 @@ circuit breakers.
 - **No historical outcome backfill.** Track Record captures outcomes for
   gem-agent calls going forward. Legacy records cannot have their outcomes
   reconstructed.
-- **Proxy backend is not in this repository.** The `nginx.conf` in
-  `deploy/` forwards to a `proxy:3001` upstream. The proxy itself lives
-  outside the checked-in tree. `proxy-server.js` at the root is a
-  reference implementation for local development, not the deployed
-  service.
+- **The proxy backend ships in this repository, with two runtime modes.**
+  `proxy-server.js` at the root is the Node proxy implementation
+  (Redis-backed atomic rate limiter); `deploy/` holds its production
+  deployment artifacts (`nginx.conf`, `docker-compose.prod.yml`, Redis
+  TLS certificate tooling). In the Cloudflare deployment the Worker in
+  `cf-worker/` is the production proxy path; the Node proxy is the
+  self-hosted alternative.
 - **Track Record migration identity is content-projection based, not
   cryptographic.** Two records are deduplicated only when both their
   narrow signature and their normalized content hash match. The projection
