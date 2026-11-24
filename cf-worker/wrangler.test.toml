@@ -1,0 +1,27 @@
+name = "weaver-proxy-test"
+main = "index.js"
+compatibility_date = "2024-09-01"
+
+# Test-only wrangler config used by vitest (@cloudflare/vitest-plugin).
+#
+# Identical to wrangler.toml EXCEPT it omits the [assets] block. The
+# assets directory would be the repo root, and miniflare (unlike the
+# wrangler CLI) does not honor /.assetsignore — it walks the whole tree
+# and fails on >25 MiB files under node_modules/. The worker script never
+# reads the assets binding (verified: no ASSETS references in index.js or
+# src/), and the vitest suite exercises API routes only, so removing
+# [assets] changes nothing the tests can observe.
+#
+# Keep bindings/ids in sync with wrangler.toml.
+
+[[kv_namespaces]]
+binding = "MEME_ALERTS"
+id = "711edb1aa070446ea6ccbf81d26135a4"
+
+[[d1_databases]]
+binding = "weaver_snapshots"
+database_name = "weaver-snapshots"
+database_id = "d3a7b2ee-0a47-4b6e-b6ac-a6eec1845399"
+
+[triggers]
+crons = ["*/15 * * * *"]
