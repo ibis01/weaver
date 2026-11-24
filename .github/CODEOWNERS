@@ -1,0 +1,10 @@
+# Code ownership map.
+#
+# require_code_owner_reviews is intentionally DISABLED while Weaver is
+# a solo-maintained beta (a required approval with one human would
+# make self-merge impossible; recorded trade-off, see
+# docs/release-matrix.md > Recorded control state). This file
+# establishes ownership metadata now and is ready for the flip:
+# set require_code_owner_reviews=true plus
+# required_approving_review_count=1 before public production.
+* @ibis01
