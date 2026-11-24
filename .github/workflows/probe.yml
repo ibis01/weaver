@@ -6,7 +6,9 @@
 #
 # Checks mirror the deploy smoke-test contract
 # (docs/deployment-runbook.md):
-#   1. /discovery/health  -> 200, JSON, methodologyVersion discovery-v3
+#   1. /discovery/health -> 200, ok:true, snapshotMeta.methodologyVersion
+#      == discovery-v3, and snapshot generatedAt <= 15 minutes old
+#      (the Gate 4 data-freshness SLA sample)
 #   2. CORS preflight OPTIONS /signal from the production origin
 #      -> 204 + Access-Control-Allow-Origin: https://ibis01.github.io
 #   3. POST /signal with an empty payload -> 400 (validation gate live)
@@ -33,18 +35,24 @@ jobs:
     env:
       WORKER_URL: https://weaver-proxy.ibis01-weaver.workers.dev
     steps:
-      - name: Health + methodology gate
+      - name: Health + methodology + freshness gate
         run: |
           set -euo pipefail
           code=$(curl -sS --max-time 20 -o /tmp/health.json -w '%{http_code}' "$WORKER_URL/discovery/health")
           echo "GET /discovery/health -> $code"
           test "$code" = 200
           python3 - <<'PY'
-          import json
+          import json, time
           d = json.load(open('/tmp/health.json'))
-          v = d.get('methodologyVersion')
-          print('methodologyVersion:', v)
+          assert d.get('ok') is True, 'health ok flag not true: %r' % d.get('ok')
+          meta = d.get('snapshotMeta') or {}
+          v = meta.get('methodologyVersion')
           assert v == 'discovery-v3', 'unexpected methodologyVersion: %r' % v
+          gen = meta.get('generatedAt')
+          assert isinstance(gen, (int, float)), 'missing snapshotMeta.generatedAt'
+          age_min = (time.time() * 1000 - gen) / 60000.0
+          assert age_min <= 15, 'snapshot stale: %.1f min old (SLA 15 min)' % age_min
+          print('methodologyVersion: %s | snapshot age: %.1f min (SLA 15 min)' % (v, age_min))
           PY
 
       - name: CORS preflight
@@ -79,7 +87,7 @@ jobs:
             echo ""
             echo "- Outcome: **$OUTCOME**"
             echo "- Target: \`$WORKER_URL\`"
-            echo "- Contract: health=200 discovery-v3, preflight=204+ACAO, empty POST /signal=400, /meme/alerts=200"
+            echo "- Contract: health=200 ok+discovery-v3+fresh<=15min, preflight=204+ACAO, empty POST /signal=400, /meme/alerts=200"
             echo ""
             echo "Each failed step above is the concrete detector that fired."
             echo "Runs are retained in Actions history (90 days) as Gate 4 evidence."
