@@ -2,6 +2,14 @@
 # vulnerabilities or disallowed licenses. Complements the npm audit
 # gates (which run against the full tree on main) by guarding the PR
 # boundary itself.
+#
+# BLOCKING since 2026-11-24: the repo is public, so the dependency
+# graph and Dependabot alerts are enabled by default and the action
+# can retrieve advisory data. continue-on-error was removed and the
+# job verified green in blocking mode on the hardening PR that landed
+# this change. Required at the main boundary via branch protection
+# (see docs/release-matrix.md > Recorded control state).
+
 name: Dependency Review
 
 on:
@@ -19,12 +27,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Dependency review
-        # continue-on-error: this repo's dependency graph is not enabled
-        # yet (Settings > Code security > Dependency graph). Until the
-        # operator flips that switch, the action cannot retrieve advisory
-        # data and would fail every PR. Vulnerability checking meanwhile
-        # remains enforced by the npm audit gates in test-and-build.yml.
-        continue-on-error: true
         uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
         with:
           fail-on-severity: high

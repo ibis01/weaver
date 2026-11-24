@@ -1,0 +1,86 @@
+# External production probe: runs OUTSIDE Cloudflare (GitHub runners)
+# every 15 minutes against the live Worker. Fails loudly (red run +
+# Actions email on scheduled-workflow failure) on any regression
+# between deploys, and produces the durable per-sample evidence
+# stream Gate 4 needs (Actions history, 90-day retention).
+#
+# Checks mirror the deploy smoke-test contract
+# (docs/deployment-runbook.md):
+#   1. /discovery/health  -> 200, JSON, methodologyVersion discovery-v3
+#   2. CORS preflight OPTIONS /signal from the production origin
+#      -> 204 + Access-Control-Allow-Origin: https://ibis01.github.io
+#   3. POST /signal with an empty payload -> 400 (validation gate live)
+#   4. GET /meme/alerts?limit=1 -> 200 (read path live)
+
+name: Production Probe
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      WORKER_URL: https://weaver-proxy.ibis01-weaver.workers.dev
+    steps:
+      - name: Health + methodology gate
+        run: |
+          set -euo pipefail
+          code=$(curl -sS --max-time 20 -o /tmp/health.json -w '%{http_code}' "$WORKER_URL/discovery/health")
+          echo "GET /discovery/health -> $code"
+          test "$code" = 200
+          python3 - <<'PY'
+          import json
+          d = json.load(open('/tmp/health.json'))
+          v = d.get('methodologyVersion')
+          print('methodologyVersion:', v)
+          assert v == 'discovery-v3', 'unexpected methodologyVersion: %r' % v
+          PY
+
+      - name: CORS preflight
+        run: |
+          set -euo pipefail
+          headers=$(curl -sS --max-time 20 -D - -o /dev/null -X OPTIONS -H 'Origin: https://ibis01.github.io' "$WORKER_URL/signal")
+          echo "$headers"
+          echo "$headers" | grep -qE '^HTTP/[0-9.]+ 204' || { echo 'FAIL: preflight did not return 204'; exit 1; }
+          echo "$headers" | grep -qi 'access-control-allow-origin: https://ibis01.github.io' || { echo 'FAIL: missing ACAO for production origin'; exit 1; }
+
+      - name: Validation gate
+        run: |
+          set -euo pipefail
+          code=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' "$WORKER_URL/signal")
+          echo "POST /signal (empty payload) -> $code"
+          test "$code" = 400
+
+      - name: Read path
+        run: |
+          set -euo pipefail
+          code=$(curl -sS --max-time 20 -o /tmp/alerts.json -w '%{http_code}' "$WORKER_URL/meme/alerts?limit=1")
+          echo "GET /meme/alerts?limit=1 -> $code"
+          test "$code" = 200
+
+      - name: Probe summary (always)
+        if: always()
+        env:
+          OUTCOME: ${{ job.status }}
+        run: |
+          {
+            echo "## Production probe — $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+            echo ""
+            echo "- Outcome: **$OUTCOME**"
+            echo "- Target: \`$WORKER_URL\`"
+            echo "- Contract: health=200 discovery-v3, preflight=204+ACAO, empty POST /signal=400, /meme/alerts=200"
+            echo ""
+            echo "Each failed step above is the concrete detector that fired."
+            echo "Runs are retained in Actions history (90 days) as Gate 4 evidence."
+          } >> "$GITHUB_STEP_SUMMARY"
