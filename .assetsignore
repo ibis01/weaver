@@ -1,0 +1,31 @@
+# Keep project internals out of the public asset mirror on the worker host.
+# Read by wrangler [assets]; syntax mirrors .gitignore. Paths are relative
+# to the assets directory (repo root). Client-served files stay public:
+# index.html, style.css, sw.js, manifest.json, assets/, data/, dist/, js/.
+backups/
+cf-worker/
+deploy/
+docs/
+examples/
+memory-bank/
+performance/
+scripts/
+server/
+test/
+.github/
+.clinerules/
+.continue/
+.vscode/
+*.md
+Dockerfile*
+docker-compose*
+proxy-server.js
+build.js
+concat.js
+playwright.config.js
+package.json
+package-lock.json
+.env.example
+.nvmrc
+.dockerignore
+.gitignore

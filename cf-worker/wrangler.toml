@@ -15,3 +15,40 @@ database_id = "d3a7b2ee-0a47-4b6e-b6ac-a6eec1845399"
 
 [triggers]
 crons = ["*/15 * * * *"]
+
+# ------------------------------------------------------------------
+# Static assets + script routing (added 2026-11-24 — deploy fix)
+#
+# Empirical result of the first Workers Builds deploy from this repo
+# (build f0b285fa, version 384ccda1, 2026-11-24T05:17Z, commit f90b0c3):
+# client assets were served, but every script route (/goplus/*,
+# /meme/alerts, /discovery/*, /proxy, ...) returned an empty-body 404
+# with no CORS headers — the discovery-v3 script never received a
+# request. The implicit connector-era assets setup shadowed the script.
+#
+# Make the serving model explicit so `npx wrangler deploy` (the
+# connector's deploy command) is fully determined by this file:
+#   - assets directory = repo root (client mirror: index.html, dist/,
+#     js/, data/, assets/, style.css, sw.js, manifest.json)
+#   - not_found_handling = "none": any request that is not a file
+#     falls through to the script (the whole API surface)
+#   - run_worker_first additionally pins the API routes to the script
+#     regardless of asset matching
+# Internals are kept out of the mirror by /.assetsignore.
+# ------------------------------------------------------------------
+[assets]
+directory = "../"
+not_found_handling = "none"
+run_worker_first = [
+  "/discovery/*",
+  "/meme/*",
+  "/proxy",
+  "/goplus/*",
+  "/etherscan/*",
+  "/helius/*",
+  "/provenance",
+  "/signal",
+  "/signals",
+  "/snapshot/*",
+  "/solana/*",
+]
