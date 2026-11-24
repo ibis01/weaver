@@ -231,7 +231,7 @@ this window and its (zero) observations do not count toward this trial.
 - Persistence fix verified via intercept test in production bundle:
   * `persistMemeAlert(gem)` with `hasConvergence: false` →
     `assessment.cohort: "control"` ✅
-  * `persistMemeAlert(gem)` with `hasConvergence: true` →
+  * `persistMemeAlert(gem)` with `hasConvergence: true`  →
     `assessment.cohort: "treatment"` ✅
   * Full payload keys: opportunityScore, methodologyVersion,
     observedAtMs, identity, cohort
@@ -279,9 +279,10 @@ this window and its (zero) observations do not count toward this trial.
   * Mann-Whitney U with normal approximation + tie correction
   * Bootstrap 95% CI for the median (10,000 resamples)
   * Sample-size gate: MIN_OBSERVATIONS_PER_COHORT = 10 per pre-registration
-  * Cohort provenance: records with `assessment.cohort` in {control, treatment}
-    are counted; pre-fix records (cohort missing) are excluded from the
-    statistical comparison but reported under `evaluated_unknown_cohort`
+  * Cohort provenance: records with `assessment.cohort` in {control,
+    treatment} are counted; pre-fix records (cohort missing) are excluded
+    from the statistical comparison but reported under
+    `evaluated_unknown_cohort`
 - Scans since verification: multiple; GoPlus proxy returns 429 on every
   shield check → `shield.error` → verdict UNKNOWN → score < 70 → no persist
 - Alerts persisted with cohort field: **0** (consistent with 429 blocker)
@@ -623,3 +624,24 @@ Scan rounds must run on the documented 2-hour cadence; any observer gap
   Window 4 clock: **NOT started.**
 - Config or threshold change this day? → **No** (no-op build script
   in cf-worker/package.json only; no runtime configuration touched).
+
+## Gate 0d ledger cross-check — 2026-11-24 (this commit is also the Workers Builds trigger)
+
+- Source: weekly collection commit 88d258e (data/prospective/*, run
+  2026-11-22T05:04:43Z).
+- `0xc57f6a85…` (wallet 0xc5e9f816…4909, bought 2026-11-07T04:42:47Z)
+  RESOLVED: fwdReturn -30.34%, early=0, scoredAt 2026-11-22T05:04:43Z.
+  Worst resolved outcome in the ledger so far.
+- Ledger now: 14 unique buys, 10 resolved, 4 pending
+  (0xef5bcd2e 11-12 → matures ~2026-11-26, next weekly run 2026-11-29;
+  0x6a5e899d 11-16; 0x4eec3369 11-17; 0xc341e987 11-20).
+- Resolved mean fwdReturn: +0.18% (n=10); none >= +50%, none <= -50%.
+- Workers Builds re-bind (2026-11-24, operator + assistant): connector
+  disconnected from the ghost repo `ibis01/ibis_weaver` (does not exist
+  on GitHub — verified via API) and re-connected to `ibis01/weaver`,
+  production branch main, build command None, deploy command
+  `npx wrangler deploy`, root directory `cf-worker`. This commit is the
+  first push since the re-bind and is expected to fire the first
+  Workers Builds build of discovery-v3.
+- Config or threshold change this day? → **No** (docs-only; no runtime
+  configuration touched).
