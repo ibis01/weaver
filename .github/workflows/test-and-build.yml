@@ -38,6 +38,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Supply-chain gate: fail CI when a known high/critical advisory
+      # exists in the dependency tree. Kept at high level so dev-only
+      # moderate findings (e.g. glob/minimatch inside mocha) do not
+      # block, while runtime-relevant highs and everything above do.
+      - name: Dependency audit gate (root)
+        run: npm audit --audit-level=high
+
       - name: Build bundle
         run: npm run build
 
@@ -105,6 +112,7 @@ jobs:
         working-directory: cf-worker
         run: |
           npm ci
+          npm audit --audit-level=high
           npm test --if-present
 
       - name: Install Playwright browsers

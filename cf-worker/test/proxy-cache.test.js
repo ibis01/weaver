@@ -12,9 +12,105 @@
 // will keep a Worker-written entry alive that long. Verify against a
 // deployed Worker before relying on STALE behavior in production.
 
-import { env, fetchMock } from "cloudflare:test";
-import { afterEach, beforeAll, describe, it, expect } from "vitest";
+import { env } from "cloudflare:test";
+import { afterEach, beforeAll, afterAll, describe, it, expect } from "vitest";
 import { handleRequest } from "../index.js";
+
+// ---------------------------------------------------------------------------
+// Minimal fetchMock replacement.
+//
+// @cloudflare/vitest-plugin (successor of vitest-pool-workers) removed
+// fetchMock from "cloudflare:test". The worker calls the bare global
+// fetch(...) at request time and tests run in the same isolate as the
+// worker, so a globalThis.fetch override gives us the same interception
+// semantics we relied on from undici's MockAgent:
+//   - fetchMock.get(origin).intercept({ path, method }).reply(status, body,
+//     { headers }).times(n)
+//   - unmatched origins/paths fail hard (disableNetConnect)
+//   - assertNoPendingInterceptors() fails unless every interceptor was
+//     consumed exactly `times` times (this is what proves coalescing)
+// ---------------------------------------------------------------------------
+const realFetch = globalThis.fetch;
+const originRegistry = new Map(); // origin -> Array<interceptor>
+let mockActive = false;
+
+async function mockFetch(input, init) {
+  const req = new Request(input, init);
+  const u = new URL(req.url);
+  const interceptors = originRegistry.get(u.origin);
+  if (!interceptors) {
+    throw new Error(`fetch-mock: net connect disabled (no interceptors for ${u.origin})`);
+  }
+  const idx = interceptors.findIndex(
+    (i) => !i.satisfied && i.path === u.pathname && i.method === req.method,
+  );
+  if (idx === -1) {
+    throw new Error(`fetch-mock: no pending interceptor for ${req.method} ${req.url}`);
+  }
+  const i = interceptors[idx];
+  i.calls += 1;
+  if (i.calls >= i.expected) i.satisfied = true;
+  return new Response(i.body, { status: i.status, headers: i.headers });
+}
+
+const fetchMock = {
+  activate() {
+    globalThis.fetch = mockFetch;
+    mockActive = true;
+  },
+  disableNetConnect() {
+    // unmatched origins throw inside mockFetch
+  },
+  get(origin) {
+    return {
+      intercept({ path, method = "GET" }) {
+        const i = {
+          path,
+          method,
+          status: 0,
+          body: "",
+          headers: {},
+          expected: 1,
+          calls: 0,
+          satisfied: false,
+        };
+        if (!originRegistry.has(origin)) originRegistry.set(origin, []);
+        originRegistry.get(origin).push(i);
+        return {
+          reply(status, body, init = {}) {
+            i.status = status;
+            i.body = body;
+            i.headers = init.headers || {};
+            return this;
+          },
+          times(n) {
+            i.expected = n;
+            return this;
+          },
+        };
+      },
+    };
+  },
+  assertNoPendingInterceptors() {
+    for (const [origin, interceptors] of originRegistry) {
+      for (const i of interceptors) {
+        if (!i.satisfied) {
+          throw new Error(
+            `fetch-mock: unsatisfied interceptor ${i.method} ${origin}${i.path} (${i.calls}/${i.expected})`,
+          );
+        }
+      }
+    }
+  },
+};
+
+afterAll(() => {
+  if (mockActive) {
+    globalThis.fetch = realFetch;
+    mockActive = false;
+  }
+  originRegistry.clear();
+});
 
 const ALLOWED_ORIGIN = "https://ibis01.github.io";
 const UPSTREAM = "https://api.dexscreener.com";
@@ -68,6 +164,7 @@ beforeAll(() => {
 
 afterEach(() => {
   fetchMock.assertNoPendingInterceptors();
+  originRegistry.clear();
 });
 
 describe("relayAllowedProxy cache behavior", () => {
