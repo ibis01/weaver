@@ -1,0 +1,111 @@
+# Rolls the production Cloudflare Worker back to a previous Version.
+#
+# Two paths (see docs/deployment-runbook.md > Rollback):
+#   - Fast path: this workflow (wrangler rollback to a known-good
+#     Version ID, or to the immediately previous version when no ID is
+#     given).
+#   - Slow path: checkout the last known-good commit and deploy with
+#     the regular Deploy Worker workflow.
+#
+# Safety properties:
+#   - Same "deploy-production" GitHub environment gate as deploys (a
+#     required reviewer must approve the run when configured).
+#   - HARD-FAILS when CLOUDFLARE_API_TOKEN is not configured.
+#   - A non-empty, human-readable reason is REQUIRED (kept in the job
+#     log as the rollback audit record) and sanitized before shell use.
+#   - version_id, when provided, must look like a Cloudflare Version ID
+#     (uuid-ish) so free text can never reach the shell as an argument.
+#   - Post-rollback smoke test: /discovery/health must still report
+#     discovery-v3, otherwise the job fails loudly.
+
+name: Rollback Worker (wrangler)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_id:
+        description: "Target Cloudflare Version ID. Leave empty to roll back to the immediately previous version."
+        required: false
+        default: ""
+      reason:
+        description: "REQUIRED: why this rollback is happening (kept in the job log)."
+        required: true
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  rollback-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: deploy-production
+    steps:
+      - name: Require a non-empty reason
+        env:
+          REASON_IN: ${{ inputs.reason }}
+        run: |
+          if [ -z "$(printf '%s' "$REASON_IN" | tr -d '[:space:]')" ]; then
+            echo "::error::A rollback reason is required — refuse to run unaudited rollbacks."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Hard gate — require Cloudflare API token
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN is not configured; refusing to attempt a rollback without credentials."
+            exit 1
+          fi
+
+      - name: Sanitize reason for the audit log
+        env:
+          REASON_IN: ${{ inputs.reason }}
+        run: |
+          SAFE="$(printf '%s' "$REASON_IN" | tr -c '[:alnum:][:punct:][:space:]' '_' | cut -c1-200)"
+          {
+            echo "REASON<<REASON_EOF"
+            printf '%s\n' "$SAFE"
+            echo "REASON_EOF"
+          } >> "$GITHUB_ENV"
+          echo "Rollback reason: $SAFE"
+
+      - name: Roll back
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TARGET: ${{ inputs.version_id }}
+        run: |
+          if [ -n "${TARGET:-}" ]; then
+            if ! printf '%s' "$TARGET" | grep -qE '^[0-9a-fA-F][0-9a-fA-F-]{7,63}$'; then
+              echo "::error::version_id does not look like a Cloudflare Version ID — refusing to pass it to wrangler."
+              exit 1
+            fi
+            echo "Rolling back to explicit target: $TARGET"
+            npx --yes wrangler@4.135.0 rollback "$TARGET"
+          else
+            echo "Rolling back to the immediately previous version."
+            npx --yes wrangler@4.135.0 rollback
+          fi
+
+      - name: Post-rollback smoke test (discovery-v3 must be live)
+        env:
+          WORKER_URL: https://weaver-proxy.ibis01-weaver.workers.dev
+        run: |
+          sleep 15
+          BODY="$(curl -fsS --max-time 20 "$WORKER_URL/discovery/health" || true)"
+          echo "$BODY" | head -c 500; echo
+          grep -q '"methodologyVersion":"discovery-v3"' <<<"$BODY" \
+            || { echo "::error::Post-rollback smoke test failed: /discovery/health does not report discovery-v3"; exit 1; }
+          echo "Rollback verified: discovery-v3 is live."

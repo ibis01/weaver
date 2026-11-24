@@ -8,8 +8,19 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 mkdir -p "$BACKUP_DIR"
 
+# TLS support: when the Redis endpoint is TLS-only (docker-compose.prod.yml
+# provisions Redis with a TLS-only listener to satisfy the rediss://
+# requirement in server/config.js), set REDIS_TLS_CACERT to the CA
+# certificate so redis-cli verifies the server. Plain redis:// endpoints
+# need no extra arguments.
+REDIS_TLS_ARGS=""
+if [ -n "${REDIS_TLS_CACERT:-}" ]; then
+  REDIS_TLS_ARGS="--tls --cacert $REDIS_TLS_CACERT"
+fi
+
 backup="$TMP_DIR/redis-$STAMP.rdb"
-redis-cli -u "$REDIS_URL" --rdb "$backup" >/dev/null
+# shellcheck disable=SC2086
+redis-cli -u "$REDIS_URL" $REDIS_TLS_ARGS --rdb "$backup" >/dev/null
 redis-check-rdb "$backup" >/dev/null
 sha256sum "$backup" > "$backup.sha256"
 cp "$backup" "$BACKUP_DIR/"

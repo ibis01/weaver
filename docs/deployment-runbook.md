@@ -124,6 +124,35 @@ curl -s -X POST $BASE/meme/alert -H 'content-type: application/json' \
 curl -s -I $BASE/ | grep -iE 'content-security|x-content-type|x-frame'
 ```
 
+## Hardened deploy pipeline (release determinism)
+
+`deploy-worker.yml` now enforces the following; all gates are
+job-failing (no informational warnings, no silent green):
+
+1. **validate/deploy separation** — the `validate-worker` job (dry-run
+   of both root and `cf-worker` configs, credential-free) must pass
+   before `deploy-production` starts.
+2. **Protected environment** — `deploy-production` is bound to the
+   GitHub environment `deploy-production`. One-time operator setup
+   (REQUIRED before the first real deploy):
+   Settings → Environments → `deploy-production` → add required
+   reviewer(s) and restrict deployment branches to `main`. Until this
+   is configured, the environment is auto-created on first run WITHOUT
+   protection.
+3. **Fail on missing credentials** — without `CLOUDFLARE_API_TOKEN` the
+   deploy job FAILS. It can no longer self-skip and report green for a
+   deploy that never happened.
+4. **Four mandatory smoke tests** (any failure fails the deploy):
+   OPTIONS → 204 + `Access-Control-Allow-Origin` (allowlisted origin),
+   invalid payload → 400 (POST /signal `{}`),
+   `/discovery/health` → `methodologyVersion: discovery-v3`,
+   credentials present.
+5. **Release manifest** — commit, bundle digest (sha256 over sorted
+   `cf-worker/**` + `wrangler.jsonc` + `_headers` + `.assetsignore`),
+   previous + deployed Worker Version ID, methodologyVersion, and
+   per-smoke outcomes; uploaded as a 90-day artifact
+   (`release-manifest-run-<n>`) and printed to the job summary.
+
 ## Window 4 gate (constitution reminder)
 
 Opening Window 4 requires, in order: (1) discovery-v3 verified live via
@@ -135,7 +164,21 @@ window) is unchanged by this runbook.
 
 ## Rollback
 
-The previous healthy script-only deploy state is not recoverable from
-the connector alone (it never deployed a script). Rollback = deploy an
-older commit via Option B: `npx wrangler deploy` from `cf-worker` at the
-desired commit (e.g., `75d85a1` for the discovery-v2 era router).
+Fast path: Actions → **"Rollback Worker"** (`rollback-worker.yml`) →
+Run workflow:
+
+- `version_id` — optional. Set it to a specific Worker Version ID
+  (for example the "Previous Worker Version ID" recorded in the latest
+  `release-manifest-run-<n>` artifact). Leave empty to roll back to the
+  immediately previous version.
+- `reason` — required; recorded in the run summary.
+
+The rollback job runs under the same `deploy-production` environment
+gate, fails hard when `CLOUDFLARE_API_TOKEN` is missing, and verifies
+`/discovery/health` (discovery-v3) after rolling back.
+
+Slow path (unchanged, no token needed on the machine running it):
+deploy an older commit via Option B — `npx wrangler deploy` from
+`cf-worker` at the desired commit (e.g., `75d85a1` for the
+discovery-v2 era router). The connector-era assets-only state was never
+script-inclusive, so it is not a rollback target.
