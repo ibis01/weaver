@@ -13,6 +13,21 @@
 #      -> 204 + Access-Control-Allow-Origin: https://ibis01.github.io
 #   3. POST /signal with an empty payload -> 400 (validation gate live)
 #   4. GET /meme/alerts?limit=1 -> 200 (read path live)
+#   5. GET /discovery/snapshot content gate -> tokens > 0,
+#      sum(sourceCounts) > 0, _meta.errors == [] — an empty snapshot
+#      (upstream-degraded cycle) must NOT pass as fresh (2026-11-25
+#      00:00Z/08:00Z zero-token cycles previously passed a
+#      freshness-only probe)
+#   6. GET /dist/bundle.min.js -> 200, complete download
+#      (>= 700000 bytes observed ~738277; catches the once-observed
+#      partial-download regression at ~352 KB) and content-length match
+#   7. GET / -> security headers: content-security-policy,
+#      x-content-type-options, x-frame-options
+#
+# On two consecutive failed probes, the notify job alerts the
+# operator: POST to ALERT_WEBHOOK_URL when the repository secret is
+# configured, and always records an operator-visible `probe-alert`
+# GitHub issue (single rolling issue, updated per failure).
 
 name: Production Probe
 
@@ -77,6 +92,48 @@ jobs:
           echo "GET /meme/alerts?limit=1 -> $code"
           test "$code" = 200
 
+      - name: Snapshot content gate (empty snapshots must not pass as fresh)
+        run: |
+          set -euo pipefail
+          code=$(curl -sS --max-time 30 -o /tmp/snapshot.json -w '%{http_code}' "$WORKER_URL/discovery/snapshot")
+          echo "GET /discovery/snapshot -> $code"
+          test "$code" = 200
+          python3 - <<'PY'
+          import json
+          d = json.load(open('/tmp/snapshot.json'))
+          meta = d.get('_meta') or {}
+          toks = d.get('tokens') or []
+          sc = meta.get('sourceCounts') or {}
+          errs = meta.get('errors') or []
+          assert len(toks) > 0, 'snapshot has 0 tokens — upstream-degraded cycle must not pass as fresh'
+          assert sum(int(v) for v in sc.values()) > 0, 'sourceCounts all zero: %r' % (sc,)
+          assert errs == [], '_meta.errors non-empty: %r' % (errs,)
+          print('snapshot content OK: %d tokens, sourceCounts=%s, errors=%s' % (len(toks), sc, errs))
+          PY
+
+      - name: Bundle download gate (complete artifact, not partial)
+        run: |
+          set -euo pipefail
+          curl -sS --max-time 60 -o /tmp/bundle.min.js -D /tmp/bundle.hdr -w 'status=%{http_code} size=%{size_download}\n' "$WORKER_URL/dist/bundle.min.js"
+          size=$(wc -c < /tmp/bundle.min.js)
+          echo "downloaded bytes: $size"
+          test "$size" -ge 700000 || { echo "FAIL: bundle incomplete ($size bytes; expected ~738277) — partial-download regression"; exit 1; }
+          declared=$(grep -i '^content-length:' /tmp/bundle.hdr | tr -dc '0-9' || true)
+          if [ -n "$declared" ] && [ "$declared" -ne "$size" ]; then
+            echo "FAIL: content-length ($declared) != downloaded ($size) — truncated download"
+            exit 1
+          fi
+          echo "bundle download complete: $size bytes"
+
+      - name: Security headers on assets
+        run: |
+          set -euo pipefail
+          headers=$(curl -sS --max-time 20 -D - -o /dev/null "$WORKER_URL/")
+          echo "$headers"
+          echo "$headers" | grep -qi 'content-security-policy' || { echo 'FAIL: missing content-security-policy on /'; exit 1; }
+          echo "$headers" | grep -qi 'x-content-type-options' || { echo 'FAIL: missing x-content-type-options on /'; exit 1; }
+          echo "$headers" | grep -qi 'x-frame-options' || { echo 'FAIL: missing x-frame-options on /'; exit 1; }
+
       - name: Probe summary (always)
         if: always()
         env:
@@ -87,8 +144,92 @@ jobs:
             echo ""
             echo "- Outcome: **$OUTCOME**"
             echo "- Target: \`$WORKER_URL\`"
-            echo "- Contract: health=200 ok+discovery-v3+fresh<=15min, preflight=204+ACAO, empty POST /signal=400, /meme/alerts=200"
+            echo "- Contract: health=200 ok+discovery-v3+fresh<=15min, preflight=204+ACAO, empty POST /signal=400, /meme/alerts=200, snapshot content (tokens>0, sourceCounts>0, errors==[]), bundle>=700000B complete, security headers on /"
             echo ""
             echo "Each failed step above is the concrete detector that fired."
             echo "Runs are retained in Actions history (90 days) as Gate 4 evidence."
+            echo "Two consecutive failures trigger the notify job (webhook + probe-alert issue)."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  notify:
+    needs: [probe]
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+      actions: read
+    env:
+      WORKER_URL: https://weaver-proxy.ibis01-weaver.workers.dev
+    steps:
+      - name: Alert operator on two consecutive failed probes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # Consecutive-failure policy: the newest COMPLETED probe run before
+          # this one decides. If it also failed, this run is failure #2 in a
+          # row -> alert. (This run is still in_progress during notify, so it
+          # is excluded from the completed list.)
+          CONSEC=$(gh run list --workflow=probe.yml --status completed --limit 8 --json conclusion \
+            | python3 -c "
+          import json,sys
+          runs=json.load(sys.stdin)
+          n=0
+          for r in runs:
+              if r.get('conclusion')=='failure': n+=1
+              else: break
+          print(n)
+          ")
+          # +1 for the current (still running) failed run
+          TOTAL=$((CONSEC + 1))
+          echo "completed consecutive failures before this run: $CONSEC -> total this streak: $TOTAL"
+          if [ "$CONSEC" -lt 1 ]; then
+            echo "single probe failure - two-consecutive policy not met; recording nothing"
+            exit 0
+          fi
+
+          TS=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+          BODY=$(cat <<EOM
+          probe-alert @ $TS
+          Worker: $WORKER_URL
+          Run: $RUN_URL
+          Consecutive failed probes: $TOTAL
+          The failing step(s) in the run summary identify the detector(s) that fired
+          (health/freshness, CORS, validation, read path, snapshot content, bundle
+          download, security headers).
+          EOM
+          )
+
+          # 1) Webhook (if the operator configured ALERT_WEBHOOK_URL)
+          if [ -n "$ALERT_WEBHOOK_URL" ]; then
+            python3 - "$ALERT_WEBHOOK_URL" "$BODY" <<'PY'
+          import json,sys,urllib.request
+          url,body=sys.argv[1],sys.argv[2]
+          payload=json.dumps({"content": body, "text": body}).encode()
+          req=urllib.request.Request(url,data=payload,headers={'content-type':'application/json'})
+          try:
+              urllib.request.urlopen(req,timeout=15)
+              print('webhook alert sent')
+          except Exception as e:
+              print('webhook alert FAILED (recorded in run log):',e)
+          PY
+          else
+            echo "ALERT_WEBHOOK_URL not configured - webhook skipped; issue below is the operator-visible channel"
+          fi
+
+          # 2) Rolling probe-alert issue (idempotent single open issue)
+          gh api --method PUT /repos/${{ github.repository }}/labels/probe-alert \
+            -f name=probe-alert -f color=D93F0B -f description="Two or more consecutive failed production probes" >/dev/null
+          NUM=$(gh issue list --label probe-alert --state open --json number --jq '.[0].number // ""')
+          if [ -n "$NUM" ]; then
+            gh issue comment "$NUM" --body "$BODY"
+            echo "probe-alert issue #$NUM updated"
+          else
+            gh issue create --title "probe-alert: production probe failing (streak started $TS)" \
+              --body "$BODY"$'\n\n'"This issue is kept open until a green probe confirms recovery; then close with the recovery note." \
+              --label probe-alert
+            echo "probe-alert issue created"
+          fi
