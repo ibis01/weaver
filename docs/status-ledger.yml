@@ -23,7 +23,7 @@ schema: weaver-status-ledger/v1
 
 repositoryCommit: ad3d223d6a9066440c803dbcc322c9415ececcc6
 repositoryCommitRef: https://github.com/ibis01/weaver/commit/ad3d223d6a9066440c803dbcc322c9415ececcc6
-verifiedAt: '2026-11-25T08:00:00Z'
+verifiedAt: '2026-11-25T10:40:00Z'
 
 # --- Deployment -------------------------------------------------------
 deployment:
@@ -46,7 +46,7 @@ evidence:
   lastSuccessfulProductionProbe:
     at: '2026-11-25T08:00:37Z'
     source: manual deploy-watch verification round (health 200 ok:true, methodologyVersion=discovery-v3)
-    automatedStream: .github/workflows/probe.yml every 15 min, Actions history retained 90 days
+    automatedStream: .github/workflows/probe.yml every 15 min, Actions history retained 90 days; since the probe-hardening PR the probe also enforces the snapshot content gate (tokens>0, sum(sourceCounts)>0, _meta.errors==[]), bundle complete-download (>=700000B), and asset security headers, and alerts the operator on two consecutive failures (ALERT_WEBHOOK_URL when configured, else a rolling probe-alert issue)
     caveat: >-
       Health/availability green at this timestamp while snapshot CONTENT was
       degraded: tokenCount=0, sourceCounts all zero, _meta.errors =
@@ -62,6 +62,11 @@ evidence:
   lastRestoreDrill:
     at: null
     note: not yet recorded; procedure exists at docs/restore-drill-runbook.md
+  probeContentGate:
+    at: '2026-11-25T10:40:00Z'
+    source: probe.yml snapshot content + bundle + headers checks (probe workflow change, NOT a cf-worker change)
+    claimClass: built
+    note: closes the freshness-check content blind spot (empty snapshots passed before); 2026-11-25 degraded cycles would now fail the probe and alert the operator
   releaseManifest:
     state: deploy-worker.yml emits RELEASE_MANIFEST.md artifact (commit, bundle digest, prev/new Worker Version ID, smoke outcomes) on real deploys
     gap: standalone release-manifest (SBOM + lockfile/bundle digests + audit result) tracked in open items
@@ -124,9 +129,6 @@ openBlockers:
   - id: worker-changes-hold
     owner: maintainer
     detail: ALL cf-worker/** changes are on HOLD until soak-end deploy window (one atomic deploy: validate -> deploy -> 4 smoke tests) per trial discipline
-  - id: probe-content-gate
-    owner: maintainer
-    detail: probe must assert snapshot content (tokens>0, sourceCounts sum>0, _meta.errors==[]) and bundle full-download size; probe workflow change, not worker change
   - id: token-rotation
     owner: operator
     detail: previously exposed credentials must remain revoked; no credential material is stored in this repository
