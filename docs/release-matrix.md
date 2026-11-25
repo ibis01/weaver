@@ -1,7 +1,10 @@
 # Weaver Release Matrix and Deployment Topology
 
 Status: recorded 2026-11-24 after the production-readiness recheck
-(reviewed commit `04bf500`). This document answers the reviewer's
+(reviewed commit `04bf500`); updated 2026-11-25 at HEAD `ad3d223`. The
+authoritative current-state index is `docs/status-ledger.yml`
+(CI-checked by `.github/workflows/docs-status-check.yml`); this document
+remains the topology/release control matrix. This document answers the reviewer's
 topology questions: which topology serves the public production
 service, which component deploys how, where health evidence lives,
 and how each piece rolls back. It is part of the release record.
@@ -67,8 +70,9 @@ flowchart LR
 The 30-day Gate 4 window (cycle completion ≥99%, freshness ≤15 min
 for 99% of samples, provider success ≥95%, zero unexplained silent
 failures, alert latency ≤60s, bounded cache) has **not** completed;
-the current soak ends 2026-11-25T08:00Z and only covers the Worker
-deploy window. Evidence streams once this document merges:
+the 24h soak for the discovery-v3 flip started at T0 2026-11-25T08:00:37Z
+(live verified 2026-11-25T00:00:34Z and 08:00:37Z); the Gate 4 30-day
+evidence window is in progress. Evidence streams:
 
 1. **Availability + methodology**: Production Probe (every 15 min,
    from outside Cloudflare) — durable red/green history with
@@ -79,9 +83,14 @@ deploy window. Evidence streams once this document merges:
 4. **Still missing for Gate 4** (P0 observability, per
    `docs/observability-plan.md`): provider outcome summaries,
    alert-delivery timestamps, backup results. Worker-side structured
-   logging joins the next `cf-worker/**` deploy window (soak-end,
-   2026-11-25T08:00Z) — during the soak, `cf-worker/**` changes are
-   held.
+   logging joins the next `cf-worker/**` deploy window (soak-end) —
+   during the soak, `cf-worker/**` changes are held.
+5. **Probe content gate** (planned; probe-workflow change, NOT a worker
+   change): assert snapshot content — `tokens > 0`, `sum(sourceCounts) > 0`,
+   `_meta.errors == []` — and complete bundle download (~738 KB), so an
+   empty or truncated snapshot can never pass as fresh (the 2026-11-25
+   00:00Z/08:00Z cycles produced zero-token snapshots that a
+   freshness-only probe would have passed).
 
 ## Recorded control state (2026-11-24)
 
@@ -120,6 +129,13 @@ Deployment environment `deploy-production`:
   status checks on main, admin-enforced branch protection, the
   concurrency group, and the smoke tests.
 
+Update 2026-11-25 (HEAD `ad3d223`): required checks on `main` include
+`gitleaks` and `dependency-review` (blocking; proven green without
+`continue-on-error` in #44); `enforce_admins` and required conversation
+resolution are enabled; `docs-status-check.yml` now guards ledger
+freshness. Environment reviewer configuration remains an operator UI
+step (REST endpoints 404 on this account plan).
+
 ## Known gaps (honesty section)
 
 1. KV rate-limiter / provider-budget accounting is read-then-write
@@ -139,3 +155,9 @@ Deployment environment `deploy-production`:
    disclosure). Multi-user SaaS requirements (auth, tenant
    authorization, durable cross-device history, retention/deletion)
    are explicitly out of scope until that decision is revisited.
+5. Upstream discovery sources can degrade for whole cron cycles:
+   2026-11-25T00:00Z and 08:00Z produced zero-token snapshots with
+   `_meta.errors` recorded non-silently (not a quota event — budgets
+   healthy, goplus 97/500 at 08:00Z). Detection: Production Probe stream
+   + soak annotations; worker fetch-path hardening joins the soak-end
+   deploy window.

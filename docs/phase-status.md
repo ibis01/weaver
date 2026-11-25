@@ -1,13 +1,46 @@
-# Phase Status — as of 2026-11-11T08:45:00Z
+# Phase Status — current as of 2026-11-25
 
-Current HEAD at update: `16815e6` (merge of PR #28). Baseline doc lineage:
-this file supersedes the 2026-10-22 summary below; all historical dated
-sections are preserved unmodified.
+Current HEAD at update: `ad3d223` (merge of PR #45, 2026-11-24). The
+authoritative current-state record is `docs/status-ledger.yml`
+(CI-checked by `.github/workflows/docs-status-check.yml`).
+
+Current summary (claim classes per `docs/claims-classification.md`):
+
+| Phase / Gate | Status | Class |
+|---|---|---|
+| Phase 0 — Foundation | PARTIAL (verifier repair verified 2026-11-17/21; CI re-probe + Gate 0c ack outstanding) | built |
+| Phase 1 — Trustworthy signals | PARTIAL (2026-10-22 assessment; not independently audited) | historical assessment |
+| Phase 2 — Paper trial | NOT PASSED (Window 1 ABORTED, Window 2 INCONCLUSIVE, Window 3 FAIL — preserved) | historical |
+| Window 4 | FROZEN, NOT STARTED (opens only after discovery-v3 live verification + 24h soak + one completed scan round; soak T0 2026-11-25T08:00:37Z) | built |
+| Phase 3 — Smart money | PARTIAL | built |
+| Phase 4 — Predictive validation | BLOCKED — no performance claim (mechanical root cause fixed; pipeline built; no pre-registered baseline/walk-forward evidence yet) | built |
+| Phase 5 — Reasoning layer | PARTIAL | built |
+| Phase 6 — Continuous learning | NOT STARTED | — |
+| Gate 4 — 30-day reliability | IN PROGRESS — soak T0 2026-11-25T08:00:37Z | built |
+
+Live deployment (verified): `discovery-v3` serving at
+`https://weaver-proxy.ibis01-weaver.workers.dev` (health verified
+2026-11-25T08:00:37Z; upstream-degraded cron cycles 2026-11-25T00:00Z and
+08:00Z recorded non-silently — see status ledger
+`upstream-degraded-cycles`).
 
 Infrastructure vs validation — read this first: everything marked
 "infrastructure" below describes BUILT capability, not validated results.
 Experimental validation (phases 2/4) is only as strong as its recorded
 evidence; do not cite infrastructure completion as a performance claim.
+
+---
+
+## Historical — Phase Status as of 2026-11-11T08:45:00Z
+
+**Everything below this banner is a preserved historical record
+(HEAD `16815e6` era). It is retained unmodified per evidence-preservation
+rules and must not be cited as current state; the current header above
+supersedes it.**
+
+Current HEAD at update: `16815e6` (merge of PR #28). Baseline doc lineage:
+this file supersedes the 2026-10-22 summary below; all historical dated
+sections are preserved unmodified.
 
 ## Phase 0 — Foundation: PARTIAL → verifier repair shipped 2026-11-17 (input pinning + exit-code agreement)
 

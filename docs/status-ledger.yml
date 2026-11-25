@@ -1,0 +1,143 @@
+# Weaver status ledger — the single authoritative current-state record.
+#
+# Semantics (see docs/claims-classification.md):
+#   built     — code/workflow exists
+#   verified  — automated or manual evidence exists
+#   passed    — a frozen gate/exit criterion is satisfied
+#   historical— preserved but not current
+#
+# Update discipline:
+#   - Any PR that touches a system path (cf-worker/, js/, dist/,
+#     scripts/, .github/workflows/, index.html, wrangler.jsonc, _headers,
+#     .assetsignore, docker-compose.prod.yml, package-lock.json, concat.js)
+#     MUST bump this ledger in the same commit (at minimum `verifiedAt`
+#     and, after merge, a maintainer docs commit refreshes
+#     `repositoryCommit` to the merged main HEAD).
+#   - CI: .github/workflows/docs-status-check.yml fails when code paths
+#     drift past this ledger without a ledger bump, or when the recorded
+#     commit is not a reachable main commit.
+#   - docs/phase-status.md sections below its current header are
+#     historical and are NOT parsed by the check.
+
+schema: weaver-status-ledger/v1
+
+repositoryCommit: ad3d223d6a9066440c803dbcc322c9415ececcc6
+repositoryCommitRef: https://github.com/ibis01/weaver/commit/ad3d223d6a9066440c803dbcc322c9415ececcc6
+verifiedAt: '2026-11-25T08:00:00Z'
+
+# --- Deployment -------------------------------------------------------
+deployment:
+  publicTopology: cloudflare-worker        # authoritative (docs/release-matrix.md)
+  selfHostTopology: docker-compose-prod    # self-hosted alternative, parity UNPROVEN
+  workerUrl: https://weaver-proxy.ibis01-weaver.workers.dev
+  deployedWorkerVersionId: 'unknown'
+  deployedWorkerVersionIdNote: >-
+    Last production deploy used the connector path (root wrangler.jsonc,
+    2026-11-24T06:41Z) and its Version ID was not recorded in a
+    release-manifest artifact. deploy-worker.yml records Version IDs only
+    when it runs, which requires CLOUDFLARE_API_TOKEN (currently absent;
+    deploy job fail-closed). Until the next recorded deploy, this field
+    is honestly 'unknown', not zero.
+  methodologyVersion: discovery-v3
+  methodologyVerifiedAt: '2026-11-25T08:00:37Z'
+
+# --- Evidence streams ---------------------------------------------------
+evidence:
+  lastSuccessfulProductionProbe:
+    at: '2026-11-25T08:00:37Z'
+    source: manual deploy-watch verification round (health 200 ok:true, methodologyVersion=discovery-v3)
+    automatedStream: .github/workflows/probe.yml every 15 min, Actions history retained 90 days
+    caveat: >-
+      Health/availability green at this timestamp while snapshot CONTENT was
+      degraded: tokenCount=0, sourceCounts all zero, _meta.errors =
+      [token-boosts unavailable, token-profiles unavailable]. Same pattern
+      observed 2026-11-25T00:00:31Z. Failures are recorded non-silently by
+      the worker (Gate 4 compliant); a probe content gate (sourceCounts>0,
+      _meta.errors==[], bundle download size) is tracked in the ledger
+      open items and lands as a probe workflow change, NOT a cf-worker change.
+  lastDependencyAudit:
+    at: '2026-11-24T21:27:11Z'
+    source: test-and-build npm audit --audit-level=high gate green at ad3d223 (root + cf-worker)
+    runtimeResult: 0 known high/critical runtime advisories
+  lastRestoreDrill:
+    at: null
+    note: not yet recorded; procedure exists at docs/restore-drill-runbook.md
+  releaseManifest:
+    state: deploy-worker.yml emits RELEASE_MANIFEST.md artifact (commit, bundle digest, prev/new Worker Version ID, smoke outcomes) on real deploys
+    gap: standalone release-manifest (SBOM + lockfile/bundle digests + audit result) tracked in open items
+
+# --- Gates and phases (claim class per entry) ----------------------------
+gates:
+  gate-0b-population:
+    status: partial
+    claimClass: built
+    note: frozen gold/control population construction not complete
+  gate-0c-external-auditor:
+    status: open
+    claimClass: historical
+    note: PR #23 awaiting external-auditor acknowledgment; do not treat as passed
+  gate-0d-predictive:
+    status: partial
+    claimClass: built
+    note: collector/scorer/price pipeline repaired; weekly resolutions resumed; no pre-registered baseline or walk-forward evidence yet
+  gate-4-reliability-30d:
+    status: in-progress
+    claimClass: built
+    soakT0: '2026-11-25T08:00:37Z'
+    note: >-
+      24h soak clock started after discovery-v3 live verification. Gate 4
+      30-day window requires cycle completion >=99%, freshness <=15 min for
+      >=99% samples, provider success >=95%/24h, zero unexplained silent
+      gaps, alert latency <=60s, bounded cache growth.
+  phases:
+    phase-0-foundation: partial
+    phase-1-trustworthy-signals: partial
+    phase-2-paper-trial: not-passed
+    phase-3-smart-money: partial
+    phase-4-predictive-validation: blocked
+    phase-5-reasoning-layer: partial
+    phase-6-continuous-learning: not-started
+
+# --- Trial / window status -----------------------------------------------
+trialWindows:
+  window-1: { status: aborted, claimClass: historical }
+  window-2: { status: inconclusive, claimClass: historical }
+  window-3: { status: fail, claimClass: historical, note: '0 in-window alerts; alert production FAIL; verdict documented 2026-11-17 — preserved, not reinterpreted' }
+  window-4:
+    status: frozen-not-started
+    claimClass: built
+    protocol: docs/phase-2/window-4-preregistration.md
+    config: 'threshold >= 70, meme-opportunity-v1, cohorts, 7-day window — frozen'
+    opensOnlyAfter: discovery-v3 live verification + 24h soak + one completed scan round; baseline commit and T0 recorded BEFORE first window scan
+
+# --- Open blockers (with owners) -----------------------------------------
+openBlockers:
+  - id: deploy-credentials
+    owner: operator
+    detail: CLOUDFLARE_API_TOKEN repository secret absent; deploy-production and rollback fail-closed by design; soak-end deploy window must configure it before merging cf-worker changes
+  - id: environment-reviewers
+    owner: operator (GitHub UI)
+    detail: deploy-production environment required reviewer / branch policy endpoints 404 on this account plan; fallback controls documented in docs/release-matrix.md
+  - id: upstream-degraded-cycles
+    owner: operations
+    detail: 2026-11-25 00:00Z and 08:00Z cron cycles produced zero-token snapshots with _meta.errors (token-boosts/token-profiles unavailable); recorded non-silently; under soak observation
+  - id: worker-changes-hold
+    owner: maintainer
+    detail: ALL cf-worker/** changes are on HOLD until soak-end deploy window (one atomic deploy: validate -> deploy -> 4 smoke tests) per trial discipline
+  - id: probe-content-gate
+    owner: maintainer
+    detail: probe must assert snapshot content (tokens>0, sourceCounts sum>0, _meta.errors==[]) and bundle full-download size; probe workflow change, not worker change
+  - id: token-rotation
+    owner: operator
+    detail: previously exposed credentials must remain revoked; no credential material is stored in this repository
+
+# --- Evidence links ------------------------------------------------------
+evidenceLinks:
+  releaseMatrix: docs/release-matrix.md
+  runbook: docs/deployment-runbook.md
+  productBoundary: docs/product-boundary.md
+  trialLog: docs/phase-2/paper-trial-log.md
+  window4Protocol: docs/phase-2/window-4-preregistration.md
+  observabilityPlan: docs/observability-plan.md
+  masterPlan: docs/plans/engineering-master-plan-2026-11-25.md
+  phaseStatusHistorical: docs/phase-status.md
