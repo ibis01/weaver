@@ -1,0 +1,153 @@
+# Release manifest (master plan Workstream B, P0):
+# records, for one release, the exact source commit, dependency lockfile
+# hashes, bundle + source digests, SBOMs (CycloneDX) for the Node and
+# Worker packages, the dependency-audit result, the live methodology
+# version, the latest external probe conclusion, and the rollback path.
+#
+# Trigger: workflow_dispatch (operator runs it as part of the release
+# checklist) or a GitHub Release being published. Artifacts are
+# retained 90 days (`release-manifest-<run_number>`); the step summary
+# carries the same table for quick review.
+#
+# Release-scope rule: every release PR must link the evidence artifacts
+# this workflow produces (docs/claims-classification.md rule 5). The
+# deployment itself remains gated by deploy-worker.yml (validate ->
+# deploy-production environment -> 4 smoke tests -> its own
+# RELEASE_MANIFEST.md artifact with Worker Version IDs).
+
+name: Release Manifest
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  manifest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      WORKER_URL: https://weaver-proxy.ibis01-weaver.workers.dev
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies (root)
+        run: npm ci
+
+      - name: Dependency audit gate (root)
+        run: npm audit --audit-level=high
+
+      - name: Build and minify bundle
+        run: |
+          npm run build
+          npm run minify
+          test -f dist/bundle.js
+          test -f dist/bundle.min.js
+
+      - name: Worker dependency audit
+        working-directory: cf-worker
+        run: |
+          npm ci
+          npm audit --audit-level=high
+
+      - name: Generate SBOMs (CycloneDX) for Node and Worker packages
+        run: |
+          npm sbom --sbom-format cyclonedx > sbom-root.cdx.json
+          (cd cf-worker && npm sbom --sbom-format cyclonedx > ../sbom-worker.cdx.json)
+          python3 -c "import json;[json.load(open(f)) for f in ('sbom-root.cdx.json','sbom-worker.cdx.json')];print('SBOMs valid JSON')"
+
+      - name: Compute digests
+        run: |
+          {
+            echo "### Digests (sha256)"
+            echo ""
+            echo "| Artifact | sha256 |"
+            echo "|---|---|"
+            for f in dist/bundle.js dist/bundle.min.js package-lock.json wrangler.jsonc _headers .assetsignore cf-worker/package-lock.json; do
+              if [ -f "$f" ]; then
+                printf '| `%s` | `%s` |\n' "$f" "$(sha256sum "$f" | awk '{print $1}')"
+              else
+                printf '| `%s` | (not present in this tree) |\n' "$f"
+              fi
+            done
+            echo ""
+          } | tee digest-table.md
+
+      - name: Collect live facts (methodology, probe; best-effort, non-fatal)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          METH="unavailable"
+          SNAP_AGE="unavailable"
+          if curl -sS --max-time 20 -o /tmp/health.json "$WORKER_URL/discovery/health" 2>/dev/null; then
+            METH=$(python3 -c "import json;d=json.load(open('/tmp/health.json'));print((d.get('snapshotMeta') or {}).get('methodologyVersion') or 'unavailable')" 2>/dev/null || echo unavailable)
+            SNAP_AGE=$(python3 -c "import json,time;d=json.load(open('/tmp/health.json'));g=(d.get('snapshotMeta') or {}).get('generatedAt');print('%.1f min' % ((time.time()*1000-g)/60000.0) if isinstance(g,(int,float)) else 'unavailable')" 2>/dev/null || echo unavailable)
+          fi
+          PROBE="unavailable"
+          if gh run list --workflow=probe.yml --status completed --limit 1 --json conclusion --jq '.[0].conclusion' >/tmp/probe.txt 2>/dev/null; then
+            PROBE=$(cat /tmp/probe.txt)
+          fi
+          {
+            echo "### Live facts at manifest build time"
+            echo ""
+            echo "- Live methodologyVersion: **$METH**"
+            echo "- Snapshot age: **$SNAP_AGE**"
+            echo "- Latest completed Production Probe: **$PROBE**"
+            echo ""
+          } | tee live-facts.md
+
+      - name: Assemble RELEASE_MANIFEST.md
+        run: |
+          {
+            echo "# Weaver Release Manifest"
+            echo ""
+            echo "- Generated (UTC): $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+            echo "- Source commit: `${GITHUB_SHA}`"
+            echo "- Ref: `${GITHUB_REF}`"
+            echo "- Release scope: **controlled single-user beta** (docs/product-boundary.md)"
+            echo "- Rollback path: Actions → 'Rollback Worker' (\`rollback-worker.yml\`, optional Worker Version ID from the latest \`release-manifest-run-<n>\` deploy artifact; \`reason\` required). No release depends on mutable action tags: all Actions are SHA-pinned."
+            echo ""
+            cat digest-table.md
+            cat live-facts.md
+            echo "### SBOM"
+            echo ""
+            echo "- \`sbom-root.cdx.json\` (CycloneDX, root Node packages)"
+            echo "- \`sbom-worker.cdx.json\` (CycloneDX, cf-worker packages)"
+            echo ""
+            echo "### Audit result"
+            echo ""
+            echo "- Root \`npm audit --audit-level=high\`: PASS (job-failing gate)"
+            echo "- cf-worker \`npm audit --audit-level=high\`: PASS (job-failing gate)"
+            echo ""
+            echo "### Companion artifacts"
+            echo ""
+            echo "- Deploy evidence: \`RELEASE_MANIFEST.md\` artifact (\`release-manifest-run-<n>\`) from \`deploy-worker.yml\` carries Worker Version IDs + smoke outcomes."
+            echo "- Probe evidence: Actions history of the Production Probe workflow (90-day retention)."
+          } > RELEASE_MANIFEST.md
+          cat RELEASE_MANIFEST.md
+
+      - name: Upload release manifest artifacts (90 days)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-manifest-${{ github.run_number }}
+          path: |
+            RELEASE_MANIFEST.md
+            digest-table.md
+            live-facts.md
+            sbom-root.cdx.json
+            sbom-worker.cdx.json
+          retention-days: 90
+
+      - name: Summary
+        run: cat RELEASE_MANIFEST.md >> "$GITHUB_STEP_SUMMARY"

@@ -23,7 +23,7 @@ schema: weaver-status-ledger/v1
 
 repositoryCommit: ad3d223d6a9066440c803dbcc322c9415ececcc6
 repositoryCommitRef: https://github.com/ibis01/weaver/commit/ad3d223d6a9066440c803dbcc322c9415ececcc6
-verifiedAt: '2026-11-25T10:40:00Z'
+verifiedAt: '2026-11-25T11:00:00Z'
 
 # --- Deployment -------------------------------------------------------
 deployment:
@@ -68,8 +68,15 @@ evidence:
     claimClass: built
     note: closes the freshness-check content blind spot (empty snapshots passed before); 2026-11-25 degraded cycles would now fail the probe and alert the operator
   releaseManifest:
-    state: deploy-worker.yml emits RELEASE_MANIFEST.md artifact (commit, bundle digest, prev/new Worker Version ID, smoke outcomes) on real deploys
-    gap: standalone release-manifest (SBOM + lockfile/bundle digests + audit result) tracked in open items
+    state: >-
+      deploy-worker.yml emits RELEASE_MANIFEST.md artifact (commit, bundle digest,
+      prev/new Worker Version ID, smoke outcomes) on real deploys;
+      .github/workflows/release-manifest.yml (workflow_dispatch / release published)
+      additionally records lockfile + bundle sha256 digests, CycloneDX SBOMs for root
+      and cf-worker packages, npm audit results, live methodologyVersion + snapshot
+      age + latest probe conclusion, and the rollback path (90-day artifacts)
+    claimClass: built
+    note: evidence accrues each time the workflow runs; operator runs it per the release checklist
 
 # --- Gates and phases (claim class per entry) ----------------------------
 gates:
